@@ -39,6 +39,8 @@ const STDERR_TAIL_BYTES: usize = 4096;
 /// How much of one line of the agent's stderr is told: the rest of a longer line (a progress bar redrawn with `\r`) is
 /// passed over.
 const STDERR_LINE_BYTES: usize = 32 * 1024;
+/// Upper bound on a single JSON-RPC stdout line frame from an agent process so a runaway line cannot OOM the daemon.
+const MAX_STDOUT_LINE_BYTES: usize = 32 * 1024 * 1024;
 
 static NEXT_HANDLE: AtomicU64 = AtomicU64::new(0);
 
@@ -635,22 +637,34 @@ impl Drop for Connection {
 
 /// Reads the process to its exit, then clears away its temporary folder. It holds the connection only while it handles
 /// an event: a connection nobody holds any more is dropped, which ends the process, and the exit ends this.
-async fn read(
+async fn read(connection: std::sync::Weak<Connection>, events: Box<dyn EventSource<ProcessEvent>>, out: mpsc::UnboundedSender<Incoming>, temp: Option<Temp>) {
+    read_with_limit(connection, events, out, temp, MAX_STDOUT_LINE_BYTES).await;
+}
+
+async fn read_with_limit(
     connection: std::sync::Weak<Connection>,
     mut events: Box<dyn EventSource<ProcessEvent>>,
     out: mpsc::UnboundedSender<Incoming>,
     temp: Option<Temp>,
+    max_stdout_line_bytes: usize,
 ) {
     let mut line: Vec<u8> = Vec::new();
+    let mut oversized = false;
     let mut err_line: Vec<u8> = Vec::new();
     let mut exited = false;
-    while let Some(event) = events.next().await {
+    'reading: while let Some(event) = events.next().await {
         let Some(connection) = connection.upgrade() else { continue };
         match event {
             ProcessEvent::Output { stream: OutputStream::Stdout, bytes, .. } => {
                 for byte in bytes {
                     if byte == b'\n' {
                         connection.stdout_line(&std::mem::take(&mut line), &out);
+                    } else if line.len() >= max_stdout_line_bytes {
+                        oversized = true;
+                        line.clear();
+                        line.shrink_to_fit();
+                        connection.break_off(&format!("it wrote a stdout frame exceeding {max_stdout_line_bytes} bytes"));
+                        break 'reading;
                     } else {
                         line.push(byte);
                     }
@@ -666,7 +680,9 @@ async fn read(
     let connection = connection.upgrade();
     // What the process wrote last with no end of line after it is a whole line too, read before its exit fails what waits.
     if let Some(connection) = &connection {
-        connection.stdout_line(&line, &out);
+        if !oversized {
+            connection.stdout_line(&line, &out);
+        }
         tell_line(&mut lock(&connection.stderr_lines), &err_line);
     }
     // A source that ended without the exit tells nothing of the process: it is ended here.
@@ -947,5 +963,30 @@ mod tests {
         assert!(mixdog_rt::time::timeout(limit, connection.send_as(id, "session/prompt", json!({}))).await.is_err());
         assert_eq!(connection.waiting_len(), 0, "the request's answer is awaited no more");
         assert_eq!(connection.sent_len(), 0, "the prompt's answer is awaited no more");
+    }
+
+    #[tokio::test]
+    async fn oversized_stdout_frame_breaks_off_cleanly_without_unbounded_buffering() {
+        let _ = mixdog_rt::testing::tokens();
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let killed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let processes = Arc::new(ScriptedProcesses { events: Mutex::new(Some(event_rx)), killed: killed.clone() });
+        let cwd = AbsPath::new(std::env::temp_dir()).expect("an absolute folder");
+        let launch = Launch { program: "agent".into(), args: Vec::new(), env: Vec::new(), env_remove: Vec::new(), cwd };
+        let (connection, _incoming) = Connection::start(processes, launch).await.expect("starts");
+
+        // Feed an unterminated line larger than MAX_STDOUT_LINE_BYTES with NO newline and NO EOF:
+        // the reader must fail fast and break off the connection immediately rather than waiting forever.
+        let chunk = vec![b'x'; 1024 * 1024];
+        for seq in 1..=33 {
+            let _ = event_tx.send(ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: chunk.clone() });
+        }
+
+        mixdog_rt::time::timeout(Duration::from_secs(5), connection.exited().cancelled())
+            .await
+            .expect("connection must fail fast on unterminated oversized stdout frame");
+        assert!(killed.load(Ordering::SeqCst), "oversized stdout frame must break off the connection");
+        assert!(connection.closed().to_string().contains("frame"), "{}", connection.closed());
+        drop(event_tx);
     }
 }

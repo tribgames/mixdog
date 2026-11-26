@@ -9,6 +9,7 @@
 
 use std::convert::Infallible;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
@@ -28,10 +29,13 @@ use mixdog_agent::agent_tool::board::JobBoard;
 use mixdog_agent::handed::Handed;
 use mixdog_agent::message::AgentMessage;
 use mixdog_agent::message::ToolKind;
+use mixdog_ai::providers::compat::schema::Rule;
+use mixdog_ai::providers::compat::schema::wire_input_schema;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
 use mixdog_core_api::domain::provider::ImageSource;
 use mixdog_core_api::domain::provider::ToolDefinition;
+use mixdog_core_api::domain::provider::ToolExclusionReport;
 use mixdog_protocol::ThreadId;
 use mixdog_rt::TaskClass;
 use serde_json::Value;
@@ -56,8 +60,75 @@ impl Handover {
     /// The names of the tools the session's server lists now, in its order.
     pub async fn listed(&self) -> Result<Vec<String>, String> {
         let definitions = self.tools.definitions(&self.thread).await?;
-        Ok(definitions.into_iter().map(|tool| tool.name).collect())
+        let (tools, _) = repair_tools_for_gemini(definitions);
+        Ok(tools.into_iter().filter_map(|tool| tool.get("name").and_then(Value::as_str).map(str::to_owned)).collect())
     }
+
+    /// Deterministic digest of the session's current repaired `tools/list` surface.
+    pub async fn current_digest(&self) -> Option<String> {
+        let definitions = self.tools.definitions(&self.thread).await.ok()?;
+        let (tools, _) = repair_tools_for_gemini(definitions);
+        Some(tools_digest(&tools))
+    }
+}
+
+/// Repairs each tool's `inputSchema` for Gemini/Neon wires (`Rule::Gemini`), excluding tools whose schema remains
+/// invalid so one broken schema never causes the agent to reject the entire `tools/list`.
+pub(crate) fn repair_tools_for_gemini(definitions: Vec<ToolDefinition>) -> (Vec<Value>, Vec<ToolExclusionReport>) {
+    let mut tools = Vec::with_capacity(definitions.len());
+    let mut excluded = Vec::new();
+    for (index, tool) in definitions.into_iter().enumerate() {
+        match wire_input_schema(&tool.input_schema, Rule::Gemini) {
+            Ok(schema) => tools.push(json!({ "name": tool.name, "description": tool.description, "inputSchema": schema })),
+            Err(problem) => {
+                let message = format!("tool {} ({}): {}", tool.name, problem.pointer, problem.reason);
+                excluded.push(ToolExclusionReport { name: tool.name, index, pointer: problem.pointer, reason: problem.reason, message });
+            }
+        }
+    }
+    (tools, excluded)
+}
+
+/// Validates a single tool's `inputSchema` against `Rule::Gemini` without mutating state or emitting warning logs.
+pub(crate) fn check_tool_schema_for_gemini(tool: &ToolDefinition) -> Result<(), String> {
+    wire_input_schema(&tool.input_schema, Rule::Gemini).map(|_| ()).map_err(|problem| problem.reason)
+}
+
+/// Recursively sorts JSON object keys so digests are invariant to `serde_json` `preserve_order` key ordering.
+fn canonicalize_json(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut entries: Vec<(&String, &Value)> = map.iter().collect();
+            entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+            let mut out = serde_json::Map::with_capacity(entries.len());
+            for (key, val) in entries {
+                out.insert(key.clone(), canonicalize_json(val));
+            }
+            Value::Object(out)
+        }
+        Value::Array(items) => Value::Array(items.iter().map(canonicalize_json).collect()),
+        other => other.clone(),
+    }
+}
+
+/// Order-independent digest over repaired `tools/list` entries so surface changes invalidate stale cached tool lists.
+pub(crate) fn tools_digest(tools: &[Value]) -> String {
+    let mut items: Vec<(String, String)> =
+        tools.iter().map(|tool| (tool.get("name").and_then(Value::as_str).unwrap_or_default().to_owned(), canonicalize_json(tool).to_string())).collect();
+    items.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    let joined: String = items.into_iter().map(|(_, serialized)| serialized).collect::<Vec<_>>().join("\n");
+    crate::session::digest(&joined)
+}
+
+/// Order-independent equality over excluded tools, ignoring input `index`, so reordered `tools/list` responses do not re-log.
+fn same_exclusions(a: &[ToolExclusionReport], b: &[ToolExclusionReport]) -> bool {
+    fn signature(reports: &[ToolExclusionReport]) -> Vec<(&str, &str, &str, &str)> {
+        let mut keys: Vec<_> =
+            reports.iter().map(|report| (report.name.as_str(), report.pointer.as_str(), report.reason.as_str(), report.message.as_str())).collect();
+        keys.sort_unstable();
+        keys
+    }
+    a.len() == b.len() && signature(a) == signature(b)
 }
 
 /// The server's name in the agent's `mcpServers`.
@@ -251,6 +322,10 @@ pub struct ToolServer {
     stop: CancellationToken,
     /// An MCP client has initialized the server.
     initialized: Arc<AtomicBool>,
+    /// Digest of the most recent `tools/list` served to the agent.
+    served_digest: Arc<Mutex<Option<String>>>,
+    /// Tools excluded by `Rule::Gemini` schema repair on the most recent `tools/list`.
+    excluded: Arc<Mutex<Vec<ToolExclusionReport>>>,
 }
 
 impl Drop for ToolServer {
@@ -265,6 +340,8 @@ struct Served {
     tools: Arc<dyn SessionTools>,
     asks: mpsc::UnboundedSender<ToolAsk>,
     initialized: Arc<AtomicBool>,
+    served_digest: Arc<Mutex<Option<String>>>,
+    excluded: Arc<Mutex<Vec<ToolExclusionReport>>>,
 }
 
 type Reply = Response<Full<Bytes>>;
@@ -301,7 +378,17 @@ impl ToolServer {
         let stop = CancellationToken::new();
         let (asks, calls) = mpsc::unbounded_channel();
         let initialized: Arc<AtomicBool> = Arc::default();
-        let served = Arc::new(Served { thread, token: token.clone(), tools, asks, initialized: initialized.clone() });
+        let served_digest: Arc<Mutex<Option<String>>> = Arc::default();
+        let excluded: Arc<Mutex<Vec<ToolExclusionReport>>> = Arc::default();
+        let served = Arc::new(Served {
+            thread,
+            token: token.clone(),
+            tools,
+            asks,
+            initialized: initialized.clone(),
+            served_digest: served_digest.clone(),
+            excluded: excluded.clone(),
+        });
         let stopped = stop.clone();
         drop(mixdog_rt::spawn("acp.mcp", TaskClass::Work, async move {
             loop {
@@ -326,12 +413,22 @@ impl ToolServer {
                 }));
             }
         }));
-        Ok((Self { port, token, stop, initialized }, calls))
+        Ok((Self { port, token, stop, initialized, served_digest, excluded }, calls))
     }
 
     /// Set once the agent's MCP client has initialized the server: it took the session's tools.
     pub fn initialized(&self) -> Arc<AtomicBool> {
         self.initialized.clone()
+    }
+
+    /// Shared cell holding the digest of the last `tools/list` served to the agent.
+    pub fn served_digest(&self) -> Arc<Mutex<Option<String>>> {
+        self.served_digest.clone()
+    }
+
+    /// Shared cell holding any tools excluded during `Rule::Gemini` schema repair on `tools/list`.
+    pub fn excluded(&self) -> Arc<Mutex<Vec<ToolExclusionReport>>> {
+        self.excluded.clone()
     }
 
     /// The server's entry of `mcpServers` in a `session/new` or a reopen: the listener itself for an agent that
@@ -423,14 +520,22 @@ impl Served {
             }
             "ping" => Ok(json!({})),
             "tools/list" => self.tools.definitions(&self.thread).await.map(|definitions| {
-                let tools: Vec<Value> = definitions
-                    .into_iter()
-                    .map(|tool| json!({ "name": tool.name, "description": tool.description, "inputSchema": tool.input_schema }))
-                    .collect();
+                let (tools, excluded) = repair_tools_for_gemini(definitions);
+                let digest = tools_digest(&tools);
+                *self.served_digest.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(digest);
+                let mut prev = self.excluded.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if !same_exclusions(&prev, &excluded) {
+                    for report in &excluded {
+                        tracing::warn!(tool = %report.name, pointer = %report.pointer, reason = %report.reason, "[acp.mcp] excluded tool with invalid Gemini schema");
+                    }
+                    *prev = excluded;
+                }
                 json!({ "tools": tools })
             }),
             "tools/call" => {
-                let name = params.get("name").and_then(Value::as_str).unwrap_or_default().to_owned();
+                let raw_name = params.get("name").and_then(Value::as_str).unwrap_or_default();
+                let prefix = format!("mcp_{SERVER_NAME}_");
+                let name = raw_name.strip_prefix(&prefix).unwrap_or(raw_name).to_owned();
                 let arguments = params.get("arguments").cloned().filter(|arguments| !arguments.is_null()).unwrap_or_else(|| json!({}));
                 let (answer, answered) = oneshot::channel();
                 // A session whose agent is gone answers nobody; the call's sender then drops.
@@ -461,5 +566,102 @@ mod tests {
         assert!(told.contains("give it all the items the step needs in one call instead of one call per item"), "{told}");
         assert!(told.contains("queries for `web_search`"), "{told}");
         assert!(told.contains("get the part you need with narrower calls"), "{told}");
+    }
+
+    #[test]
+    fn gemini_schema_repair_lowers_legacy_draft_and_excludes_broken_tools() {
+        let legacy = ToolDefinition {
+            name: "read".into(),
+            description: "reads".into(),
+            input_schema: json!({
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "type": "object",
+                "definitions": { "line": { "type": "integer", "exclusiveMinimum": true, "minimum": 0 } },
+                "properties": { "offset": { "$ref": "#/definitions/line" } }
+            }),
+            defer_loading: false,
+            freeform: None,
+        };
+        let broken = ToolDefinition {
+            name: "bad".into(),
+            description: "broken".into(),
+            input_schema: json!("not-an-object-schema"),
+            defer_loading: false,
+            freeform: None,
+        };
+        let (repaired, excluded) = repair_tools_for_gemini(vec![legacy, broken]);
+        assert_eq!(repaired.len(), 1);
+        assert_eq!(repaired[0]["name"], "read");
+        assert!(repaired[0]["inputSchema"].get("$defs").is_some(), "{:?}", repaired[0]["inputSchema"]);
+        assert_eq!(excluded.len(), 1);
+        assert_eq!(excluded[0].name, "bad");
+        assert_ne!(tools_digest(&repaired), tools_digest(&[]));
+
+        // Equivalent tool listings with different tool ordering AND different nested JSON schema key ordering must hash identically.
+        let mut props_a = serde_json::Map::new();
+        props_a.insert("alpha".into(), json!({ "type": "string", "description": "a" }));
+        props_a.insert("beta".into(), json!({ "description": "b", "type": "integer" }));
+        let mut schema_a = serde_json::Map::new();
+        schema_a.insert("type".into(), json!("object"));
+        schema_a.insert("properties".into(), Value::Object(props_a));
+
+        let mut props_b = serde_json::Map::new();
+        props_b.insert("beta".into(), json!({ "type": "integer", "description": "b" }));
+        props_b.insert("alpha".into(), json!({ "description": "a", "type": "string" }));
+        let mut schema_b = serde_json::Map::new();
+        schema_b.insert("properties".into(), Value::Object(props_b));
+        schema_b.insert("type".into(), json!("object"));
+
+        let list_one = vec![
+            ToolDefinition { name: "first".into(), description: "one".into(), input_schema: Value::Object(schema_a), defer_loading: false, freeform: None },
+            ToolDefinition {
+                name: "second".into(),
+                description: "two".into(),
+                input_schema: json!({ "type": "object", "properties": {} }),
+                defer_loading: false,
+                freeform: None,
+            },
+        ];
+        let list_two = vec![
+            ToolDefinition {
+                name: "second".into(),
+                description: "two".into(),
+                input_schema: json!({ "properties": {}, "type": "object" }),
+                defer_loading: false,
+                freeform: None,
+            },
+            ToolDefinition { name: "first".into(), description: "one".into(), input_schema: Value::Object(schema_b), defer_loading: false, freeform: None },
+        ];
+        let (repaired_one, _) = repair_tools_for_gemini(list_one);
+        let (repaired_two, _) = repair_tools_for_gemini(list_two);
+        assert_eq!(
+            tools_digest(&repaired_one),
+            tools_digest(&repaired_two),
+            "tools_digest must be invariant to tool ordering and nested JSON schema key ordering"
+        );
+    }
+
+    #[test]
+    fn same_exclusions_ignores_tool_order_and_input_index() {
+        let valid = ToolDefinition {
+            name: "ok".into(),
+            description: "ok".into(),
+            input_schema: json!({ "type": "object", "properties": {} }),
+            defer_loading: false,
+            freeform: None,
+        };
+        let bad_a =
+            ToolDefinition { name: "bad_a".into(), description: "a".into(), input_schema: json!("not-an-object"), defer_loading: false, freeform: None };
+        let bad_b = ToolDefinition { name: "bad_b".into(), description: "b".into(), input_schema: json!(42), defer_loading: false, freeform: None };
+        let (_, excluded_one) = repair_tools_for_gemini(vec![bad_a.clone(), valid.clone(), bad_b.clone()]);
+        let (_, excluded_two) = repair_tools_for_gemini(vec![valid, bad_b.clone(), bad_a]);
+        assert_ne!(excluded_one, excluded_two);
+        assert!(same_exclusions(&excluded_one, &excluded_two));
+        assert!(!same_exclusions(&excluded_one, &excluded_two[..1]));
+
+        let bad_c =
+            ToolDefinition { name: "bad_c".into(), description: "c".into(), input_schema: json!("not-an-object"), defer_loading: false, freeform: None };
+        let (_, excluded_other) = repair_tools_for_gemini(vec![bad_b, bad_c]);
+        assert!(!same_exclusions(&excluded_one, &excluded_other));
     }
 }

@@ -371,13 +371,11 @@ fn write_pid(params: &Value, pid: u32) -> Result<(), Failure> {
 /// Starts a process that idles until it is ended and records its pid in `params.pidFile`.
 fn start_helper(params: &Value) -> Result<(), Failure> {
     let exe = std::env::current_exe().map_err(|error| coded("failed", error.to_string()))?;
-    let helper = std::process::Command::new(exe)
-        .arg(HELPER)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|error| coded("failed", error.to_string()))?;
+    let mut command = std::process::Command::new(exe);
+    command.arg(HELPER).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000);
+    let helper = command.spawn().map_err(|error| coded("failed", error.to_string()))?;
     write_pid(params, helper.id())
 }
 

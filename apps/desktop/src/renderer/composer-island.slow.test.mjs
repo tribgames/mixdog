@@ -1273,9 +1273,9 @@ const renderDock = (root, session, approval) =>
 // Past the mount's first frame: from here on changes animate.
 const firstFrame = () => act(() => sleep(40));
 
-test('the island slot opens with its content, holds through the grace, then eases shut and keeps no footprint', async (t) => {
+test('the island slot opens with its content, holds through the grace, then closes cleanly with no motion and keeps no footprint', async (t) => {
   const { root, document, window } = mount(t);
-  const { slot, presence, display, moving, finish } = slotFixture(t, window, document);
+  const { slot, presence, display, moving } = slotFixture(t, window, document);
   const { ComposerIsland, ISLAND_COLLAPSE_GRACE_MS } = await import('./ComposerIsland.tsx');
   // Segments that render from their own state (the files segment after its
   // async diff read): the island itself never re-renders when they come and go.
@@ -1307,9 +1307,7 @@ test('the island slot opens with its content, holds through the grace, then ease
   assert.equal(presence(), 'open', 'a visible segment opens the slot at once');
   assert.notEqual(display(), 'none');
   assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px', 'to the stage’s real height');
-  assert.equal(moving(), true, 'the opening eases');
-  finish();
-  assert.equal(moving(), false);
+  assert.equal(moving(), false, 'opening snaps in place with no motion transition');
   await act(async () => controls.goal(true));
   await act(async () => controls.files(false));
   assert.equal(presence(), 'open', 'the slot stays while any segment is still visible');
@@ -1325,11 +1323,9 @@ test('the island slot opens with its content, holds through the grace, then ease
   assert.equal(presence(), 'grace');
   assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px');
   await sleep(250);
-  assert.equal(presence(), 'closing', 'after the grace the slot eases shut');
+  assert.equal(presence(), 'closed', 'after the grace the slot closes directly');
   assert.equal(slot().style.getPropertyValue('--island-slot-height'), '0px');
-  assert.equal(moving(), true);
-  finish();
-  assert.equal(presence(), 'closed');
+  assert.equal(moving(), false);
   assert.equal(display(), 'none', 'no footprint once closed');
   // Content added and removed again within one task opens nothing.
   const segment = document.createElement('span');
@@ -1343,7 +1339,7 @@ test('the island slot opens with its content, holds through the grace, then ease
 
 test('content returning within the grace cancels the collapse: the slot never moves', async (t) => {
   const { root, document, window } = mount(t);
-  const { slot, presence, moving, finish } = slotFixture(t, window, document);
+  const { slot, presence, moving } = slotFixture(t, window, document);
   const { ComposerIsland, ISLAND_COLLAPSE_GRACE_MS } = await import('./ComposerIsland.tsx');
   let setShown = () => {};
   function Late() {
@@ -1368,13 +1364,11 @@ test('content returning within the grace cancels the collapse: the slot never mo
   await sleep(400);
   assert.equal(presence(), 'open', 'the cancelled collapse never fires');
   assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px');
-  finish();
-  assert.equal(presence(), 'open');
 });
 
 test('an approval opens the slot without delay and is held no longer than the grace once resolved', async (t) => {
   const { root, document, window } = mount(t);
-  const { slot, presence, moving, finish } = slotFixture(t, window, document);
+  const { slot, presence, moving } = slotFixture(t, window, document);
   const { ISLAND_COLLAPSE_GRACE_MS } = await import('./ComposerIsland.tsx');
   const render = (approval) => renderDock(root, 'approval-session', approval);
   await render(false);
@@ -1383,15 +1377,12 @@ test('an approval opens the slot without delay and is held no longer than the gr
   await render(true);
   assert.equal(presence(), 'open', 'the approval opens the slot in the same commit');
   assert.equal(slot().style.getPropertyValue('--island-slot-height'), '212px', 'straight to the card’s height');
-  assert.equal(moving(), true);
-  finish();
+  assert.equal(moving(), false);
   await render(false);
   assert.equal(presence(), 'grace');
   await sleep(ISLAND_COLLAPSE_GRACE_MS + 50);
-  assert.equal(presence(), 'closing', 'the resolved card holds no longer than the grace');
+  assert.equal(presence(), 'closed', 'the resolved card holds no longer than the grace');
   assert.equal(slot().style.getPropertyValue('--island-slot-height'), '0px');
-  finish();
-  assert.equal(presence(), 'closed');
 });
 
 test('a session switch remounts the slot at its true state, with no grace and no motion', async (t) => {
@@ -1442,7 +1433,7 @@ test('a revisited session reserves its resting island height until its segments 
   assert.equal(slot().hasAttribute('data-entry'), false, 'coming back to its island replays no entry fade');
 });
 
-test('an island fades in only on its first appearance in a session, never inside a retained conversation', async (t) => {
+test('an island never sets data-entry on appearance, revisit, or inside a retained conversation', async (t) => {
   const { root, document, window } = mount(t);
   const { slot } = slotFixture(t, window, document);
   const { ComposerIsland } = await import('./ComposerIsland.tsx');
@@ -1452,21 +1443,16 @@ test('an island fades in only on its first appearance in a session, never inside
   const render = (sessionId, files) =>
     act(async () => root.render(React.createElement(ComposerIsland, { key: sessionId, sessionId, files })));
   const entry = () => slot().hasAttribute('data-entry');
-  // A session whose island has never shown: the content arriving after the
-  // first frame is a real appearance.
   await render('appear-a', pending);
   await firstFrame();
   await render('appear-a', segment);
-  assert.equal(entry(), true, 'a first appearance fades in');
-  // Away and back, its segments re-reading: the island returns at rest.
+  assert.equal(entry(), false, 'a first appearance draws in place without entry fade');
   await render('appear-b', null);
   await firstFrame();
   await render('appear-a', pending);
   await firstFrame();
   await render('appear-a', segment);
-  assert.equal(entry(), false, 'a revisit does not replay the fade');
-  // Content landing while the conversation is retained (mounted, unpainted)
-  // must not leave a fade armed for the moment it is shown again.
+  assert.equal(entry(), false, 'a revisit does not animate');
   document.body.setAttribute('data-retained', '');
   t.after(() => document.body.removeAttribute('data-retained'));
   await render('appear-c', pending);
@@ -1496,7 +1482,7 @@ test('a first entry reserves the resting height of the island it replaces in the
   assert.equal(presence(), 'open');
   assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px');
   assert.equal(moving(), false, 'the arriving segments move nothing');
-  assert.equal(slot().hasAttribute('data-entry'), true, 'its first appearance in this session fades in');
+  assert.equal(slot().hasAttribute('data-entry'), false, 'its first appearance draws in place without fade');
 });
 
 // Entering a chat from a
@@ -1570,10 +1556,9 @@ test('an undecided files segment keeps the room its last width needs in the pill
   await render('files-b', pending);
   assert.equal(reserve(), null);
   assert.equal(document.querySelector('[data-entry-pending]')?.hidden, true);
-  // Back before the segment's read answered: its decided advance (180px plus
-  // the 5px separator margin) is held.
+  // Back before the segment's read answered: its decided advance (180px) is held.
   await render('files-a', pending);
-  assert.equal(reserve()?.style.width, '185px');
+  assert.equal(reserve()?.style.width, '180px');
   assert.ok(reserve().hasAttribute('data-entry-pending'), 'the entry reveal still waits on it');
   // Never shown: the advance of the files segment it replaces in the dock.
   await render('files-c', pending, { files: 185 });
@@ -1596,7 +1581,7 @@ test('a dock awaiting its session’s lane keeps the island slot at the reserved
   assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px');
 });
 
-test('reduced motion turning on mid-motion lands the slot at once; unmount drops the listener', async (t) => {
+test('opening and closing the slot snap at once without motion or reduced-motion listeners', async (t) => {
   const { root, window, document } = mount(t);
   const { slot, presence, moving } = slotFixture(t, window, document);
   const { ComposerIsland, ISLAND_COLLAPSE_GRACE_MS } = await import('./ComposerIsland.tsx');
@@ -1607,11 +1592,6 @@ test('reduced motion turning on mid-motion lands the slot at once; unmount drops
     removeEventListener: (type, listener) => type === 'change' && listeners.delete(listener),
   };
   window.matchMedia = () => query;
-  const preferReduced = () =>
-    act(async () => {
-      query.matches = true;
-      for (const listener of [...listeners]) listener({ matches: true });
-    });
   const render = (shown) =>
     act(async () =>
       root.render(
@@ -1624,21 +1604,19 @@ test('reduced motion turning on mid-motion lands the slot at once; unmount drops
       )
     );
   await render(false);
-  assert.equal(listeners.size, 1, 'the slot follows the preference');
+  assert.equal(listeners.size, 0, 'no reduced-motion listener is registered');
   await firstFrame();
   await render(true);
-  assert.equal(moving(), true, 'the opening eases');
-  await preferReduced();
-  assert.equal(moving(), false, 'the running motion is cancelled');
+  assert.equal(moving(), false, 'opening does not animate');
   assert.equal(presence(), 'open');
   assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px', 'at its target height');
   await render(false);
   assert.equal(presence(), 'grace', 'the grace is a hold, not motion');
   await sleep(ISLAND_COLLAPSE_GRACE_MS + 50);
-  assert.equal(presence(), 'closed', 'the collapse is instant under reduced motion');
+  assert.equal(presence(), 'closed', 'the collapse closes cleanly without motion');
   assert.equal(moving(), false);
   await act(async () => root.render(null));
-  assert.equal(listeners.size, 0, 'unmount removes the listener');
+  assert.equal(listeners.size, 0);
 });
 
 /** ComposerIsland on a real page with the real stylesheet. */
@@ -2090,7 +2068,7 @@ async function assertDraftSwapKeepsDockHeight(page, rest) {
   assert.equal(result.after, result.empty.draft - rest);
 }
 
-test('a remounted island with an approval draws at its final state; only later arrivals fade in', async (t) => {
+test('remounted and newly arriving approvals draw at their final state with no entrance fade', async (t) => {
   const page = await islandPage(t);
   const result = await page.evaluate(async () => {
     window.__render('session-a', { approval: true });
@@ -2102,11 +2080,11 @@ test('a remounted island with an approval draws at its final state; only later a
     const atMount = window.__entry();
     const frames = [];
     const start = performance.now();
-    while (performance.now() - start < 320) {
+    while (performance.now() - start < 200) {
       await window.__frame();
       frames.push(window.__entry());
     }
-    // Contrast: the same island receiving an approval after its first frame.
+    // Same island receiving an approval after its first frame: still no entrance fade.
     window.__render('session-c');
     await window.__frame();
     await window.__frame();
@@ -2116,56 +2094,35 @@ test('a remounted island with an approval draws at its final state; only later a
     return { atMount, frames, arrival };
   });
   assert.deepEqual(result.atMount, { opacity: 1, fades: 0 }, 'no entry animation on remount');
-  assert.ok(result.frames.length > 5);
+  assert.ok(result.frames.length > 3);
   assert.equal(Math.min(...result.frames.map((frame) => frame.opacity)), 1, 'opaque on every painted frame');
   assert.equal(Math.max(...result.frames.map((frame) => frame.fades)), 0);
-  assert.equal(result.arrival.fades, 1, 'an approval arriving after mount still fades in');
-  assert.ok(result.arrival.opacity < 1);
+  assert.deepEqual(result.arrival, { opacity: 1, fades: 0 }, 'an approval arriving after mount draws immediately');
 });
 
-test('reduced motion turning on mid-animation lands the slot at its target height at once', async (t) => {
+test('the slot lands at its target height immediately without motion transition', async (t) => {
   const page = await islandPage(t);
   const opening = await page.evaluate(async () => {
     window.__render('motion');
     await window.__frame();
     await window.__frame();
     window.__render('motion', { segment: true });
-    await Promise.resolve();
+    await window.__frame();
     const slot = document.querySelector('.composer-island-slot');
     const target = Number.parseFloat(slot.style.getPropertyValue('--island-slot-height'));
-    // The first painted frame between closed and open: a fixed frame count
-    // can land past the end of the transition on a slow runner.
-    let mid = 0;
-    for (let index = 0; index < 30 && mid === 0; index += 1) {
-      await window.__frame();
-      mid = slot.offsetHeight;
-    }
-    return { target, mid, moving: slot.hasAttribute('data-motion') };
+    return {
+      target,
+      height: slot.offsetHeight,
+      moving: slot.hasAttribute('data-motion'),
+      presence: slot.getAttribute('data-presence'),
+      transitionDuration: getComputedStyle(slot).transitionDuration,
+    };
   });
   assert.ok(opening.target > 0);
-  assert.equal(opening.moving, true);
-  assert.ok(opening.mid > 0 && opening.mid < opening.target, `mid-animation (${opening.mid} of ${opening.target})`);
-  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-  const landed = await page.evaluate(async () => {
-    const slot = document.querySelector('.composer-island-slot');
-    await window.__frame();
-    const first = { height: slot.offsetHeight, moving: slot.hasAttribute('data-motion') };
-    const later = [];
-    for (let index = 0; index < 8; index += 1) {
-      await window.__frame();
-      later.push(slot.offsetHeight);
-    }
-    const settled = { moving: slot.hasAttribute('data-motion'), presence: slot.getAttribute('data-presence') };
-    // The stylesheet alone also keeps the slot still under reduced motion.
-    slot.setAttribute('data-motion', '');
-    const transition = getComputedStyle(slot).transitionProperty;
-    slot.removeAttribute('data-motion');
-    return { first, later, settled, transition };
-  });
-  assert.equal(landed.first.height, Math.round(opening.target), 'landed in the next frame');
-  assert.deepEqual(new Set(landed.later), new Set([Math.round(opening.target)]), 'and stays there');
-  assert.deepEqual(landed.settled, { moving: false, presence: 'open' }, 'the media change ended the motion');
-  assert.equal(landed.transition, 'none');
+  assert.equal(opening.height, Math.round(opening.target), 'landed at full height immediately');
+  assert.equal(opening.moving, false);
+  assert.equal(opening.presence, 'open');
+  assert.equal(opening.transitionDuration, '0s');
 });
 
 test('the shared poll runs once for all subscribers, pauses while hidden and refreshes on becoming visible', async (t) => {
@@ -3346,7 +3303,9 @@ test('an in-use branch row sits under Worktrees, names its holder even before it
   await act(async () => document.querySelector('.composer-island-seg-worktree').click());
   await tick();
   const row = document.querySelector('.composer-island-branch-panel [data-branch="held"]');
-  assert.equal(row.closest('.branch-row-shell').previousElementSibling?.textContent, 'Worktrees');
+  const groupHead = row.closest('.branch-row-shell').previousElementSibling;
+  assert.equal(groupHead?.querySelector('.branch-menu-group-name')?.textContent, 'Worktrees');
+  assert.equal(groupHead?.querySelector('.branch-menu-group-count')?.textContent, '1');
   assert.equal(row.dataset.tooltip, undefined);
   assert.equal(row.title, 'Another session', 'a holder whose title is not loaded is still named');
   assert.ok(row.querySelector('svg[class*="lucide-folder-git"]'));
@@ -3552,17 +3511,18 @@ async function gitDock(t, { cwd, files = [], ahead = 0, repository = true, pool 
     return { value: { supported: true, authoritative: true, files: [], patch: '' } };
   };
   if (shells) await publish({ shellJobs: shells });
+  const openedDiff = [];
   const props = dockProps({
     workspace: repository ? projectWorkspace({ cwd }) : null,
     reviewSessionId: 'island-session',
     reviewCwd: cwd,
     reviewItems: [{ kind: 'turndone', id: `${cwd}-done` }],
-    onOpenSessionDiff: () => {},
+    onOpenSessionDiff: (...args) => openedDiff.push(args),
   });
   const render = () => act(async () => root.render(React.createElement(ComposerDock, props)));
   await render();
   if (pool.length) await publishPool(pool);
-  return { ...mounted, sent, render };
+  return { ...mounted, sent, openedDiff, render };
 }
 
 const gitMain = (document) => document.querySelector('.composer-island-git-main');
@@ -3623,7 +3583,7 @@ test('the git action shows with files or commits ahead, and never outside a repo
 
 test('the git button opens the Git tab; each row runs its own action and nothing is pre-selected', async (t) => {
   const cwd = 'C:/git-pick';
-  const { document, sent, render } = await gitDock(t, { cwd, files: ['a.ts', 'b.ts'] });
+  const { document, sent, openedDiff, render } = await gitDock(t, { cwd, files: ['a.ts', 'b.ts'] });
   await render();
   const flush = () => act(async () => {});
   // The button sends nothing itself: it opens the Git tab (chip, branch ·
@@ -3679,6 +3639,25 @@ test('the git button opens the Git tab; each row runs its own action and nothing
   assert.deepEqual(
     sent.map((entry) => entry.action),
     ['commit', 'pr']
+  );
+  // The Git footer carries real summary metadata and wires View changes through ComposerDock.
+  await act(async () => gitMain(document).click());
+  await flush();
+  const foot = panel().querySelector('.composer-island-panel-foot');
+  assert.equal(
+    foot?.querySelector('.composer-island-foot-meta')?.textContent,
+    `main · ${translate('Files {{count}}', { count: 2 })}`
+  );
+  const viewChanges = foot?.querySelector('.composer-island-button');
+  assert.equal(viewChanges?.textContent, translate('Island: View changes'));
+  await act(async () => viewChanges.click());
+  await flush();
+  assert.equal(panel(), null, 'View changes closes the Git panel');
+  assert.equal(openedDiff.length, 1, 'View changes triggers the dock changes callback');
+  assert.deepEqual(
+    sent.map((entry) => entry.action),
+    ['commit', 'pr'],
+    'View changes sends no git prompt request'
   );
 });
 
@@ -4047,7 +4026,10 @@ function fullPillPage({ dock = false, t } = {}) {
   if (dock) return create();
   // A background tab runs no frames or resize deliveries.
   fullPill ??= create();
-  return fullPill.then(async (page) => (await page.bringToFront(), page));
+  return fullPill.then(async (page) => {
+    await page.bringToFront();
+    return page;
+  });
 }
 
 /** The pill's labels, least needed first. */
@@ -4268,7 +4250,14 @@ test("a wrapped pill's later lines open without a separator, and no group divide
       [false, 0],
       `a line opens with a gap: ${JSON.stringify(line)}`
     );
-    for (const item of line.slice(1)) assert.ok(item.separator, `a separator went missing: ${JSON.stringify(line)}`);
+    for (const item of line.slice(1)) {
+      const expectsGroupBoundary = item.name.includes('composer-island-seg-branch');
+      assert.equal(
+        item.separator,
+        expectsGroupBoundary,
+        `only the work/repository boundary carries a separator: ${JSON.stringify(line)}`
+      );
+    }
   }
 });
 
@@ -4329,7 +4318,7 @@ test('a shortened resume keeps the whole sentence and the time left in its acces
   assert.equal(node.name, `${shown.text}, ${shown.remaining}`);
 });
 
-test('a pill that wraps glides its segments and frame down to their lines, not only sideways', async () => {
+test('a pill that wraps lays out its segments on multiple lines without glide animations', async () => {
   const page = await fullPillPage();
   await page.evaluate(async () => {
     window.__render({ resume: true });
@@ -4345,35 +4334,17 @@ test('a pill that wraps glides its segments and frame down to their lines, not o
       );
       const before = new Map(segments.map((segment) => [segment, segment.getBoundingClientRect().top]));
       await window.__room(room);
-      const firstFrame = (element) =>
-        element
-          .getAnimations({ subtree: true })
-          .filter((animation) => animation.id === 'island-glide' && animation.effect.target === element)
-          .map((animation) => ({
-            pseudo: animation.effect.pseudoElement,
-            from: animation.effect.getKeyframes()[0],
-          }));
-      // Laid out: the painted box less the glide's own offset.
-      const laidOutTop = (segment) =>
-        segment.getBoundingClientRect().top - new DOMMatrixReadOnly(getComputedStyle(segment).transform).m42;
+      const glides = island
+        .getAnimations({ subtree: true })
+        .filter((animation) => animation.id === 'island-glide').length;
       const dropped = segments
         .filter((segment) => segment.isConnected && segment.getClientRects().length > 0)
-        .map((segment) => ({
-          dy: before.get(segment) - laidOutTop(segment),
-          from: firstFrame(segment).map((glide) => glide.from.transform),
-        }))
-        .filter((segment) => Math.abs(segment.dy) > 1);
-      return { dropped, frame: firstFrame(island).find((glide) => glide.pseudo === '::before')?.from ?? null };
+        .map((segment) => before.get(segment) - segment.getBoundingClientRect().top)
+        .filter((dy) => Math.abs(dy) > 1);
+      return { dropped, glides };
     }, WRAPPED_ROOM);
     assert.ok(read.dropped.length > 0, `nothing moved to another line: ${JSON.stringify(read)}`);
-    for (const segment of read.dropped) {
-      const y = Number(/translate\([^,]+,\s*(-?[\d.]+)px\)/.exec(segment.from[0] ?? '')?.[1]);
-      assert.ok(Math.abs(y - segment.dy) < 1, `the glide misses the drop: ${JSON.stringify(segment)}`);
-    }
-    assert.ok(
-      read.frame && Number.parseFloat(read.frame.top) !== 0,
-      `the frame's top did not ease: ${JSON.stringify(read)}`
-    );
+    assert.equal(read.glides, 0, `no glide animation should run: ${JSON.stringify(read)}`);
   } finally {
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   }
@@ -4483,7 +4454,7 @@ test('an opened panel is as wide as the pill at rest, between its floor and the 
       room,
       all
     );
-  const between = await open(600, true);
+  const between = await open(660, true);
   assert.ok(between.rest > 440 && between.rest < 680, JSON.stringify(between));
   assert.ok(Math.abs(between.opened - between.rest) < 0.5, `takes the pill's width: ${JSON.stringify(between)}`);
   assert.equal(between.grown.rows, 3);

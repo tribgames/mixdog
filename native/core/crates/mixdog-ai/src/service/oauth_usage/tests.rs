@@ -1583,9 +1583,10 @@ async fn unlimited_or_hidden_codex_credit_balances_still_count_as_usable_credits
         .unwrap();
     r.http.queue(WHAM_URL, Ok((200, wham(serde_json::json!({ "has_credits": false, "unlimited": false, "balance": null })))));
     let snap = r.usage.fetch_snapshot(&codex_route, true).await.unwrap();
-    assert!(snap["balance"].is_null());
+    assert_eq!(snap["balance"]["hasCredits"], false);
     assert!(!balance_has_credits(snap.get("balance")));
     let row = r.store.pool("openai-oauth").await.unwrap().account("default").unwrap().clone();
+    assert_eq!(row.has_credits, Some(false));
     assert!(policy::account_exhausted(&row, now, "gpt-6.2-astra", true));
 }
 

@@ -218,6 +218,21 @@ impl WorkerInbox for SessionCompletions {
     }
 }
 
+/// The agent tool takes a worker's wake: its send flow runs it as a job of the worker's owner.
+impl crate::session::WorkerWakes for Arc<mixdog_agent::agent_tool::flow::send::SendFlowImpl> {
+    fn wake(&self, thread: &ThreadId, handoff: crate::session::WakeHandoff) -> bool {
+        let (flow, session) = (self.clone(), thread.as_str().to_owned());
+        // A wake that cannot dispatch has nobody to tell: the completion stays queued for the worker's next turn or wake, and
+        // Node writes the failure to stderr (`send-flow.mjs:340-344`).
+        drop(mixdog_rt::spawn("agent-completion-wake", mixdog_rt::TaskClass::Work, async move {
+            if let Err(error) = flow.wake_worker(&session, Box::new(handoff)).await {
+                mixdog_rt::node_stderr!("[agent] completion wake failed session={session}: {error}");
+            }
+        }));
+        true
+    }
+}
+
 impl OwnerNotify for SessionCompletions {
     fn notify(&self, owner_session_id: &str, text: &str, meta: &Value) -> bool {
         let owner = clean_str(owner_session_id);
@@ -848,6 +863,298 @@ mod tests {
         eventually_on!(&[&handle.cell.stepped], || (rows(&rig.store.records(&handle.id)) == 2 && idle(&handle)).then_some(())).await;
         eventually_on!(&[&handle.cell.stepped], || (handle.cell.view.load_full().items.len() == 2).then_some(())).await;
     }
+    /// Runs each wake it is told of as the agent tool's send flow does: a tracked turn of kind `Wake` on the worker, whose
+    /// terminal hook and answer are its owner's, holding the wake's hand-off until it ends.
+    struct TrackedWakes {
+        turns: Arc<SessionTurns>,
+        told: std::sync::atomic::AtomicUsize,
+        /// The wakes, counted from 1, whose job could not start: their hand-off is let go and no turn is asked.
+        refused: Vec<usize>,
+        /// Waited for before each wake's turn is asked, as a job waits for its slot.
+        gate: Option<Arc<tokio::sync::Notify>>,
+        heard: Arc<Mutex<Vec<String>>>,
+        /// Each wake's answer, or whether its session refused it as taken and why.
+        answered: Arc<Mutex<Vec<Result<String, (bool, String)>>>>,
+        done: Arc<tokio::sync::Notify>,
+    }
+
+    impl crate::session::WorkerWakes for TrackedWakes {
+        fn wake(&self, thread: &ThreadId, handoff: crate::session::WakeHandoff) -> bool {
+            let told = self.told.fetch_add(1, Ordering::SeqCst) + 1;
+            if self.refused.contains(&told) {
+                drop(handoff);
+                return true;
+            }
+            let sink = self.heard.clone();
+            let terminal: Arc<dyn Fn(&TurnResult) + Send + Sync> = Arc::new(move |result: &TurnResult| sink.lock().unwrap().push(result.content.clone()));
+            let request = TurnRequest { kind: mixdog_agent::agent_tool::flow::seams::TurnKind::Wake, ..worker_request(thread, "", "sub-wake", Some(terminal)) };
+            let (turns, gate, answered, done) = (self.turns.clone(), self.gate.clone(), self.answered.clone(), self.done.clone());
+            tokio::spawn(async move {
+                if let Some(gate) = gate {
+                    gate.notified().await;
+                }
+                let answer = turns.run_turn(request).await;
+                drop(handoff);
+                answered.lock().unwrap().push(answer.map(|result| result.content).map_err(|error| (error.wake_taken, error.message)));
+                done.notify_one();
+            });
+            true
+        }
+    }
+
+    /// A worker session of the owner `sess_lead`, with the turns run on it and its wakes taken as the agent tool takes them:
+    /// the wakes numbered in `refused` cannot start, and each other one waits for `gate` before its turn is asked.
+    async fn tracked_worker(
+        rig: &crate::session::testing::Rig,
+        refused: &[usize],
+        gate: Option<Arc<tokio::sync::Notify>>,
+    ) -> (Arc<SessionDirectory>, ThreadId, Arc<SessionTurns>, Arc<TrackedWakes>) {
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let worker = ThreadId::from("sess_worker");
+        let header = json!({ "owner": "agent", "agent": "worker", "parentSessionId": "sess_lead", "ownerSessionId": "sess_lead" });
+        directory.create_with_id(worker.clone(), header.as_object().cloned().unwrap(), json!({})).await.expect("worker");
+        let turns = Arc::new(SessionTurns::new(directory.clone(), Arc::new(Released(Mutex::default()))));
+        let wakes = Arc::new(TrackedWakes {
+            turns: turns.clone(),
+            told: Default::default(),
+            refused: refused.to_vec(),
+            gate,
+            heard: Arc::default(),
+            answered: Arc::default(),
+            done: Arc::default(),
+        });
+        assert!(rig.worker_wakes.bind(wakes.clone()).is_ok());
+        (directory, worker, turns, wakes)
+    }
+
+    const COMPLETED: &str = "<task-notification>\n<task-id>t1</task-id>\n<status>completed</status>\n<summary>build finished</summary>\n</task-notification>";
+
+    fn completed_meta() -> Value {
+        json!({ "execution_surface": "agent", "execution_id": "t1", "status": "completed" })
+    }
+
+    /// A worker that ended its turn while its background work ran is woken when that work's completion is queued: the agent
+    /// tool takes the wake, and its tracked turn is the one turn that runs for it. That turn takes the completion as its input
+    /// (no empty user turn) and its answer reaches the terminal hook and the caller, as a job's turn does.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_idle_workers_completion_wakes_one_tracked_turn_that_takes_it_as_its_input() {
+        use crate::eventually_on;
+        use crate::session::tests::settled_idle;
+        use mixdog_store::schema::blob::Slot;
+        use mixdog_store::schema::record::Record;
+
+        let rig = crate::session::testing::Rig::new();
+        let inputs: Arc<Mutex<Vec<Value>>> = Arc::default();
+        let seen = inputs.clone();
+        rig.set_script(Arc::new(move |run| {
+            let seen = seen.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let woken = run.input_body["content"].to_string().contains("<task-id>t1</task-id>");
+                seen.lock().unwrap().push(run.input_body.clone());
+                let content = if woken { "the build passed" } else { "Waiting for the build to finish" };
+                crate::session::RunOutcome::Completed(Box::new(TurnResult { content: content.into(), iterations: 1, ..Default::default() }))
+            })
+        }));
+        let (directory, worker, turns, wakes) = tracked_worker(&rig, &[], None).await;
+        let first = turns.run_turn(worker_request(&worker, "build it", "sub-1", None)).await.expect("turn");
+        assert_eq!(first.content, "Waiting for the build to finish");
+        let handle = directory.handle(&worker).expect("loaded");
+        eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
+
+        assert!(SessionCompletions::new(directory.clone()).enqueue_completion(worker.as_str(), COMPLETED, &completed_meta()));
+        // The second turn ran and settled, and a wake handed on was answered.
+        let answered = || wakes.told.load(Ordering::SeqCst) == 0 || !wakes.answered.lock().unwrap().is_empty();
+        eventually_on!(&[&wakes.done, &handle.cell.stepped], || (inputs.lock().unwrap().len() >= 2 && settled_idle(&handle) && answered()).then_some(())).await;
+        assert_eq!(*wakes.answered.lock().unwrap(), [Ok("the build passed".to_owned())]);
+        assert_eq!(*wakes.heard.lock().unwrap(), ["the build passed"], "the terminal hook hears the wake's answer");
+        assert_eq!(wakes.told.load(Ordering::SeqCst), 1, "the wake was handed on once");
+        let inputs = inputs.lock().unwrap().clone();
+        assert_eq!(inputs.len(), 2, "one turn for the send, one for the wake: {inputs:?}");
+        assert!(inputs[1]["content"].to_string().contains("<task-id>t1</task-id>"), "the wake's input is the completion: {}", inputs[1]);
+        assert_eq!(inputs[1]["meta"]["transcript"]["submissionIds"], json!(["sub-wake"]), "the wake's turn is its job's");
+        assert!(handle.cell.queued.load().is_empty(), "the wake's turn took the completion");
+        let user_rows: Vec<Value> = rig
+            .store
+            .records(&worker)
+            .into_iter()
+            .filter_map(|(_, record)| match record {
+                Record::Item(item) if item.role.as_ref().is_some_and(|role| role.as_str() == "user") => match item.body {
+                    Slot::Inline(body) => Some(body),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+        assert_eq!(user_rows.len(), 2, "{user_rows:?}");
+        assert!(user_rows.iter().all(|row| row["content"].as_str().is_some_and(|text| !text.trim().is_empty())), "no empty user turn: {user_rows:?}");
+    }
+
+    /// A worker busy with a turn takes a completion queued for it at that turn's next boundary: no wake is handed on and no
+    /// second turn runs.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_busy_workers_completion_is_taken_at_its_boundary_with_no_second_turn() {
+        use crate::eventually_on;
+        use crate::session::run::{DrainRequest, DrainStage, Priority};
+        use crate::session::tests::settled_idle;
+
+        let rig = crate::session::testing::Rig::new();
+        let (started, boundary) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+        let runs = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let taken: Arc<Mutex<Vec<String>>> = Arc::default();
+        let (on_start, at, count, sink) = (started.clone(), boundary.clone(), runs.clone(), taken.clone());
+        rig.set_script(Arc::new(move |run| {
+            let (on_start, at, count, sink) = (on_start.clone(), at.clone(), count.clone(), sink.clone());
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                count.fetch_add(1, Ordering::SeqCst);
+                on_start.notify_one();
+                at.notified().await;
+                let steers = run.port.take_steers(DrainRequest { stage: DrainStage::PreSend, max_priority: Priority::Next }).await.expect("take");
+                sink.lock().unwrap().extend(steers.iter().map(|steer| steer.content.as_str().unwrap_or_default().to_owned()));
+                crate::session::RunOutcome::Completed(Box::new(TurnResult { content: "built and checked".into(), iterations: 1, ..Default::default() }))
+            })
+        }));
+        let (directory, worker, turns, wakes) = tracked_worker(&rig, &[], None).await;
+        let turn = tokio::spawn({
+            let worker = worker.clone();
+            async move { turns.run_turn(worker_request(&worker, "build it", "sub-1", None)).await }
+        });
+        started.notified().await;
+        let handle = directory.handle(&worker).expect("loaded");
+        assert!(SessionCompletions::new(directory.clone()).enqueue_completion(worker.as_str(), COMPLETED, &completed_meta()));
+        eventually_on!(&[&handle.cell.stepped], || (!handle.cell.queued.load().is_empty()).then_some(())).await;
+        boundary.notify_one();
+        assert_eq!(turn.await.expect("joined").expect("turn").content, "built and checked");
+        eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
+        assert_eq!(runs.load(Ordering::SeqCst), 1, "no second turn");
+        assert_eq!(wakes.told.load(Ordering::SeqCst), 0, "no wake was handed on");
+        assert!(taken.lock().unwrap().iter().any(|text| text.contains("<task-id>t1</task-id>")), "{:?}", taken.lock().unwrap());
+        assert!(handle.cell.queued.load().is_empty());
+    }
+
+    /// A worker that answered and settled idle, with the inputs of the turns run on it: a turn whose input names the
+    /// completion `t1` answers `the builds passed`, any other `Waiting for the build to finish`.
+    async fn idle_tracked_worker(
+        rig: &crate::session::testing::Rig,
+        refused: &[usize],
+        gate: Option<Arc<tokio::sync::Notify>>,
+    ) -> (Arc<SessionDirectory>, ThreadId, Arc<SessionTurns>, Arc<TrackedWakes>, Arc<crate::session::handle::SessionHandle>) {
+        use crate::eventually_on;
+        use crate::session::tests::settled_idle;
+
+        let (directory, worker, turns, wakes) = tracked_worker(rig, refused, gate).await;
+        turns.run_turn(worker_request(&worker, "build it", "sub-1", None)).await.expect("turn");
+        let handle = directory.handle(&worker).expect("loaded");
+        eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
+        (directory, worker, turns, wakes, handle)
+    }
+
+    /// A wake whose job could not start (the agent lane refused it) lets its hand-off go: no turn runs for it, the worker's
+    /// next completion is handed on again, and that wake's turn takes both completions.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_wake_that_could_not_start_leaves_the_next_completion_to_wake_the_worker() {
+        use crate::eventually_on;
+        use crate::session::tests::settled_idle;
+
+        let rig = crate::session::testing::Rig::new();
+        let inputs: Arc<Mutex<Vec<Value>>> = Arc::default();
+        let seen = inputs.clone();
+        rig.set_script(Arc::new(move |run| {
+            let seen = seen.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let woken = run.input_body["content"].to_string().contains("<task-id>t1</task-id>");
+                seen.lock().unwrap().push(run.input_body.clone());
+                let content = if woken { "the builds passed" } else { "Waiting for the build to finish" };
+                crate::session::RunOutcome::Completed(Box::new(TurnResult { content: content.into(), iterations: 1, ..Default::default() }))
+            })
+        }));
+        let (directory, worker, _turns, wakes, handle) = idle_tracked_worker(&rig, &[1], None).await;
+        let completions = SessionCompletions::new(directory.clone());
+        assert!(completions.enqueue_completion(worker.as_str(), COMPLETED, &completed_meta()));
+        eventually_on!(&[&handle.cell.stepped], || (wakes.told.load(Ordering::SeqCst) == 1 && settled_idle(&handle)).then_some(())).await;
+        assert_eq!(handle.cell.wake_handoff.load(Ordering::SeqCst), 0, "the refused wake let its hand-off go");
+        assert_eq!(inputs.lock().unwrap().len(), 1, "no turn ran for the refused wake");
+
+        let second = COMPLETED.replace("t1", "t2");
+        let meta = json!({ "execution_surface": "agent", "execution_id": "t2", "status": "completed" });
+        assert!(completions.enqueue_completion(worker.as_str(), &second, &meta));
+        eventually_on!(&[&wakes.done, &handle.cell.stepped], || (!wakes.answered.lock().unwrap().is_empty() && settled_idle(&handle)).then_some(())).await;
+        assert_eq!(wakes.told.load(Ordering::SeqCst), 2, "the next completion was handed on");
+        assert_eq!(*wakes.answered.lock().unwrap(), [Ok("the builds passed".to_owned())]);
+        let inputs = inputs.lock().unwrap().clone();
+        assert_eq!(inputs.len(), 2, "{inputs:?}");
+        let woken = inputs[1]["content"].to_string();
+        assert!(woken.contains("<task-id>t1</task-id>") && woken.contains("<task-id>t2</task-id>"), "the wake takes both completions: {woken}");
+        assert!(handle.cell.queued.load().is_empty());
+    }
+
+    /// While a worker's wake waits for its job's slot, a turn its owner sent runs on its own content and hooks and takes the
+    /// queued completion at its boundary; the wake, asked meanwhile, ends as taken (nothing for its owner to hear), and no
+    /// other wake is handed on.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_completion_another_turn_takes_ends_the_waiting_wake_as_taken() {
+        use crate::eventually_on;
+        use crate::session::run::{DrainRequest, DrainStage, Priority};
+        use crate::session::tests::settled_idle;
+
+        let rig = crate::session::testing::Rig::new();
+        let (started, boundary) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+        let inputs: Arc<Mutex<Vec<Value>>> = Arc::default();
+        let taken: Arc<Mutex<Vec<String>>> = Arc::default();
+        let (on_start, at, seen, sink) = (started.clone(), boundary.clone(), inputs.clone(), taken.clone());
+        rig.set_script(Arc::new(move |run| {
+            let (on_start, at, seen, sink) = (on_start.clone(), at.clone(), seen.clone(), sink.clone());
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                seen.lock().unwrap().push(run.input_body.clone());
+                if !run.input_body["content"].to_string().contains("follow up") {
+                    return crate::session::RunOutcome::Completed(Box::new(TurnResult {
+                        content: "Waiting for the build to finish".into(),
+                        iterations: 1,
+                        ..Default::default()
+                    }));
+                }
+                on_start.notify_one();
+                at.notified().await;
+                let steers = run.port.take_steers(DrainRequest { stage: DrainStage::PreSend, max_priority: Priority::Next }).await.expect("take");
+                sink.lock().unwrap().extend(steers.iter().map(|steer| steer.content.as_str().unwrap_or_default().to_owned()));
+                crate::session::RunOutcome::Completed(Box::new(TurnResult { content: "followed up".into(), iterations: 1, ..Default::default() }))
+            })
+        }));
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let (directory, worker, turns, wakes, handle) = idle_tracked_worker(&rig, &[], Some(gate.clone())).await;
+        assert!(SessionCompletions::new(directory.clone()).enqueue_completion(worker.as_str(), COMPLETED, &completed_meta()));
+        eventually_on!(&[&handle.cell.stepped], || (wakes.told.load(Ordering::SeqCst) == 1).then_some(())).await;
+
+        let heard: Arc<Mutex<Vec<String>>> = Arc::default();
+        let hears = heard.clone();
+        let terminal: Arc<dyn Fn(&TurnResult) + Send + Sync> = Arc::new(move |result: &TurnResult| hears.lock().unwrap().push(result.content.clone()));
+        let send = tokio::spawn({
+            let worker = worker.clone();
+            async move { turns.run_turn(worker_request(&worker, "follow up", "sub-send", Some(terminal))).await }
+        });
+        started.notified().await;
+        gate.notify_one();
+        eventually_on!(&[&wakes.done], || (!wakes.answered.lock().unwrap().is_empty()).then_some(())).await;
+        assert!(matches!(wakes.answered.lock().unwrap().as_slice(), [Err((true, _))]), "the wake ends as taken: {:?}", wakes.answered.lock().unwrap());
+        boundary.notify_one();
+        assert_eq!(send.await.expect("joined").expect("turn").content, "followed up");
+        eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
+
+        assert_eq!(*heard.lock().unwrap(), ["followed up"], "the send's terminal hook hears its own answer");
+        assert!(wakes.heard.lock().unwrap().is_empty(), "the wake's hook hears nothing");
+        let inputs = inputs.lock().unwrap().clone();
+        assert_eq!(inputs.len(), 2, "{inputs:?}");
+        assert!(inputs[1]["content"].to_string().contains("follow up"), "the send's turn runs on its own content: {}", inputs[1]);
+        assert_eq!(inputs[1]["meta"]["transcript"]["submissionIds"], json!(["sub-send"]));
+        assert!(taken.lock().unwrap().iter().any(|text| text.contains("<task-id>t1</task-id>")), "{:?}", taken.lock().unwrap());
+        assert!(handle.cell.queued.load().is_empty());
+        assert!(handle.cell.agent_starts.lock().unwrap().is_empty(), "no start is left waiting");
+        assert_eq!(wakes.told.load(Ordering::SeqCst), 1, "no other wake is handed on");
+    }
+
     /// The live owner's cards (`execution-delivery.mjs`): a failed bodyless preview shows a card,
     /// a successful one does not, and the body that follows shows its own card.
     #[tokio::test(start_paused = true)]
@@ -1041,7 +1348,7 @@ mod tests {
         staged.cancel.abort("stop");
         assert_eq!(run.await.expect_err("cancelled").message, "stop");
         assert!(idle(&handle) && handle.cell.queued.load().is_empty(), "nothing is started or queued on the session");
-        assert!(handle.cell.agent_start.lock().unwrap().is_none(), "and no start waits for a turn");
+        assert!(handle.cell.agent_starts.lock().unwrap().is_empty(), "and no start waits for a turn");
 
         hold.send_replace(StartHold::Open);
         let (request, staged) = staged_request(&handle.id, "sub-2");
@@ -1083,7 +1390,7 @@ mod tests {
         };
         assert!(refused.message.starts_with("the turn did not start"), "{}", refused.message);
         assert_eq!(runs.load(Ordering::SeqCst), 1, "the session ran no turn for it");
-        assert!(handle.cell.agent_start.lock().unwrap().is_none(), "and no start waits for a later turn to take");
+        assert!(handle.cell.agent_starts.lock().unwrap().is_empty(), "and no start waits for a later turn to take");
     }
 }
 
@@ -1303,10 +1610,9 @@ impl SessionTurns {
     }
 
     /// Takes the start of submission `submission` back from the session, if its actor has not taken it: whether it was still
-    /// waiting there. The worker's start is this request's only while no later request put its own in its place.
+    /// waiting there.
     fn take_waiting(handle: &crate::session::handle::SessionHandle, submission: &str) -> bool {
-        let mut waiting = handle.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner());
-        waiting.take_if(|start| start.turn.hooks.submission_id == submission).is_some()
+        handle.cell.agent_starts.lock().unwrap_or_else(|p| p.into_inner()).remove(submission).is_some()
     }
 
     /// A start its job stopped waiting for, which the session's actor may still answer: the answer is taken here, so a
@@ -1377,7 +1683,8 @@ impl SessionTurns {
         let terminal = hooks.on_terminal_result.take();
         let submitted = hooks.on_submitted.take();
         let (done, outcome) = oneshot::channel();
-        *handle.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner()) = Some(AgentStart {
+        let wake = request.kind == mixdog_agent::agent_tool::flow::seams::TurnKind::Wake;
+        let waiting = AgentStart {
             content: handoff_content(&request.prompt, &request.attachments),
             turn: AgentTurn {
                 kind: request.kind,
@@ -1388,7 +1695,8 @@ impl SessionTurns {
                 caller_watchdog,
             },
             done,
-        });
+        };
+        handle.cell.agent_starts.lock().unwrap_or_else(|p| p.into_inner()).insert(submission.clone(), waiting);
         let params = json!({ "threadId": thread, "opId": op, "input": input });
         let mut start: PendingStart = {
             let (handle, request) = (handle.clone(), CoreRequest { method: Method("turn/start"), params, op: Some(op.clone()), ctx: ctx.clone() });
@@ -1408,7 +1716,7 @@ impl SessionTurns {
             },
         };
         let unstarted = |message: String| {
-            handle.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner()).take();
+            Self::take_waiting(&handle, &submission);
             ended(&stages, message)
         };
         match started {
@@ -1435,6 +1743,10 @@ impl SessionTurns {
                 return Err(unstarted(format!("agent session {} is busy with another turn", request.session_id)));
             }
             Ok(_) => return Err(unstarted("turn/start answered no value".to_owned())),
+            // Another turn of the worker took, or takes, the completions this wake was for: nothing ran for it.
+            Err(mixdog_core_api::CoreError::DomainError { code: Some(code), .. }) if wake && code.as_ref() == crate::session::actor::WAKE_TAKEN => {
+                return Err(TurnError { wake_taken: true, ..unstarted(format!("agent session {} has no completion left for this wake", request.session_id)) });
+            }
             Err(error) => return Err(unstarted(format!("the turn did not start: {error:?}"))),
         }
         match outcome.await {

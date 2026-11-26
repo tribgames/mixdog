@@ -1,6 +1,7 @@
 import { type MutableRefObject, type RefObject, useCallback, useEffect, useRef, useState } from 'react';
 import {
   distanceFromBottom,
+  END_TOLERANCE_PX,
   JUMP_PIN_MS,
   JUMP_PIN_SETTLE_FRAMES,
   jumpButtonVisible,
@@ -109,9 +110,13 @@ export function useJumpButtonState({
       const standing = standsAtEnd(metrics);
       const shown = session();
       if (reachedEnd.current?.session !== shown) reachedEnd.current = null;
-      if (followingRef.current) reachedEnd.current = null;
-      else if (standing && arrived()) reachedEnd.current = { session: shown, top: metrics.top };
-      else if (reachedEnd.current !== null && metrics.top < reachedEnd.current.top) reachedEnd.current = null;
+      if (followingRef.current || !arrived()) {
+        reachedEnd.current = null;
+      } else if (standing || reachedEnd.current === null || metrics.top > reachedEnd.current.top) {
+        reachedEnd.current = { session: shown, top: metrics.top };
+      } else if (metrics.top < reachedEnd.current.top - END_TOLERANCE_PX) {
+        reachedEnd.current = null;
+      }
       const wait = !followingRef.current && (standing || reachedEnd.current !== null) && atEnd.current();
       if (!wait) reachedEnd.current = null;
       const jump = jumpButtonVisible(metrics, followingRef.current && !holds());

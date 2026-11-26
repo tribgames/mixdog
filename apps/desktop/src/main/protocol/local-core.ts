@@ -260,30 +260,68 @@ export function coreExit(child: CoreProcess | null, timeoutMs: number): Promise<
   });
 }
 
+const FORCE_END_CORE_TIMEOUT_MS = 3_000;
+const inFlightForceEnds = new WeakMap<CoreProcess, Promise<boolean>>();
+
 /** Ends the core this app started, and the processes it started (its workers, PostgreSQL), when a quit's stop left it running.
  *  The app's exit does not end its children on Windows, so a core that did not leave in time would outlive the app, keep the
- *  data directory and make the next launch wait on it. True when a kill was sent. */
+ *  data directory and make the next launch wait on it. On Windows `taskkill` runs hidden (no `detached: true`, which would
+ *  flash a console window) and is awaited up to `timeoutMs` so the quitting app does not terminate it mid-tree.
+ *  Concurrent callers for the same core share the in-flight promise even if the root PID exits while `taskkill` is still
+ *  ending descendants. Resolves true when a kill was sent. */
 export function forceEndCore(
   child: CoreProcess | null,
-  { platform = process.platform, spawnImpl = spawn }: { platform?: NodeJS.Platform; spawnImpl?: typeof spawn } = {}
-): boolean {
-  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return false;
-  try {
-    if (platform === 'win32') {
-      const kill = spawnImpl('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
-        stdio: 'ignore',
-        windowsHide: true,
-        detached: true,
-      });
-      kill.once('error', () => {});
-      kill.unref();
-    } else {
+  {
+    platform = process.platform,
+    spawnImpl = spawn,
+    timeoutMs = FORCE_END_CORE_TIMEOUT_MS,
+  }: { platform?: NodeJS.Platform; spawnImpl?: typeof spawn; timeoutMs?: number } = {}
+): Promise<boolean> {
+  if (!child) return Promise.resolve(false);
+  const existing = inFlightForceEnds.get(child);
+  if (existing) return existing;
+  if (!child.pid || child.exitCode !== null || child.signalCode !== null) return Promise.resolve(false);
+  if (platform !== 'win32') {
+    try {
       process.kill(child.pid, 'SIGKILL');
+      return Promise.resolve(true);
+    } catch {
+      return Promise.resolve(false);
     }
-    return true;
-  } catch {
-    return false;
   }
+  let kill: ReturnType<typeof spawn>;
+  try {
+    kill = spawnImpl('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+  } catch {
+    return Promise.resolve(false);
+  }
+  const pending = new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (sent: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(sent);
+    };
+    const timer = setTimeout(() => {
+      try {
+        kill.kill?.();
+      } catch {
+        /* already gone */
+      }
+      kill.unref?.();
+      finish(true);
+    }, timeoutMs);
+    kill.once('exit', () => finish(true));
+    kill.once('error', () => finish(false));
+  }).finally(() => {
+    if (inFlightForceEnds.get(child) === pending) inFlightForceEnds.delete(child);
+  });
+  inFlightForceEnds.set(child, pending);
+  return pending;
 }
 
 /** What became of the request to stop the core: `none` (no core of this app's to stop), `not-ours` (the discovery file
@@ -440,7 +478,7 @@ export async function resolveCoreBlock(
   {
     fetchImpl = fetch,
     endProcess = (pid: number) => forceEndCore({ pid, exitCode: null, signalCode: null, once: () => undefined }),
-  }: { fetchImpl?: typeof fetch; endProcess?: (pid: number) => boolean } = {}
+  }: { fetchImpl?: typeof fetch; endProcess?: (pid: number) => boolean | Promise<boolean> } = {}
 ): Promise<void> {
   if (block.pid === null) throw new Error('The blocking process is not known.');
   if (block.releasable) {
@@ -470,7 +508,7 @@ export async function resolveCoreBlock(
     );
     if (!error) return;
   }
-  if (!endProcess(block.pid)) throw new Error(`Process ${block.pid} could not be ended.`);
+  if (!(await endProcess(block.pid))) throw new Error(`Process ${block.pid} could not be ended.`);
 }
 
 export function resolveLocalCore({
@@ -517,7 +555,8 @@ export function resolveLocalCore({
   let live: { child: ChildProcess; capture: ReturnType<typeof launchCore> } | null = null;
   const launch = (): ReturnType<typeof launchCore> => {
     // A child that never started (no pid) is not one to wait on.
-    if (live?.child.pid !== undefined && live.child.exitCode === null && live.child.signalCode === null) return live.capture;
+    if (live?.child.pid !== undefined && live.child.exitCode === null && live.child.signalCode === null)
+      return live.capture;
     // A start that is confirmed not to succeed is not tried again until the user asks, for an attempt already waiting on the core too:
     // it attaches to a core that serves (or is booting), and never starts one.
     const confirmedNow = reports?.confirmed();

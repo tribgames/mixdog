@@ -1,4 +1,4 @@
-import type { TranscriptVirtualizer } from './transcript-list-geometry';
+import { ceilRowHeight, type TranscriptVirtualizer } from './transcript-list-geometry';
 
 type HeldShrinkHost = Pick<
   TranscriptVirtualizer,
@@ -29,20 +29,52 @@ function rowIsReparsing(element: Element | undefined): boolean {
   return Boolean(element.querySelector?.(PENDING_SELECTOR));
 }
 
+type LiveElementMeasurement = { kind: 'size'; size: number } | { kind: 'hidden' } | { kind: 'unavailable' };
+
+/** Current laid-out height of a connected row element, distinguishing a hidden
+ *  pane (`0 × 0` box) from an intentional collapse (`width > 0`) and from a
+ *  detached or unmocked element. */
+function readLiveElementHeight(element: Element | undefined): LiveElementMeasurement {
+  if (!element?.isConnected || typeof element.getBoundingClientRect !== 'function') {
+    return { kind: 'unavailable' };
+  }
+  const rect = element.getBoundingClientRect();
+  const height = Number(rect?.height);
+  if (!Number.isFinite(height)) return { kind: 'unavailable' };
+  if (height > 0) return { kind: 'size', size: ceilRowHeight(height) };
+  const width = Number(rect?.width);
+  if (Number.isFinite(width) && width > 0) {
+    return rowIsReparsing(element) ? { kind: 'hidden' } : { kind: 'size', size: 0 };
+  }
+  return { kind: 'hidden' };
+}
+
 /** Holds a followed streaming row's dip below its measured slot only during an
- *  active markdown-reparse window; its latest real size lands through `settle`. */
+ *  active markdown-reparse window; its live box size lands through `settle`. */
 export function createHeldRowShrinks(now: () => number = () => Date.now()) {
-  /** Held row key → its latest actual size and when the hold window started. */
-  const latest = new Map<unknown, { size: number; heldAt: number }>();
+  /** Held row key → its latest observed size, when the hold started, and whether a pending parse held it. */
+  const latest = new Map<unknown, { size: number; heldAt: number; sawReparsing: boolean }>();
   /** Row key → the observed size its cached slot was last set from. */
   const real = new Map<unknown, number>();
   // A size being landed by settle() goes straight through the resize path.
   let landing = false;
   const elementOf = (host: HeldShrinkHost, key: unknown) => host.elementsCache.get(key as never);
-  const holdWindowOpen = (host: HeldShrinkHost, key: unknown, heldAt: number, currentNow: number): boolean => {
+  const holdWindowOpen = (
+    host: HeldShrinkHost,
+    key: unknown,
+    entry: { heldAt: number; sawReparsing: boolean },
+    currentNow: number
+  ): boolean => {
     const element = elementOf(host, key);
     if (!rowIsStreaming(element)) return false;
-    return rowIsReparsing(element) || currentNow - heldAt < HELD_SHRINK_WINDOW_MS;
+    if (rowIsReparsing(element)) {
+      entry.sawReparsing = true;
+      return true;
+    }
+    // Settle immediately once a pending markdown parse completes instead of
+    // waiting out the timer.
+    if (entry.sawReparsing) return false;
+    return currentNow - entry.heldAt < HELD_SHRINK_WINDOW_MS;
   };
   return {
     get size() {
@@ -53,21 +85,19 @@ export function createHeldRowShrinks(now: () => number = () => Date.now()) {
      *  any other size or an expired window ends the row's hold. */
     hold(host: HeldShrinkHost, key: unknown, size: number): boolean {
       const slot = host.itemSizeCache.get(key as never);
-      const currentNow = now();
-      const prior = latest.get(key);
-      const heldAt = prior?.heldAt ?? currentNow;
-      if (
-        landing ||
-        slot === undefined ||
-        real.get(key) !== slot ||
-        size >= slot ||
-        host.options.anchorTo !== 'end' ||
-        !holdWindowOpen(host, key, heldAt, currentNow)
-      ) {
+      if (landing || slot === undefined || real.get(key) !== slot || size >= slot || host.options.anchorTo !== 'end') {
         latest.delete(key);
         return false;
       }
-      latest.set(key, { size, heldAt });
+      const currentNow = now();
+      const prior = latest.get(key);
+      const heldAt = prior?.heldAt ?? currentNow;
+      const probe = { heldAt, sawReparsing: prior?.sawReparsing ?? false };
+      if (!holdWindowOpen(host, key, probe, currentNow)) {
+        latest.delete(key);
+        return false;
+      }
+      latest.set(key, { size, heldAt, sawReparsing: probe.sawReparsing });
       return true;
     },
     /** Milliseconds until the earliest timer-bounded hold window expires (0 if
@@ -78,11 +108,12 @@ export function createHeldRowShrinks(now: () => number = () => Date.now()) {
       const currentNow = now();
       let soonest = Number.POSITIVE_INFINITY;
       for (const [key, entry] of latest) {
+        const element = host ? elementOf(host, key) : undefined;
+        const streaming = host ? rowIsStreaming(element) : true;
+        const reparsing = host ? rowIsReparsing(element) : false;
+        if (host && (!streaming || (entry.sawReparsing && !reparsing))) return 0;
         const remaining = HELD_SHRINK_WINDOW_MS - (currentNow - entry.heldAt);
-        if (remaining <= 0 && host) {
-          const element = elementOf(host, key);
-          if (rowIsStreaming(element) && rowIsReparsing(element)) continue;
-        }
+        if (remaining <= 0 && host && streaming && reparsing) continue;
         if (remaining < soonest) soonest = remaining;
       }
       return soonest === Number.POSITIVE_INFINITY ? null : Math.max(0, soonest);
@@ -102,13 +133,14 @@ export function createHeldRowShrinks(now: () => number = () => Date.now()) {
       if (host.itemSizeCache.get(key as never) === size) real.set(key, size);
       else real.delete(key);
     },
-    /** Lands every hold whose reparse window closed (`force`: every hold) at its latest real size through `resize`. A
-     *  row that left the DOM is corrected at its last size; one that left the list drops its stale cached slot. */
+    /** Lands every hold whose reparse window closed (`force`: every hold) at the
+     *  connected element's current live box height (falling back to the last
+     *  observed size if detached). A row that left the list drops its stale slot. */
     settle(host: HeldShrinkHost, resize: (index: number, size: number) => void, force = false) {
       if (latest.size === 0) return;
       const currentNow = now();
       for (const [key, entry] of [...latest]) {
-        if (!force && host.options.anchorTo === 'end' && holdWindowOpen(host, key, entry.heldAt, currentNow)) continue;
+        if (!force && host.options.anchorTo === 'end' && holdWindowOpen(host, key, entry, currentNow)) continue;
         latest.delete(key);
         const element = elementOf(host, key);
         const index = element?.isConnected
@@ -119,9 +151,16 @@ export function createHeldRowShrinks(now: () => number = () => Date.now()) {
           real.delete(key);
           continue;
         }
+        const live = readLiveElementHeight(element);
+        if (live.kind === 'hidden') continue;
+        const nextSize = live.kind === 'size' ? live.size : entry.size;
+        if (live.kind === 'size' && host.itemSizeCache.get(key as never) === nextSize) {
+          real.set(key, nextSize);
+          continue;
+        }
         landing = true;
         try {
-          resize(index, entry.size);
+          resize(index, nextSize);
         } finally {
           landing = false;
         }

@@ -98,6 +98,12 @@ export interface SessionFold {
 
 /** The core item each row was folded from (a row's id is not always its item's: a prompt's row is named by its submission). */
 const rowItems = new WeakMap<Obj, string>();
+/** Rows folded from uncommitted provisional tool calls (`item/started` or snapshot items stamped `meta.ext.provisional`). */
+const provisionalRows = new WeakSet<Obj>();
+
+const isProvisionalToolItem = (item: Obj, method: string): boolean =>
+  item.type === 'toolCall' && (method === 'item/started' || asObj(asObj(item.meta).ext).provisional === true);
+const isWithdrawnItem = (item: Obj): boolean => asObj(asObj(item.meta).ext).withdrawn === true;
 
 /** `held` with `item`: unchanged when the fold holds it already, or when it is re-sent archived (an archived item the fold does
  *  not hold lies above its window, older than the compaction's divider). */
@@ -131,7 +137,10 @@ const ownShown = (shown: readonly Obj[] | undefined): RowOwner => {
     ownRow(row, item);
     const prior = shown.find((candidate) => candidate.id === row.id && rowItems.get(candidate) === item);
     if (!prior) return undefined;
-    if (heldInPlace(row, prior)) return prior;
+    if (heldInPlace(row, prior)) {
+      provisionalRows.delete(prior);
+      return prior;
+    }
     adoptHeldText(row, prior);
     return undefined;
   };
@@ -327,17 +336,35 @@ function withHeld(
 function applyPositioned(s: SessionFold, held: HeldWindow, n: JsonRpcNotification): SessionFold | undefined {
   const p = asObj(n.params);
   switch (n.method) {
+    case 'turn/started':
+    case 'turn/completed': {
+      const prior = s.loose ?? [];
+      const kept = prior.filter((row) => !provisionalRows.has(row));
+      if (kept.length !== prior.length) return { ...withHeld(s, held, kept, false, NO_POSITIONS), live: null };
+      return withLive(s, null);
+    }
     case 'item/started':
     case 'item/completed': {
       // A record's rows reach the window as its unit (`thread/transcript/changed`), which states where it stands. These
       // are the rows of the running turn no record shows yet: they stand at the newest end until their record is told.
       const item = asObj(p.item);
+      const live = s.live?.id === item.id && n.method === 'item/completed' ? null : s.live;
+      if (n.method === 'item/completed' && isWithdrawnItem(item)) {
+        const targetId = String(item.id);
+        const prior = s.loose ?? [];
+        const kept = prior.filter((row) => row.id !== item.id && rowItems.get(row) !== targetId);
+        if (kept.length !== prior.length) return { ...withHeld(s, held, kept, false, NO_POSITIONS), live };
+        return live === s.live ? s : withLive(s, live);
+      }
       const rows = notifiedRows(n, item);
       const [row] = rows;
-      const live = s.live?.id === item.id && n.method === 'item/completed' ? null : s.live;
       if (row === undefined || shownIn(held, item.id)) return live === s.live ? s : withLive(s, live);
       if (item.type === 'agentMessage' && n.method === 'item/started') return withLive(s, liveOf(item, row));
-      for (const folded of rows) rowItems.set(folded, String(item.id));
+      const provisional = isProvisionalToolItem(item, n.method);
+      for (const folded of rows) {
+        rowItems.set(folded, String(item.id));
+        if (provisional) provisionalRows.add(folded);
+      }
       const fields =
         p.roomView === undefined ? s.fields : withSection(s.fields, SECTIONS['thread/roomView/updated']!, p.roomView);
       let loose: readonly Obj[] = s.loose ?? [];
@@ -653,7 +680,15 @@ function fieldsOfState(state: Obj): Obj {
  *  of whitespace, and completes a live reply that way only to end its live row. */
 function notifiedRows(n: JsonRpcNotification, item: Obj): Obj[] {
   const blank = item.type === 'agentMessage' && typeof item.text === 'string' && !/\S/.test(item.text);
-  return n.method === 'item/completed' && blank ? [] : itemRows(item);
+  if (n.method === 'item/completed' && blank) return [];
+  const rows = itemRows(item);
+  if (item.type === 'roomRow') return rows;
+  const turnId = typeof asObj(n.params).turnId === 'string' ? String(asObj(n.params).turnId) : '';
+  if (!turnId) return rows;
+  for (const row of rows) {
+    if (row.turnId === undefined) row.turnId = turnId;
+  }
+  return rows;
 }
 
 /** The live text of an `agentMessage` item: the row it settles as, without its text. */
@@ -671,6 +706,39 @@ const withLive = (s: SessionFold, live: Live | null): SessionFold => ({
   live,
   ...(!s.partialShown && live && showsPartial(live) ? { partialShown: true } : {}),
 });
+
+/** Removes rows matching `drop` from a non-positioned fold, updating transcript cache and `coreItems`. */
+function withoutItems(s: SessionFold, drop: (row: Obj) => boolean, live: Live | null): SessionFold {
+  let first = -1;
+  const removedItemIds = new Set<string>();
+  const kept: Obj[] = [];
+  for (let i = 0; i < s.items.length; i += 1) {
+    const row = s.items[i];
+    if (!row) continue;
+    if (drop(row)) {
+      if (first < 0) first = i;
+      const itemId = rowItems.get(row);
+      if (itemId !== undefined) removedItemIds.add(itemId);
+    } else {
+      kept.push(row);
+    }
+  }
+  if (first < 0) return live === s.live ? s : withLive(s, live);
+  for (const row of kept) {
+    const itemId = rowItems.get(row);
+    if (itemId !== undefined) removedItemIds.delete(itemId);
+  }
+  oweTranscript(s.items, kept, first);
+  const coreItems =
+    s.coreItems && removedItemIds.size > 0 ? s.coreItems.filter((id) => !removedItemIds.has(id)) : s.coreItems;
+  return {
+    ...s,
+    items: kept,
+    coreItems,
+    live,
+    structureRevision: s.structureRevision + 1,
+  };
+}
 const withField = (s: SessionFold, key: string, value: Json | undefined): SessionFold => {
   const fields: Obj = { ...s.fields };
   if (value === undefined) delete fields[key];
@@ -695,11 +763,14 @@ function* initialSteps(snapshot: Json): Generator<void, SessionFold, void> {
     // made, not a settled row: a snapshot taken mid-stream folds to the state the live feed had, and the next delta extends it.
     const row = item.type === 'agentMessage' && asObj(item.meta).status === 'inProgress' ? rowOf(item) : null;
     if (row) live = liveOf(item, row);
-    else
+    else {
+      const provisional = isProvisionalToolItem(item, 'snapshot');
       for (const folded of rowsOf(item)) {
         if (id !== undefined) rowItems.set(folded, id);
+        if (provisional) provisionalRows.add(folded);
         items.push(folded);
       }
+    }
     if (i % ITEMS_PER_STEP === ITEMS_PER_STEP - 1) yield;
   }
   if (p.window !== undefined) {
@@ -778,10 +849,19 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
         };
       case 'turn/started':
       case 'turn/completed':
-        return withLive(s, null);
+        return withoutItems(s, (row) => provisionalRows.has(row), null);
       case 'item/started':
       case 'item/completed': {
         const item = asObj(p.item);
+        const live = s.live?.id === item.id && n.method === 'item/completed' ? null : s.live;
+        if (n.method === 'item/completed' && isWithdrawnItem(item)) {
+          const targetId = String(item.id);
+          const cleaned = withoutItems(s, (row) => row.id === item.id || rowItems.get(row) === targetId, live);
+          if (cleaned.coreItems?.includes(targetId)) {
+            return { ...cleaned, coreItems: cleaned.coreItems.filter((id) => id !== targetId) };
+          }
+          return cleaned;
+        }
         const rows = notifiedRows(n, item);
         const [row, ...batched] = rows;
         // After a compaction the core sends each row of its window again, archived (`show_archived`). A row this store does not
@@ -791,10 +871,13 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
         // The item is held from here on, whatever it folds to below: every later return starts from `held`.
         const coreItems = holding(s.coreItems ?? [], item);
         const held = coreItems === s.coreItems ? s : { ...s, coreItems };
-        const live = s.live?.id === item.id && n.method === 'item/completed' ? null : s.live;
         if (row === undefined) return live === s.live ? held : withLive(held, live);
         if (item.type === 'agentMessage' && n.method === 'item/started') return withLive(held, liveOf(item, row));
-        for (const folded of rows) rowItems.set(folded, String(item.id));
+        const provisional = isProvisionalToolItem(item, n.method);
+        for (const folded of rows) {
+          rowItems.set(folded, String(item.id));
+          if (provisional) provisionalRows.add(folded);
+        }
         // A room log's row and the view that landed with it are one revision: the view rides on the row's notification
         // (`roomView`), so both are folded here, before any subscriber is told.
         const viewed =
@@ -830,10 +913,19 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
       case 'item/agentMessage/delta': {
         const id = String(p.itemId);
         const delta = typeof p.delta === 'string' ? p.delta : '';
-        const live =
-          s.live?.id === id
-            ? appendLive(s.live, delta)
-            : { id, identity: { id, kind: 'assistant', streaming: true }, ...splitLive(delta) };
+        const turnId = typeof p.turnId === 'string' && p.turnId ? p.turnId : '';
+        let live: Live;
+        if (s.live?.id === id) {
+          const base =
+            turnId && !s.live.identity.turnId ? { ...s.live, identity: { ...s.live.identity, turnId } } : s.live;
+          live = appendLive(base, delta);
+        } else {
+          live = {
+            id,
+            identity: { id, kind: 'assistant', streaming: true, ...(turnId ? { turnId } : {}) },
+            ...splitLive(delta),
+          };
+        }
         return withLive(s, live);
       }
       case 'thread/historyReset': {

@@ -3106,7 +3106,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         facts: provider_facts.clone(),
     });
     let search_usage = mixdog_tools::web::NativeSearchUsageSinks::new();
-    let search_sender = mixdog_tools::web::ProviderSearchSender::new(
+    let search_sender = mixdog_tools::web::ProviderSearchSender::with_acp(
         search_host.clone(),
         mixdog_tools::web::SenderDeps {
             broker: broker.clone(), // the one broker (`broker.admission()` lanes, shared with the main sends)
@@ -3117,6 +3117,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             account: Arc::new(account_store.clone()), // the roster each row's account is read from
             now: mixdog_tools::web::SenderDeps::system_clock(),
         },
+        mixdog_acp::search::AgentWebSearch::new(acp_agents.clone()),
     );
     let hosted_search: Arc<dyn mixdog_tools::web::NativeWebSearch> =
         mixdog_tools::web::HostedWebSearch::new(mixdog_tools::web::ConfiguredSearchRoutes::new(search_host), search_sender);
@@ -3544,6 +3545,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         ));
     // `onSessionTurnStart(store.clearReleased)`: a turn of any origin clears the owner's release mark and its parked flag in the worker index.
     let turn_starts: Arc<dyn mixdog_core_session::session::TurnStarts> = agent_registry.clone();
+    // An idle worker's completion wake is its owner's agent task: the agent tool, assembled after the sessions, takes it.
+    let late_worker_wakes = Arc::new(mixdog_core_session::session::LateWorkerWakes::default());
     // `writeStatuslineRoute` / `clearGatewaySessionRoute`: ONE value, cloned (a clone shares the write queue): the route hop and the session deletion.
     let gateway_routes = mixdog_core_session::session::gateway_routes::GatewaySessionRoutes::new(&b.data_dir, b.tokens.maintenance_io);
     let gateway_settle = gateway_routes.clone(); // the stop procedure's drain (`gatewaySessionRoutesSettled`)
@@ -3751,12 +3754,14 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             let start_hold = late_lifecycle.start_hold();
             // A busy session is running work of the lifecycle (Node's `busySessions`), through the same cell.
             let core_work: Arc<dyn mixdog_core_session::session::CoreWork> = late_lifecycle.clone();
+            let worker_wakes: Arc<dyn mixdog_core_session::session::WorkerWakes> = late_worker_wakes.clone();
             let archive = archive_states.clone();
             let read_state = read_state.clone();
             let agents = agents.clone();
             // A warm of a session that is not loaded leaves its book's evidence in the warmer's touch file, which the next load reads.
             let kept_books = warm_touches.clone();
             let acp_processes: Arc<dyn mixdog_core_session::session::purge::SessionAgentProcesses> = acp_agents.clone();
+            let forget_shell_strip = crate::exec::forget_thread_for(&b.exec);
             move |runs| mixdog_core_session::session::SessionDeps {
                 archive: archive.clone(),
                 completion_holders: Arc::default(),
@@ -3784,6 +3789,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 devices: Arc::new(mixdog_core_base::approvals::devices::RegistryDevices::new(features.1)),
                 clock: clock.clone(),
                 turn_starts: turn_starts.clone(),
+                worker_wakes: worker_wakes.clone(),
                 start_hold,
                 core_work,
                 turn_review: turn_review.clone(),
@@ -3816,6 +3822,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                         let (routes, exclusions, logins, delegated, deleted_goals) =
                             (session_routes.clone(), exclusions.clone(), session_saved_logins.clone(), session_delegated.clone(), early_goals.clone());
                         let ended_providers = registry.clone();
+                        let (ended_shell_strip, deleted_shell_strip) = (forget_shell_strip.clone(), forget_shell_strip.clone());
                         mixdog_core_session::session::purge::SessionReleases {
                             // The thread rested: drop its reusable read-text cache and cached last side-question request/response.
                             rested: vec![
@@ -3841,10 +3848,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                                 Arc::new(move |id: &str| routes.forget(&mixdog_core_api::ids::ThreadId::from(id))),
                                 Arc::new(move |id: &str| exclusions.forget(&mixdog_core_api::ids::ThreadId::from(id))),
                                 Arc::new(move |id: &str| delegated.session_ended(id)),
+                                ended_shell_strip,
                             ],
                             deleted: vec![
                                 Arc::new(move |id: &str| logins.session_deleted(&mixdog_core_api::ids::ThreadId::from(id))),
                                 Arc::new(move |id: &str| deleted_goals.forget_session(id)),
+                                deleted_shell_strip,
                             ],
                         }
                     },
@@ -4205,17 +4214,20 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         mixdog_core::run_host::admission::Limits::from_env(std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get), &*b.env),
         clock_agent.clone(),
     ));
-    let dispatch_sessions = Arc::new(mixdog_core::run_host::dispatch_sessions::SessionDispatch::new(
-        Arc::new(mixdog_core_session::session::dispatch_sessions::DispatchThreads::new(
-            directory.clone(),
-            session_turns.clone(),
-            session_close.clone(),
-            Some(b.shell_control.clone()),
-        )),
-        registry.clone(),
-        Some(Arc::new(crate::acp_tools::AgentAdmission(acp_agents.clone()))),
-        config.clone(),
-    ));
+    let dispatch_sessions = Arc::new(
+        mixdog_core::run_host::dispatch_sessions::SessionDispatch::new(
+            Arc::new(mixdog_core_session::session::dispatch_sessions::DispatchThreads::new(
+                directory.clone(),
+                session_turns.clone(),
+                session_close.clone(),
+                Some(b.shell_control.clone()),
+            )),
+            registry.clone(),
+            Some(Arc::new(crate::acp_tools::AgentAdmission(acp_agents.clone()))),
+            config.clone(),
+        )
+        .with_windows(Arc::new(mixdog_core::run_host::agent_world::CatalogWindows(b.catalog.clone()))),
+    );
     let hidden_runner = Arc::new(mixdog_core::run_host::agent_dispatch::HiddenRoleRunner::new(agent_admission.clone(), dispatch_sessions, agent_world));
     let agent_dispatch = Arc::new(mixdog_core::run_host::agent_dispatch::InlineAgentDispatch::new(
         hidden_runner,
@@ -5067,6 +5079,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         mcp_scope_id: None,
     });
     late_agent_port.bind(assembled.port()).map_err(|_| ComposeError::AlreadyBound("agent port"))?;
+    late_worker_wakes.bind(Arc::new(assembled.send.clone())).map_err(|_| ComposeError::AlreadyBound("worker wakes"))?;
     let agent_runtime = assembled.runtime.clone();
     // The routine sessions of the channel stack (`LateRoutineSessions`): the spawn flow is the agents the executor runs.
     routine_sessions

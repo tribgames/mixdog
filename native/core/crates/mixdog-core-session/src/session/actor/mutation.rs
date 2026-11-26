@@ -500,6 +500,7 @@ impl SessionActor {
             PlanKind::StartRun(input, originals_missing, op_ref) => {
                 self.start_run(input, originals_missing, op_ref, Some(reply), plan.prompt);
             }
+            PlanKind::StartWake(batch, op_ref, submission) => self.start_completion(batch, op_ref, Some(reply), Some(submission)),
             PlanKind::Records(records, extra) => {
                 let last = records.len().saturating_sub(1);
                 let mut reply = Some(reply);
@@ -578,7 +579,21 @@ impl SessionActor {
         let missing = super::super::staged_originals::missing_of(&req.params);
         // The message of an accepted takeover is the next turn: a submission arriving before it started queues behind it.
         let reserved = self.reserved_successor().is_some();
-        if !self.turn_busy() && !self.compaction_held() && !self.compacting() && self.clear_holds == 0 && !self.move_held() && !reserved {
+        let idle = !self.turn_busy() && !self.compaction_held() && !self.compacting() && self.clear_holds == 0 && !self.move_held() && !reserved;
+        // A worker's wake (`TurnKind::Wake`) runs on the completions queued for it, never on its empty prompt, and only now: a turn
+        // that runs or holds the session takes them itself.
+        if user_prompt.is_none()
+            && let Some(submission) = submission_id(&params.input).filter(|submission| self.waiting_wake(Some(submission)))
+        {
+            self.cell.wake_handoff.store(0, SeqCst);
+            let batch = self.impending_wake_batch();
+            if !idle || batch.is_empty() {
+                return Err(coded("session", WAKE_TAKEN, "Another turn of the agent session takes the completions this wake was for."));
+            }
+            let (op_ref, submission) = (self.op_ref(req, None)?, submission.to_owned());
+            return Ok(Plan { kind: PlanKind::StartWake(batch, op_ref, submission), value: json!({ "kind": "started" }), after: None, prompt: None });
+        }
+        if idle {
             if params.input.options.as_ref().is_some_and(|options| options.queue_only == Some(true)) {
                 return Err(coded("session", mixdog_protocol::thread::QUEUE_ONLY_IDLE, "The session has no running turn to queue behind."));
             }

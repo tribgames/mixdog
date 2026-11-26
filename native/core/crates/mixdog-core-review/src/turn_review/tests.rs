@@ -69,7 +69,7 @@ async fn review_starts_are_recorded_at_the_snapshot_and_forgotten_with_the_threa
     let ws_text = plain(&ws);
     let thread = mixdog_protocol::ThreadId::from("s1");
     let (review, bases) = super::testing::review_with_bases(&data);
-    let token = review.begin_turn(&ws_text, "s1", TurnOpen { checkpoint_id: "cp1".into(), continue_turn: false }).await;
+    let token = review.begin_turn(&ws_text, "s1", TurnOpen { checkpoint_id: "cp1".into() }).await;
     let first = bases.base(&thread, ReviewScope::Turn, Some("cp1")).await.expect("the turn's start");
     assert_eq!(nodepath::resolve_host(&[&plain(&first.0)]), nodepath::resolve_host(&[&ws_text]));
     assert!(!first.1.0.is_empty());
@@ -83,7 +83,7 @@ async fn review_starts_are_recorded_at_the_snapshot_and_forgotten_with_the_threa
     };
     review.record_tool_changes("s1", &ws_text, vec![change]).await;
     assert!(review.complete_turn("s1", token.as_ref()).await);
-    review.begin_turn(&ws_text, "s1", TurnOpen { checkpoint_id: "cp2".into(), continue_turn: false }).await;
+    review.begin_turn(&ws_text, "s1", TurnOpen { checkpoint_id: "cp2".into() }).await;
     let second = bases.base(&thread, ReviewScope::Turn, Some("cp2")).await.expect("the second turn's start");
     assert_ne!(second.1.0, first.1.0, "the second turn starts from the edited tree");
     assert_eq!(bases.base(&thread, ReviewScope::Session, None).await.map(|b| b.1.0), Some(first.1.0.clone()), "the session start does not move");
@@ -122,7 +122,7 @@ async fn user_repository_is_never_written() {
     let before = tree_listing(&ws.join(".git"));
     let ws_text = plain(&ws);
     let review = review_at(&data);
-    let token = review.begin_turn(&ws_text, "s1", TurnOpen { checkpoint_id: "cp1".into(), continue_turn: false }).await;
+    let token = review.begin_turn(&ws_text, "s1", TurnOpen { checkpoint_id: "cp1".into() }).await;
     std::fs::write(ws.join("a.txt"), "one\n2\n").unwrap();
     std::fs::write(ws.join("b.txt"), "new\n").unwrap();
     let change = |path: &str, before: ReviewContent, after: &str| CallChange {

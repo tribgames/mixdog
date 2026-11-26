@@ -49,6 +49,9 @@ pub struct TurnError {
     /// What the owner must learn beside the failure (the background shell jobs a stall stopped), kept apart from
     /// `message` so the presentation of the message cannot drop it.
     pub notes: Vec<String>,
+    /// A worker's wake ([`TurnKind::Wake`]) found another turn of its session taking the completions it was for: nothing ran,
+    /// and its job leaves no report.
+    pub wake_taken: bool,
 }
 
 impl TurnError {
@@ -95,6 +98,9 @@ pub enum TurnKind {
     /// the current settings and its agent's current permission (`reconcileAgentSession`,
     /// `followAgentPermission`).
     Send,
+    /// A reused worker's own continuation, run because a background completion was queued while it was idle: the turn's
+    /// input is the queued completions, never its empty prompt.
+    Wake,
 }
 
 /// One turn to run on a worker session.
@@ -183,12 +189,10 @@ pub trait OwnerNotify: Send + Sync {
     fn notify(&self, owner_session_id: &str, text: &str, meta: &Value) -> bool;
 }
 
-/// The worker's own queue of tool completions (`enqueueCompletionMessage`, `onWorkerCompletionQueued`).
+/// The worker's own queue of tool completions (`enqueueCompletionMessage`).
 pub trait WorkerInbox: Send + Sync {
     /// Queues the completion for the worker's next model-call boundary; `false` when nothing queued.
     fn enqueue_completion(&self, session_id: &str, text: &str, meta: &Value) -> bool;
-    /// A completion was queued: an idle worker is woken so the result reaches it now.
-    fn completion_queued(&self, _session_id: &str) {}
 }
 
 /// A slot in the agent lane (`resourceAdmission`). Work runs while it is held; the host scopes

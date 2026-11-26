@@ -84,6 +84,8 @@ struct Failure {
     reasoning_shown: bool,
     /// The stream marked reasoning under way (`Progress(Reasoning)`) without any of its text: a liveness mark, no shown output.
     reasoning_marked: bool,
+    /// At least one provisional or completed tool call was surfaced to the observer on this attempt.
+    provisional_tool_shown: bool,
 }
 
 fn fail(
@@ -93,6 +95,7 @@ fn fail(
     shown_chars: usize,
     reasoning_shown: bool,
     reasoning_marked: bool,
+    provisional_tool_shown: bool,
 ) -> Result<ModelResponse, Box<Failure>> {
     let mut partial = builder.finish();
     if partial.replay.is_empty()
@@ -103,7 +106,7 @@ fn fail(
     if partial.thinking_blocks.is_none() && !error.partial_thinking_blocks.is_empty() {
         partial.thinking_blocks = Some(serde_json::Value::Array(error.partial_thinking_blocks.clone()));
     }
-    Err(Box::new(Failure { error, partial, midstream, shown_chars, reasoning_shown, reasoning_marked }))
+    Err(Box::new(Failure { error, partial, midstream, shown_chars, reasoning_shown, reasoning_marked, provisional_tool_shown }))
 }
 
 fn is_thinking_or_blank_block(block: &serde_json::Value) -> bool {
@@ -526,7 +529,7 @@ impl Run {
                 begin();
             }
             self.exchanges += 1;
-            let failure = match mixdog_rt::node_log::provider_work(self.trace_identity(), "preparing", self.attempt_once(request)).await? {
+            let failure = match mixdog_rt::node_log::provider_work(self.trace_identity(), "preparing", self.attempt_once_boxed(request)).await? {
                 Ok(response) => {
                     // A completed send ends the outage the budgets covered.
                     self.retry = RetryStates::new(&self.model);
@@ -588,7 +591,7 @@ impl Run {
                 self.readmitting = true;
                 continue;
             }
-            match mixdog_rt::node_log::provider_work(self.trace_identity(), "recovering", self.recover(*failure)).await? {
+            match mixdog_rt::node_log::provider_work(self.trace_identity(), "recovering", self.recover_boxed(*failure)).await? {
                 Recovery::Proceed(response) => {
                     // The send returned its (recovered) turn to the loop: the budgets and the overload count belong to
                     // this logical send and end with it, as with a completed one.
@@ -761,6 +764,28 @@ impl Run {
         }
     }
 
+    #[inline(never)]
+    fn attempt_once_boxed(
+        &mut self,
+        request: Arc<ModelRequest>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Result<ModelResponse, Box<Failure>>, AgentError>> + Send + '_>> {
+        Box::pin(self.attempt_once(request))
+    }
+
+    #[inline(never)]
+    fn recover_boxed(&mut self, failure: Failure) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Recovery, AgentError>> + Send + '_>> {
+        Box::pin(self.recover(failure))
+    }
+
+    #[inline(never)]
+    fn exchange_boxed(
+        &mut self,
+        request: Arc<ModelRequest>,
+        builder: ResponseBuilder,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Result<ModelResponse, Box<Failure>>, AgentError>> + Send + '_>> {
+        Box::pin(self.exchange(request, builder))
+    }
+
     /// Exactly one attempt: admission, the stream, its fold.
     /// The provider request is I/O: an agent job's slot goes back to the pool for its length.
     async fn attempt_once(&mut self, request: Arc<ModelRequest>) -> Result<Result<ModelResponse, Box<Failure>>, AgentError> {
@@ -768,9 +793,9 @@ impl Run {
         let builder = ResponseBuilder::new(&self.model, ToolCallIds::new(&self.messages).in_session(epoch));
         let request = match self.prepare_request(request).await? {
             Ok(request) => request,
-            Err(error) => return Ok(fail(*error, builder, false, 0, false, false)),
+            Err(error) => return Ok(fail(*error, builder, false, 0, false, false, false)),
         };
-        let Some(slot) = self.config.slot.clone() else { return self.exchange(request, builder).await };
+        let Some(slot) = self.config.slot.clone() else { return self.exchange_boxed(request, builder).await };
         let mut settled = None;
         let turn = self.config.signal.clone().unwrap_or_else(|| crate::cancel::Cancel::from_token(&self.cancel));
         let observer = self.env.observer.clone();
@@ -928,7 +953,7 @@ impl Run {
                 identity.observe(mixdog_core_api::domain::provider::Boundary::AttemptFailed);
                 identity.deliver_pending(|stage, payload| self.deliver_raised(stage, payload));
                 self.show_notices(&error);
-                return Ok(fail(error, builder, false, 0, false, false));
+                return Ok(fail(error, builder, false, 0, false, false, false));
             }
             Some(Ok(stream)) => stream,
         };
@@ -936,6 +961,13 @@ impl Run {
         let mut shown_chars = 0usize;
         let mut reasoning_shown = false;
         let mut reasoning_marked = false;
+        let mut provisional_tool_shown = false;
+        // Shadow id resolver matching `builder`'s `ToolCallIds` so provisional start events carry the exact resolved call id
+        // that `ToolCallDone` will emit once arguments finish streaming.
+        let mut provisional_ids = ToolCallIds::new(&self.messages).in_session(self.call_epoch());
+        let mut in_flight_starts = Vec::<InFlightToolStart>::new();
+        let mut observed_cards = Vec::<ObservedToolCard>::new();
+        let mut observed_done_ids = std::collections::HashSet::<String>::new();
         self.settle_gate.send_replace(false);
         // Invariant (`crate::batch::settle_gate`): the gate is open only while a pending `next` waits for the wire. It is
         // opened here, between polls of `next`, and closed by the stream itself inside the poll in which the wire's
@@ -982,7 +1014,7 @@ impl Run {
                     self.show_notices(&error);
                     // The stream is issued anew by the retry: the provider's once-per-ladder `requesting` is raised again.
                     identity.reissue();
-                    return Ok(fail(error, builder, true, shown_chars, reasoning_shown, reasoning_marked));
+                    return Ok(fail(error, builder, true, shown_chars, reasoning_shown, reasoning_marked, provisional_tool_shown));
                 }
                 Some(Ok(event)) => event,
             };
@@ -1050,15 +1082,43 @@ impl Run {
                         self.carry.wire_route = Some(route.clone());
                     }
                 }
+                StreamEvent::ToolCallStart { id, name } => {
+                    if let Some(provisional) = provisional_tool_call(&mut provisional_ids, &mut in_flight_starts, id, name) {
+                        provisional_tool_shown = true;
+                        self.emit(RunEvent::ToolCallObserved { call: provisional, provisional: true, replaces: None });
+                    }
+                }
+                StreamEvent::ToolCallIdRenamed { from, to } => {
+                    record_in_flight_id_rename(&mut in_flight_starts, from, to);
+                }
+                StreamEvent::ToolCallArgsDelta { id, delta } => {
+                    record_in_flight_args_delta(&mut in_flight_starts, id, delta);
+                }
                 _ => {}
             }
-            let tool_done = matches!(event, StreamEvent::ToolCallDone(_));
+            let raw_done_id = match &event {
+                StreamEvent::ToolCallDone(call) => Some(call.id.clone()),
+                _ => None,
+            };
+            let is_returned_calls = matches!(&event, StreamEvent::ReturnedCalls(_));
             builder.push(event);
-            if tool_done && let Some(call) = builder.so_far().tool_calls.last().cloned() {
+            if let Some(raw_id) = raw_done_id
+                && let Some(call) = builder.so_far().tool_calls.last().cloned()
+            {
+                let observed = sync_provisional_ids_on_done(&mut provisional_ids, &mut in_flight_starts, &raw_id, &call);
+                if !observed.call.id.is_empty() {
+                    observed_done_ids.insert(observed.call.id.clone());
+                    observed_cards.push(ObservedToolCard {
+                        resolved_id: observed.call.id.clone(),
+                        name: observed.call.name.clone(),
+                        arguments: observed.call.arguments.clone(),
+                    });
+                }
                 if !call.id.is_empty() {
                     self.streamed_ids.insert(call.id.clone());
                 }
-                self.emit(RunEvent::ToolCallObserved(call.clone()));
+                provisional_tool_shown = true;
+                self.emit(RunEvent::ToolCallObserved { call: observed.call, provisional: false, replaces: observed.replaces });
                 let started_in = self.live_cwd();
                 // Starting the call is this run's own work while the response stays unread: not the provider's silence.
                 let _local = identity.local_work();
@@ -1066,12 +1126,22 @@ impl Run {
                 let step = self.step_calls(streamed);
                 self.try_eager(&call, &started_in, &step, streamed.len() - 1, crate::batch::Decided::default()).await;
             }
+            if is_returned_calls {
+                let final_calls = builder.so_far().tool_calls.clone();
+                for observed in reconcile_returned_calls(&mut in_flight_starts, &mut observed_cards, &mut observed_done_ids, &final_calls) {
+                    if !observed.call.id.is_empty() {
+                        self.streamed_ids.insert(observed.call.id.clone());
+                    }
+                    provisional_tool_shown = true;
+                    self.emit(RunEvent::ToolCallObserved { call: observed.call, provisional: false, replaces: observed.replaces });
+                }
+            }
         }
         if !builder.completed() {
             // A stream may only end with its terminal event.
             let mut error = ProviderError::transport(TransportFault::TruncatedStream, stream.delivery());
             error.exposure.text_emitted = shown_chars > 0;
-            return Ok(fail(error, builder, true, shown_chars, reasoning_shown, reasoning_marked));
+            return Ok(fail(error, builder, true, shown_chars, reasoning_shown, reasoning_marked, provisional_tool_shown));
         }
         self.last_streamed_chars = shown_chars;
         if keeps_its_run(provider.id().as_str()) {
@@ -1126,7 +1196,7 @@ impl Run {
     }
 
     async fn recover(&mut self, fail: Failure) -> Result<Recovery, AgentError> {
-        let Failure { mut error, mut partial, midstream, shown_chars, reasoning_shown, reasoning_marked } = fail;
+        let Failure { mut error, mut partial, midstream, shown_chars, reasoning_shown, reasoning_marked, provisional_tool_shown } = fail;
         if let Some(fault) = &error.transport {
             mixdog_rt::node_stderr!(
                 "[attempt-error] session={} provider={} model={} phase={} code={} delivery={:?} fault={fault:?} connection={} text_emitted={} shown_chars={shown_chars} reasoning_shown={reasoning_shown} tool_input_cut={} tool_dispatched={}",
@@ -1184,8 +1254,9 @@ impl Run {
         // is replayed, and an attempt that kept nothing is replayed after its output settles for display.
         let keep_shown = retractable && (!kept || error.exposure.tool_input_cut) && !self.env.observer.can_retract();
         // An attempt that kept nothing is dead whatever follows (a wait and its replay, a stop in the wait, an ended ladder,
-        // another route): what it showed settles now, so no draft of it outlives the decision.
-        if keep_shown && !kept {
+        // another route): what it showed settles now, so no draft or uncommitted provisional tool card outlives the decision.
+        let settle_provisional_tools = provisional_tool_shown && !kept && partial.tool_calls.is_empty() && self.eager.is_empty();
+        if (keep_shown && !kept) || settle_provisional_tools {
             self.emit(RunEvent::AttemptDisplaySettled);
         }
         // First-party Responses marks a failure after visible reasoning
@@ -1204,7 +1275,9 @@ impl Run {
         if replay_safe && let Some(recovery) = self.request_changing_recovery(&error) {
             return Ok(recovery);
         }
-        if midstream && self.reissue_cut_stream(&error, &partial, shown_chars, reasoning_shown) {
+        let sequence_cap = mixdog_ai::retry::effective_sequence_cap(self.env.decider.as_ref(), &self.model);
+        if midstream && self.retry.sequence_retries() < sequence_cap && self.reissue_cut_stream(&error, &partial, shown_chars, reasoning_shown) {
+            self.retry.record_sequence_retry();
             return Ok(Recovery::Replay);
         }
         if kept
@@ -1252,26 +1325,26 @@ impl Run {
                 None => ended = true,
             }
         }
+        let mut sequence_total = self.retry.sequence_retries();
         let committed = loop {
             if ended {
                 break None;
             }
-            let decision = self.env.decider.verdict(
-                &decide_on,
-                &self.retry.get(class).at_elapsed(self.send_identity.elapsed()),
-                &policy,
-                JitterSamples { step: self.env.jitter.draw(), advice: self.env.jitter.draw() },
-            );
+            let current = mixdog_ai::retry::with_sequence_retries(self.retry.get(class), sequence_total).at_elapsed(self.send_identity.elapsed());
+            let decision =
+                self.env.decider.verdict(&decide_on, &current, &policy, JitterSamples { step: self.env.jitter.draw(), advice: self.env.jitter.draw() });
             // The provider's ladder ended on this failure: its re-issue of the send runs once before the loop's own
-            // ladders (`recoverCompatNonStreaming`, `_recoverGeminiNonStreaming`).
+            // ladders (`recoverCompatNonStreaming`, `_recoverGeminiNonStreaming`), only while sequence budget remains.
             if matches!(decision.verdict, Verdict::Exhausted | Verdict::Surface)
                 && class == first_class(midstream)
+                && sequence_total < sequence_cap
                 && self.reissues_spent(&error, &partial, midstream, replay_safe)
             {
                 for state in spent {
                     self.retry.store(state);
                 }
                 self.retry.store(decision.next);
+                self.retry.record_sequence_retry();
                 if provider.send_stages(&self.model).before_recovery {
                     self.emit(RunEvent::Stage(Stage::Requesting));
                 }
@@ -1285,6 +1358,7 @@ impl Run {
                 Verdict::Fallback { model } => break Some((decision.next, None, Some(model))),
                 Verdict::Exhausted => {
                     let stopped = repeated_overload_stop(&policy, self.retry.get(class), &decide_on);
+                    sequence_total = sequence_total.max(mixdog_ai::retry::sequence_retries(&decision.next));
                     spent.push(decision.next);
                     // The repeated-overload stop is the provider's verdict that recovery is over (`isProviderRecoveryTerminal`).
                     if stopped {
@@ -1325,17 +1399,20 @@ impl Run {
             self.emit(RunEvent::Stage(Stage::ModelFallback { model }));
         }
         if let Some((delay, reason)) = wait {
-            let row_max = |class| policy.row(class).map_or(0, |row| row.schedule.max_retries);
+            let row_max = |class| mixdog_ai::retry::effective_row_max_retries(self.env.decider.as_ref(), &policy, class, &self.model);
             // A failure that goes on to the recovery ladder counts its provider row and the recovery laps as one
             // run (B-11: the user reads one rising n/N); any other wait counts its own row.
             let first = first_class(midstream);
-            let (used, max) = match escalate(first, &decide_on, &policy) {
-                Some(RetryClass::Recovery) if next.class() != RetryClass::Transport && policy.recovery.is_some() => (
+            let recovery_max = row_max(RetryClass::Recovery);
+            let (used, raw_max) = match escalate(first, &decide_on, &policy) {
+                Some(RetryClass::Recovery) if next.class() != RetryClass::Transport && recovery_max > 0 => (
                     self.retry.get(first).count(None).retries + self.retry.get(RetryClass::Recovery).count(None).retries,
-                    row_max(first) + row_max(RetryClass::Recovery),
+                    row_max(first).saturating_add(recovery_max),
                 ),
                 _ => (next.count(None).retries, row_max(next.class())),
             };
+            let prior = self.retry.sequence_retries().saturating_sub(used.max(1));
+            let max = raw_max.min(sequence_cap.saturating_sub(prior)).max(used.max(1));
             let mut payload =
                 mixdog_ai::retry::stage::reconnecting(&decide_on, used + 1, max.saturating_add(1), delay, u64::try_from(self.env.clock.now_ms()).unwrap_or(0));
             self.scheduled(&mut payload, &next, delay, &format!("{reason:?}"), replay_safe);
@@ -1350,6 +1427,9 @@ impl Run {
                 message.turn_reminder = self.last_reminder.clone();
                 self.push(message).await?;
                 self.record_segment(&text, true);
+            }
+            if provisional_tool_shown && !error.exposure.tool_dispatched && self.eager.is_empty() {
+                self.emit(RunEvent::AttemptDisplaySettled);
             }
         }
         if split_notice {
@@ -1447,7 +1527,10 @@ impl Run {
         let next = decision.next;
         let attempt = next.count(None).retries;
         self.retry.store(next);
-        let max = policy.row(RetryClass::Transport).map_or(0, |row| row.schedule.max_retries);
+        let sequence_cap = mixdog_ai::retry::effective_sequence_cap(self.env.decider.as_ref(), &self.model);
+        let row_max = mixdog_ai::retry::effective_row_max_retries(self.env.decider.as_ref(), &policy, RetryClass::Transport, &self.model);
+        let prior = self.retry.sequence_retries().saturating_sub(attempt.max(1));
+        let max = row_max.min(sequence_cap.saturating_sub(prior)).max(attempt.max(1));
         // `emitLoopReconnectProgress`: the replay about to run, of the transport budget.
         let mut payload = mixdog_ai::retry::stage::reconnecting(&error, attempt, max, delay, u64::try_from(self.env.clock.now_ms()).unwrap_or(0));
         let state = self.retry.get(RetryClass::Transport).clone();
@@ -1667,6 +1750,7 @@ fn is_protocol_payload(event: &StreamEvent) -> bool {
             | StreamEvent::WireRerouted(_)
             | StreamEvent::ThinkingBlocks(_)
             | StreamEvent::ReturnedCalls(_)
+            | StreamEvent::ToolCallIdRenamed { .. }
     )
 }
 
@@ -1684,4 +1768,1608 @@ fn is_semantic_output(event: &StreamEvent) -> bool {
             | StreamEvent::Progress(ProgressKind::Text | ProgressKind::Reasoning | ProgressKind::Tool)
             | StreamEvent::ChunkProgress(Some(ProgressKind::Text | ProgressKind::Reasoning | ProgressKind::Tool))
     )
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct InFlightToolStart {
+    raw_id: String,
+    renamed_raw_id: Option<String>,
+    resolved_id: String,
+    name: String,
+    compat_synthesized: bool,
+    raw_args: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct ObservedToolCard {
+    resolved_id: String,
+    name: String,
+    arguments: serde_json::Value,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct ObservedToolDone {
+    call: mixdog_core_api::domain::provider::ToolCall,
+    replaces: Option<String>,
+}
+
+fn is_leaked_tool_call_id(id: &str) -> bool {
+    id.contains("_leaked_")
+}
+
+fn is_compat_synthesized_id(id: &str) -> bool {
+    id.strip_prefix("call_").is_some_and(|hex| hex.len() == 16 && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+}
+
+fn parse_in_flight_args(raw: &str) -> Option<serde_json::Value> {
+    if raw.is_empty() {
+        return Some(serde_json::json!({}));
+    }
+    mixdog_js::json_parse(raw).ok().or_else(|| serde_json::from_str(raw).ok())
+}
+
+fn in_flight_args_match(raw_args: &str, done_args: &serde_json::Value) -> bool {
+    if let Some(parsed) = parse_in_flight_args(raw_args) {
+        return &parsed == done_args;
+    }
+    done_args.get("__invalidToolArgs").and_then(serde_json::Value::as_bool) == Some(true)
+        && done_args.get("__rawArguments").and_then(serde_json::Value::as_str) == Some(raw_args)
+}
+
+/// Records an explicit compat indexed call rename (`from -> to`) against the exact in-flight start.
+fn record_in_flight_id_rename(in_flight: &mut [InFlightToolStart], from: &str, to: &str) {
+    if from.is_empty() || to.is_empty() {
+        return;
+    }
+    if let Some(entry) = in_flight.iter_mut().find(|entry| entry.raw_id == from || entry.renamed_raw_id.as_deref() == Some(from)) {
+        entry.renamed_raw_id = Some(to.to_owned());
+    }
+}
+
+/// Tracks streamed argument fragments against their exact in-flight start id without heuristic guessing.
+fn record_in_flight_args_delta(in_flight: &mut [InFlightToolStart], id: &str, delta: &str) {
+    if id.is_empty() {
+        return;
+    }
+    if let Some(entry) = in_flight.iter_mut().find(|entry| entry.raw_id == id || entry.renamed_raw_id.as_deref() == Some(id)) {
+        entry.raw_args.push_str(delta);
+    }
+}
+
+/// Builds a provisional `ToolCall` for `StreamEvent::ToolCallStart`,
+/// deduplicating repeated in-flight starts BEFORE allocating an id so `provisional_ids` never
+/// drifts ahead of `ResponseBuilder`'s `ToolCallIds`.
+fn provisional_tool_call(
+    ids: &mut ToolCallIds,
+    in_flight: &mut Vec<InFlightToolStart>,
+    id: &str,
+    name: &str,
+) -> Option<mixdog_core_api::domain::provider::ToolCall> {
+    if id.is_empty() || name.is_empty() || in_flight.iter().any(|entry| entry.raw_id == id) {
+        return None;
+    }
+    let mut provisional =
+        mixdog_core_api::domain::provider::ToolCall { id: id.to_owned(), name: name.to_owned(), arguments: serde_json::Value::Null, native_type: None };
+    ids.resolve(&mut provisional);
+    if provisional.id.is_empty() {
+        return None;
+    }
+    in_flight.push(InFlightToolStart {
+        raw_id: id.to_owned(),
+        renamed_raw_id: None,
+        resolved_id: provisional.id.clone(),
+        name: name.to_owned(),
+        compat_synthesized: is_compat_synthesized_id(id),
+        raw_args: String::new(),
+    });
+    Some(provisional)
+}
+
+/// Keeps `provisional_ids` aligned with `ResponseBuilder`'s `ToolCallIds` when `ToolCallDone`
+/// arrives, handling both compat synthesized-ID renames and text-recovered (`_leaked_`) calls
+/// that deduplicate an in-flight native call without hijacking unrelated native starts.
+fn sync_provisional_ids_on_done(
+    ids: &mut ToolCallIds,
+    in_flight: &mut Vec<InFlightToolStart>,
+    raw_id: &str,
+    resolved_done: &mixdog_core_api::domain::provider::ToolCall,
+) -> ObservedToolDone {
+    if !raw_id.is_empty()
+        && let Some(pos) = in_flight.iter().position(|entry| entry.raw_id == raw_id)
+    {
+        let matched = in_flight.remove(pos);
+        let replaces = (matched.resolved_id != resolved_done.id && !matched.resolved_id.is_empty()).then_some(matched.resolved_id);
+        return ObservedToolDone { call: resolved_done.clone(), replaces };
+    }
+    let mut dummy =
+        mixdog_core_api::domain::provider::ToolCall { id: raw_id.to_owned(), name: String::new(), arguments: serde_json::Value::Null, native_type: None };
+    ids.resolve(&mut dummy);
+
+    if !raw_id.is_empty()
+        && let Some(pos) = in_flight.iter().position(|entry| entry.renamed_raw_id.as_deref() == Some(raw_id))
+    {
+        let matched = in_flight.remove(pos);
+        let replaces = (matched.resolved_id != resolved_done.id && !matched.resolved_id.is_empty()).then_some(matched.resolved_id);
+        return ObservedToolDone { call: resolved_done.clone(), replaces };
+    }
+
+    if is_leaked_tool_call_id(raw_id) {
+        if let Some(pos) =
+            in_flight.iter().position(|entry| entry.name == resolved_done.name && in_flight_args_match(&entry.raw_args, &resolved_done.arguments))
+        {
+            let matched = in_flight.remove(pos);
+            let mut call = resolved_done.clone();
+            call.id = matched.resolved_id;
+            return ObservedToolDone { call, replaces: None };
+        }
+        return ObservedToolDone { call: resolved_done.clone(), replaces: None };
+    }
+
+    if !resolved_done.name.is_empty() {
+        let pos = in_flight
+            .iter()
+            .position(|entry| {
+                entry.compat_synthesized
+                    && entry.renamed_raw_id.is_none()
+                    && entry.name == resolved_done.name
+                    && in_flight_args_match(&entry.raw_args, &resolved_done.arguments)
+            })
+            .or_else(|| {
+                in_flight.iter().position(|entry| {
+                    entry.compat_synthesized && entry.renamed_raw_id.is_none() && entry.raw_args.is_empty() && entry.name == resolved_done.name
+                })
+            });
+        if let Some(pos) = pos {
+            let replaced = in_flight.remove(pos);
+            let replaces = (replaced.resolved_id != resolved_done.id && !replaced.resolved_id.is_empty()).then_some(replaced.resolved_id);
+            return ObservedToolDone { call: resolved_done.clone(), replaces };
+        }
+    }
+    ObservedToolDone { call: resolved_done.clone(), replaces: None }
+}
+
+/// Reconciles provisional starts and already-observed leaked/synthesized cards against the final
+/// `StreamEvent::ReturnedCalls` list so compat ID-only renames and Cursor leaked-before-native
+/// duplicates collapse onto a single card matching the committed native call id.
+fn reconcile_returned_calls(
+    in_flight: &mut Vec<InFlightToolStart>,
+    observed_cards: &mut Vec<ObservedToolCard>,
+    observed_done_ids: &mut std::collections::HashSet<String>,
+    final_calls: &[mixdog_core_api::domain::provider::ToolCall],
+) -> Vec<ObservedToolDone> {
+    let final_ids: std::collections::HashSet<&str> = final_calls.iter().map(|call| call.id.as_str()).collect();
+    let mut out = Vec::new();
+    for call in final_calls {
+        if call.id.is_empty() || observed_done_ids.contains(&call.id) {
+            continue;
+        }
+        if let Some(pos) = in_flight
+            .iter()
+            .position(|entry| entry.resolved_id == call.id || entry.raw_id == call.id || entry.renamed_raw_id.as_deref() == Some(call.id.as_str()))
+            .or_else(|| {
+                in_flight.iter().position(|entry| {
+                    entry.compat_synthesized
+                        && entry.renamed_raw_id.is_none()
+                        && entry.name == call.name
+                        && in_flight_args_match(&entry.raw_args, &call.arguments)
+                })
+            })
+            .or_else(|| {
+                in_flight
+                    .iter()
+                    .position(|entry| entry.compat_synthesized && entry.renamed_raw_id.is_none() && entry.raw_args.is_empty() && entry.name == call.name)
+            })
+        {
+            let matched = in_flight.remove(pos);
+            let replaces = (matched.resolved_id != call.id && !matched.resolved_id.is_empty()).then_some(matched.resolved_id);
+            observed_done_ids.insert(call.id.clone());
+            out.push(ObservedToolDone { call: call.clone(), replaces });
+            continue;
+        }
+        if let Some(pos) =
+            observed_cards.iter().position(|card| !final_ids.contains(card.resolved_id.as_str()) && card.name == call.name && card.arguments == call.arguments)
+        {
+            let matched = observed_cards.remove(pos);
+            let replaces = (matched.resolved_id != call.id && !matched.resolved_id.is_empty()).then_some(matched.resolved_id);
+            observed_done_ids.insert(call.id.clone());
+            out.push(ObservedToolDone { call: call.clone(), replaces });
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod provisional_tool_call_tests {
+    use std::collections::HashSet;
+    use std::collections::VecDeque;
+    use std::sync::Arc;
+    use std::sync::Mutex;
+    use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+
+    use async_trait::async_trait;
+    use mixdog_ai::providers::compat::chat::ChatDecoder;
+    use mixdog_ai::providers::compat::profile::CompatProfile;
+    use mixdog_ai::providers::compat::profile::CredentialKind;
+    use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
+    use mixdog_core_api::domain::mock::MockApprovalGate;
+    use mixdog_core_api::domain::mock::MockCodec;
+    use mixdog_core_api::domain::mock::MockFileService;
+    use mixdog_core_api::domain::mock::MockProcessManager;
+    use mixdog_core_api::domain::mock::MockProgress;
+    use mixdog_core_api::domain::provider::ModelRequest;
+    use mixdog_core_api::domain::provider::ModelStream;
+    use mixdog_core_api::domain::provider::ProviderAdapter;
+    use mixdog_core_api::domain::provider::ProviderError;
+    use mixdog_core_api::domain::provider::StopReason;
+    use mixdog_core_api::domain::provider::StreamEvent;
+    use mixdog_core_api::domain::provider::ToolCall;
+    use mixdog_core_api::domain::provider::WireCodec;
+    use mixdog_core_api::domain::provider::WireDecoder;
+    use mixdog_core_api::domain::retry::RetryPolicy;
+    use mixdog_core_api::domain::tool::SurfaceKind;
+    use mixdog_core_api::domain::tool::ToolIo;
+    use mixdog_protocol::ProviderId;
+    use mixdog_protocol::ThreadId;
+    use mixdog_protocol::TurnId;
+    use serde_json::json;
+    use tokio_util::sync::CancellationToken;
+
+    use super::*;
+    use crate::Run;
+    use crate::RunCarry;
+    use crate::RunConfig;
+    use crate::env::AllowAll;
+    use crate::env::Clock;
+    use crate::env::CommitError;
+    use crate::env::DrainRequest;
+    use crate::env::JitterSource;
+    use crate::env::NoGuards;
+    use crate::env::Retracted;
+    use crate::env::RetryWait;
+    use crate::env::Rewrite;
+    use crate::env::RunEnv;
+    use crate::env::RunEvent;
+    use crate::env::RunObserver;
+    use crate::env::SteerEntry;
+    use crate::env::SteerSource;
+    use crate::env::TextRetraction;
+    use crate::env::Ticket;
+    use crate::env::TranscriptSink;
+    use crate::tools::ToolEnv;
+    use crate::tools::ToolSet;
+
+    #[test]
+    fn provisional_start_matches_builder_resolved_id_and_skips_empty_or_duplicate() {
+        let existing = vec![AgentMessage::assistant("", vec![ToolCall { id: "call_0".into(), name: "read".into(), arguments: json!({}), native_type: None }])];
+        let mut provisional_ids = ToolCallIds::new(&existing).in_session(1);
+        let mut builder = ResponseBuilder::new("m", ToolCallIds::new(&existing).in_session(1));
+        let mut in_flight = Vec::new();
+
+        assert!(provisional_tool_call(&mut provisional_ids, &mut in_flight, "", "read").is_none());
+        assert!(provisional_tool_call(&mut provisional_ids, &mut in_flight, "call_0", "").is_none());
+
+        let first = provisional_tool_call(&mut provisional_ids, &mut in_flight, "call_0", "read").expect("provisional call");
+        assert!(first.arguments.is_null());
+        assert_eq!(first.name, "read");
+
+        // Duplicate start on the SAME provisional_ids MUST be suppressed without allocating/drifting ids.
+        assert!(
+            provisional_tool_call(&mut provisional_ids, &mut in_flight, "call_0", "read").is_none(),
+            "duplicate in-flight start must be suppressed before resolving an id"
+        );
+
+        builder.push(StreamEvent::ToolCallDone(ToolCall {
+            id: "call_0".into(),
+            name: "read".into(),
+            arguments: json!({ "file_path": "a.rs" }),
+            native_type: None,
+        }));
+        let done = builder.so_far().tool_calls.last().expect("done call").clone();
+        let observed = sync_provisional_ids_on_done(&mut provisional_ids, &mut in_flight, "call_0", &done);
+        assert_eq!(observed.replaces, None);
+        assert_eq!(first.id, observed.call.id, "provisional id matches ToolCallDone resolved id even after collision/epoch");
+        assert_eq!(observed.call.arguments, json!({ "file_path": "a.rs" }));
+
+        // A second distinct call reusing the same raw provider id after ToolCallDone must stay aligned.
+        let second = provisional_tool_call(&mut provisional_ids, &mut in_flight, "call_0", "edit").expect("second provisional");
+        assert_ne!(second.id, first.id);
+        builder.push(StreamEvent::ToolCallDone(ToolCall {
+            id: "call_0".into(),
+            name: "edit".into(),
+            arguments: json!({ "file_path": "b.rs" }),
+            native_type: None,
+        }));
+        let done_second = builder.so_far().tool_calls.last().expect("second done call").clone();
+        let observed_second = sync_provisional_ids_on_done(&mut provisional_ids, &mut in_flight, "call_0", &done_second);
+        assert_eq!(observed_second.replaces, None);
+        assert_eq!(second.id, observed_second.call.id, "reused raw id after completion stays aligned with ResponseBuilder");
+
+        // Compat-style unmatched ToolCallDone (synthesized 16-hex start id replaced by real provider id) returns alias and syncs resolver.
+        let compat_start = provisional_tool_call(&mut provisional_ids, &mut in_flight, "call_0123456789abcdef", "grep").expect("compat start");
+        builder.push(StreamEvent::ToolCallDone(ToolCall {
+            id: "call_real".into(),
+            name: "grep".into(),
+            arguments: json!({ "pattern": "foo" }),
+            native_type: None,
+        }));
+        let done_compat = builder.so_far().tool_calls.last().expect("compat done call").clone();
+        let observed_compat = sync_provisional_ids_on_done(&mut provisional_ids, &mut in_flight, "call_real", &done_compat);
+        assert_eq!(observed_compat.replaces.as_deref(), Some(compat_start.id.as_str()), "compat rename must carry replaced provisional id");
+        assert!(in_flight.is_empty(), "consumed synthesized start must not remain orphaned in flight");
+
+        let next_real = provisional_tool_call(&mut provisional_ids, &mut in_flight, "call_real", "read").expect("next real start");
+        builder.push(StreamEvent::ToolCallDone(ToolCall {
+            id: "call_real".into(),
+            name: "read".into(),
+            arguments: json!({ "file_path": "c.rs" }),
+            native_type: None,
+        }));
+        let done_next_real = builder.so_far().tool_calls.last().expect("next real done").clone();
+        let observed_next = sync_provisional_ids_on_done(&mut provisional_ids, &mut in_flight, "call_real", &done_next_real);
+        assert_eq!(observed_next.replaces, None);
+        assert_eq!(next_real.id, observed_next.call.id, "subsequent call after compat rename stays in lockstep");
+    }
+
+    #[test]
+    fn provisional_tool_compat_indexed_rename_carries_alias_without_orphan() {
+        let profile = CompatProfile::plain("gateway", "https://gateway.invalid/v1", CredentialKind::StaticKey { reauth_on_401: false });
+        let mut decoder = ChatDecoder::new(profile, ProviderId::from("gateway"));
+        let wire = [
+            format!(
+                "data: {}\n\n",
+                json!({
+                    "choices": [{
+                        "delta": {
+                            "tool_calls": [{
+                                "index": 0,
+                                "type": "function",
+                                "function": { "name": "grep", "arguments": "{\"pat" }
+                            }]
+                        },
+                        "finish_reason": null
+                    }]
+                })
+            ),
+            format!(
+                "data: {}\n\n",
+                json!({
+                    "choices": [{
+                        "delta": {
+                            "tool_calls": [{
+                                "index": 0,
+                                "id": "call_real_0",
+                                "function": { "arguments": "tern\":\"foo\"}" }
+                            }]
+                        },
+                        "finish_reason": null
+                    }]
+                })
+            ),
+            format!("data: {}\n\n", json!({ "choices": [{ "delta": {}, "finish_reason": "tool_calls" }] })),
+            "data: [DONE]\n\n".to_owned(),
+        ];
+
+        let mut events = Vec::new();
+        for chunk in &wire {
+            events.extend(decoder.feed(chunk.as_bytes()).expect("decode compat chunk"));
+        }
+        events.extend(decoder.finish().expect("decode compat finish"));
+
+        let mut provisional_ids = ToolCallIds::new(&[]).in_session(0);
+        let mut builder = ResponseBuilder::new("m", ToolCallIds::new(&[]).in_session(0));
+        let mut in_flight = Vec::new();
+        let mut observed = Vec::new();
+
+        for event in events {
+            match &event {
+                StreamEvent::ToolCallStart { id, name } => {
+                    if let Some(provisional) = provisional_tool_call(&mut provisional_ids, &mut in_flight, id, name) {
+                        observed.push((provisional, true, None));
+                    }
+                }
+                StreamEvent::ToolCallArgsDelta { id, delta } => {
+                    record_in_flight_args_delta(&mut in_flight, id, delta);
+                }
+                _ => {}
+            }
+            let raw_done_id = match &event {
+                StreamEvent::ToolCallDone(call) => Some(call.id.clone()),
+                _ => None,
+            };
+            builder.push(event);
+            if let Some(raw_id) = raw_done_id
+                && let Some(call) = builder.so_far().tool_calls.last().cloned()
+            {
+                let done = sync_provisional_ids_on_done(&mut provisional_ids, &mut in_flight, &raw_id, &call);
+                observed.push((done.call, false, done.replaces));
+            }
+        }
+
+        assert_eq!(observed.len(), 2, "expected provisional start followed by completed call");
+        let (start_call, start_provisional, start_replaces) = &observed[0];
+        let (done_call, done_provisional, done_replaces) = &observed[1];
+        assert!(*start_provisional);
+        assert_eq!(*start_replaces, None);
+        assert_eq!(start_call.name, "grep");
+        assert_ne!(start_call.id, "call_real_0", "compat start without id must synthesize a distinct provisional id");
+
+        assert!(!*done_provisional);
+        assert_eq!(done_call.id, "call_real_0");
+        assert_eq!(done_call.arguments, json!({ "pattern": "foo" }));
+        assert_eq!(
+            done_replaces.as_deref(),
+            Some(start_call.id.as_str()),
+            "renamed compat ToolCallDone must alias the synthesized start id so only one card exists"
+        );
+        assert!(in_flight.is_empty(), "synthesized compat start must not stay orphaned in flight");
+    }
+
+    #[test]
+    fn provisional_tool_leaked_and_native_duplicate_keeps_single_card_and_distinct_native_unhijacked() {
+        let drive = |wire: &[String]| {
+            let profile = CompatProfile::plain("gateway", "https://gateway.invalid/v1", CredentialKind::StaticKey { reauth_on_401: false });
+            let mut decoder = ChatDecoder::new(profile, ProviderId::from("gateway")).with_known_tools(HashSet::from(["grep".into()]));
+            let mut events = Vec::new();
+            for chunk in wire {
+                events.extend(decoder.feed(chunk.as_bytes()).expect("decode compat chunk"));
+            }
+            events.extend(decoder.finish().expect("decode compat finish"));
+
+            let mut provisional_ids = ToolCallIds::new(&[]).in_session(0);
+            let mut builder = ResponseBuilder::new("m", ToolCallIds::new(&[]).in_session(0));
+            let mut in_flight = Vec::new();
+            let mut observed = Vec::new();
+            let mut saw_leaked_done = false;
+
+            for event in events {
+                match &event {
+                    StreamEvent::ToolCallStart { id, name } => {
+                        if let Some(provisional) = provisional_tool_call(&mut provisional_ids, &mut in_flight, id, name) {
+                            observed.push((provisional, true, None));
+                        }
+                    }
+                    StreamEvent::ToolCallArgsDelta { id, delta } => {
+                        record_in_flight_args_delta(&mut in_flight, id, delta);
+                    }
+                    StreamEvent::ToolCallDone(call) if is_leaked_tool_call_id(&call.id) => {
+                        saw_leaked_done = true;
+                    }
+                    _ => {}
+                }
+                let raw_done_id = match &event {
+                    StreamEvent::ToolCallDone(call) => Some(call.id.clone()),
+                    _ => None,
+                };
+                builder.push(event);
+                if let Some(raw_id) = raw_done_id
+                    && let Some(call) = builder.so_far().tool_calls.last().cloned()
+                {
+                    let done = sync_provisional_ids_on_done(&mut provisional_ids, &mut in_flight, &raw_id, &call);
+                    observed.push((done.call, false, done.replaces));
+                }
+            }
+            (observed, builder.finish().tool_calls, in_flight, saw_leaked_done)
+        };
+
+        // Case 1: Leaked text call duplicates native call (same name + args). ChatDecoder dispatches
+        // leaked Done first, suppresses native Done, and returns native ID in ReturnedCalls for commit.
+        let duplicate_wire = [
+            format!(
+                "data: {}\n\n",
+                json!({
+                    "choices": [{
+                        "delta": {
+                            "content": "<function_calls><invoke name=\"grep\"><parameter name=\"pattern\">foo</parameter></invoke></function_calls>"
+                        },
+                        "finish_reason": null
+                    }]
+                })
+            ),
+            format!(
+                "data: {}\n\n",
+                json!({
+                    "choices": [{
+                        "delta": {
+                            "tool_calls": [{
+                                "index": 0,
+                                "id": "call_native_dup",
+                                "type": "function",
+                                "function": { "name": "grep", "arguments": "{\"pattern\":\"foo\"}" }
+                            }]
+                        },
+                        "finish_reason": null
+                    }]
+                })
+            ),
+            format!("data: {}\n\n", json!({ "choices": [{ "delta": {}, "finish_reason": "tool_calls" }] })),
+            "data: [DONE]\n\n".to_owned(),
+        ];
+        let (observed, committed, in_flight, saw_leaked_done) = drive(&duplicate_wire);
+        assert!(saw_leaked_done, "decoder must have dispatched the text-recovered duplicate call");
+        assert!(in_flight.is_empty(), "native start must be consumed when matched by its leaked duplicate");
+        assert_eq!(committed.len(), 1, "deduped commit keeps only the native call");
+        assert_eq!(committed[0].id, "call_native_dup");
+        assert_eq!(observed.len(), 2, "only start + done for the single call");
+        assert!(observed[0].1);
+        assert_eq!(observed[0].0.id, "call_native_dup");
+        assert!(!observed[1].1);
+        assert_eq!(observed[1].0.id, "call_native_dup", "leaked duplicate must re-attribute onto the live native card so commit updates the single card");
+        assert_eq!(observed[1].2, None);
+
+        // Case 2: Leaked text call has the SAME tool name as a native call, but DIFFERENT arguments.
+        // Leaked Done MUST NOT hijack the native start; both calls remain distinct through commit.
+        let distinct_wire = [
+            format!(
+                "data: {}\n\n",
+                json!({
+                    "choices": [{
+                        "delta": {
+                            "content": "<function_calls><invoke name=\"grep\"><parameter name=\"pattern\">leaked_arg</parameter></invoke></function_calls>"
+                        },
+                        "finish_reason": null
+                    }]
+                })
+            ),
+            format!(
+                "data: {}\n\n",
+                json!({
+                    "choices": [{
+                        "delta": {
+                            "tool_calls": [{
+                                "index": 0,
+                                "id": "call_native_distinct",
+                                "type": "function",
+                                "function": { "name": "grep", "arguments": "{\"pattern\":\"native_arg\"}" }
+                            }]
+                        },
+                        "finish_reason": null
+                    }]
+                })
+            ),
+            format!("data: {}\n\n", json!({ "choices": [{ "delta": {}, "finish_reason": "tool_calls" }] })),
+            "data: [DONE]\n\n".to_owned(),
+        ];
+        let (observed2, committed2, in_flight2, saw_leaked_done2) = drive(&distinct_wire);
+        assert!(saw_leaked_done2);
+        assert!(in_flight2.is_empty());
+        assert_eq!(committed2.len(), 2, "distinct native and leaked calls both commit");
+        assert_eq!(observed2.len(), 3, "native start + leaked done + native done");
+        assert_eq!(observed2[0].0.id, "call_native_distinct");
+        assert!(is_leaked_tool_call_id(&observed2[1].0.id), "distinct leaked call keeps its own id");
+        assert_eq!(observed2[1].2, None, "distinct leaked call must not hijack native start");
+        assert_eq!(observed2[2].0.id, "call_native_distinct");
+        assert_eq!(observed2[2].2, None);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn provisional_tool_only_stream_cut_retry_emits_attempt_display_settled() {
+        struct FixedClock;
+        impl Clock for FixedClock {
+            fn now_ms(&self) -> i64 {
+                1_000
+            }
+        }
+        struct HalfJitter;
+        impl JitterSource for HalfJitter {
+            fn draw(&self) -> f64 {
+                0.5
+            }
+        }
+        struct InstantWait;
+        #[async_trait]
+        impl RetryWait for InstantWait {
+            async fn wait(&self, _delay: Duration) {}
+        }
+        struct EmptySteer;
+        #[async_trait]
+        impl SteerSource for EmptySteer {
+            async fn drain(&self, _request: DrainRequest) -> Vec<SteerEntry> {
+                Vec::new()
+            }
+        }
+        #[derive(Default)]
+        struct NoRetractObserver {
+            events: Mutex<Vec<RunEvent>>,
+        }
+        impl RunObserver for NoRetractObserver {
+            fn event(&self, event: RunEvent) {
+                self.events.lock().unwrap().push(event);
+            }
+            fn can_retract(&self) -> bool {
+                false
+            }
+            fn retract_text(&self, _retraction: TextRetraction) -> Retracted {
+                Retracted::Refused
+            }
+        }
+        #[derive(Default)]
+        struct MemorySink {
+            ids: AtomicU64,
+        }
+        #[async_trait]
+        impl TranscriptSink for MemorySink {
+            async fn commit(&self, _message: &AgentMessage) -> Result<Ticket, CommitError> {
+                Ok(Ticket(self.ids.fetch_add(1, Ordering::Relaxed) + 1))
+            }
+            fn replace(&self, _messages: &[AgentMessage], _rewrite: &Rewrite) {}
+            fn message_id(&self) -> String {
+                format!("m{}", self.ids.fetch_add(1, Ordering::Relaxed) + 1)
+            }
+            async fn durable(&self, _ticket: Ticket) {}
+        }
+        struct VecStream(VecDeque<StreamEvent>);
+        #[async_trait]
+        impl ModelStream for VecStream {
+            async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
+                self.0.pop_front().map(Ok)
+            }
+            fn delivery(&self) -> mixdog_core_api::domain::provider::DeliveryState {
+                mixdog_core_api::domain::provider::DeliveryState::Accepted
+            }
+            fn on_wire_left(&mut self, _left: Arc<dyn Fn() + Send + Sync>) {}
+        }
+        struct TwoAttemptProvider {
+            id: ProviderId,
+            codec: MockCodec,
+            policy: RetryPolicy,
+            keepalive: KeepaliveSchedule,
+            attempts: Mutex<VecDeque<Vec<StreamEvent>>>,
+            calls: AtomicU64,
+        }
+        #[async_trait]
+        impl ProviderAdapter for TwoAttemptProvider {
+            fn id(&self) -> &ProviderId {
+                &self.id
+            }
+            fn codec(&self) -> &dyn WireCodec {
+                &self.codec
+            }
+            fn retry_policy(&self) -> &RetryPolicy {
+                &self.policy
+            }
+            fn keepalive(&self) -> &KeepaliveSchedule {
+                &self.keepalive
+            }
+            async fn attempt(&self, _request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                let events = self.attempts.lock().unwrap().pop_front().expect("scripted attempt");
+                Ok(Box::new(VecStream(events.into())))
+            }
+            fn release_send(&self, _group: &str) {}
+        }
+
+        let observer = Arc::new(NoRetractObserver::default());
+        let provider = Arc::new(TwoAttemptProvider {
+            id: ProviderId::from("test-provider"),
+            codec: MockCodec,
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            attempts: Mutex::new(VecDeque::from([
+                // Attempt 1: tool-only stream that emits ToolCallStart and cuts (EOF without Completed -> TruncatedStream).
+                vec![StreamEvent::ToolCallStart { id: "call_cut_1".into(), name: "read".into() }],
+                // Attempt 2: clean retry completion.
+                vec![
+                    StreamEvent::TextDelta("recovered".into()),
+                    StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+                ],
+            ])),
+            calls: AtomicU64::new(0),
+        });
+
+        let env = RunEnv {
+            clock: Arc::new(FixedClock),
+            jitter: Arc::new(HalfJitter),
+            waiter: Arc::new(InstantWait),
+            decider: Arc::new(mixdog_ai::retry::StandardRetryDecider),
+            steer: Arc::new(EmptySteer),
+            observer: observer.clone(),
+            sink: Arc::new(MemorySink::default()),
+            gate: Arc::new(AllowAll),
+            guards: Arc::new(NoGuards),
+            compactor: None,
+            route: None,
+            skills: None,
+            hooks: None,
+            reuse: None,
+            reactions: None,
+            tail: None,
+            mcp: None,
+            side: None,
+            step_judge: None,
+            artifacts: None,
+            images: None,
+            failures: None,
+        };
+        let tokens = mixdog_rt::testing::tokens();
+        let tool_env = ToolEnv {
+            thread_id: ThreadId::from("t-cut"),
+            turn_id: TurnId::from("r-cut"),
+            cwd: mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir()).expect("temp cwd"),
+            surface: SurfaceKind::Lead,
+            io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
+            approvals: Arc::new(MockApprovalGate::default()),
+            files: Arc::new(MockFileService::default()),
+            processes: Arc::new(MockProcessManager::default()),
+            progress: Arc::new(MockProgress::default()),
+            deadline_of: None,
+            notify: None,
+            review: None,
+        };
+        let config = RunConfig::new(ThreadId::from("t-cut"), TurnId::from("r-cut"), "test-model");
+        let run = Run::new(
+            env,
+            CancellationToken::new(),
+            provider.clone(),
+            ToolSet::with_builtins(Vec::new(), Vec::new()),
+            tool_env,
+            config,
+            vec![AgentMessage::user("go")],
+            RunCarry::default(),
+        );
+
+        let output = run.run().await.expect("retry after tool-only stream cut succeeds");
+        assert_eq!(output.response.content, "recovered");
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 2, "production retry path must issue second attempt");
+
+        let events = observer.events.lock().unwrap().clone();
+        let start_idx = events
+            .iter()
+            .position(|e| matches!(e, RunEvent::ToolCallObserved { call, provisional: true, .. } if call.id == "call_cut_1"))
+            .expect("attempt 1 emitted provisional ToolCallObserved");
+        let settle_idx = events
+            .iter()
+            .position(|e| matches!(e, RunEvent::AttemptDisplaySettled))
+            .expect("tool-only cut retry must emit AttemptDisplaySettled to withdraw stale provisional card");
+        let retry_text_idx = events.iter().position(|e| matches!(e, RunEvent::TextDelta(t) if t == "recovered")).expect("attempt 2 emitted recovered text");
+        assert!(start_idx < settle_idx && settle_idx < retry_text_idx, "AttemptDisplaySettled must fire between attempt 1 cut and attempt 2 output");
+    }
+
+    #[test]
+    fn provisional_tool_interleaved_compat_renames_bind_exact_starts() {
+        let profile = CompatProfile::plain("gateway", "https://gateway.invalid/v1", CredentialKind::StaticKey { reauth_on_401: false });
+        let mut decoder = ChatDecoder::new(profile, ProviderId::from("gateway"));
+        let wire = [
+            format!(
+                "data: {}\n\n",
+                json!({
+                    "choices": [{
+                        "delta": { "tool_calls": [{ "index": 0, "type": "function", "function": { "name": "grep", "arguments": "{\"path\":\"a\"" } }] },
+                        "finish_reason": null
+                    }]
+                })
+            ),
+            format!(
+                "data: {}\n\n",
+                json!({
+                    "choices": [{
+                        "delta": { "tool_calls": [{ "index": 1, "type": "function", "function": { "name": "grep", "arguments": "{\"path\":\"b\"" } }] },
+                        "finish_reason": null
+                    }]
+                })
+            ),
+            format!(
+                "data: {}\n\n",
+                json!({
+                    "choices": [{
+                        "delta": { "tool_calls": [{ "index": 1, "id": "call_real_1", "function": { "arguments": "}" } }] },
+                        "finish_reason": null
+                    }]
+                })
+            ),
+            format!(
+                "data: {}\n\n",
+                json!({
+                    "choices": [{
+                        "delta": { "tool_calls": [{ "index": 0, "id": "call_real_0", "function": { "arguments": "}" } }] },
+                        "finish_reason": null
+                    }]
+                })
+            ),
+            format!("data: {}\n\n", json!({ "choices": [{ "delta": {}, "finish_reason": "tool_calls" }] })),
+            "data: [DONE]\n\n".to_owned(),
+        ];
+
+        let mut events = Vec::new();
+        for chunk in &wire {
+            events.extend(decoder.feed(chunk.as_bytes()).expect("decode chunk"));
+        }
+        events.extend(decoder.finish().expect("finish"));
+
+        let mut provisional_ids = ToolCallIds::new(&[]).in_session(0);
+        let mut builder = ResponseBuilder::new("m", ToolCallIds::new(&[]).in_session(0));
+        let mut in_flight = Vec::new();
+        let mut observed_cards = Vec::new();
+        let mut observed_done_ids = HashSet::new();
+        let mut observed = Vec::new();
+
+        for event in events {
+            match &event {
+                StreamEvent::ToolCallStart { id, name } => {
+                    if let Some(provisional) = provisional_tool_call(&mut provisional_ids, &mut in_flight, id, name) {
+                        observed.push((provisional, true, None));
+                    }
+                }
+                StreamEvent::ToolCallArgsDelta { id, delta } => {
+                    record_in_flight_args_delta(&mut in_flight, id, delta);
+                }
+                _ => {}
+            }
+            let raw_done_id = match &event {
+                StreamEvent::ToolCallDone(call) => Some(call.id.clone()),
+                _ => None,
+            };
+            let is_returned_calls = matches!(&event, StreamEvent::ReturnedCalls(_));
+            builder.push(event);
+            if let Some(raw_id) = raw_done_id
+                && let Some(call) = builder.so_far().tool_calls.last().cloned()
+            {
+                let done = sync_provisional_ids_on_done(&mut provisional_ids, &mut in_flight, &raw_id, &call);
+                observed_done_ids.insert(done.call.id.clone());
+                observed_cards.push(ObservedToolCard {
+                    resolved_id: done.call.id.clone(),
+                    name: done.call.name.clone(),
+                    arguments: done.call.arguments.clone(),
+                });
+                observed.push((done.call, false, done.replaces));
+            }
+            if is_returned_calls {
+                let final_calls = builder.so_far().tool_calls.clone();
+                for done in reconcile_returned_calls(&mut in_flight, &mut observed_cards, &mut observed_done_ids, &final_calls) {
+                    observed.push((done.call, false, done.replaces));
+                }
+            }
+        }
+
+        assert!(in_flight.is_empty());
+        assert_eq!(observed.len(), 4, "two starts and two completions: {observed:?}");
+        let start_0 = observed[0].0.id.clone();
+        let start_1 = observed[1].0.id.clone();
+        assert_ne!(start_0, start_1);
+        let done_0 = observed.iter().find(|(c, prov, _)| !prov && c.id == "call_real_0").expect("done 0");
+        let done_1 = observed.iter().find(|(c, prov, _)| !prov && c.id == "call_real_1").expect("done 1");
+        assert_eq!(done_0.0.arguments, json!({ "path": "a" }));
+        assert_eq!(done_0.2.as_deref(), Some(start_0.as_str()), "index 0 must stay bound to index 0's synthesized start");
+        assert_eq!(done_1.0.arguments, json!({ "path": "b" }));
+        assert_eq!(done_1.2.as_deref(), Some(start_1.as_str()), "index 1 must stay bound to index 1's synthesized start");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn provisional_tool_compat_id_only_rename_with_leaked_duplicate_keeps_single_card() {
+        let profile = CompatProfile::plain("gateway", "https://gateway.invalid/v1", CredentialKind::StaticKey { reauth_on_401: false });
+        let mut decoder = ChatDecoder::new(profile, ProviderId::from("gateway")).with_known_tools(HashSet::from(["grep".into()]));
+        let wire = [
+            format!(
+                "data: {}\n\n",
+                json!({
+                    "choices": [{
+                        "delta": { "content": "<function_calls><invoke name=\"grep\"><parameter name=\"pattern\">foo</parameter></invoke></function_calls>" },
+                        "finish_reason": null
+                    }]
+                })
+            ),
+            format!(
+                "data: {}\n\n",
+                json!({
+                    "choices": [{
+                        "delta": { "tool_calls": [{ "index": 0, "type": "function", "function": { "name": "grep", "arguments": "{\"pattern\":\"foo\"}" } }] },
+                        "finish_reason": null
+                    }]
+                })
+            ),
+            // ID-only rename chunk with no argument fragments after arguments finished streaming.
+            format!(
+                "data: {}\n\n",
+                json!({
+                    "choices": [{
+                        "delta": { "tool_calls": [{ "index": 0, "id": "call_real_id_only" }] },
+                        "finish_reason": null
+                    }]
+                })
+            ),
+            format!("data: {}\n\n", json!({ "choices": [{ "delta": {}, "finish_reason": "tool_calls" }] })),
+            "data: [DONE]\n\n".to_owned(),
+        ];
+        let mut attempt_1 = Vec::new();
+        for chunk in &wire {
+            attempt_1.extend(decoder.feed(chunk.as_bytes()).expect("decode chunk"));
+        }
+        attempt_1.extend(decoder.finish().expect("finish"));
+        let synth_id = attempt_1
+            .iter()
+            .find_map(|e| match e {
+                StreamEvent::ToolCallStart { id, .. } => Some(id.clone()),
+                _ => None,
+            })
+            .expect("compat synthesized start id");
+        assert_ne!(synth_id, "call_real_id_only");
+
+        let (events, committed) = run_scripted_attempts(vec![
+            attempt_1,
+            vec![StreamEvent::TextDelta("all done".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+        ])
+        .await;
+
+        let tool_events: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                RunEvent::ToolCallObserved { call, provisional, replaces } => Some((call.id.clone(), *provisional, replaces.clone())),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            tool_events.iter().any(|(id, prov, replaces)| id == "call_real_id_only" && !prov && replaces.as_deref() == Some(synth_id.as_str())),
+            "ReturnedCalls must collapse the compat ID-only rename + leaked duplicate onto the single card: {tool_events:?}"
+        );
+        assert!(tool_events.iter().all(|(id, _, _)| !is_leaked_tool_call_id(id)), "no orphan leaked card may be emitted: {tool_events:?}");
+        let assistant_call_ids: Vec<String> = committed.iter().flat_map(|msg| msg.tool_calls().iter().map(|c| c.id.clone())).collect();
+        assert_eq!(assistant_call_ids, vec!["call_real_id_only".to_owned()]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn provisional_tool_cursor_leaked_before_native_reconciles_single_card() {
+        let attempt_1 = vec![
+            StreamEvent::ToolCallDone(ToolCall {
+                id: "call_leaked_cursor_1".into(),
+                name: "lookup".into(),
+                arguments: json!({ "key": "a" }),
+                native_type: None,
+            }),
+            StreamEvent::ReturnedCalls(vec![ToolCall {
+                id: "call_native_cursor_1".into(),
+                name: "lookup".into(),
+                arguments: json!({ "key": "a" }),
+                native_type: None,
+            }]),
+            StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+        ];
+
+        let (events, committed) = run_scripted_attempts(vec![
+            attempt_1,
+            vec![StreamEvent::TextDelta("done".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+        ])
+        .await;
+
+        let tool_events: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                RunEvent::ToolCallObserved { call, provisional, replaces } => Some((call.id.clone(), *provisional, replaces.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            tool_events,
+            vec![("call_leaked_cursor_1".to_owned(), false, None), ("call_native_cursor_1".to_owned(), false, Some("call_leaked_cursor_1".to_owned())),],
+            "Cursor leaked-before-native must replace the leaked card in place via ReturnedCalls"
+        );
+        let assistant_call_ids: Vec<String> = committed.iter().flat_map(|msg| msg.tool_calls().iter().map(|c| c.id.clone())).collect();
+        assert_eq!(assistant_call_ids, vec!["call_native_cursor_1".to_owned()]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn provisional_tool_partial_recovery_after_done_a_and_start_b_proceeds_with_a_only() {
+        let attempt_1 = vec![
+            StreamEvent::ToolCallStart { id: "call_a".into(), name: "read".into() },
+            StreamEvent::ToolCallDone(ToolCall { id: "call_a".into(), name: "read".into(), arguments: json!({ "file_path": "a.rs" }), native_type: None }),
+            StreamEvent::ToolCallStart { id: "call_b".into(), name: "grep".into() },
+            // EOF without Completed -> TruncatedStream after Done(A) + Start(B).
+        ];
+
+        let (events, committed) = run_scripted_attempts(vec![
+            attempt_1,
+            vec![
+                StreamEvent::TextDelta("after partial recovery".into()),
+                StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+            ],
+        ])
+        .await;
+
+        assert!(
+            events.iter().any(|e| matches!(e, RunEvent::PartialToolRecovery(r) if r.tool_calls == 1)),
+            "partial recovery must proceed with completed call A: {events:?}"
+        );
+        let assistant_call_ids: Vec<String> = committed.iter().flat_map(|msg| msg.tool_calls().iter().map(|c| c.id.clone())).collect();
+        assert_eq!(assistant_call_ids, vec!["call_a".to_owned()], "only completed call A commits; unfinished call B is omitted");
+    }
+
+    async fn run_scripted_attempts(attempts: Vec<Vec<StreamEvent>>) -> (Vec<RunEvent>, Vec<AgentMessage>) {
+        struct FixedClock;
+        impl Clock for FixedClock {
+            fn now_ms(&self) -> i64 {
+                1_000
+            }
+        }
+        struct HalfJitter;
+        impl JitterSource for HalfJitter {
+            fn draw(&self) -> f64 {
+                0.5
+            }
+        }
+        struct InstantWait;
+        #[async_trait]
+        impl RetryWait for InstantWait {
+            async fn wait(&self, _delay: Duration) {}
+        }
+        struct EmptySteer;
+        #[async_trait]
+        impl SteerSource for EmptySteer {
+            async fn drain(&self, _request: DrainRequest) -> Vec<SteerEntry> {
+                Vec::new()
+            }
+        }
+        #[derive(Default)]
+        struct RecordingObserver {
+            events: Mutex<Vec<RunEvent>>,
+        }
+        impl RunObserver for RecordingObserver {
+            fn event(&self, event: RunEvent) {
+                self.events.lock().unwrap().push(event);
+            }
+            fn can_retract(&self) -> bool {
+                false
+            }
+            fn retract_text(&self, _retraction: TextRetraction) -> Retracted {
+                Retracted::Refused
+            }
+        }
+        #[derive(Default)]
+        struct RecordingSink {
+            ids: AtomicU64,
+            committed: Mutex<Vec<AgentMessage>>,
+        }
+        #[async_trait]
+        impl TranscriptSink for RecordingSink {
+            async fn commit(&self, message: &AgentMessage) -> Result<Ticket, CommitError> {
+                self.committed.lock().unwrap().push(message.clone());
+                Ok(Ticket(self.ids.fetch_add(1, Ordering::Relaxed) + 1))
+            }
+            fn replace(&self, _messages: &[AgentMessage], _rewrite: &Rewrite) {}
+            fn message_id(&self) -> String {
+                format!("m{}", self.ids.fetch_add(1, Ordering::Relaxed) + 1)
+            }
+            async fn durable(&self, _ticket: Ticket) {}
+        }
+        struct VecStream(VecDeque<StreamEvent>);
+        #[async_trait]
+        impl ModelStream for VecStream {
+            async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
+                self.0.pop_front().map(Ok)
+            }
+            fn delivery(&self) -> mixdog_core_api::domain::provider::DeliveryState {
+                mixdog_core_api::domain::provider::DeliveryState::Accepted
+            }
+            fn on_wire_left(&mut self, _left: Arc<dyn Fn() + Send + Sync>) {}
+        }
+        struct ScriptedProvider {
+            id: ProviderId,
+            codec: MockCodec,
+            policy: RetryPolicy,
+            keepalive: KeepaliveSchedule,
+            attempts: Mutex<VecDeque<Vec<StreamEvent>>>,
+        }
+        #[async_trait]
+        impl ProviderAdapter for ScriptedProvider {
+            fn id(&self) -> &ProviderId {
+                &self.id
+            }
+            fn codec(&self) -> &dyn WireCodec {
+                &self.codec
+            }
+            fn retry_policy(&self) -> &RetryPolicy {
+                &self.policy
+            }
+            fn keepalive(&self) -> &KeepaliveSchedule {
+                &self.keepalive
+            }
+            async fn attempt(&self, _request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+                let events = self.attempts.lock().unwrap().pop_front().expect("scripted attempt");
+                Ok(Box::new(VecStream(events.into())))
+            }
+            fn release_send(&self, _group: &str) {}
+        }
+
+        let observer = Arc::new(RecordingObserver::default());
+        let sink = Arc::new(RecordingSink::default());
+        let provider = Arc::new(ScriptedProvider {
+            id: ProviderId::from("test-provider"),
+            codec: MockCodec,
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            attempts: Mutex::new(attempts.into()),
+        });
+        let env = RunEnv {
+            clock: Arc::new(FixedClock),
+            jitter: Arc::new(HalfJitter),
+            waiter: Arc::new(InstantWait),
+            decider: Arc::new(mixdog_ai::retry::StandardRetryDecider),
+            steer: Arc::new(EmptySteer),
+            observer: observer.clone(),
+            sink: sink.clone(),
+            gate: Arc::new(AllowAll),
+            guards: Arc::new(NoGuards),
+            compactor: None,
+            route: None,
+            skills: None,
+            hooks: None,
+            reuse: None,
+            reactions: None,
+            tail: None,
+            mcp: None,
+            side: None,
+            step_judge: None,
+            artifacts: None,
+            images: None,
+            failures: None,
+        };
+        let tokens = mixdog_rt::testing::tokens();
+        let tool_env = ToolEnv {
+            thread_id: ThreadId::from("t-prov"),
+            turn_id: TurnId::from("r-prov"),
+            cwd: mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir()).expect("temp cwd"),
+            surface: SurfaceKind::Lead,
+            io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
+            approvals: Arc::new(MockApprovalGate::default()),
+            files: Arc::new(MockFileService::default()),
+            processes: Arc::new(MockProcessManager::default()),
+            progress: Arc::new(MockProgress::default()),
+            deadline_of: None,
+            notify: None,
+            review: None,
+        };
+        let config = RunConfig::new(ThreadId::from("t-prov"), TurnId::from("r-prov"), "test-model");
+        let run = Run::new(
+            env,
+            CancellationToken::new(),
+            provider,
+            ToolSet::with_builtins(Vec::new(), Vec::new()),
+            tool_env,
+            config,
+            vec![AgentMessage::user("go")],
+            RunCarry::default(),
+        );
+        run.run().await.expect("scripted run completes");
+        (observer.events.lock().unwrap().clone(), sink.committed.lock().unwrap().clone())
+    }
+
+    #[tokio::test]
+    async fn provisional_tool_interleaved_identical_args_starts_1_0_completions_0_1_no_swap() {
+        let profile = CompatProfile::plain("gateway", "https://gateway.invalid/v1", CredentialKind::StaticKey { reauth_on_401: false });
+        let mut decoder = ChatDecoder::new(profile, ProviderId::from("gateway"));
+        let chunks = [
+            serde_json::json!({
+                "choices": [{
+                    "delta": { "tool_calls": [{ "index": 0, "type": "function" }] },
+                    "finish_reason": null
+                }]
+            }),
+            serde_json::json!({
+                "choices": [{
+                    "delta": { "tool_calls": [{ "index": 1, "type": "function", "function": { "name": "lookup", "arguments": "{}" } }] },
+                    "finish_reason": null
+                }]
+            }),
+            serde_json::json!({
+                "choices": [{
+                    "delta": { "tool_calls": [{ "index": 0, "function": { "name": "lookup", "arguments": "{}" } }] },
+                    "finish_reason": null
+                }]
+            }),
+            serde_json::json!({
+                "choices": [{
+                    "delta": { "tool_calls": [{ "index": 0, "id": "call_real_0" }] },
+                    "finish_reason": null
+                }]
+            }),
+            serde_json::json!({
+                "choices": [{
+                    "delta": { "tool_calls": [{ "index": 1, "id": "call_real_1" }] },
+                    "finish_reason": null
+                }]
+            }),
+            serde_json::json!({ "choices": [{ "delta": {}, "finish_reason": "tool_calls" }] }),
+        ];
+        let mut attempt1 = Vec::new();
+        for chunk in &chunks {
+            let line = format!("data: {chunk}\n\n");
+            attempt1.extend(decoder.feed(line.as_bytes()).expect("decode chunk"));
+        }
+        attempt1.extend(decoder.feed(b"data: [DONE]\n\n").expect("decode done"));
+        attempt1.extend(decoder.finish().expect("finish"));
+        let attempt2 =
+            vec![StreamEvent::TextDelta("done".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: Some(1) }];
+
+        let (events, _) = run_scripted_attempts(vec![attempt1, attempt2]).await;
+        let observed: Vec<(String, bool, Option<String>)> = events
+            .iter()
+            .filter_map(|e| match e {
+                RunEvent::ToolCallObserved { call, provisional, replaces } => Some((call.id.clone(), *provisional, replaces.clone())),
+                _ => None,
+            })
+            .collect();
+        let starts: Vec<&str> = observed.iter().filter(|(_, p, _)| *p).map(|(id, _, _)| id.as_str()).collect();
+        assert_eq!(starts.len(), 2, "two provisional starts: {observed:?}");
+        let started_index_1 = starts[0];
+        let started_index_0 = starts[1];
+
+        let dones: Vec<(&str, Option<&str>)> = observed.iter().filter(|(_, p, _)| !*p).map(|(id, _, r)| (id.as_str(), r.as_deref())).collect();
+        assert_eq!(
+            dones,
+            vec![("call_real_0", Some(started_index_0)), ("call_real_1", Some(started_index_1))],
+            "completions [0, 1] must bind to [started_0, started_1] without swapping despite identical (name, args)"
+        );
+    }
+}
+
+#[cfg(test)]
+mod retry_escalation_tests {
+    use std::sync::Arc;
+    use std::sync::Mutex;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+
+    use async_trait::async_trait;
+    use mixdog_ai::retry::FallbackAwareRetryDecider;
+    use mixdog_ai::retry::FallbackRetryBudget;
+    use mixdog_ai::retry::MAX_RETRIES_HARD_CAP;
+    use mixdog_ai::retry::StandardRetryDecider;
+    use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
+    use mixdog_core_api::domain::mock::MockApprovalGate;
+    use mixdog_core_api::domain::mock::MockCodec;
+    use mixdog_core_api::domain::mock::MockFileService;
+    use mixdog_core_api::domain::mock::MockProcessManager;
+    use mixdog_core_api::domain::mock::MockProgress;
+    use mixdog_core_api::domain::provider::DeliveryState;
+    use mixdog_core_api::domain::provider::ModelRequest;
+    use mixdog_core_api::domain::provider::ModelStream;
+    use mixdog_core_api::domain::provider::ProviderAdapter;
+    use mixdog_core_api::domain::provider::ProviderError;
+    use mixdog_core_api::domain::provider::TransportFault;
+    use mixdog_core_api::domain::provider::WireCodec;
+    use mixdog_core_api::domain::retry::RetryDecider;
+    use mixdog_core_api::domain::retry::RetryPolicy;
+    use mixdog_core_api::domain::tool::SurfaceKind;
+    use mixdog_core_api::domain::tool::ToolIo;
+    use mixdog_protocol::ProviderId;
+    use mixdog_protocol::ThreadId;
+    use mixdog_protocol::TurnId;
+    use tokio_util::sync::CancellationToken;
+
+    use crate::AgentError;
+    use crate::Run;
+    use crate::RunCarry;
+    use crate::RunConfig;
+    use crate::env::AllowAll;
+    use crate::env::Clock;
+    use crate::env::CommitError;
+    use crate::env::DrainRequest;
+    use crate::env::JitterSource;
+    use crate::env::NoGuards;
+    use crate::env::Retracted;
+    use crate::env::RetryWait;
+    use crate::env::Rewrite;
+    use crate::env::RunEnv;
+    use crate::env::RunEvent;
+    use crate::env::RunObserver;
+    use crate::env::SteerEntry;
+    use crate::env::SteerSource;
+    use crate::env::TextRetraction;
+    use crate::env::Ticket;
+    use crate::env::TranscriptSink;
+    use crate::message::AgentMessage;
+    use crate::tools::ToolEnv;
+    use crate::tools::ToolSet;
+
+    struct FixedClock;
+    impl Clock for FixedClock {
+        fn now_ms(&self) -> i64 {
+            1_000
+        }
+    }
+
+    struct HalfJitter;
+    impl JitterSource for HalfJitter {
+        fn draw(&self) -> f64 {
+            0.5
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingWait {
+        delays: Mutex<Vec<Duration>>,
+    }
+
+    #[async_trait]
+    impl RetryWait for RecordingWait {
+        async fn wait(&self, delay: Duration) {
+            self.delays.lock().unwrap().push(delay);
+        }
+    }
+
+    struct EmptySteer;
+    #[async_trait]
+    impl SteerSource for EmptySteer {
+        async fn drain(&self, _request: DrainRequest) -> Vec<SteerEntry> {
+            Vec::new()
+        }
+    }
+
+    struct NullSink;
+    #[async_trait]
+    impl TranscriptSink for NullSink {
+        async fn commit(&self, _message: &AgentMessage) -> Result<Ticket, CommitError> {
+            Ok(Ticket(1))
+        }
+        fn replace(&self, _messages: &[AgentMessage], _rewrite: &Rewrite) {}
+        fn message_id(&self) -> String {
+            "m1".to_owned()
+        }
+        async fn durable(&self, _ticket: Ticket) {}
+    }
+
+    #[derive(Default)]
+    struct RecordingObserver {
+        events: Mutex<Vec<RunEvent>>,
+    }
+
+    impl RunObserver for RecordingObserver {
+        fn event(&self, event: RunEvent) {
+            self.events.lock().unwrap().push(event);
+        }
+        fn can_retract(&self) -> bool {
+            false
+        }
+        fn retract_text(&self, _retraction: TextRetraction) -> Retracted {
+            Retracted::Refused
+        }
+    }
+
+    struct FailingProvider {
+        id: ProviderId,
+        codec: MockCodec,
+        policy: RetryPolicy,
+        keepalive: KeepaliveSchedule,
+        error: ProviderError,
+        recovers_spent: bool,
+        attempts: AtomicUsize,
+        reissues: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl ProviderAdapter for FailingProvider {
+        fn id(&self) -> &ProviderId {
+            &self.id
+        }
+        fn codec(&self) -> &dyn WireCodec {
+            &self.codec
+        }
+        fn retry_policy(&self) -> &RetryPolicy {
+            &self.policy
+        }
+        fn keepalive(&self) -> &KeepaliveSchedule {
+            &self.keepalive
+        }
+        async fn attempt(&self, _request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+            self.attempts.fetch_add(1, Ordering::SeqCst);
+            Err(self.error.clone())
+        }
+        fn recovers_spent(&self, _request: &ModelRequest, failure: &ProviderError) -> bool {
+            self.recovers_spent && !failure.recovery_terminal
+        }
+        async fn recover_spent(&self, _request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+            self.reissues.fetch_add(1, Ordering::SeqCst);
+            Err(self.error.clone())
+        }
+        fn release_send(&self, _group: &str) {}
+    }
+
+    struct FailureRunOutcome {
+        attempts: usize,
+        reissues: usize,
+        delays: Vec<Duration>,
+        reconnecting: Vec<(u32, u32, Option<serde_json::Value>)>,
+    }
+
+    async fn run_failures(policy: RetryPolicy, decider: Arc<dyn RetryDecider>, error: ProviderError, recovers_spent: bool) -> FailureRunOutcome {
+        let waiter = Arc::new(RecordingWait::default());
+        let observer = Arc::new(RecordingObserver::default());
+        let provider = Arc::new(FailingProvider {
+            id: ProviderId::from("test-provider"),
+            codec: MockCodec,
+            policy,
+            keepalive: KeepaliveSchedule::SPEC,
+            error,
+            recovers_spent,
+            attempts: AtomicUsize::new(0),
+            reissues: AtomicUsize::new(0),
+        });
+        let env = RunEnv {
+            clock: Arc::new(FixedClock),
+            jitter: Arc::new(HalfJitter),
+            waiter: waiter.clone(),
+            decider,
+            steer: Arc::new(EmptySteer),
+            observer: observer.clone(),
+            sink: Arc::new(NullSink),
+            gate: Arc::new(AllowAll),
+            guards: Arc::new(NoGuards),
+            compactor: None,
+            route: None,
+            skills: None,
+            hooks: None,
+            reuse: None,
+            reactions: None,
+            tail: None,
+            mcp: None,
+            side: None,
+            step_judge: None,
+            artifacts: None,
+            images: None,
+            failures: None,
+        };
+        let tokens = mixdog_rt::testing::tokens();
+        let tool_env = ToolEnv {
+            thread_id: ThreadId::from("t-retry"),
+            turn_id: TurnId::from("r-retry"),
+            cwd: mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir()).expect("temp cwd"),
+            surface: SurfaceKind::Lead,
+            io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
+            approvals: Arc::new(MockApprovalGate::default()),
+            files: Arc::new(MockFileService::default()),
+            processes: Arc::new(MockProcessManager::default()),
+            progress: Arc::new(MockProgress::default()),
+            deadline_of: None,
+            notify: None,
+            review: None,
+        };
+        let config = RunConfig::new(ThreadId::from("t-retry"), TurnId::from("r-retry"), "test-model");
+        let run = Run::new(
+            env,
+            CancellationToken::new(),
+            provider.clone(),
+            ToolSet::with_builtins(Vec::new(), Vec::new()),
+            tool_env,
+            config,
+            vec![AgentMessage::user("go")],
+            RunCarry::default(),
+        );
+        let failure = run.run().await.expect_err("failures should surface once exhausted");
+        assert!(matches!(failure.error, AgentError::Provider(_)));
+        let reconnecting = observer
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|event| match event {
+                RunEvent::Stage(crate::env::Stage::Reconnecting { attempt, max, payload, .. }) => Some((*attempt, *max, payload.clone())),
+                _ => None,
+            })
+            .collect();
+        FailureRunOutcome {
+            attempts: provider.attempts.load(Ordering::SeqCst),
+            reissues: provider.reissues.load(Ordering::SeqCst),
+            delays: waiter.delays.lock().unwrap().clone(),
+            reconnecting,
+        }
+    }
+
+    async fn run_connect_failures(policy: RetryPolicy, decider: Arc<dyn RetryDecider>) -> (usize, Vec<Duration>) {
+        let error = ProviderError::transport(TransportFault::Connect { os_code: None }, DeliveryState::NotSent);
+        let out = run_failures(policy, decider, error, false).await;
+        (out.attempts, out.delays)
+    }
+
+    #[tokio::test]
+    async fn request_to_connection_escalation_enforces_tightened_fallback_budget() {
+        // Default FallbackRetryBudget allows 1 retry total; Request spends it, so escalating to Connection must grant 0 more.
+        let decider = Arc::new(FallbackAwareRetryDecider::new(Arc::new(|| true)));
+        let (attempts, delays) = run_connect_failures(RetryPolicy::codex_default(), decider).await;
+        assert_eq!(delays.len(), 1, "expected 1 total retry across Request -> Connection, got {delays:?}");
+        assert_eq!(attempts, 2, "expected 1 initial send + 1 retry");
+
+        // With budget=2 and request.max_retries=1, Request spends 1 retry and Connection carries over the count to spend at most 1 more.
+        let mut policy = RetryPolicy::codex_default();
+        policy.request.schedule.max_retries = 1;
+        let decider =
+            Arc::new(FallbackAwareRetryDecider::with_budget(Arc::new(|| true), FallbackRetryBudget { max_retries: 2, ..FallbackRetryBudget::default() }));
+        let (attempts, delays) = run_connect_failures(policy, decider).await;
+        assert_eq!(delays.len(), 2, "expected 1 Request retry + 1 Connection retry, got {delays:?}");
+        assert_eq!(delays, vec![Duration::from_millis(200), Duration::from_secs(2)]);
+        assert_eq!(attempts, 3, "expected 1 initial send + 2 retries total across escalation");
+    }
+
+    #[tokio::test]
+    async fn request_to_connection_escalation_never_exceeds_hard_cap() {
+        // codex_default configures 4 Request retries + 13 Connection retries (17 uncapped);
+        // sharing sequence retries caps the entire escalation sequence at MAX_RETRIES_HARD_CAP (12).
+        let (attempts, delays) = run_connect_failures(RetryPolicy::codex_default(), Arc::new(StandardRetryDecider)).await;
+        assert_eq!(delays.len(), MAX_RETRIES_HARD_CAP as usize, "total retries across Request -> Connection must stop at hard cap");
+        assert_eq!(attempts, MAX_RETRIES_HARD_CAP as usize + 1, "initial send plus hard-capped retries");
+        // First 4 retries are Request (200/400/800/1600ms), remaining 8 are Connection (5/10/20/40/60/60/60/60s).
+        let connection_waits: Vec<Duration> = delays.into_iter().filter(|d| *d >= Duration::from_secs(5)).collect();
+        assert_eq!(
+            connection_waits,
+            vec![
+                Duration::from_secs(5),
+                Duration::from_secs(10),
+                Duration::from_secs(20),
+                Duration::from_secs(40),
+                Duration::from_secs(60),
+                Duration::from_secs(60),
+                Duration::from_secs(60),
+                Duration::from_secs(60),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn compat_recovery_respects_tightened_fallback_budget_and_hard_cap() {
+        let connect = ProviderError::transport(TransportFault::Connect { os_code: None }, DeliveryState::NotSent);
+
+        // Tightened fallback budget (1 retry): Request spends the 1 retry, so compat recovery must not issue an uncounted 3rd send.
+        let out = run_failures(RetryPolicy::codex_default(), Arc::new(FallbackAwareRetryDecider::new(Arc::new(|| true))), connect.clone(), true).await;
+        assert_eq!(out.reissues, 0, "compat recovery must not run once tightened budget is spent");
+        assert_eq!(out.attempts + out.reissues, 2, "expected 1 initial send + 1 retry only");
+
+        // Tightened fallback budget (2 retries) with request.max_retries=1: Request spends 1, compat recovery spends the 2nd,
+        // and Connection escalation must see the sequence budget exhausted (3 total sends, never 4).
+        let mut req_one = RetryPolicy::codex_default();
+        req_one.request.schedule.max_retries = 1;
+        let out = run_failures(
+            req_one,
+            Arc::new(FallbackAwareRetryDecider::with_budget(Arc::new(|| true), FallbackRetryBudget { max_retries: 2, ..FallbackRetryBudget::default() })),
+            connect.clone(),
+            true,
+        )
+        .await;
+        assert_eq!(out.reissues, 1, "compat recovery may run once while sequence budget remains");
+        assert_eq!(out.attempts, 2, "1 initial send + 1 request retry; connection escalation must not add another send");
+        assert_eq!(out.attempts + out.reissues, 3, "total sends must stay within 1 initial + 2 retries");
+
+        // Hard cap (12 retries) on xAI (configured for 14 request retries): compat recovery must not issue a 13th retry.
+        let xai = mixdog_ai::providers::compat::retry::xai();
+        let out = run_failures(xai, Arc::new(StandardRetryDecider), connect.clone(), true).await;
+        assert_eq!(out.reissues, 0, "compat recovery must not run once MAX_RETRIES_HARD_CAP is spent");
+        assert_eq!(out.attempts + out.reissues, MAX_RETRIES_HARD_CAP as usize + 1);
+
+        // Hard cap (12 retries) on codex_default (4 Request + 1 compat recovery + 7 Connection = 12 retries = 13 total sends).
+        let out = run_failures(RetryPolicy::codex_default(), Arc::new(StandardRetryDecider), connect, true).await;
+        assert_eq!(out.reissues, 1, "compat recovery runs once when within hard cap");
+        assert_eq!(out.attempts + out.reissues, MAX_RETRIES_HARD_CAP as usize + 1, "compat recovery counts toward hard cap");
+    }
+
+    #[tokio::test]
+    async fn reconnect_progress_reports_effective_capped_max() {
+        let connect = ProviderError::transport(TransportFault::Connect { os_code: None }, DeliveryState::NotSent);
+        let mut unavailable = ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Transient, DeliveryState::NotSent);
+        unavailable.status = Some(503);
+
+        // Tightened fallback budget (max_retries=1, skip_recovery=true) on codex_default (request=4, recovery=3):
+        // Reconnecting must report max=1 (payload max=2), never max=4 or max=7.
+        for error in [connect.clone(), unavailable] {
+            let out = run_failures(RetryPolicy::codex_default(), Arc::new(FallbackAwareRetryDecider::new(Arc::new(|| true))), error, false).await;
+            assert_eq!(out.reconnecting.len(), 1);
+            let (attempt, max, payload) = &out.reconnecting[0];
+            assert_eq!((*attempt, *max), (1, 1), "stage must report tightened max=1, not uncapped row max");
+            let payload = payload.as_ref().expect("reconnecting payload");
+            assert_eq!(payload["attempt"], serde_json::json!(2));
+            assert_eq!(payload["max"], serde_json::json!(2));
+        }
+
+        // xAI configures 14 request retries, hard-capped at 12: Reconnecting must report max=12 (payload max=13).
+        let xai = mixdog_ai::providers::compat::retry::xai();
+        let out = run_failures(xai, Arc::new(StandardRetryDecider), connect.clone(), false).await;
+        assert_eq!(out.reconnecting.len(), MAX_RETRIES_HARD_CAP as usize);
+        let pairs: Vec<(u32, u32)> = out.reconnecting.iter().map(|(a, m, _)| (*a, *m)).collect();
+        assert_eq!(pairs, (1..=MAX_RETRIES_HARD_CAP).map(|a| (a, MAX_RETRIES_HARD_CAP)).collect::<Vec<_>>());
+        assert_eq!(out.reconnecting[0].2.as_ref().unwrap()["max"], serde_json::json!(MAX_RETRIES_HARD_CAP + 1));
+
+        // Request (4) -> Connection (13 uncapped, 8 remaining under 12 hard cap): Connection reports max=8, not 13.
+        let out = run_failures(RetryPolicy::codex_default(), Arc::new(StandardRetryDecider), connect, false).await;
+        let pairs: Vec<(u32, u32)> = out.reconnecting.iter().map(|(a, m, _)| (*a, *m)).collect();
+        let mut expected: Vec<(u32, u32)> = (1..=4).map(|a| (a, 4)).collect();
+        expected.extend((1..=8).map(|a| (a, 8)));
+        assert_eq!(pairs, expected);
+    }
 }

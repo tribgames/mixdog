@@ -2011,3 +2011,72 @@ test('a search hit is highlighted on the matching characters even when lowercasi
   assert.deepEqual(branchMatch('Fix/Login', 'login'), [4, 9]);
   assert.equal(branchMatch('main', 'dev'), null);
 });
+
+test('Other branches fold preserves localized count suffixes in Japanese and Korean', async (t) => {
+  const { splitOtherBranchesCount, BranchIslandPanel } = await import('./branch-menu.tsx');
+  const { t: translate } = await import('./i18n.ts');
+  t.after(async () => {
+    setUiLanguagePreference('en');
+    await initUiLanguage();
+  });
+  for (const [lang, expectedLabel, expectedCount, expectedAria] of [
+    ['ja', 'その他のブランチ', '3件', 'その他のブランチ 3件'],
+    ['ko', '다른 브랜치', '3개', '다른 브랜치: 3개'],
+  ]) {
+    setUiLanguagePreference(lang);
+    await initUiLanguage();
+    assert.deepEqual(splitOtherBranchesCount(translate('Other branches: {{count}}', { count: 3 }), 3), {
+      label: expectedLabel,
+      countText: expectedCount,
+    });
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const oldAt = '2020-01-01T00:00:00.000Z';
+    const recentAt = new Date(Date.now() - 60_000).toISOString();
+    const many = menuFor({
+      branches: [
+        { ...branch('main', true), lastCommitAt: recentAt },
+        { ...branch('recent-branch'), lastCommitAt: recentAt },
+        { ...branch('a'), lastCommitAt: oldAt },
+        { ...branch('b'), lastCommitAt: oldAt },
+        { ...branch('c'), lastCommitAt: oldAt },
+      ],
+      occupancy: [
+        { branch: 'main', kind: 'current' },
+        { branch: 'recent-branch', kind: 'free' },
+        { branch: 'a', kind: 'free' },
+        { branch: 'b', kind: 'free' },
+        { branch: 'c', kind: 'free' },
+      ],
+    });
+    const rows = model.branchRows(many, 's1', '');
+    await act(async () =>
+      root.render(
+        React.createElement(BranchIslandPanel, {
+          panel: { current: null },
+          panelId: `other-${lang}`,
+          title: 'main',
+          query: '',
+          onQuery() {},
+          notice: '',
+          intent: false,
+          busy: false,
+          base: 'main',
+          rows,
+          worktreeBound: false,
+          onPickWorktree() {},
+          onPickRow() {},
+          onCreateBranch() {},
+          onClose() {},
+        })
+      )
+    );
+    const toggle = host.querySelector('[data-group="other"] .branch-menu-group-toggle');
+    assert.equal(toggle?.getAttribute('aria-label'), expectedAria);
+    assert.equal(toggle?.querySelector('.branch-menu-group-name')?.textContent, expectedLabel);
+    assert.equal(toggle?.querySelector('.branch-menu-group-count')?.textContent, expectedCount);
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});

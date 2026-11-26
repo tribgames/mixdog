@@ -22,6 +22,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useState,
   useSyncExternalStore,
@@ -60,7 +61,13 @@ import {
 } from './visualize-card-model';
 import { TurnChangesCard, TurnChangesContext, TurnChangesUndo, TurnRowsContext } from './TurnChangesCard';
 import type { TranscriptRowModel } from './transcript-rows';
-import { type TurnChangesFile, type TurnChangesRef, turnCardHeld, useTurnChanges } from './turn-changes-model';
+import {
+  type TurnChangesFile,
+  type TurnChangesRef,
+  type TurnChangesReply,
+  turnCardHeld,
+  useTurnChanges,
+} from './turn-changes-model';
 import {
   claimTurnPreviewEnd,
   noteTurnPreviewTargets,
@@ -592,7 +599,7 @@ function useTurnPreviews({
   );
   const targets = useMemo(() => found.map((file) => file.target), [found]);
   const visualized = useMemo(() => (targets.length ? [...opened, ...targets] : opened), [opened, targets]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     noteTurnPreviewTargets(changesSession, checkpointId, targets);
   }, [changesSession, checkpointId, targets]);
   const trailingEnd = Boolean(turnChanges?.trailing && changesSession) && !running;
@@ -612,9 +619,51 @@ function useTurnPreviews({
   return { calls, marked, visualized, reading };
 }
 
-/** The turn's changed-files card, listing none of the files its preview card
- *  shows (the agent's opens, `visualized`, and the turn's previews). */
-export function PreviewedTurnChangesCard({
+/** Turn context needed to exclude automatic visualize previews from `TurnChangesCard` synchronously on render. */
+export type TurnPreviewContext = {
+  readonly sessionId: string;
+  readonly toolItems: readonly TranscriptItem[];
+  readonly replyText: string;
+  readonly surfacedBefore: readonly string[];
+};
+
+function SynchronousPreviewedTurnChangesCard({
+  turnChanges,
+  frame,
+  visualized,
+  previewContext,
+}: {
+  turnChanges: TurnChangesRef;
+  frame?: (card: ReactNode) => ReactNode;
+  visualized?: readonly string[];
+  previewContext: TurnPreviewContext;
+}) {
+  const { sessionId, toolItems, replyText, surfacedBefore } = previewContext;
+  const all = useMemo(() => visualizeCardCalls(toolItems), [toolItems]);
+  const scope = useVisualizeOwnerSession(sessionId, all);
+  const state = useVisualizeState(scope);
+  const goneOpens = state.goneOpens;
+  const live = useMemo(() => all.filter((call) => !visualizeCardGone(goneOpens, call)), [all, goneOpens]);
+  const opened = useMemo(() => finishedTargets(live), [live]);
+  const surfacedKey = [...surfacedBefore, ...state.tabs.flatMap((tab) => tab.panes.map((pane) => pane.target))].join(
+    '\n'
+  );
+  const visualizedFor = useCallback(
+    (reply: TurnChangesReply): readonly string[] | undefined => {
+      const surfaced = surfacedKey ? surfacedKey.split('\n') : NO_SURFACED;
+      const found = turnPreviewFiles(reply.files, reply.root, opened, replyText, surfaced);
+      if (!found.length) return visualized;
+      const targets = found.map((file) => file.target);
+      return visualized?.length ? [...visualized, ...targets] : targets;
+    },
+    [opened, replyText, surfacedKey, visualized]
+  );
+  return (
+    <TurnChangesCard turnChanges={turnChanges} frame={frame} visualized={visualized} visualizedFor={visualizedFor} />
+  );
+}
+
+function SubscribedPreviewedTurnChangesCard({
   turnChanges,
   frame,
   visualized,
@@ -635,4 +684,30 @@ export function PreviewedTurnChangesCard({
     [visualized, previews]
   );
   return <TurnChangesCard turnChanges={turnChanges} frame={frame} visualized={shown} />;
+}
+
+/** The turn's changed-files card, listing none of the files its preview card
+ *  shows (the agent's opens, `visualized`, and the turn's previews). */
+export function PreviewedTurnChangesCard({
+  turnChanges,
+  frame,
+  visualized,
+  previewContext,
+}: {
+  turnChanges: TurnChangesRef;
+  frame?: (card: ReactNode) => ReactNode;
+  visualized?: readonly string[];
+  previewContext?: TurnPreviewContext;
+}) {
+  if (previewContext) {
+    return (
+      <SynchronousPreviewedTurnChangesCard
+        turnChanges={turnChanges}
+        frame={frame}
+        visualized={visualized}
+        previewContext={previewContext}
+      />
+    );
+  }
+  return <SubscribedPreviewedTurnChangesCard turnChanges={turnChanges} frame={frame} visualized={visualized} />;
 }

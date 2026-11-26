@@ -2434,3 +2434,70 @@ test('disarmed sentinel lets normal fragment navigation (/app -> /app#details) s
   await waitForPath('/prev', () => dom.window.history.back());
   assert.equal(dom.window.location.pathname, '/prev');
 });
+
+test('disarmed sentinel preserves priorTopHistoryLength so same-URL history growth does not trigger history.back()', async () => {
+  const entries = [
+    { url: '/prev', state: { page: 'prev' } },
+    { url: '/app', state: { page: 'app' } },
+  ];
+  let cursor = 1;
+  let backCalls = 0;
+  const mockHistory = {
+    get length() {
+      return entries.length;
+    },
+    get state() {
+      return entries[cursor].state;
+    },
+    pushState(state, _title, url) {
+      entries.length = cursor + 1;
+      entries.push({ url: url ?? entries[cursor].url, state });
+      cursor = entries.length - 1;
+    },
+    replaceState(state, _title, url) {
+      entries[cursor] = { url: url ?? entries[cursor].url, state };
+    },
+    back() {
+      backCalls += 1;
+      if (cursor <= 0) return;
+      cursor -= 1;
+      queueMicrotask(() => {
+        dom.window.dispatchEvent(new dom.window.PopStateEvent('popstate', { state: mockHistory.state }));
+      });
+    },
+    forward() {
+      if (cursor >= entries.length - 1) return;
+      cursor += 1;
+      queueMicrotask(() => {
+        dom.window.dispatchEvent(new dom.window.PopStateEvent('popstate', { state: mockHistory.state }));
+      });
+    },
+  };
+
+  const origGlobalHistory = Object.getOwnPropertyDescriptor(globalThis, 'history');
+  const origWindowHistory = Object.getOwnPropertyDescriptor(dom.window, 'history');
+  Object.defineProperty(globalThis, 'history', { configurable: true, value: mockHistory });
+  Object.defineProperty(dom.window, 'history', { configurable: true, value: mockHistory });
+  __resetMobileBackForTest();
+
+  try {
+    // Open and UI-close an overlay, leaving a disarmed sentinel at cursor 2 (length 3).
+    const release = registerMobileBack(() => {}, 'overlay');
+    assert.equal(cursor, 2);
+    assert.equal(mockHistory.length, 3);
+    release();
+
+    // Simulate a popstate onto an unmarked entry at the SAME URL while history.length grew (3 -> 4).
+    entries.push({ url: entries[cursor].url, state: null });
+    cursor = 3;
+    dom.window.dispatchEvent(new dom.window.PopStateEvent('popstate', { state: null }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    assert.equal(backCalls, 0, 'grewHistory must prevent forwarding Back even when the URL did not change');
+    assert.equal(cursor, 3);
+  } finally {
+    if (origGlobalHistory) Object.defineProperty(globalThis, 'history', origGlobalHistory);
+    if (origWindowHistory) Object.defineProperty(dom.window, 'history', origWindowHistory);
+    __resetMobileBackForTest();
+  }
+});

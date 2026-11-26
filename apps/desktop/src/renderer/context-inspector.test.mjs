@@ -37,8 +37,17 @@ test('reasoning uses current occupancy for category percentages and maps, never 
       const dom = new JSDOM(html);
       const document = dom.window.document;
       const row = document.querySelector('.context-mix-row[data-context-key="reasoning"]');
-      assert.ok(row);
-      assert.ok(row.textContent.includes(t('Reasoning tokens')));
+      if (reasoningTokens > 0) {
+        assert.ok(row);
+        assert.ok(row.textContent.includes(t('Reasoning tokens')));
+      } else {
+        assert.equal(row, null, '0-token categories are excluded from the breakdown list');
+      }
+      assert.equal(
+        document.querySelector('.context-mix-row[data-context-key="free"]'),
+        null,
+        'Free space row is omitted from the breakdown list'
+      );
       assert.doesNotMatch(document.body.textContent, /999,999|999999/);
       assert.equal(document.querySelectorAll('.context-usage-overview').length, 1);
       assert.equal(
@@ -49,13 +58,12 @@ test('reasoning uses current occupancy for category percentages and maps, never 
         ),
         reasoningTokens > 0
       );
-      if (inspection) {
+      if (inspection && reasoningTokens > 0) {
         assert.equal(row.querySelector('strong').textContent, `≈${reasoningTokens.toLocaleString()}`);
         assert.equal(row.querySelector('em').textContent, `${reasoningTokens / 100}%`);
-        assert.equal(
-          document.querySelector('[data-context-key="free"] strong').textContent,
-          `≈${(9900 - reasoningTokens).toLocaleString()}`
-        );
+      }
+      if (inspection) {
+        assert.ok(document.querySelector('.context-block-map i[data-context-key="free"]'));
       }
       dom.window.close();
     }
@@ -291,16 +299,16 @@ async function mountCategoryInspector(context) {
 
 const ENTRY_BUTTON = '.context-entry-list button:not(.context-entry-group-head)';
 
-test('category rows rank by size and mark empty rows', async (context) => {
+test('category rows rank descending by size, exclude 0-token rows, and omit Free space from the list', async (context) => {
   await mountCategoryInspector(context);
   const keys = [...document.querySelectorAll('.context-inspector button.context-mix-row')].map(
     (row) => row.dataset.contextKey
   );
-  assert.deepEqual(keys, ['messages', 'system', 'tools']);
-  assert.equal(document.querySelector('button[data-context-key="tools"]').dataset.empty, 'true');
-  assert.equal(document.querySelector('button[data-context-key="messages"]').dataset.empty, undefined);
+  assert.deepEqual(keys, ['messages', 'system']);
+  assert.equal(document.querySelector('button[data-context-key="tools"]'), null, '0-token categories are hidden');
   assert.equal(document.querySelector('button[data-context-key="messages"] em').textContent, '50%');
-  assert.ok(document.querySelector('.context-mix-remainder [data-context-key="free"]'));
+  assert.equal(document.querySelector('.context-mix-row[data-context-key="free"]'), null);
+  assert.ok(document.querySelector('.context-block-map i[data-context-key="free"]'));
   assert.equal(document.querySelector('.context-entry-section'), null);
 });
 
@@ -410,8 +418,7 @@ test('external agent self-compaction (negative hostInspectionGap) reconciles Con
   );
   assert.equal(document.querySelector('[data-context-key="mcp"] strong').textContent, '≈10,000');
   assert.equal(document.querySelector('[data-context-key="messages"] strong').textContent, '≈165,000');
-  assert.equal(document.querySelector('[data-context-key="free"] strong').textContent, '≈790,000');
-  assert.equal(document.querySelector('[data-context-key="free"] em').textContent, '79%');
+  assert.equal(document.querySelector('.context-mix-row[data-context-key="free"]'), null);
   const map = document.querySelector('.context-block-map');
   assert.doesNotMatch(map.getAttribute('aria-label'), /Estimated content exceeds the context window\./);
   assert.ok(map.querySelectorAll('i[data-context-key="free"]').length >= 90, 'block map shows ~79% free cells');
@@ -421,7 +428,7 @@ test('external agent self-compaction (negative hostInspectionGap) reconciles Con
   assert.doesNotMatch(document.querySelector('.context-entry-list').textContent, /Request framing/);
 });
 
-test('external agent host (Other) remainder row is a non-clickable summary without 0 items', async (context) => {
+test('external agent inspection uses the same categories as normal sessions without a host (Other) row', async (context) => {
   const root = installContextDom(context);
   const status = {
     sessionId: 'acp-host-gap',
@@ -440,27 +447,11 @@ test('external agent host (Other) remainder row is a non-clickable summary witho
       React.createElement(ContextBody, { status, snapshot: { provider: 'acp-antigravity' }, request: async () => ({}) })
     )
   );
-  const hostRow = document.querySelector('.context-mix-row[data-context-key="host"]');
-  assert.ok(hostRow, 'host remainder row renders');
-  assert.equal(hostRow.tagName.toLowerCase(), 'div', 'host row is a non-interactive div, not a button');
-  assert.equal(document.querySelector('button.context-mix-row[data-context-key="host"]'), null);
-  assert.doesNotMatch(hostRow.textContent, /0 items/);
-  assert.equal(hostRow.querySelector('strong').textContent, '≈800');
-  assert.equal(document.querySelector('[data-context-key="free"] strong').textContent, '≈100');
-  // Clicking a host cell in the block map does not open an empty "No entries." detail view.
-  const hostCell = document.querySelector('.context-block-map i[data-context-key="host"]');
-  assert.ok(hostCell);
-  await act(async () => hostCell.click());
-  assert.ok(document.querySelector('.context-inspector-detail .context-detail-empty'));
-  assert.equal(document.querySelector('.context-entry-section'), null);
-
-  const { readFileSync } = await import('node:fs');
-  const css = readFileSync(new URL('./desktop/24-context-dock.css', import.meta.url), 'utf8');
-  assert.match(
-    css,
-    /\.context-block-map i\[data-context-key="free"\],\s*\.context-block-map i\[data-context-key="host"\]\s*\{\s*cursor:\s*default;/,
-    'non-clickable host cells show default cursor in the block map'
-  );
+  assert.equal(document.querySelector('.context-mix-row[data-context-key="host"]'), null, 'no ACP-only host row');
+  assert.equal(document.querySelector('.context-block-map i[data-context-key="host"]'), null);
+  assert.equal(document.querySelector('.context-mix-row[data-context-key="free"]'), null);
+  assert.equal(document.querySelector('button[data-context-key="system"] strong').textContent, '≈900');
+  assert.ok(document.querySelector('.context-block-map i[data-context-key="free"]'));
 });
 
 test('reconcileAgentInspection subtracts entry.estimatedTokens from category.estimatedTokens when stripping calibrated overhead', async (context) => {
@@ -502,10 +493,45 @@ test('reconcileAgentInspection subtracts entry.estimatedTokens from category.est
     )
   );
   const toolsStrong = document.querySelector('[data-context-key="tools"] strong');
-  assert.equal(toolsStrong.textContent, '≈150');
+  assert.equal(toolsStrong.textContent, '≈300');
   assert.equal(
     toolsStrong.title,
     t('Raw estimate: ≈{{tokens}}', { tokens: '200' }),
     'raw category estimatedTokens subtracted overhead estimatedTokens (40), not calibrated tokens (30)'
+  );
+});
+
+test('ACP block map paints measured uncategorized usage as occupied rather than free without adding list rows', async (context) => {
+  const root = installContextDom(context);
+  // Agent reports 300/1000 tokens before local category estimates exist.
+  const status = {
+    sessionId: 'acp-uncategorized-map',
+    contextWindow: 1000,
+    measurement: { source: 'last_api_request', tokens: 300 },
+    inspection: {
+      revision: 'bare',
+      estimatedTokens: 0,
+      categories: [],
+      entries: [],
+    },
+  };
+  await act(() =>
+    root.render(
+      React.createElement(ContextBody, { status, snapshot: { provider: 'acp-antigravity' }, request: async () => ({}) })
+    )
+  );
+  const cells = [...document.querySelectorAll('.context-block-map i')];
+  const usedCells = cells.filter((cell) => cell.dataset.contextKey === 'used');
+  const freeCells = cells.filter((cell) => cell.dataset.contextKey === 'free');
+  assert.equal(cells.length, 128);
+  assert.ok(
+    usedCells.length >= 37 && usedCells.length <= 39,
+    `30% measured usage occupies ~38 cells, got ${usedCells.length}`
+  );
+  assert.equal(usedCells.length + freeCells.length, 128);
+  assert.equal(
+    document.querySelectorAll('.context-mix-list .context-mix-row').length,
+    0,
+    'no Free space or host list row'
   );
 });

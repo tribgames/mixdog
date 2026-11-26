@@ -653,3 +653,67 @@ async fn the_serving_accounts_stream_lives_as_long_as_the_pools() {
     drop(stream);
     assert_eq!(Arc::strong_count(&a.held), 1, "and goes with the pool's stream");
 }
+
+#[tokio::test]
+async fn an_auth_or_permission_failure_rotates_in_automatic_pool_and_stays_pinned_in_manual() {
+    let mut auth_401 = ProviderError::new(ErrorKind::Auth, DeliveryState::Accepted);
+    auth_401.status = Some(401);
+    auth_401.reauth_required = true;
+    auth_401.message = "token revoked".into();
+
+    // Automatic pool: rotates from 401 A to healthy B on the same model, without leaking A's state.
+    let dir = tempfile::tempdir().unwrap();
+    let (store, rotation) = roster(&dir).await;
+    let (primary, a, b) = (engine("primary", None), engine("a", Some(auth_401.clone())), engine("b", None));
+    let eng = engines(Some(rotation), &[(ID_A, &a), (ID_B, &b)]);
+    let pool = KeyPoolAdapter::with_engines(PROVIDER, primary, eng.clone());
+
+    let events = drain(pool.attempt(request()).await.expect("healthy sibling answers")).await;
+    assert_eq!(*eng.handed.lock().unwrap(), [ID_A, ID_B]);
+    assert_eq!((a.states.lock().unwrap().clone(), b.states.lock().unwrap().clone()), (vec![true], vec![false]));
+    let texts: Vec<&str> = events.iter().filter_map(|e| if let StreamEvent::TextDelta(text) = e { Some(text.as_str()) } else { None }).collect();
+    assert_eq!(texts, ["b"]);
+    assert_eq!(store.pool(PROVIDER).await.unwrap().selected_id.as_deref(), Some(ID_B));
+
+    let attempt_err = |res: Result<Box<dyn ModelStream>, ProviderError>| async move {
+        match res {
+            Err(err) => err,
+            Ok(mut stream) => loop {
+                match stream.next().await.expect("terminal error") {
+                    Ok(_) => continue,
+                    Err(err) => break err,
+                }
+            },
+        }
+    };
+
+    // Manual pool: stays strictly pinned to A and surfaces the 401 Auth error intact.
+    let dir_manual = tempfile::tempdir().unwrap();
+    let (store_manual, rotation_manual) = roster(&dir_manual).await;
+    store_manual.change(PROVIDER, crate::accounts::AccountChange { policy: Some(crate::accounts::Policy::Manual), ..Default::default() }).await.unwrap();
+    let (primary_m, a_m, b_m) = (engine("primary", None), engine("a", Some(auth_401.clone())), engine("b", None));
+    let eng_m = engines(Some(rotation_manual), &[(ID_A, &a_m), (ID_B, &b_m)]);
+    let pool_m = KeyPoolAdapter::with_engines(PROVIDER, primary_m, eng_m.clone());
+
+    let err = attempt_err(pool_m.attempt(request()).await).await;
+    assert_eq!(err.kind, ErrorKind::Auth);
+    assert_eq!(err.status, Some(401));
+    assert_eq!(*eng_m.handed.lock().unwrap(), [ID_A]);
+
+    // All automatic accounts failing 401/403: tries each once and surfaces Permission (never QuotaExhausted or reauth_required).
+    let dir_all = tempfile::tempdir().unwrap();
+    let (_, rotation_all) = roster(&dir_all).await;
+    let mut perm_403 = ProviderError::new(ErrorKind::Permission, DeliveryState::Accepted);
+    perm_403.status = Some(403);
+    perm_403.code = Some("MODEL_BLOCKED".into());
+    perm_403.message = "unentitled".into();
+    let (primary_all, a_all, b_all) = (engine("primary", None), engine("a", Some(auth_401)), engine("b", Some(perm_403)));
+    let eng_all = engines(Some(rotation_all), &[(ID_A, &a_all), (ID_B, &b_all)]);
+    let pool_all = KeyPoolAdapter::with_engines(PROVIDER, primary_all, eng_all.clone());
+
+    let err = attempt_err(pool_all.attempt(request()).await).await;
+    assert_eq!(*eng_all.handed.lock().unwrap(), [ID_A, ID_B]);
+    assert_eq!(err.kind, ErrorKind::Permission);
+    assert_eq!(err.status, Some(403));
+    assert!(!err.reauth_required);
+}

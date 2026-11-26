@@ -237,6 +237,8 @@ const LIST_HARNESS = `
     probe.style.fontSize = 'var(--mx-font-supporting)';
     document.body.append(probe);
     const supporting = getComputedStyle(probe).fontSize;
+    probe.style.fontSize = 'var(--mx-font-meta)';
+    const meta = getComputedStyle(probe).fontSize;
     probe.remove();
     return {
       width: box(list).width,
@@ -245,6 +247,7 @@ const LIST_HARNESS = `
         const end = row.querySelector(':scope > small');
         return {
           branch: row.dataset.branch,
+          current: row.dataset.mark === 'current',
           height: box(row).height,
           nameLeft: box(name).left - box(row).left,
           nameHeight: box(name).height,
@@ -259,6 +262,7 @@ const LIST_HARNESS = `
         size: getComputedStyle(label).fontSize,
       })),
       supporting,
+      meta,
       foot: { left: box(foot).left, right: box(foot).right, overflows: foot.scrollWidth > foot.clientWidth },
       buttons: [...foot.querySelectorAll('button')].map((button) => ({
         id: button.dataset.actionId ?? button.dataset.kind,
@@ -395,15 +399,24 @@ test('the branch list in all three hosts: one-line rows at the row height, a one
       const at = `${language} ${host}`;
       await page.evaluate((name, lang) => window.openList(name, lang), host, language);
       const list = await page.evaluate(() => window.measureList());
+      const isIsland = host.startsWith('island');
       for (const label of list.labels) {
-        assert.equal(label.height, 24, `${at}: label ${label.text}`);
-        assert.equal(label.size, list.supporting, `${at}: label ${label.text} in the supporting size`);
+        assert.equal(label.height, isIsland ? 28 : 24, `${at}: label ${label.text}`);
+        assert.equal(
+          label.size,
+          isIsland ? list.meta : list.supporting,
+          `${at}: label ${label.text} in the expected size`
+        );
       }
       for (const row of list.rows) {
         assert.equal(row.height, 32, `${at}: ${row.branch} is one row at the row height`);
         assert.equal(row.nameHeight, 20, `${at}: ${row.branch} on the text line`);
         assert.equal(row.nameLeft, list.rows[0].nameLeft, `${at}: ${row.branch} name aligned`);
-        assert.equal(row.nameWeight, '400', `${at}: ${row.branch} in the regular weight`);
+        assert.equal(
+          row.nameWeight,
+          isIsland && row.current ? '500' : '400',
+          `${at}: ${row.branch} in the expected weight`
+        );
         assert.equal(row.endCut, false, `${at}: ${row.branch} end mark whole`);
         // An unmanaged worktree's branch cannot be picked and reads as unavailable; the rest in full ink.
         assert.equal(row.opacity < 1, row.branch === 'ext', `${at}: ${row.branch} opacity ${row.opacity}`);

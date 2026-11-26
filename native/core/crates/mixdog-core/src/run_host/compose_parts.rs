@@ -291,6 +291,14 @@ pub fn hops(
 ) -> HopsBuilder {
     let (config, catalog) = (process.config.clone(), process.catalog.clone());
     let (errors, wiring) = (hop.errors.clone(), hop.wiring.clone());
+    let keys = mixdog_ai::registry::keys::ApiKeyStore::new(process.vault.clone(), process.env.clone(), super::process::remote_client(&*process.env));
+    let io = mixdog_ai::oauth::CredentialIo { read: process.lanes.interactive_io, write: process.lanes.durability_io };
+    let accounts = Arc::new(
+        mixdog_ai::accounts::AccountStore::new(process.plugin_data.clone(), io)
+            .remote_client(super::process::remote_client(&*process.env))
+            .with_env(process.env.clone()),
+    );
+    let env = process.env.clone();
     Box::new(move |directory, facts| {
         let deps = HopDeps {
             facts: facts.clone(),
@@ -301,7 +309,11 @@ pub fn hops(
             errors,
             wiring,
         };
-        HopFactory::new(deps, sessions(directory)).with_eligibility(Arc::new(mixdog_core_run::run_host::hop_host::RegisteredEligibility(facts.clone())))
+        HopFactory::new(deps, sessions(directory))
+            .with_eligibility(Arc::new(mixdog_core_run::run_host::hop_host::RegisteredEligibility(facts.clone())))
+            .with_key_store(keys)
+            .with_env(env)
+            .with_accounts(accounts)
     })
 }
 

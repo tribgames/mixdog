@@ -3,12 +3,13 @@
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { installTestDom } from './test-dom.mjs';
+import { MarkdownProjectContext } from '../MarkdownLink.tsx';
 import { TurnChangesContext, TurnRowsContext } from '../TurnChangesCard.tsx';
 import { resetTurnChangesCache } from '../turn-changes-model.ts';
 import { resetTurnPreviews, runningTurnKeyOf } from '../turn-preview-model.ts';
 import { trailingTurnRuns, useConversationLinkSurfaces } from '../use-conversation-link-surfaces.ts';
 import { useConversationRowRenderer } from '../use-conversation-row-renderer.ts';
-import { useTranscriptRows } from '../use-conversation-rows.ts';
+import { releaseTranscriptRowLifecycle, useTranscriptRows } from '../use-conversation-rows.ts';
 
 const h = React.createElement;
 
@@ -17,11 +18,29 @@ const h = React.createElement;
 export async function mountTranscriptPane(t) {
   resetTurnChangesCache();
   resetTurnPreviews();
+  releaseTranscriptRowLifecycle('s1');
+  t.after(() => releaseTranscriptRowLifecycle('s1'));
   const { dom, document, root } = installTestDom(t, {
     expose: ['HTMLElement', 'Node', 'Event', 'MouseEvent', 'CustomEvent'],
     rootId: 'root',
   });
-  const view = { sealed: true, reads: 0, read: [], rows: [], frames: [], document };
+  const defaultFiles = [
+    { path: 'src/a.ts', status: 'M', additions: 2, deletions: 1, state: 'applied', revertable: true },
+  ];
+  const heldResolvers = [];
+  const view = {
+    sealed: true,
+    holdReads: false,
+    failReads: null,
+    files: defaultFiles,
+    rootDir: 'C:/Project/app',
+    reads: 0,
+    read: [],
+    rows: [],
+    frames: [],
+    document,
+    dom,
+  };
   // The reads a render started and the pane has not been answered yet.
   const reading = new Set();
   const answer = async (request) => {
@@ -29,14 +48,21 @@ export async function mountTranscriptPane(t) {
     view.reads += 1;
     const checkpointId = request.args[0].checkpointId;
     view.read.push(checkpointId);
-    const file = { path: 'src/a.ts', status: 'M', additions: 2, deletions: 1, state: 'applied', revertable: true };
+    if (view.holdReads) {
+      await new Promise((resolve) => heldResolvers.push(resolve));
+    }
+    if (view.failReads) {
+      const failure = typeof view.failReads === 'function' ? view.failReads(checkpointId) : view.failReads;
+      if (failure) throw failure instanceof Error ? failure : new Error(String(failure));
+    }
+    const files = typeof view.files === 'function' ? view.files(checkpointId) : view.files;
     return {
       value: {
         status: view.sealed ? 'ready' : 'pending',
         checkpointId,
         revision: 1,
-        root: 'C:/Project/app',
-        files: view.sealed ? [file] : [],
+        root: view.rootDir,
+        files: view.sealed ? files : [],
         canUndo: true,
         canReapply: false,
       },
@@ -45,18 +71,33 @@ export async function mountTranscriptPane(t) {
   dom.window.mixdogDesktop = {
     invokeCapability(request) {
       const read = answer(request);
-      reading.add(read);
-      return read.finally(() => reading.delete(read));
+      const tracked = read.then(
+        () => undefined,
+        () => undefined
+      );
+      reading.add(tracked);
+      tracked.finally(() => reading.delete(tracked));
+      return read;
     },
+    visualizeCommand: async () => undefined,
   };
   /** Every read the pane started is answered, and what it drew from the answer is committed. */
   const settle = async () => {
     do await act(async () => void (await Promise.all(reading)));
     while (reading.size > 0);
   };
+  view.settleReads = settle;
+  view.releaseReads = async () => {
+    const queued = heldResolvers.splice(0);
+    for (const resolve of queued) resolve();
+    await settle();
+  };
   function Pane({
     items,
     busy = false,
+    shellJobs,
+    agentWorkers,
+    agentJobs,
     liveItem = null,
     activityAt = 0,
     steerItems = [],
@@ -64,28 +105,29 @@ export async function mountTranscriptPane(t) {
     questionCard = null,
     failedTurnKeys = [],
   }) {
-    const { transcriptRows, settledTurnKeys, turnPastEnd, pastLastEnd, trailingCheckpointShown } = useTranscriptRows({
-      identity: 's1',
-      sessionKey: 's1',
-      settledItems: items,
-      settledRowItems: items,
-      failedTurnKeys,
-      precomputedTurnKeys: null,
-      pendingItems,
-      steerItems,
-      liveItem,
-      busy,
-      commandBusy: false,
-      commandActivityVisible: activityAt > 0,
-      commandActivityStartedAt: activityAt,
-      optimisticActivityStartedAt: 0,
-    });
+    const { transcriptRows, settledTurnKeys, turnPastEnd, trailingTurnRunning, trailingCheckpointShown } =
+      useTranscriptRows({
+        identity: 's1',
+        sessionKey: 's1',
+        settledItems: items,
+        settledRowItems: items,
+        failedTurnKeys,
+        precomputedTurnKeys: null,
+        pendingItems,
+        steerItems,
+        liveItem,
+        busy,
+        commandBusy: false,
+        commandActivityVisible: activityAt > 0,
+        commandActivityStartedAt: activityAt,
+        optimisticActivityStartedAt: 0,
+      });
     const links = useConversationLinkSurfaces(
       {},
       {
         turnChangesSessionId: 's1',
         turnChangesBusy: busy,
-        turnChangesRunning: trailingTurnRuns(busy, 0, pastLastEnd),
+        turnChangesRunning: trailingTurnRunning,
         trailingCheckpointShown,
         runningTurnKey: trailingTurnRuns(busy, 0, turnPastEnd)
           ? runningTurnKeyOf(items, settledTurnKeys, settledTurnKeys.at(-1) ?? '')
@@ -93,7 +135,13 @@ export async function mountTranscriptPane(t) {
       }
     );
     const { renderTranscriptRow } = useConversationRowRenderer({
-      snapshot: { sessionId: 's1', busy },
+      snapshot: {
+        sessionId: 's1',
+        busy,
+        ...(shellJobs ? { shellJobs } : {}),
+        ...(agentWorkers ? { agentWorkers } : {}),
+        ...(agentJobs ? { agentJobs } : {}),
+      },
       disclosureScope: 's1',
       readOnly: false,
       transitioning: false,
@@ -108,13 +156,17 @@ export async function mountTranscriptPane(t) {
     view.rows = transcriptRows;
     const rowsOf = () => view.rows;
     return h(
-      TurnChangesContext.Provider,
-      { value: links.turnChangesSurface },
+      MarkdownProjectContext.Provider,
+      { value: view.rootDir },
       h(
-        TurnRowsContext.Provider,
-        { value: rowsOf },
-        transcriptRows.map((row, index) =>
-          h('div', { key: row.key, 'data-row-key': row.key }, renderTranscriptRow(row, index, transcriptRows))
+        TurnChangesContext.Provider,
+        { value: links.turnChangesSurface },
+        h(
+          TurnRowsContext.Provider,
+          { value: rowsOf },
+          transcriptRows.map((row, index) =>
+            h('div', { key: row.key, 'data-row-key': row.key }, renderTranscriptRow(row, index, transcriptRows))
+          )
         )
       )
     );
@@ -123,8 +175,13 @@ export async function mountTranscriptPane(t) {
   view.Pane = Pane;
   view.render = async (props) => {
     await act(async () => root.render(h(Pane, props)));
-    await settle();
+    if (!view.holdReads) await settle();
     view.frames.push(view.frame());
+  };
+  view.renderSync = (props) => {
+    act(() => {
+      root.render(h(Pane, props));
+    });
   };
   /** What the user sees now: each row's tag, key and drawn text. */
   view.frame = () => {
@@ -139,6 +196,8 @@ export async function mountTranscriptPane(t) {
   view.text = () => (document.getElementById('root')?.textContent || '').replace(/\s+/g, ' ').trim();
   view.card = () => document.querySelector('.turn-changes-card');
   view.cards = () => document.querySelectorAll('.turn-changes-card').length;
+  view.visualizeCards = () => document.querySelectorAll('.transcript-visualize-turn').length;
+  view.visualizeTiles = () => document.querySelectorAll('.transcript-visualize-tile').length;
   view.status = (selector = '.turn-status') => [...document.querySelectorAll(selector)].map((node) => node.className);
   return view;
 }

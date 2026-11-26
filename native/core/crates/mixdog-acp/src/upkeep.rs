@@ -216,6 +216,13 @@ pub(crate) struct Running {
     done: watch::Receiver<bool>,
 }
 
+#[cfg(test)]
+impl Running {
+    pub(crate) fn for_test(step: watch::Sender<Step>, cancel: CancellationToken, done: watch::Receiver<bool>) -> Self {
+        Self { id: 1, step, cancel, done }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Slot {
     /// What the last finished check found; `None` before the first.
@@ -342,7 +349,8 @@ impl Agents {
             None => Some(location.path.clone()),
         });
         for program in std::iter::once(preset.command.clone()).chain(installed) {
-            match run_to_exit(&self.parts.processes, Self::plain(&program, &preset.version_args, cwd)).await {
+            let launch = Launch { program: program.clone(), args: preset.version_args.clone(), env: preset.env.clone(), env_remove: Vec::new(), cwd: cwd.clone() };
+            match run_to_exit(&self.parts.processes, launch).await {
                 Err(Fault::NotFound) => {}
                 Ok(ran) => return Ok((program, ran)),
                 Err(fault) => return Err(fault),
@@ -1170,6 +1178,190 @@ impl Agents {
                 read.cancel();
             }
             self.tell(&id, AccountEvent::Left);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use async_trait::async_trait;
+    use mixdog_core_api::domain::common::EventSource;
+    use mixdog_core_api::domain::process::CommandSpec;
+    use mixdog_core_api::domain::process::ExitStatus;
+    use mixdog_core_api::domain::process::OutputStream;
+    use mixdog_core_api::domain::process::ProcessError;
+    use mixdog_core_api::domain::process::ProcessEvent;
+    use mixdog_core_api::domain::process::ProcessExit;
+    use mixdog_core_api::domain::process::ProcessInfo;
+    use mixdog_core_api::domain::process::ProcessManager;
+    use mixdog_core_api::domain::process::PtySize;
+    use mixdog_core_api::domain::process::SpawnRequest;
+    use mixdog_core_api::domain::process::SpawnedProcess;
+    use mixdog_protocol::ProcessHandle;
+
+    use super::*;
+    use crate::agents::AgentsParts;
+    use crate::agents::Refusals;
+    use crate::agents::Windows;
+    use crate::files::TextFiles;
+
+    struct NoRefusals;
+
+    #[async_trait]
+    impl Refusals for NoRefusals {
+        async fn read(&self) -> HashMap<String, String> {
+            HashMap::new()
+        }
+        async fn keep(&self, _: HashMap<String, String>) {}
+        async fn read_windows(&self) -> Windows {
+            HashMap::new()
+        }
+        async fn keep_windows(&self, _: Windows) {}
+    }
+
+    struct NoFiles;
+
+    #[async_trait]
+    impl TextFiles for NoFiles {
+        async fn read(&self, _: AbsPath) -> Result<String, String> {
+            Err("no file".into())
+        }
+        async fn resolved(&self, path: AbsPath) -> Result<AbsPath, String> {
+            Ok(path)
+        }
+        async fn create(&self, _: AbsPath, _: String) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    struct ChannelEvents(mpsc::UnboundedReceiver<ProcessEvent>);
+
+    #[async_trait]
+    impl EventSource<ProcessEvent> for ChannelEvents {
+        async fn next(&mut self) -> Option<ProcessEvent> {
+            self.0.recv().await
+        }
+    }
+
+    #[derive(Default)]
+    struct AgyProbeProcesses {
+        spawns: Mutex<Vec<(Vec<String>, Vec<(String, String)>)>>,
+        events: Mutex<HashMap<String, mpsc::UnboundedReceiver<ProcessEvent>>>,
+        senders: Mutex<HashMap<String, mpsc::UnboundedSender<ProcessEvent>>>,
+        stdin_buf: Mutex<HashMap<String, String>>,
+    }
+
+    #[async_trait]
+    impl ProcessManager for AgyProbeProcesses {
+        async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
+            let CommandSpec::Argv { args, .. } = request.command else { panic!("argv expected") };
+            self.spawns.lock().unwrap().push((args.clone(), request.env.set));
+            let (tx, rx) = mpsc::unbounded_channel();
+            if args.iter().any(|arg| arg == "--version") {
+                let _ = tx.send(ProcessEvent::Output { seq: 0, stream: OutputStream::Stdout, bytes: b"1.5.16\n".to_vec() });
+                let _ = tx.send(ProcessEvent::Exited { seq: 1, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } });
+            } else if args.iter().any(|arg| arg == "/usage") {
+                let body = json!({ "status": "SUCCESS", "command": { "data": { "groups": [] } } }).to_string();
+                let _ = tx.send(ProcessEvent::Output { seq: 0, stream: OutputStream::Stdout, bytes: format!("{body}\n").into_bytes() });
+                let _ = tx.send(ProcessEvent::Exited { seq: 1, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } });
+            } else {
+                self.senders.lock().unwrap().insert(request.handle.0.clone(), tx);
+            }
+            self.events.lock().unwrap().insert(request.handle.0.clone(), rx);
+            Ok(SpawnedProcess { handle: request.handle, pid: 1 })
+        }
+
+        fn subscribe(&self, handle: &ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+            let rx = self.events.lock().unwrap().remove(&handle.0).ok_or(ProcessError::UnknownHandle)?;
+            Ok(Box::new(ChannelEvents(rx)))
+        }
+
+        fn subscribe_holding(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+            self.subscribe(handle, from_seq)
+        }
+
+        async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
+            let mut lines = Vec::new();
+            {
+                let mut bufs = self.stdin_buf.lock().unwrap();
+                let buf = bufs.entry(handle.0.clone()).or_default();
+                buf.push_str(&String::from_utf8_lossy(&bytes));
+                while let Some(pos) = buf.find('\n') {
+                    lines.push(buf.drain(..=pos).collect::<String>());
+                }
+            }
+            if let Some(tx) = self.senders.lock().unwrap().get(&handle.0) {
+                for line in lines {
+                    let Ok(msg) = serde_json::from_str::<Value>(line.trim()) else { continue };
+                    let Some(id) = msg.get("id").cloned() else { continue };
+                    let result = match msg.get("method").and_then(Value::as_str) {
+                        Some("initialize") => json!({ "protocolVersion": 1, "agentCapabilities": {} }),
+                        Some("session/new") => json!({ "sessionId": "sess-1" }),
+                        _ => json!({}),
+                    };
+                    let reply = json!({ "jsonrpc": "2.0", "id": id, "result": result }).to_string();
+                    let _ = tx.send(ProcessEvent::Output { seq: 0, stream: OutputStream::Stdout, bytes: format!("{reply}\n").into_bytes() });
+                }
+            }
+            Ok(())
+        }
+
+        fn close_stdin(&self, _: &ProcessHandle) -> Result<(), ProcessError> {
+            Ok(())
+        }
+
+        fn resize_pty(&self, _: &ProcessHandle, _: PtySize) -> Result<(), ProcessError> {
+            Ok(())
+        }
+
+        fn kill(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
+            if let Some(tx) = self.senders.lock().unwrap().remove(&handle.0) {
+                let _ = tx.send(ProcessEvent::Exited { seq: 1, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } });
+            }
+            Ok(())
+        }
+
+        fn list(&self) -> Vec<ProcessInfo> {
+            Vec::new()
+        }
+    }
+
+    #[tokio::test]
+    async fn antigravity_cli_check_and_usage_disable_auto_updater_with_literal_true() {
+        let _ = mixdog_rt::testing::tokens();
+        let preset = crate::preset::builtin().into_iter().find(|preset| preset.id == "antigravity-cli").expect("antigravity-cli preset");
+        let processes = Arc::new(AgyProbeProcesses::default());
+        let cwd = std::env::temp_dir();
+        let agents = Agents::new(AgentsParts {
+            refusals: Arc::new(NoRefusals),
+            presets: vec![preset.clone()],
+            processes: processes.clone(),
+            files: Arc::new(NoFiles),
+            enabled: Arc::new(|| true),
+            changed: Arc::new(|| {}),
+            probe_cwd: cwd.clone(),
+            definitions: cwd.clone(),
+            data_dir: cwd,
+            env: Arc::new(|_| None),
+            mcp_bridge: None,
+            registry: None,
+        });
+
+        let readiness = agents.look(&preset).await;
+        assert!(matches!(readiness, Some(Readiness::Ready { .. })), "{readiness:?}");
+        let report = agents.usage(&preset).await;
+        assert_eq!(report, Some(Ok(json!({ "groups": [] }))));
+
+        let spawns = processes.spawns.lock().unwrap().clone();
+        let args: Vec<&[String]> = spawns.iter().map(|(args, _)| args.as_slice()).collect();
+        assert_eq!(args.len(), 3, "{spawns:?}");
+        for (argv, env) in &spawns {
+            assert!(
+                env.iter().any(|(k, v)| k == "AGY_CLI_DISABLE_AUTO_UPDATE" && v == "true"),
+                "spawn {argv:?} must set AGY_CLI_DISABLE_AUTO_UPDATE=true, got {env:?}"
+            );
         }
     }
 }

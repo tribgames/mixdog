@@ -593,8 +593,9 @@ test('Goal island keeps its summary compact and toggles from the capsule', async
     // The segment reads n/m plus elapsed time, as the island mockup does.
     assert.equal(trigger.querySelector('.session-goal-meta')?.textContent, '1/35m');
     assert.equal(trigger.querySelector('.session-goal-trigger-time')?.textContent, '5m');
+    assert.equal(document.querySelector('.session-goal-panel .session-goal-tab-label')?.textContent, 'Goal');
+    assert.equal(document.querySelector('.session-goal-panel .session-goal-progress')?.textContent, '1/3');
     assert.match(document.querySelector('.session-goal-panel .session-goal-time')?.textContent || '', /^\d+m$/);
-    assert.match(document.querySelector('.session-goal-panel .session-goal-meta')?.textContent || '', /^1\/3·\d+m$/);
     assert.equal(document.querySelector('.session-goal-toggle'), null);
     assert.equal(trigger?.getAttribute('aria-expanded'), 'false');
     assert.equal(document.querySelector('.session-goal-drawer')?.getAttribute('aria-hidden'), 'true');

@@ -16,9 +16,63 @@ use serde_json::Value;
 use crate::agent_tool::board::JobMeta;
 use crate::agent_tool::scope::normalize_agent_name;
 
-/// `findPreset(config, key)` over a config that is not an object: nothing.
-fn preset_in<'a>(config: &'a Obj, key: Option<&Value>) -> Option<&'a Value> {
-    find_preset(config, key)
+fn anthropic_family_model(family: &str) -> String {
+    let key = format!("ANTHROPIC_DEFAULT_{}_MODEL", family.to_ascii_uppercase());
+    if let Ok(value) = std::env::var(&key) {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_owned();
+        }
+    }
+    match family {
+        "opus" => "claude-opus-4-8".to_owned(),
+        "sonnet" => "claude-sonnet-4-6".to_owned(),
+        _ => "claude-haiku-4-5-20251001".to_owned(),
+    }
+}
+
+/// Shipped default presets matching `mixdog-core-config::workflow::presets::default_presets`.
+fn shipped_default_presets() -> Vec<Value> {
+    let haiku = anthropic_family_model("haiku");
+    let sonnet = anthropic_family_model("sonnet");
+    let opus = anthropic_family_model("opus");
+    vec![
+        serde_json::json!({ "id": "haiku", "name": "HAIKU", "type": "agent", "provider": "anthropic-oauth", "model": haiku, "tools": "full" }),
+        serde_json::json!({ "id": "sonnet-mid", "name": "SONNET MID", "type": "agent", "provider": "anthropic-oauth", "model": sonnet, "effort": "medium", "tools": "full" }),
+        serde_json::json!({ "id": "sonnet-high", "name": "SONNET HIGH", "type": "agent", "provider": "anthropic-oauth", "model": sonnet, "effort": "high", "tools": "full" }),
+        serde_json::json!({ "id": "opus-mid", "name": "OPUS MID", "type": "agent", "provider": "anthropic-oauth", "model": opus, "effort": "medium", "tools": "full" }),
+        serde_json::json!({ "id": "opus-high", "name": "OPUS HIGH", "type": "agent", "provider": "anthropic-oauth", "model": opus, "effort": "high", "tools": "full" }),
+    ]
+}
+
+/// Effective preset list matching `mixdog-core-config::workflow::presets::effective_keeping`:
+/// complete stored presets first (excluding `workflow-search` and incomplete entries), followed
+/// only by shipped defaults whose key is not already present among the complete stored presets.
+fn effective_presets(config: &Obj) -> Vec<Value> {
+    let mut presets: Vec<Value> = config
+        .get("presets")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter(|p| {
+                    let id = clean(p.get("id"));
+                    id != "workflow-search" && !preset_key(Some(p)).is_empty() && normalize_agent_route(Some(p)).is_some()
+                })
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    let present: Vec<String> = presets.iter().map(|p| preset_key(Some(p))).collect();
+    presets.extend(shipped_default_presets().into_iter().filter(|shipped| !present.contains(&preset_key(Some(shipped)))));
+    presets
+}
+
+fn preset_in(config: &Obj, key: Option<&Value>) -> Option<Value> {
+    let wanted = clean(key).to_lowercase();
+    if wanted.is_empty() {
+        return None;
+    }
+    effective_presets(config).into_iter().find(|p| clean(p.get("id")).to_lowercase() == wanted || clean(p.get("name")).to_lowercase() == wanted)
 }
 
 /// `presetKey`: `clean(preset?.id || preset?.name)`.
@@ -32,18 +86,21 @@ pub fn agent_preset_name(agent: &str) -> String {
     format!("AGENT {}", agent.to_uppercase())
 }
 
-/// `PRESET_ALIASES` and `synthesizePreset`: a named variant of a stored preset.
-fn synthesize_preset(config: &Obj, key: &str) -> Option<Value> {
-    let (alias, base, effort, name) = match key.to_lowercase().as_str() {
+/// `PRESET_ALIASES` and `synthesizePreset`: a named variant of a stored or shipped base preset,
+/// returning `(synthesized_preset, backing_base_preset_key)`.
+fn synthesize_preset(config: &Obj, key: &str) -> Option<(Value, String)> {
+    let (alias, base_id, effort, name) = match key.to_lowercase().as_str() {
         "opus-xhigh" => ("opus-xhigh", "opus-high", "xhigh", "OPUS XHIGH"),
         _ => return None,
     };
-    let base = preset_in(config, Some(&Value::from(base)))?;
+    let base = preset_in(config, Some(&Value::from(base_id)))?;
+    let base_ref = preset_key(Some(&base));
+    let backing_key = if base_ref.is_empty() { base_id.to_owned() } else { base_ref };
     let mut out = base.as_object()?.clone();
     out.insert("id".into(), alias.into());
     out.insert("name".into(), name.into());
     out.insert("effort".into(), effort.into());
-    Some(Value::Object(out))
+    Some((Value::Object(out), backing_key))
 }
 
 /// `normalizeAgentRoute`: the route fields a provider/model pair carries, or nothing.
@@ -86,6 +143,31 @@ pub fn normalize_agent_route(route: Option<&Value>) -> Option<Obj> {
     Some(out)
 }
 
+/// Resolves one configured agent route candidate: an inline `{ provider, model }` route object,
+/// else a preset name referencing `config.presets` (or a synthesized alias such as `opus-xhigh`).
+pub fn resolve_agent_route_candidate(config: &Obj, candidate: &Value) -> Option<Value> {
+    resolve_stored_candidate(config, candidate).map(|(resolved, _)| resolved)
+}
+
+fn resolve_stored_candidate(config: &Obj, candidate: &Value) -> Option<(Value, Option<String>)> {
+    if candidate.is_object() {
+        return normalize_agent_route(Some(candidate)).map(|_| (candidate.clone(), None));
+    }
+    let key = clean(Some(candidate));
+    if key.is_empty() {
+        return None;
+    }
+    let (found, source_key) = if let Some(found) = preset_in(config, Some(candidate)) {
+        let preset_ref = preset_key(Some(&found));
+        let source_key = if preset_ref.is_empty() { key } else { preset_ref };
+        (found, source_key)
+    } else {
+        synthesize_preset(config, &key)?
+    };
+    normalize_agent_route(Some(&found))?;
+    Some((found, Some(source_key)))
+}
+
 /// What a spawn resolves to: the preset's name (the stored preset's id/name, or the request's)
 /// and the preset itself.
 #[derive(Clone, PartialEq, Debug)]
@@ -107,7 +189,9 @@ pub fn resolve_agent_spawn_preset(config: &Obj, args: &Value, candidates: &[Valu
     let arg = |key: &str| args.get(key);
     let agent = normalize_agent_name(&clean(arg("agent")));
     let named = clean(arg("preset"));
-    let stored: Option<&Value> = if named.is_empty() { candidates.iter().find(|c| normalize_agent_route(Some(c)).is_some()) } else { None };
+    let resolved_stored = if named.is_empty() { candidates.iter().find_map(|c| resolve_stored_candidate(config, c)) } else { None };
+    let stored: Option<&Value> = resolved_stored.as_ref().map(|(v, _)| v);
+    let stored_preset_ref: Option<&str> = resolved_stored.as_ref().and_then(|(_, key)| key.as_deref());
     let agent_route = stored.and_then(|c| normalize_agent_route(Some(c)));
     let stored_chain = |route: &Value, candidate: &Value| {
         let mut for_chain = route.clone();
@@ -123,9 +207,13 @@ pub fn resolve_agent_spawn_preset(config: &Obj, args: &Value, candidates: &[Valu
         (Some(route), Some(candidate)) => Some(stored_chain(&Value::Object(route.clone()), candidate)?),
         _ => None,
     };
-    let fallback_source = || {
+    let fallback_source = |preset_ref: Option<&str>| {
         let mut source = Obj::new();
-        source.insert("agent".into(), agent.clone().into());
+        if let Some(preset_ref) = preset_ref {
+            source.insert("preset".into(), preset_ref.into());
+        } else {
+            source.insert("agent".into(), agent.clone().into());
+        }
         Value::Object(source)
     };
     // `strict`: the spawn named its model, so no other model may answer it (no chain, no source).
@@ -150,7 +238,7 @@ pub fn resolve_agent_spawn_preset(config: &Obj, args: &Value, candidates: &[Valu
             if !fallbacks.is_empty() {
                 preset.insert("fallbacks".into(), Value::Array(fallbacks_of(fallbacks)));
             }
-            preset.insert("fallbackSource".into(), fallback_source());
+            preset.insert("fallbackSource".into(), fallback_source(stored_preset_ref));
         }
         if let Some(effort) = effort {
             preset.insert("effort".into(), effort.into());
@@ -196,7 +284,7 @@ pub fn resolve_agent_spawn_preset(config: &Obj, args: &Value, candidates: &[Valu
     if let Some(main) = main.filter(|m| normalize_agent_route(Some(m)).is_some()) {
         let name = if truthy(main.get("id")) { main.get("id") } else { main.get("name") };
         let mut preset = main.as_object().cloned().unwrap_or_default();
-        preset.insert("fallbackSource".into(), fallback_source());
+        preset.insert("fallbackSource".into(), fallback_source(None));
         return Ok(SpawnPreset { preset_name: name.cloned().unwrap_or(Value::Null), preset: Value::Object(preset) });
     }
 
@@ -235,20 +323,96 @@ fn direct_model_preset(
 }
 
 fn named_preset(config: &Obj, named: String) -> Result<SpawnPreset, String> {
-    let preset = match preset_in(config, Some(&Value::from(named.as_str()))) {
+    let (found, source_key) = match preset_in(config, Some(&Value::from(named.as_str()))) {
         Some(found) => {
-            let mut preset = found.as_object().cloned().unwrap_or_default();
-            let mut source = Obj::new();
-            source.insert("preset".into(), named.clone().into());
-            preset.insert("fallbackSource".into(), Value::Object(source));
-            Value::Object(preset)
+            let preset_ref = preset_key(Some(&found));
+            let source_key = if preset_ref.is_empty() { named.clone() } else { preset_ref };
+            (found, source_key)
         }
-        None => synthesize_preset(config, &named).ok_or_else(|| format!("agent: preset \"{named}\" not found"))?,
+        None => match synthesize_preset(config, &named) {
+            Some(synthesized) => synthesized,
+            None => {
+                if find_preset(config, Some(&Value::from(named.as_str()))).is_some() {
+                    return Err(format!("agent: preset \"{named}\" has no complete route"));
+                }
+                return Err(format!("agent: preset \"{named}\" not found"));
+            }
+        },
     };
-    if normalize_agent_route(Some(&preset)).is_none() {
+    if normalize_agent_route(Some(&found)).is_none() {
         return Err(format!("agent: preset \"{named}\" has no complete route"));
     }
-    Ok(SpawnPreset { preset_name: named.into(), preset })
+    let mut preset = found.as_object().cloned().unwrap_or_default();
+    let mut source = Obj::new();
+    source.insert("preset".into(), source_key.into());
+    preset.insert("fallbackSource".into(), Value::Object(source));
+    Ok(SpawnPreset { preset_name: named.into(), preset: Value::Object(preset) })
+}
+
+/// Overlays the committed executable route from a created `session` onto the planned `preset`,
+/// keeping the preset's identity (`id`, `name`, `tools`, `fallbacks`, `fallbackSource`).
+/// When `session` carries no bound `provider` + `model` (e.g. a minimal test stub), `planned` stands.
+pub fn bound_preset_for_session(planned: &Value, session: &Value) -> Value {
+    let provider = clean(session.get("provider"));
+    let model = clean(session.get("model"));
+    if provider.is_empty() || model.is_empty() {
+        return planned.clone();
+    }
+    let mut bound = planned.as_object().cloned().unwrap_or_default();
+    let route_changed = clean(planned.get("provider")) != provider || clean(planned.get("model")) != model;
+    bound.insert("provider".into(), Value::String(provider));
+    bound.insert("model".into(), Value::String(model));
+    match session.get("effort") {
+        Some(value) if truthy(Some(value)) => {
+            bound.insert("effort".into(), value.clone());
+        }
+        Some(_) => {
+            bound.shift_remove("effort");
+        }
+        None if route_changed => {
+            bound.shift_remove("effort");
+        }
+        None => {}
+    }
+    if let Some(fast) = session.get("fast") {
+        bound.insert("fast".into(), Value::Bool(fast == &Value::Bool(true)));
+    } else if route_changed {
+        bound.insert("fast".into(), Value::Bool(false));
+    }
+    if session.get("autoEffort") == Some(&Value::Bool(false)) {
+        bound.insert("autoEffort".into(), Value::Bool(false));
+    } else if session.get("autoEffort").is_some() || route_changed {
+        bound.shift_remove("autoEffort");
+    }
+    if let Some(params) = session.get("modelParameters") {
+        if params.is_object() {
+            bound.insert("modelParameters".into(), params.clone());
+        } else {
+            bound.shift_remove("modelParameters");
+        }
+    } else if route_changed {
+        bound.shift_remove("modelParameters");
+    }
+    for key in ["contextPercent", "contextTokens"] {
+        match session.get(key) {
+            Some(v) if truthy(Some(v)) => {
+                bound.insert(key.into(), v.clone());
+            }
+            Some(_) => {
+                bound.shift_remove(key);
+            }
+            None if route_changed => {
+                bound.shift_remove(key);
+            }
+            None => {}
+        }
+    }
+    if route_changed {
+        for key in ["modelDisplay", "display", "displayName"] {
+            bound.shift_remove(key);
+        }
+    }
+    Value::Object(bound)
 }
 
 /// `presetDescriptor`: the route fields every worker row and tag record carries.

@@ -274,13 +274,13 @@ test('the session panel stands right of the reading column: in its margin, or th
   );
   assert.ok(tight.composer.right <= tight.panel.left, 'and so does the composer');
 
-  // Either side of the width where the scroller, giving up the band on both sides, still holds the 848px column the
-  // pane gives its rows: above it nothing moves, below it the conversation re-centres; the rows keep their width.
+  // Either side of the width where the scroller clears the panel: above it nothing moves, below it reserve grows
+  // continuously by twice the overlap (1px at boundary - 1); the rows keep their width.
   const frame = 2000 - bare.cellWidth;
   const boundary = 848 + 2 * (400 + SESSION_RAIL_GAP);
   for (const cellWidth of [boundary + 1, boundary - 1]) {
     const fitted = sessionRailFit({ cellWidth, railPref: 400 });
-    assert.equal(fitted.reserve, cellWidth > boundary ? 0 : 400 + SESSION_RAIL_GAP, `${cellWidth}: the reserve`);
+    assert.equal(fitted.reserve, cellWidth > boundary ? 0 : 1, `${cellWidth}: the reserve`);
     const without = await at(cellWidth + frame, 0);
     const beside = await at(cellWidth + frame, fitted.width, fitted.reserve);
     assert.equal(beside.cellWidth, cellWidth);

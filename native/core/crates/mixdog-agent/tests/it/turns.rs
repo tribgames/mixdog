@@ -108,7 +108,7 @@ impl TurnSessions for Sess {
                     message: error["message"].as_str().unwrap().to_owned(),
                     carried_report: error.get("carriedReport").and_then(Value::as_str).map(str::to_owned),
                     partial_handoff: error.get("partialHandoff").and_then(Value::as_str).map(str::to_owned),
-                    notes: Vec::new(),
+                    ..TurnError::default()
                 });
             }
         }

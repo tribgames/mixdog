@@ -129,9 +129,13 @@ impl SessionActor {
                 if !self.active(&turn) {
                     return;
                 }
-                if matches!(item, ThreadItem::ToolCall { .. }) {
+                if let ThreadItem::ToolCall { run, .. } = &item {
                     self.visible_progress();
-                    self.prompt_committed();
+                    // An uncommitted provisional ToolCallStart must not lock out prompt reclamation if the turn is
+                    // stopped before any output or tool call actually commits.
+                    if run.live != Some(true) || run.result.is_some() {
+                        self.prompt_committed();
+                    }
                 }
                 let note = Note::new(
                     "item/started",

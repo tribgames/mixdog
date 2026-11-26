@@ -19,18 +19,18 @@ use mixdog_app_protocol::v2::thread::WindowAdded;
 use mixdog_app_protocol::v2::thread::WindowEdge;
 use mixdog_app_protocol::v2::thread::WindowRange;
 use mixdog_app_protocol::v2::thread::WindowRangeWant;
-use mixdog_app_protocol::v2::thread::WindowWant;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::Reply;
 use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::feed::FeedSource;
 use mixdog_core_api::feed::Grant;
 use mixdog_core_api::feed::GrantRange;
+use mixdog_core_api::ids::FeedEpoch;
+use mixdog_core_api::ids::FeedId;
 use mixdog_core_api::ids::SubscriptionId;
+use mixdog_core_api::ids::ThreadId;
 use mixdog_protocol::ThreadItem;
 use serde_json::Value;
-
-use mixdog_core_api::ids::ThreadId;
 
 use super::SessionDeps;
 use super::handle::SessionHandle;
@@ -289,19 +289,93 @@ async fn range(
     Ok(Wanted { range, units: Some(units), keep })
 }
 
-/// What one `thread/window/changed` carries beside its units.
-const FRAME_OVERHEAD: usize = 16 << 10;
+/// Worst-case UUID epoch string (36 ASCII bytes) for sizing `thread/window/changed` frames before the fence is minted.
+const WORST_CASE_EPOCH: &str = "00000000-0000-0000-0000-000000000000";
 
-/// The newly held units, cut to what one message of `budget` bytes delivers: whole units are dropped from a range's far
-/// ends, never the record it was asked at, and the range then says where it continues. Refused when the records asked
-/// at do not fit together.
-fn fit(ranges: &mut [Wanted], budget: usize) -> Result<(), CoreError> {
-    let mut room = budget.saturating_sub(FRAME_OVERHEAD);
-    for wanted in ranges.iter_mut() {
+fn units_json_bytes(units: &[StoredUnit]) -> usize {
+    units.iter().map(|unit| unit.bytes).sum::<usize>() + units.len().saturating_sub(1)
+}
+
+fn preview_changed_params(id: &ThreadId, params: &ThreadWindowSetParams, held: &Grant, demand: &Demand, include_units: bool) -> ThreadWindowChangedParams {
+    let ranges: Vec<GrantRange> = demand.ranges.iter().map(|wanted| wanted.range.clone()).collect();
+    let removed = held.ranges.iter().filter(|old| !ranges.iter().any(|range| range.id == old.id)).map(|old| old.id.to_string()).collect();
+    let added = demand
+        .ranges
+        .iter()
+        .filter_map(|wanted| {
+            let units = wanted.units.as_ref()?;
+            Some(WindowAdded {
+                range: wanted.range.id.to_string(),
+                units: if include_units { units.iter().map(|unit| unit.unit.clone()).collect() } else { Vec::new() },
+            })
+        })
+        .collect();
+    ThreadWindowChangedParams {
+        thread_id: id.clone(),
+        subscription_id: params.subscription_id.clone(),
+        request_id: Some(params.request_id.clone()),
+        window_version: u64::MAX,
+        lineage: held.lineage,
+        at_feed_position: mixdog_app_protocol::v2::feed::FeedPosition { epoch: FeedEpoch::from(WORST_CASE_EPOCH), seq: u64::MAX },
+        ranges: wire_ranges(&ranges),
+        removed,
+        added,
+        follow_tail: demand.tail_from.is_some(),
+    }
+}
+
+fn preview_frame_len(id: &ThreadId, params: &ThreadWindowSetParams, held: &Grant, feed_id: &FeedId, demand: &Demand, include_units: bool) -> usize {
+    let preview = preview_changed_params(id, params, held, demand, include_units);
+    let epoch = FeedEpoch::from(WORST_CASE_EPOCH);
+    super::frames::frame(&super::frames::Note::new(WINDOW_CHANGED, &preview), feed_id, &epoch, u64::MAX).len()
+}
+
+fn drop_one_unit(wanted: &mut Wanted) -> bool {
+    let Some(units) = wanted.units.as_mut() else { return false };
+    let (cut_older, cut_newer) = if wanted.keep > 0 {
+        units.remove(0);
+        wanted.keep -= 1;
+        (true, false)
+    } else if units.len() > 1 {
+        units.pop();
+        (false, true)
+    } else {
+        return false;
+    };
+    let (reaches_start, reaches_end) = (wanted.range.older.is_none() && !cut_older, wanted.range.newer.is_none() && !cut_newer);
+    if let Some(range) = range_of(&wanted.range.id, units, reaches_start, reaches_end) {
+        wanted.range = range;
+    }
+    true
+}
+
+fn optional_units_bytes(units: &[StoredUnit], keep: usize) -> usize {
+    units.get(keep).map_or(0, |anchor| units_json_bytes(units).saturating_sub(anchor.bytes))
+}
+
+/// The newly held units, cut to what one `thread/window/changed` frame of `budget` bytes delivers: whole units are
+/// dropped from a range's far ends, never the record it was asked at, and the range then says where it continues.
+/// Accounts for the exact serialized frame envelope (including `request_id`, `thread_id`, `subscription_id`, `ranges`,
+/// `removed`, and feed metadata), reserves every range's mandatory anchor first so an earlier range's optional units
+/// never starve a later range's anchor, and verifies the final serialized frame fits `<= budget`.
+pub(crate) fn fit_demand(
+    id: &ThreadId,
+    params: &ThreadWindowSetParams,
+    held: &Grant,
+    feed_id: &FeedId,
+    demand: &mut Demand,
+    budget: usize,
+) -> Result<(), CoreError> {
+    let base_envelope = preview_frame_len(id, params, held, feed_id, demand, false);
+    // Pass 1: reserve every range's mandatory anchor unit + envelope bytes before allocating optional units.
+    let required_anchor_bytes: usize =
+        demand.ranges.iter().filter_map(|wanted| wanted.units.as_ref().and_then(|units| units.get(wanted.keep))).map(|unit| unit.bytes).sum();
+    let mut optional_room = budget.saturating_sub(base_envelope.saturating_add(required_anchor_bytes));
+    // Pass 2: allocate remaining room to optional units across ranges, keeping every range's anchor intact.
+    for wanted in demand.ranges.iter_mut() {
         let Some(units) = wanted.units.as_mut() else { continue };
-        let held = |units: &[StoredUnit]| units.iter().map(|unit| unit.bytes).sum::<usize>();
         let (mut cut_older, mut cut_newer) = (false, false);
-        while held(units) > room {
+        while optional_units_bytes(units, wanted.keep) > optional_room {
             if wanted.keep > 0 {
                 units.remove(0);
                 wanted.keep -= 1;
@@ -310,13 +384,19 @@ fn fit(ranges: &mut [Wanted], budget: usize) -> Result<(), CoreError> {
                 units.pop();
                 cut_newer = true;
             } else {
-                return Err(invalid("want", "ranges whose records fit one window change"));
+                break;
             }
         }
-        room -= held(units);
+        optional_room = optional_room.saturating_sub(optional_units_bytes(units, wanted.keep));
         let (reaches_start, reaches_end) = (wanted.range.older.is_none() && !cut_older, wanted.range.newer.is_none() && !cut_newer);
         if let Some(range) = range_of(&wanted.range.id, units, reaches_start, reaches_end) {
             wanted.range = range;
+        }
+    }
+    // Pass 3: enforce the exact serialized frame length against `budget` after continuation edges settle.
+    while preview_frame_len(id, params, held, feed_id, demand, true) > budget {
+        if !demand.ranges.iter_mut().rev().any(drop_one_unit) {
+            return Err(invalid("want", "ranges whose records fit one window change"));
         }
     }
     Ok(())
@@ -329,13 +409,15 @@ pub(crate) async fn demand(
     deps: &SessionDeps,
     id: &ThreadId,
     held: &Grant,
-    request: &str,
-    want: &WindowWant,
+    params: &ThreadWindowSetParams,
+    feed_id: &FeedId,
     calls: &Calls,
     budget: usize,
     ctl: &ReadCtl,
 ) -> Result<Demand, CoreError> {
     let lineage = held.lineage;
+    let request = params.request_id.as_str();
+    let want = &params.want;
     let retained = |id: &str| held.ranges.iter().find(|range| &*range.id == id).cloned();
     let mut ranges = Vec::new();
     for (index, wanted) in want.ranges.iter().enumerate() {
@@ -385,8 +467,9 @@ pub(crate) async fn demand(
             *unit = settled;
         }
     }
-    fit(&mut ranges, budget)?;
-    Ok(Demand { ranges, tail_from })
+    let mut demand = Demand { ranges, tail_from };
+    fit_demand(id, params, held, feed_id, &mut demand, budget)?;
+    Ok(demand)
 }
 
 /// `thread/window/changed` for the grant `demand` made of `held` at `fence`.
@@ -503,5 +586,202 @@ impl SessionHandle {
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.inbox.send(super::actor::Inbox::WindowDemand { params, cancel: req.ctx.cancel.clone(), tx }).await.map_err(|_| closing())?;
         rx.await.map_err(|_| closing())?
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mixdog_app_protocol::v2::thread::TranscriptUnit;
+    use mixdog_protocol::{ItemId, ItemMeta, ThreadItem, ToolRun};
+    use serde_json::json;
+
+    use super::*;
+
+    fn tool_unit(ordinal: u64, id: &str, call_id: &str) -> StoredUnit {
+        let item = ThreadItem::ToolCall {
+            id: ItemId::from(id),
+            name: "read".into(),
+            input: json!({ "file_path": "a.rs" }),
+            output: None,
+            run: Box::new(ToolRun { call_id: Some(call_id.into()), started_at: Some(1_000), ..ToolRun::default() }),
+            meta: ItemMeta { at: Some(1_000), ..ItemMeta::default() },
+        };
+        let unit = TranscriptUnit { position: format!("h1:0:r{ordinal}"), items: vec![item], ordinal: Some(ordinal) };
+        let bytes = reads::unit_bytes(&unit);
+        StoredUnit { ordinal, unit, bytes }
+    }
+
+    fn test_params(request_id: String) -> ThreadWindowSetParams {
+        ThreadWindowSetParams {
+            thread_id: ThreadId::from("thr_window_fit"),
+            subscription_id: mixdog_protocol::SubscriptionId::from("sub_window_fit"),
+            request_id,
+            base_window_version: 1,
+            want: mixdog_app_protocol::v2::thread::WindowWant { ranges: Vec::new(), pinned: Vec::new(), follow_tail: false },
+        }
+    }
+
+    #[test]
+    fn window_fit_refits_after_long_provisional_id_substitution_within_frame_budget() {
+        let mut older = tool_unit(1, "r1", "c1");
+        if let ThreadItem::ToolCall { input, .. } = &mut older.unit.items[0] {
+            *input = json!({ "file_path": "o".repeat(1_024) });
+        }
+        older.bytes = reads::unit_bytes(&older.unit);
+        let anchor = tool_unit(2, "r2", "c2");
+        let range = range_of("q:req:0", &[older.clone(), anchor.clone()], true, true).expect("range");
+        let params = test_params("req".into());
+        let held = Grant { version: 1, lineage: 1, ranges: Vec::new(), tail_from: None };
+        let feed_id = FeedId::from("feed_window_fit");
+        let mut demand = Demand { ranges: vec![Wanted { range, units: Some(vec![older, anchor]), keep: 1 }], tail_from: None };
+        let initial_frame = preview_frame_len(&params.thread_id, &params, &held, &feed_id, &demand, true);
+        // Budget fits both units before substituting a long opaque provisional call id onto the anchor.
+        let budget = initial_frame + 32;
+        fit_demand(&params.thread_id, &params, &held, &feed_id, &mut demand, budget).expect("initial fit succeeds with both units");
+        assert_eq!(demand.ranges[0].units.as_ref().map(Vec::len), Some(2));
+
+        // Substituting a long opaque `call:*` id grows the anchor past the remaining slack.
+        let long_id = format!("call:{}", "x".repeat(512));
+        let anchor_unit = &mut demand.ranges[0].units.as_mut().unwrap()[1];
+        if let ThreadItem::ToolCall { id, .. } = &mut anchor_unit.unit.items[0] {
+            *id = ItemId::from(long_id.as_str());
+        }
+        anchor_unit.bytes = reads::unit_bytes(&anchor_unit.unit);
+        assert!(
+            preview_frame_len(&params.thread_id, &params, &held, &feed_id, &demand, true) > budget,
+            "substituted long opaque id must exceed pre-refit budget"
+        );
+
+        fit_demand(&params.thread_id, &params, &held, &feed_id, &mut demand, budget).expect("refit trims older non-anchor unit instead of exceeding budget");
+        let kept = demand.ranges[0].units.as_ref().unwrap();
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].ordinal, 2);
+        assert!(preview_frame_len(&params.thread_id, &params, &held, &feed_id, &demand, true) <= budget);
+        assert!(demand.ranges[0].range.older.is_some(), "dropped older unit must expose continuation edge");
+    }
+
+    #[test]
+    fn window_fit_refits_exact_envelope_with_7k_request_id_and_46k_unit_under_64k_budget() {
+        let budget = 64 << 10;
+        let big_request_id = "r".repeat(7 * 1024);
+        let range_id = format!("q:{big_request_id}:0");
+        let params = test_params(big_request_id);
+        let held = Grant { version: 1, lineage: 1, ranges: Vec::new(), tail_from: None };
+        let feed_id = FeedId::from("feed_window_7k");
+
+        let make_sized = |ordinal: u64, payload_len: usize| {
+            let item = ThreadItem::ToolCall {
+                id: ItemId::from(format!("call:synth_{ordinal}")),
+                name: "read".into(),
+                input: json!({ "payload": "p".repeat(payload_len) }),
+                output: None,
+                run: Box::new(ToolRun { call_id: Some(format!("c_{ordinal}")), started_at: Some(1_000), ..ToolRun::default() }),
+                meta: ItemMeta { at: Some(1_000), ..ItemMeta::default() },
+            };
+            let unit = TranscriptUnit { position: format!("h1:0:r{ordinal}"), items: vec![item], ordinal: Some(ordinal) };
+            let bytes = reads::unit_bytes(&unit);
+            StoredUnit { ordinal, unit, bytes }
+        };
+
+        // Case 1: 7 KiB request_id (appearing in requestId, ranges[0].id, and added[0].range = ~21 KiB envelope!)
+        // + 46 KiB single anchor > 64 KiB budget -> must be refused instead of emitting an oversized frame.
+        let anchor_46k = make_sized(2, 46 * 1024);
+        let single_range = range_of(&range_id, &[anchor_46k.clone()], true, true).expect("range");
+        let mut oversized = Demand { ranges: vec![Wanted { range: single_range, units: Some(vec![anchor_46k]), keep: 0 }], tail_from: None };
+        assert!(
+            fit_demand(&params.thread_id, &params, &held, &feed_id, &mut oversized, budget).is_err(),
+            "46 KiB anchor plus ~21 KiB requestId envelope must be refused under 64 KiB budget"
+        );
+
+        // Case 2: 7 KiB request_id (~21 KiB envelope) + 12 KiB older + 36 KiB anchor:
+        // together (~69 KiB) they exceed 64 KiB, so fit_demand trims older and emits a frame strictly <= 64 KiB.
+        let older_12k = make_sized(1, 12 * 1024);
+        let anchor_36k = make_sized(2, 36 * 1024);
+        let multi_range = range_of(&range_id, &[older_12k.clone(), anchor_36k.clone()], true, true).expect("range");
+        let mut demand = Demand { ranges: vec![Wanted { range: multi_range, units: Some(vec![older_12k, anchor_36k]), keep: 1 }], tail_from: None };
+        fit_demand(&params.thread_id, &params, &held, &feed_id, &mut demand, budget).expect("multi-unit demand trims to fit 64 KiB");
+        assert_eq!(demand.ranges[0].units.as_ref().map(Vec::len), Some(1));
+        assert_eq!(demand.ranges[0].units.as_ref().unwrap()[0].ordinal, 2);
+        let actual_frame = super::super::frames::frame(
+            &super::super::frames::Note::new(
+                WINDOW_CHANGED,
+                &changed(
+                    &params.thread_id,
+                    &params,
+                    &held,
+                    demand,
+                    2,
+                    &mixdog_core_api::feed::FeedPosition { epoch: FeedEpoch::from(WORST_CASE_EPOCH), seq: 42 },
+                ),
+            ),
+            &feed_id,
+            &FeedEpoch::from(WORST_CASE_EPOCH),
+            42,
+        );
+        assert!(actual_frame.len() <= budget, "emitted frame ({} bytes) must stay <= {budget}", actual_frame.len());
+    }
+
+    #[test]
+    fn window_fit_reserves_all_anchors_before_earlier_range_optional_units() {
+        let budget = 64 << 10;
+        let params = test_params("req_multi_range".into());
+        let held = Grant { version: 1, lineage: 1, ranges: Vec::new(), tail_from: None };
+        let feed_id = FeedId::from("feed_multi_range");
+
+        let make_sized = |ordinal: u64, payload_len: usize| {
+            let item = ThreadItem::ToolCall {
+                id: ItemId::from(format!("call:synth_{ordinal}")),
+                name: "read".into(),
+                input: json!({ "payload": "p".repeat(payload_len) }),
+                output: None,
+                run: Box::new(ToolRun { call_id: Some(format!("c_{ordinal}")), started_at: Some(1_000), ..ToolRun::default() }),
+                meta: ItemMeta { at: Some(1_000), ..ItemMeta::default() },
+            };
+            let unit = TranscriptUnit { position: format!("h1:0:r{ordinal}"), items: vec![item], ordinal: Some(ordinal) };
+            let bytes = reads::unit_bytes(&unit);
+            StoredUnit { ordinal, unit, bytes }
+        };
+
+        let r1_optional_45k = make_sized(1, 45 * 1024);
+        let r1_anchor_5k = make_sized(2, 5 * 1024);
+        let r2_anchor_20k = make_sized(3, 20 * 1024);
+
+        let range1 = range_of("q:req_multi_range:0", &[r1_optional_45k.clone(), r1_anchor_5k.clone()], true, true).expect("range1");
+        let range2 = range_of("q:req_multi_range:1", &[r2_anchor_20k.clone()], true, true).expect("range2");
+        let mut demand = Demand {
+            ranges: vec![
+                Wanted { range: range1, units: Some(vec![r1_optional_45k, r1_anchor_5k]), keep: 1 },
+                Wanted { range: range2, units: Some(vec![r2_anchor_20k]), keep: 0 },
+            ],
+            tail_from: None,
+        };
+
+        fit_demand(&params.thread_id, &params, &held, &feed_id, &mut demand, budget).expect("earlier range optional unit must not starve later range anchor");
+
+        let kept1 = demand.ranges[0].units.as_ref().unwrap();
+        let kept2 = demand.ranges[1].units.as_ref().unwrap();
+        assert_eq!(kept1.len(), 1);
+        assert_eq!(kept1[0].ordinal, 2);
+        assert!(demand.ranges[0].range.older.is_some(), "dropped 45 KiB optional unit must expose continuation edge");
+        assert_eq!(kept2.len(), 1);
+        assert_eq!(kept2[0].ordinal, 3);
+
+        let actual_frame = super::super::frames::frame(
+            &super::super::frames::Note::new(
+                WINDOW_CHANGED,
+                &changed(
+                    &params.thread_id,
+                    &params,
+                    &held,
+                    demand,
+                    2,
+                    &mixdog_core_api::feed::FeedPosition { epoch: FeedEpoch::from(WORST_CASE_EPOCH), seq: 42 },
+                ),
+            ),
+            &feed_id,
+            &FeedEpoch::from(WORST_CASE_EPOCH),
+            42,
+        );
+        assert!(actual_frame.len() <= budget, "emitted frame ({} bytes) must stay <= {budget}", actual_frame.len());
     }
 }

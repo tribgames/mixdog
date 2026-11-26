@@ -2081,9 +2081,11 @@ pub struct StoreThreads {
     maintenance: MaintenanceIo,
     runtime: tokio::runtime::Handle,
     /// The marks whose values the logs keep out of what they wrote before (bound once, by the composition).
-    sensitive: std::sync::OnceLock<Arc<dyn super::seams::SensitiveMarks>>,
+    sensitive: Arc<std::sync::OnceLock<Arc<dyn super::seams::SensitiveMarks>>>,
     /// The marks' journal, bound with them.
-    journal: std::sync::OnceLock<Arc<super::mark_journal::MarksOnDisk>>,
+    journal: Arc<std::sync::OnceLock<Arc<super::mark_journal::MarksOnDisk>>>,
+    /// Session ids purged by the index whose mark-journal cleanup has not succeeded yet (retried on later purges).
+    purged_unforgotten: Arc<std::sync::Mutex<std::collections::BTreeSet<String>>>,
     gate: ReadGate,
     rewrites: Arc<Rewrites>,
     /// The rewrites an earlier process left owed, run behind the serving core ([`Self::owe_marks`]).
@@ -2121,8 +2123,9 @@ impl StoreThreads {
             writer,
             maintenance,
             runtime: tokio::runtime::Handle::current(),
-            sensitive: std::sync::OnceLock::new(),
-            journal: std::sync::OnceLock::new(),
+            sensitive: Arc::new(std::sync::OnceLock::new()),
+            journal: Arc::new(std::sync::OnceLock::new()),
+            purged_unforgotten: Arc::default(),
             gate: ReadGate::default(),
             rewrites: Arc::default(),
             owed: Arc::default(),
@@ -2377,6 +2380,18 @@ impl StoreThreads {
         durability: DurabilityIo,
         progress: Option<&Arc<mixdog_store::sqlite::RebuildProgress>>,
     ) -> Result<MarkRewrites, CoreError> {
+        self.owe_marks_with(durability, progress, session_dir_exists).await
+    }
+
+    async fn owe_marks_with<F>(
+        self: &Arc<Self>,
+        durability: DurabilityIo,
+        progress: Option<&Arc<mixdog_store::sqlite::RebuildProgress>>,
+        session_exists: F,
+    ) -> Result<MarkRewrites, CoreError>
+    where
+        F: Fn(&Path, &str) -> std::io::Result<bool> + Send + 'static,
+    {
         let mut owed =
             MarkRewrites { threads: self.clone(), durability, progress: progress.cloned(), owed: std::collections::BTreeMap::new(), recovered: Vec::new() };
         let (Some(marks), Some(journal)) = (self.sensitive.get(), self.journal.get()) else {
@@ -2387,19 +2402,71 @@ impl StoreThreads {
         };
         use mixdog_core_base::support::on_lane_wait as wait;
         let never = mixdog_rt::CancellationToken::new();
-        let loaded = {
+        let (mut loaded, failed_missing) = {
             let journal = journal.clone();
-            wait(self.maintenance, &never, move |_lane| journal.load()).await?
+            let sessions_dir = self.sessions.clone();
+            let unforgotten = self.purged_unforgotten.clone();
+            wait(self.maintenance, &never, move |_lane| -> std::io::Result<(super::mark_journal::Loaded, std::collections::BTreeSet<String>)> {
+                let mut loaded = journal.load()?;
+                // A deleted session already purged at boot by `SqliteStore::open` (or before a crash after
+                // `index.purge_deleted`) no longer has a session directory on disk; clean its journal entries now.
+                // Non-NotFound metadata errors fail boot recovery conservatively rather than forgetting live marks.
+                let mut missing = Vec::new();
+                for id in journal.referenced_sessions() {
+                    if !session_exists(&sessions_dir, &id)? {
+                        missing.push(id);
+                    }
+                }
+                let mut failed_missing = std::collections::BTreeSet::new();
+                if !missing.is_empty() {
+                    let mut cleaned = false;
+                    for id in &missing {
+                        match journal.forget_session(id) {
+                            Ok(()) => cleaned = true,
+                            Err(error) => {
+                                tracing::warn!(thread = %id, "could not prune purged session from sensitive mark journal at open: {error}");
+                                failed_missing.insert(id.clone());
+                            }
+                        }
+                    }
+                    if !failed_missing.is_empty() {
+                        unforgotten.lock().unwrap_or_else(std::sync::PoisonError::into_inner).extend(failed_missing.iter().cloned());
+                    }
+                    if cleaned {
+                        loaded = journal.snapshot_recovered();
+                    }
+                }
+                Ok((loaded, failed_missing))
+            })
+            .await?
         }
         .map_err(|e| internal("sensitive-marks", &e))?;
+        if !failed_missing.is_empty() {
+            sanitize_loaded_for_failed_cleanup(&mut loaded, &failed_missing);
+        }
         marks.restore_carries(loaded.carries);
+        let mut restored_sessions = std::collections::BTreeSet::new();
         for (n, mark) in loaded.pending {
             owed.recovered.push(n);
             for session in marks.restore(mark.origin, mark.sessions.into_keys().collect(), mark.values) {
-                if !mark.settled.contains(&session) {
-                    owed.owed.entry(session).or_default().push(n);
+                if !failed_missing.contains(&session) {
+                    restored_sessions.insert(session.clone());
+                    if !mark.settled.contains(&session) {
+                        owed.owed.entry(session).or_default().push(n);
+                    }
                 }
             }
+        }
+        let settled_watermarks: Vec<(String, u64)> = restored_sessions
+            .into_iter()
+            .filter(|session| !owed.owed.contains_key(session))
+            .filter_map(|session| {
+                let version = marks.version(&ThreadId::from(session.as_str()));
+                (version > 0).then_some((session, version))
+            })
+            .collect();
+        if !settled_watermarks.is_empty() {
+            journal.seed_applied(&settled_watermarks);
         }
         self.owed.begin(owed.owed.keys().cloned());
         self.index.withhold(owed.owed.keys().cloned().collect()).await.map_err(|e| internal("sensitive-marks-withhold", &e))?;
@@ -2408,6 +2475,53 @@ impl StoreThreads {
             progress.extend(owed.owed.len());
         }
         Ok(owed)
+    }
+
+    async fn forget_purged_sessions(
+        sensitive: &Arc<std::sync::OnceLock<Arc<dyn super::seams::SensitiveMarks>>>,
+        journal: &Arc<std::sync::OnceLock<Arc<super::mark_journal::MarksOnDisk>>>,
+        unforgotten: &Arc<std::sync::Mutex<std::collections::BTreeSet<String>>>,
+        lane: MaintenanceIo,
+        newly_purged: &[String],
+    ) -> Result<(), CoreError> {
+        let pending: Vec<String> = {
+            let mut set = unforgotten.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            set.extend(newly_purged.iter().cloned());
+            set.iter().cloned().collect()
+        };
+        if pending.is_empty() {
+            return Ok(());
+        }
+        if let Some(marks) = sensitive.get() {
+            for id in &pending {
+                marks.forget_session(&ThreadId::from(id.as_str()));
+            }
+        }
+        let Some(journal) = journal.get().cloned() else {
+            return Ok(());
+        };
+        let unforgotten = unforgotten.clone();
+        mixdog_core_base::support::on_lane_wait(lane, &mixdog_rt::CancellationToken::new(), move |_lane| -> Result<(), String> {
+            let mut first_error = None;
+            for id in pending {
+                match journal.forget_session(&id) {
+                    Ok(()) => {
+                        unforgotten.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&id);
+                    }
+                    Err(error) => {
+                        if first_error.is_none() {
+                            first_error = Some(error);
+                        }
+                    }
+                }
+            }
+            match first_error {
+                Some(error) => Err(error),
+                None => Ok(()),
+            }
+        })
+        .await?
+        .map_err(|e| internal("purge-mark-journal", &e))
     }
 
     /// The index repairs this start owes run behind the serving core from the withheld set's commit on: what they were
@@ -2421,14 +2535,29 @@ impl StoreThreads {
         // The boot purge waits for every projection owed at open (a missing fork edge proves nothing before), so it runs
         // here, as a task behind the serving core: it acts only once the index certifies every session, decides each
         // removal again on a certified read, and a failed repair leaves everything in place for the next start.
-        let (projector, index, lane, data) = (self.projector.clone(), self.index.clone(), self.maintenance, self.data.clone());
+        let (projector, index, lane, data, sensitive, journal, unforgotten) = (
+            self.projector.clone(),
+            self.index.clone(),
+            self.maintenance,
+            self.data.clone(),
+            self.sensitive.clone(),
+            self.journal.clone(),
+            self.purged_unforgotten.clone(),
+        );
         drop(mixdog_rt::spawn("index-deferred-purge", mixdog_rt::TaskClass::Work, async move {
             if projector.caught_up().await.is_err() {
                 return;
             }
             match index.purge_once_projected(lane, data).await {
-                Ok(purged) if !purged.is_empty() => tracing::info!(purged = purged.len(), "deleted sessions purged once the index repairs ended"),
-                Ok(_) | Err(mixdog_store::sqlite::DbError::Stopped) => {}
+                Ok(purged) => {
+                    if let Err(error) = Self::forget_purged_sessions(&sensitive, &journal, &unforgotten, lane, &purged).await {
+                        tracing::warn!("sensitive mark journal cleanup after deferred purge failed: {error:?}");
+                    }
+                    if !purged.is_empty() {
+                        tracing::info!(purged = purged.len(), "deleted sessions purged once the index repairs ended");
+                    }
+                }
+                Err(mixdog_store::sqlite::DbError::Stopped) => {}
                 Err(error) => tracing::warn!("the purge of deleted sessions waits for the next start: {error:?}"),
             }
         }));
@@ -3916,11 +4045,21 @@ impl ThreadStore for StoreThreads {
     }
 
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
-        let (projector, index, lane, data) = (self.projector.clone(), self.index.clone(), self.maintenance, self.data.clone());
+        let (projector, index, lane, data, sensitive, journal, unforgotten) = (
+            self.projector.clone(),
+            self.index.clone(),
+            self.maintenance,
+            self.data.clone(),
+            self.sensitive.clone(),
+            self.journal.clone(),
+            self.purged_unforgotten.clone(),
+        );
         Box::pin(async move {
             // A session still owing its rewrite is left for a later purge by the index itself.
             projector.caught_up().await?;
-            index.purge_deleted(lane, data).await.map_err(|e| internal("purge", &e))
+            let purged = index.purge_deleted(lane, data).await.map_err(|e| internal("purge", &e))?;
+            Self::forget_purged_sessions(&sensitive, &journal, &unforgotten, lane, &purged).await?;
+            Ok(purged)
         })
     }
 
@@ -4251,6 +4390,11 @@ impl super::seams::SensitiveMarks for SensitiveMarksOf {
         self.store.carry(from.as_str(), to.as_str());
     }
 
+    fn forget_session(&self, thread: &ThreadId) {
+        self.store.forget_session(thread.as_str());
+        self.held_bodies().remove(thread.as_str());
+    }
+
     fn on_carried(&self, listener: Box<dyn Fn(&ThreadId) + Send + Sync>) -> bool {
         self.store.on_carried(move |session| listener(&ThreadId::from(session)))
     }
@@ -4393,6 +4537,85 @@ impl super::seams::CloseIngest for MemoryCloseIngest {
 /// The version of a log and the header members read of it at that version.
 type PickedHeader = (u64, Option<Header>);
 
+#[allow(clippy::disallowed_methods, reason = "runs inside a maintenance lane job at boot")]
+fn session_dir_exists(sessions_dir: &Path, id: &str) -> std::io::Result<bool> {
+    let dir_meta = std::fs::metadata(sessions_dir)?;
+    if !dir_meta.is_dir() {
+        return Err(std::io::Error::other(format!("sessions path is not a directory: {}", sessions_dir.display())));
+    }
+    match std::fs::metadata(sessions_dir.join(id)) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+fn surviving_outgoing(start: &str, adj: &std::collections::HashMap<String, Vec<String>>, failed: &std::collections::BTreeSet<String>) -> Vec<String> {
+    let mut visited = std::collections::BTreeSet::new();
+    let mut queue = std::collections::VecDeque::new();
+    let mut result = Vec::new();
+    visited.insert(start.to_owned());
+    queue.push_back(start.to_owned());
+    while let Some(node) = queue.pop_front() {
+        let Some(neighbors) = adj.get(&node) else { continue };
+        for next in neighbors {
+            if next.is_empty() || !visited.insert(next.clone()) {
+                continue;
+            }
+            if failed.contains(next) {
+                queue.push_back(next.clone());
+            } else {
+                result.push(next.clone());
+            }
+        }
+    }
+    result
+}
+
+/// Strips purged sessions whose boot `forget_session` failed from the in-memory boot snapshot so `marks.restore`
+/// never resurrects a deleted origin in this process, while preserving carry reachability to surviving recipients.
+fn sanitize_loaded_for_failed_cleanup(loaded: &mut super::mark_journal::Loaded, failed: &std::collections::BTreeSet<String>) {
+    let mut adj: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    for (from, to) in &loaded.carries {
+        if !from.is_empty() && !to.is_empty() && from != to {
+            adj.entry(from.clone()).or_default().push(to.clone());
+        }
+    }
+
+    loaded.pending.retain(|_, mark| {
+        if !mark.origin.is_empty() && failed.contains(&mark.origin) {
+            for to in surviving_outgoing(&mark.origin, &adj, failed) {
+                mark.sessions.entry(to).or_insert(0);
+            }
+            mark.origin.clear();
+        }
+        let failed_roots: Vec<String> = mark.sessions.keys().filter(|id| failed.contains(*id)).cloned().collect();
+        for root in failed_roots {
+            for to in surviving_outgoing(&root, &adj, failed) {
+                mark.sessions.entry(to).or_insert(0);
+            }
+        }
+        mark.sessions.retain(|id, _| !failed.contains(id));
+        mark.settled.retain(|id| !failed.contains(id));
+        !mark.sessions.is_empty() || !mark.origin.is_empty()
+    });
+
+    let mut carries: std::collections::BTreeSet<(String, String)> = loaded.carries.drain(..).collect();
+    for id in failed {
+        let incoming: Vec<String> = carries.iter().filter(|(_, to)| to == id).map(|(from, _)| from.clone()).collect();
+        let outgoing: Vec<String> = carries.iter().filter(|(from, _)| from == id).map(|(_, to)| to.clone()).collect();
+        for from in &incoming {
+            for to in &outgoing {
+                if from != to && from != id && to != id {
+                    carries.insert((from.clone(), to.clone()));
+                }
+            }
+        }
+        carries.retain(|(from, to)| from != id && to != id);
+    }
+    loaded.carries = carries.into_iter().collect();
+}
+
 #[cfg(test)]
 mod cold_window_tests {
     use super::*;
@@ -4524,5 +4747,565 @@ mod cold_window_tests {
         assert_eq!(overflow["params"]["hasOlder"], json!(true), "WINDOW_ROWS + 1 thread has older rows");
         assert_eq!(overflow["params"]["window"]["ranges"][0]["older"]["kind"], json!("continuation"));
         third.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn deleting_a_session_cleans_up_its_mark_journal_entry() {
+        use mixdog_services::memory::sensitive::MarkJournal as _;
+
+        let data = tempfile::tempdir().expect("data dir");
+        let tokens = mixdog_rt::testing::tokens();
+        let root = data.path().to_path_buf();
+        let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("index");
+        let store = Arc::new(
+            StoreThreads::over_data_dir(data.path(), index, Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
+                .await
+                .expect("store"),
+        );
+        let sensitive = Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default());
+        let marks = Arc::new(SensitiveMarksOf::new(sensitive));
+        store.redact_with(marks.clone()).ok().expect("bind marks");
+
+        let rig = super::super::testing::Rig::new();
+        let mut deps = rig.deps_parts(store.clone());
+        deps.sensitive = marks;
+        let directory = super::super::SessionDirectory::new(Arc::new(deps));
+        let handle = super::super::tests::start_thread(&directory).await;
+        let id = handle.id.clone();
+
+        let journal = store.journal.get().expect("journal bound");
+        journal.carried("sess_a", id.as_str());
+        journal.carried(id.as_str(), "sess_b");
+        journal.marked("sess_a", &["secret-from-live-origin".into()], &[(id.as_str().to_owned(), 1)]);
+        journal.marked("sess_a", &["secret-shared".into()], &[(id.as_str().to_owned(), 2), ("sess_b".into(), 1)]);
+        let solo_handle = super::super::tests::start_thread(&directory).await;
+        let solo_id = solo_handle.id.clone();
+        journal.marked(solo_id.as_str(), &["secret-only-deleted".into()], &[(solo_id.as_str().to_owned(), 1)]);
+
+        handle
+            .request(super::super::tests::request("thread/delete", json!({ "threadId": id.as_str(), "opId": "op-del-marks" }), "op-del-marks"))
+            .await
+            .expect("delete session");
+        solo_handle
+            .request(super::super::tests::request("thread/delete", json!({ "threadId": solo_id.as_str(), "opId": "op-del-solo" }), "op-del-solo"))
+            .await
+            .expect("delete solo session");
+
+        let reloaded = super::super::mark_journal::MarksOnDisk::new(data.path()).load().expect("reload journal");
+        assert_eq!(reloaded.carries, vec![("sess_a".to_owned(), "sess_b".to_owned())], "carries collapse around deleted session");
+        assert_eq!(reloaded.pending.len(), 2, "solo deleted mark removed; live-origin and shared marks survive");
+        let marks: Vec<&super::super::mark_journal::PendingMark> = reloaded.pending.values().collect();
+        let live_origin = marks.iter().find(|m| m.values == vec!["secret-from-live-origin".to_owned()]).expect("live-origin mark");
+        assert_eq!(live_origin.origin, "sess_a");
+        assert!(live_origin.sessions.is_empty());
+        let shared = marks.iter().find(|m| m.values == vec!["secret-shared".to_owned()]).expect("shared mark");
+        assert_eq!(shared.origin, "sess_a");
+        assert_eq!(shared.sessions.keys().cloned().collect::<Vec<_>>(), vec!["sess_b".to_owned()]);
+        directory.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::disallowed_methods, reason = "test manipulates temporary sessions directory to trigger metadata errors")]
+    async fn deleting_a_session_cleans_up_its_mark_journal_skips_forget_on_non_not_found_metadata_error() {
+        use mixdog_services::memory::sensitive::MarkJournal as _;
+
+        let data = tempfile::tempdir().expect("data dir");
+        let tokens = mixdog_rt::testing::tokens();
+        let root = data.path().to_path_buf();
+        let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("index");
+        let store = Arc::new(
+            StoreThreads::over_data_dir(data.path(), index.clone(), Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
+                .await
+                .expect("store"),
+        );
+        let sensitive = Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default());
+        let marks = Arc::new(SensitiveMarksOf::new(sensitive.clone()));
+        store.redact_with(marks).ok().expect("bind marks");
+
+        // Pre-populate durable journal with a live session's mark before boot recovery.
+        std::fs::create_dir_all(data.path().join("sessions/s-live")).expect("live session dir");
+        {
+            let pre = super::super::mark_journal::MarksOnDisk::new(data.path());
+            pre.marked("s-live", &["secret-live".into()], &[("s-live".into(), 1)]);
+        }
+
+        // Non-NotFound metadata error (e.g. PermissionDenied) must fail boot recovery and NOT delete marks.
+        let err = store
+            .owe_marks_with(tokens.durability_io, None, |_, _| Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "unreadable sessions dir")))
+            .await
+            .err()
+            .expect("metadata error must fail boot recovery");
+        assert!(format!("{err:?}").contains("unreadable sessions dir"), "unexpected error: {err:?}");
+        let after = super::super::mark_journal::MarksOnDisk::new(data.path()).load().expect("reload after permission error");
+        assert_eq!(after.pending.len(), 1, "live session mark must remain durable on metadata error");
+        let mark = after.pending.values().next().expect("pending mark");
+        assert_eq!(mark.origin, "s-live");
+        assert_eq!(mark.sessions.keys().cloned().collect::<Vec<_>>(), vec!["s-live".to_owned()]);
+
+        // Also verify real `owe_marks` surfaces a non-directory `sessions` path without forgetting marks.
+        let data2 = tempfile::tempdir().expect("data dir 2");
+        let root2 = data2.path().to_path_buf();
+        let index2 = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root2)
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("index2");
+        let store2 = Arc::new(
+            StoreThreads::over_data_dir(data2.path(), index2, Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
+                .await
+                .expect("store2"),
+        );
+        let sensitive2 = Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default());
+        store2.redact_with(Arc::new(SensitiveMarksOf::new(sensitive2))).ok().expect("bind marks 2");
+        {
+            let pre = super::super::mark_journal::MarksOnDisk::new(data2.path());
+            pre.marked("s-live", &["secret-live-2".into()], &[("s-live".into(), 1)]);
+        }
+        std::fs::remove_dir(data2.path().join("sessions")).expect("remove empty sessions dir");
+        std::fs::write(data2.path().join("sessions"), b"not-a-dir").expect("replace sessions dir with file");
+        assert!(store2.owe_marks(tokens.durability_io, None).await.is_err(), "non-directory sessions path must fail boot recovery");
+        let after2 = super::super::mark_journal::MarksOnDisk::new(data2.path()).load().expect("reload after not-a-dir");
+        assert_eq!(after2.pending.len(), 1, "mark must not be deleted when sessions path is invalid");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::disallowed_methods, reason = "test creates surviving session dir directly")]
+    async fn deleting_a_session_cleans_up_its_mark_journal_preserves_unjournaled_carry_recipient_at_boot() {
+        use mixdog_services::memory::sensitive::MarkJournal as _;
+
+        let data = tempfile::tempdir().expect("data dir");
+        let tokens = mixdog_rt::testing::tokens();
+        let root = data.path().to_path_buf();
+        let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("index");
+        let store = Arc::new(
+            StoreThreads::over_data_dir(data.path(), index.clone(), Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
+                .await
+                .expect("store"),
+        );
+        let sensitive = Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default());
+        let marks = Arc::new(SensitiveMarksOf::new(sensitive.clone()));
+        store.redact_with(marks).ok().expect("bind marks");
+
+        // `s-origin` was already purged (no session dir), while `s-recipient` survives on disk.
+        // Only the carry edge records that `s-recipient` needs `s-origin`'s mark.
+        std::fs::create_dir_all(data.path().join("sessions/s-recipient")).expect("surviving recipient dir");
+        {
+            let pre = super::super::mark_journal::MarksOnDisk::new(data.path());
+            pre.carried("s-origin", "s-recipient");
+            pre.marked("s-origin", &["secret-carry-only".into()], &[("s-origin".into(), 1)]);
+        }
+
+        let owed = store.owe_marks(tokens.durability_io, None).await.expect("owe_marks succeeds");
+        assert_eq!(owed.owed(), 1, "surviving recipient must still owe its rewrite");
+        assert!(index.is_withheld("s-recipient").await.expect("withheld check"), "surviving recipient must be withheld");
+        assert!(!index.is_withheld("s-origin").await.expect("withheld check"), "deleted origin must not be withheld");
+        assert!(sensitive.version("s-recipient") > 0, "surviving recipient must receive the restored mark");
+        assert_eq!(sensitive.version("s-origin"), 0, "deleted origin must not be resurrected in memory");
+
+        let reloaded = super::super::mark_journal::MarksOnDisk::new(data.path()).load().expect("reload journal");
+        assert!(reloaded.carries.is_empty(), "deleted origin carry edge should be pruned");
+        assert_eq!(reloaded.pending.len(), 1, "mark file must survive for recipient");
+        let mark = reloaded.pending.values().next().expect("remaining mark");
+        assert!(mark.origin.is_empty(), "deleted origin must be cleared on disk");
+        assert_eq!(mark.sessions.keys().cloned().collect::<Vec<_>>(), vec!["s-recipient".to_owned()]);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::disallowed_methods, reason = "test creates surviving session dir directly")]
+    async fn deleting_a_session_cleans_up_its_mark_journal_retries_transient_boot_forget_failure() {
+        use mixdog_services::memory::sensitive::MarkJournal as _;
+
+        let data = tempfile::tempdir().expect("data dir");
+        let tokens = mixdog_rt::testing::tokens();
+        let root = data.path().to_path_buf();
+        let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("index");
+        let store = Arc::new(
+            StoreThreads::over_data_dir(data.path(), index.clone(), Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
+                .await
+                .expect("store"),
+        );
+        let sensitive = Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default());
+        let marks = Arc::new(SensitiveMarksOf::new(sensitive.clone()));
+        store.redact_with(marks).ok().expect("bind marks");
+
+        // `s-dead` (with carry to `s-live`) and `s-dead-alone` (no surviving recipients) are purged;
+        // `s-live` survives on disk.
+        std::fs::create_dir_all(data.path().join("sessions/s-live")).expect("live session dir");
+        {
+            let pre = super::super::mark_journal::MarksOnDisk::new(data.path());
+            pre.carried("s-dead", "s-live");
+            pre.marked("s-dead", &["secret-dead-only".into()], &[("s-dead".into(), 1)]);
+            pre.marked("s-dead", &["secret-shared".into()], &[("s-dead".into(), 1), ("s-live".into(), 1)]);
+            pre.marked("s-dead-alone", &["secret-alone".into()], &[("s-dead-alone".into(), 1)]);
+        }
+
+        // Inject a transient failure for both purged origins during boot recovery.
+        let journal = store.journal.get().expect("journal bound");
+        journal.set_forget_hook(Some(Box::new(|session| matches!(session, "s-dead" | "s-dead-alone").then(|| Err("simulated transient io error".to_owned())))));
+
+        let owed = store.owe_marks(tokens.durability_io, None).await.expect("owe_marks recovers without resurrecting deleted origin");
+        {
+            let retry_set = store.purged_unforgotten.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            assert!(retry_set.contains("s-dead"), "failed boot forget_session must enqueue s-dead for retry");
+            assert!(retry_set.contains("s-dead-alone"), "failed boot forget_session must enqueue s-dead-alone for retry");
+        }
+        assert_eq!(sensitive.version("s-dead"), 0, "deleted origin must not be resurrected in current process");
+        assert_eq!(sensitive.version("s-dead-alone"), 0, "deleted solo origin must not be resurrected in current process");
+        assert!(!index.is_withheld("s-dead").await.expect("withheld check"), "deleted origin must not be withheld");
+        assert!(!index.is_withheld("s-dead-alone").await.expect("withheld check"), "deleted solo origin must not be withheld");
+        assert_eq!(owed.owed(), 1, "only surviving session owes rewrite");
+        assert!(index.is_withheld("s-live").await.expect("withheld check"), "surviving session must still be withheld");
+        assert!(sensitive.version("s-live") > 0, "surviving session must still receive sensitive values");
+
+        // Clear the transient failure and trigger retry through purge_deleted.
+        journal.set_forget_hook(None);
+        let purged = store.purge_deleted().await.expect("retry purge succeeds");
+        assert!(purged.is_empty(), "no new index purges needed to retry unforgotten session");
+        assert!(
+            store.purged_unforgotten.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_empty(),
+            "retry set must drain once forget_session succeeds"
+        );
+
+        let reloaded = super::super::mark_journal::MarksOnDisk::new(data.path()).load().expect("reload after retry");
+        assert!(reloaded.carries.is_empty(), "deleted origin carry edge cleaned on retry");
+        assert_eq!(reloaded.pending.len(), 2, "solo dead mark deleted; both marks for s-live survive");
+        for mark in reloaded.pending.values() {
+            assert!(mark.origin.is_empty(), "deleted origin cleared on retry");
+            assert_eq!(mark.sessions.keys().cloned().collect::<Vec<_>>(), vec!["s-live".to_owned()]);
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::disallowed_methods, reason = "test creates surviving session dirs directly")]
+    async fn deleting_a_session_cleans_up_its_mark_journal_keeps_live_origin_and_carry_at_boot() {
+        use mixdog_services::memory::sensitive::MarkJournal as _;
+
+        // Case 1: boot forget of purged `s-b` succeeds; `{origin: s-a, sessions: {s-b}}` + `s-a -> s-c` survives for s-a and s-c.
+        let data = tempfile::tempdir().expect("data dir");
+        let tokens = mixdog_rt::testing::tokens();
+        let root = data.path().to_path_buf();
+        let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("index");
+        let store = Arc::new(
+            StoreThreads::over_data_dir(data.path(), index.clone(), Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
+                .await
+                .expect("store"),
+        );
+        let sensitive = Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default());
+        store.redact_with(Arc::new(SensitiveMarksOf::new(sensitive.clone()))).ok().expect("bind marks");
+
+        std::fs::create_dir_all(data.path().join("sessions/s-a")).expect("s-a dir");
+        std::fs::create_dir_all(data.path().join("sessions/s-c")).expect("s-c dir");
+        {
+            let pre = super::super::mark_journal::MarksOnDisk::new(data.path());
+            pre.carried("s-a", "s-c");
+            pre.marked("s-a", &["secret-live-origin".into()], &[("s-b".into(), 1)]);
+        }
+
+        let owed = store.owe_marks(tokens.durability_io, None).await.expect("owe_marks succeeds");
+        assert_eq!(owed.owed(), 2, "live origin s-a and carry recipient s-c must both owe rewrites");
+        assert!(index.is_withheld("s-a").await.expect("withheld s-a"));
+        assert!(index.is_withheld("s-c").await.expect("withheld s-c"));
+        assert!(!index.is_withheld("s-b").await.expect("withheld s-b"));
+        assert!(sensitive.version("s-a") > 0);
+        assert!(sensitive.version("s-c") > 0);
+        assert_eq!(sensitive.version("s-b"), 0);
+
+        // Case 2: boot forget of purged `s-b` FAILS; `sanitize_loaded_for_failed_cleanup` must still retain the mark for s-a and s-c.
+        let data2 = tempfile::tempdir().expect("data dir 2");
+        let root2 = data2.path().to_path_buf();
+        let index2 = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root2)
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("index2");
+        let store2 = Arc::new(
+            StoreThreads::over_data_dir(data2.path(), index2.clone(), Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
+                .await
+                .expect("store2"),
+        );
+        let sensitive2 = Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default());
+        store2.redact_with(Arc::new(SensitiveMarksOf::new(sensitive2.clone()))).ok().expect("bind marks 2");
+        std::fs::create_dir_all(data2.path().join("sessions/s-a")).expect("s-a dir 2");
+        std::fs::create_dir_all(data2.path().join("sessions/s-c")).expect("s-c dir 2");
+        {
+            let pre = super::super::mark_journal::MarksOnDisk::new(data2.path());
+            pre.carried("s-a", "s-c");
+            pre.marked("s-a", &["secret-live-origin-2".into()], &[("s-b".into(), 1)]);
+        }
+        store2.journal.get().expect("journal2").set_forget_hook(Some(Box::new(|session| (session == "s-b").then(|| Err("simulated failure".to_owned())))));
+
+        let owed2 = store2.owe_marks(tokens.durability_io, None).await.expect("owe_marks succeeds with sanitized snapshot");
+        assert_eq!(owed2.owed(), 2, "boot snapshot must retain live-origin mark for s-a and s-c when s-b cleanup fails");
+        assert!(index2.is_withheld("s-a").await.expect("withheld s-a"));
+        assert!(index2.is_withheld("s-c").await.expect("withheld s-c"));
+        assert!(!index2.is_withheld("s-b").await.expect("withheld s-b"));
+        assert!(sensitive2.version("s-a") > 0);
+        assert!(sensitive2.version("s-c") > 0);
+        assert_eq!(sensitive2.version("s-b"), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::disallowed_methods, reason = "test creates surviving session dir directly")]
+    async fn deleting_a_session_cleans_up_its_mark_journal_mixed_boot_sync_failure_syncs_pending_before_pruning_carries() {
+        use std::sync::atomic::AtomicUsize;
+        use std::sync::atomic::Ordering;
+
+        use mixdog_services::memory::sensitive::MarkJournal as _;
+
+        let data = tempfile::tempdir().expect("data dir");
+        let tokens = mixdog_rt::testing::tokens();
+        let root = data.path().to_path_buf();
+        let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("index");
+        let store = Arc::new(
+            StoreThreads::over_data_dir(data.path(), index.clone(), Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
+                .await
+                .expect("store"),
+        );
+        let sensitive = Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default());
+        store.redact_with(Arc::new(SensitiveMarksOf::new(sensitive.clone()))).ok().expect("bind marks");
+
+        // Two purged sessions (`s-dead-1` sorts before `s-dead-2`); `s-live` survives on disk.
+        std::fs::create_dir_all(data.path().join("sessions/s-live")).expect("live dir");
+        {
+            let pre = super::super::mark_journal::MarksOnDisk::new(data.path());
+            pre.carried("s-dead-2", "s-live");
+            pre.marked("s-dead-1", &["secret-1".into()], &[("s-dead-1".into(), 1)]);
+            pre.marked("s-dead-2", &["secret-2".into()], &[("s-dead-2".into(), 1)]);
+        }
+
+        // Let `s-dead-1`'s `pending/` unlink sync succeed (call 1), then fail `pending/` sync after rename on
+        // `s-dead-2` during boot (call 2) and on first retry (call 3), succeeding on second retry (call 4).
+        let pending_sync_calls = Arc::new(AtomicUsize::new(0));
+        let sync_events: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+        let pending_calls = pending_sync_calls.clone();
+        let events = sync_events.clone();
+        let journal = store.journal.get().expect("journal bound");
+        journal.set_sync_dir_hook(Some(Box::new(move |parent| {
+            let name = parent.file_name().and_then(|n| n.to_str()).unwrap_or("").to_owned();
+            if name == "pending" {
+                let attempt = pending_calls.fetch_add(1, Ordering::SeqCst) + 1;
+                events.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(format!("pending:{attempt}"));
+                if attempt == 2 || attempt == 3 {
+                    return Err(format!("{}: simulated pending sync failure #{attempt}", parent.display()));
+                }
+            } else {
+                events.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(name);
+            }
+            mixdog_store::fsio::sync_dir(parent).map_err(|error| format!("{}: {error}", parent.display()))
+        })));
+
+        let owed = store.owe_marks(tokens.durability_io, None).await.expect("mixed boot cleanup succeeds conservatively");
+        assert_eq!(owed.owed(), 1, "s-live still owes its rewrite");
+        assert!(index.is_withheld("s-live").await.expect("withheld s-live"));
+        assert!(!index.is_withheld("s-dead-2").await.expect("not withheld s-dead-2"));
+        assert!(store.purged_unforgotten.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains("s-dead-2"), "s-dead-2 must be enqueued for retry");
+        // Boot must NOT have pruned `carries.json` because `pending/` sync for `s-dead-2` failed.
+        let disk_after_boot = super::super::mark_journal::MarksOnDisk::new(data.path()).load().expect("disk read");
+        assert_eq!(disk_after_boot.carries, vec![("s-dead-2".to_owned(), "s-live".to_owned())], "carries.json must remain intact before pending/ sync");
+
+        // Retry 1: `pending/` sync fails again -> MUST return Err and MUST NOT prune `carries.json`.
+        assert!(store.purge_deleted().await.is_err(), "retry 1 must fail when pending/ sync fails");
+        assert_eq!(pending_sync_calls.load(Ordering::SeqCst), 3, "retry 1 must attempt pending/ sync");
+        let disk_after_retry1 = super::super::mark_journal::MarksOnDisk::new(data.path()).load().expect("disk read 2");
+        assert_eq!(
+            disk_after_retry1.carries,
+            vec![("s-dead-2".to_owned(), "s-live".to_owned())],
+            "carries.json must NOT be pruned while pending/ sync is failing"
+        );
+
+        // Retry 2: `pending/` sync succeeds -> THEN `carries.json` is pruned and retry set drains.
+        store.purge_deleted().await.expect("retry 2 succeeds once pending/ sync succeeds");
+        assert_eq!(pending_sync_calls.load(Ordering::SeqCst), 4);
+        assert!(store.purged_unforgotten.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_empty());
+
+        let recorded = sync_events.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        let pending_ok_pos = recorded.iter().position(|e| e == "pending:4").expect("pending:4 recorded");
+        let carries_pos = recorded.iter().position(|e| e == "sensitive").expect("carries parent sync recorded");
+        assert!(pending_ok_pos < carries_pos, "pending/ sync must succeed before carries.json is pruned: {recorded:?}");
+
+        let final_disk = super::super::mark_journal::MarksOnDisk::new(data.path()).load().expect("final reload");
+        assert!(final_disk.carries.is_empty());
+        assert_eq!(final_disk.pending.len(), 1);
+        let mark = final_disk.pending.values().next().expect("surviving mark for s-live");
+        assert!(mark.origin.is_empty());
+        assert_eq!(mark.sessions.keys().cloned().collect::<Vec<_>>(), vec!["s-live".to_owned()]);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::disallowed_methods, reason = "test stages boot-settled pending mark and surviving session dirs directly")]
+    async fn owe_marks_seeds_boot_settled_watermarks_so_later_carry_and_forget_creates_no_debt() {
+        let data = tempfile::tempdir().expect("data dir");
+        let tokens = mixdog_rt::testing::tokens();
+        let root = data.path().to_path_buf();
+        let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("index");
+        let store = Arc::new(
+            StoreThreads::over_data_dir(data.path(), index.clone(), Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
+                .await
+                .expect("store"),
+        );
+        let sensitive = Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default());
+        store.redact_with(Arc::new(SensitiveMarksOf::new(sensitive.clone()))).ok().expect("bind marks");
+
+        std::fs::create_dir_all(data.path().join("sessions/s-a")).expect("s-a dir");
+        std::fs::create_dir_all(data.path().join("sessions/s-b")).expect("s-b dir");
+        let pending_dir = data.path().join("sensitive/pending");
+        std::fs::create_dir_all(&pending_dir).expect("pending dir");
+        std::fs::write(
+            pending_dir.join("0.json"),
+            serde_json::to_vec(&json!({
+                "origin": "s-b",
+                "values": ["secret-boot-settled"],
+                "sessions": { "s-b": 1 },
+                "settled": ["s-b"]
+            }))
+            .expect("json"),
+        )
+        .expect("write settled mark");
+
+        let owed = store.owe_marks(tokens.durability_io, None).await.expect("owe_marks");
+        assert_eq!(owed.owed(), 0, "s-b was already settled before restart");
+        owed.run(&mixdog_rt::CancellationToken::new()).await.expect("retire settled boot mark");
+        assert!(super::super::mark_journal::MarksOnDisk::new(data.path()).load().expect("reload after boot").pending.is_empty());
+
+        // Later in the same process: s-a marks the same value and carries to s-b, then s-a is forgotten.
+        let fill = json!({ "name": "browser", "arguments": { "action": "fill", "sensitive": true, "text": "secret-boot-settled" } });
+        assert!(sensitive.remember("s-a", &[fill]));
+        sensitive.carry("s-a", "s-b");
+        store.journal.get().expect("journal").forget_session("s-a").expect("forget s-a");
+
+        let after = super::super::mark_journal::MarksOnDisk::new(data.path()).load().expect("reload after forget");
+        assert!(after.carries.is_empty());
+        assert!(after.pending.is_empty(), "boot-settled s-b must acquire zero synthetic debt when s-a is forgotten");
+    }
+
+    #[test]
+    fn sanitize_loaded_preserves_outgoing_carry_of_failed_roster_root_when_origin_survives() {
+        let mut loaded = super::super::mark_journal::Loaded {
+            carries: vec![("s-b".to_owned(), "s-d".to_owned())],
+            pending: std::collections::BTreeMap::from([(
+                0,
+                super::super::mark_journal::PendingMark {
+                    origin: "s-a".to_owned(),
+                    values: vec!["secret-roster-root".to_owned()],
+                    sessions: std::collections::BTreeMap::from([("s-b".to_owned(), 1)]),
+                    settled: std::collections::BTreeSet::new(),
+                },
+            )]),
+        };
+        let failed = std::collections::BTreeSet::from(["s-b".to_owned()]);
+
+        sanitize_loaded_for_failed_cleanup(&mut loaded, &failed);
+
+        assert!(loaded.carries.is_empty(), "failed session carry edge must be stripped from boot snapshot");
+        let mark = loaded.pending.get(&0).expect("mark must survive");
+        assert_eq!(mark.origin, "s-a", "surviving origin must stay intact");
+        assert!(!mark.sessions.contains_key("s-b"), "failed roster root must be stripped");
+        assert!(mark.sessions.contains_key("s-d"), "outgoing carry recipient of failed roster root must be preserved");
+
+        let sensitive = mixdog_services::memory::sensitive::SensitiveStore::default();
+        sensitive.restore_carries(loaded.carries);
+        let restored = sensitive.restore(mark.origin.clone(), mark.sessions.keys().cloned().collect(), mark.values.clone());
+        assert_eq!(restored, std::collections::BTreeSet::from(["s-a".to_owned(), "s-d".to_owned()]));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn deleting_a_session_cleans_up_its_mark_journal_and_forgets_sensitive_store_carry_graph() {
+        let data = tempfile::tempdir().expect("data dir");
+        let tokens = mixdog_rt::testing::tokens();
+        let root = data.path().to_path_buf();
+        let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("index");
+        let store = Arc::new(
+            StoreThreads::over_data_dir(data.path(), index, Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
+                .await
+                .expect("store"),
+        );
+        let sensitive = Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default());
+        let marks = Arc::new(SensitiveMarksOf::new(sensitive.clone()));
+        store.redact_with(marks.clone()).ok().expect("bind marks");
+
+        let rig = super::super::testing::Rig::new();
+        let mut deps = rig.deps_parts(store.clone());
+        deps.sensitive = marks;
+        let directory = super::super::SessionDirectory::new(Arc::new(deps));
+        let handle_a = super::super::tests::start_thread(&directory).await;
+        let handle_b = super::super::tests::start_thread(&directory).await;
+        let id_a = handle_a.id.clone();
+        let id_b = handle_b.id.clone();
+
+        let fill = |secret: &str| json!({ "name": "browser", "arguments": { "action": "fill", "sensitive": true, "text": secret } });
+        assert!(sensitive.remember(id_b.as_str(), &[fill("secret-on-b")]));
+        sensitive.carry(id_a.as_str(), id_b.as_str());
+        assert!(sensitive.version(id_b.as_str()) > 0);
+
+        handle_b
+            .request(super::super::tests::request("thread/delete", json!({ "threadId": id_b.as_str(), "opId": "op-del-b" }), "op-del-b"))
+            .await
+            .expect("delete session B");
+
+        assert_eq!(sensitive.version(id_b.as_str()), 0, "purging B must clear B from SensitiveStore");
+
+        // Later mark on A must NOT traverse A -> B or create any pending journal entry mentioning B.
+        assert!(sensitive.remember(id_a.as_str(), &[fill("secret-after-purge")]));
+        assert_eq!(sensitive.version(id_b.as_str()), 0, "later mark on A must not carry into purged B");
+
+        let reloaded = super::super::mark_journal::MarksOnDisk::new(data.path()).load().expect("reload journal");
+        assert!(reloaded.carries.is_empty(), "carries.json must not retain A -> B");
+        for mark in reloaded.pending.values() {
+            assert_ne!(mark.origin, id_b.as_str());
+            assert!(!mark.sessions.contains_key(id_b.as_str()), "no pending file may reference purged B");
+        }
+        directory.shutdown().await;
     }
 }

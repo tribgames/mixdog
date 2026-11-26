@@ -13,7 +13,7 @@ export const TRANSCRIPT_OVERFLOW_ANCHOR = 'none';
 // to a shrunken extent lands here), and a pinned resnap needs more than this.
 // A view this close is at the end: it follows, and past it the end is not kept
 // and the jump control says so.
-const END_TOLERANCE_PX = 2;
+export const END_TOLERANCE_PX = 2;
 // A wheel notch toward older rows vouches for the scrolls that follow it.
 const WHEEL_UP_WINDOW_MS = 200;
 // A key that scrolls up vouches for the scroll it causes, and keeps the end
@@ -24,7 +24,7 @@ const KEY_UP_WINDOW_MS = 1_000;
 const TOUCH_END_WINDOW_MS = 2_500;
 // A scroll moving down with no reader gesture behind it that ends this close to the end is the reader coming back:
 // follow re-engages on the spot.
-const JUMP_CONTROL_PX = 200;
+export const JUMP_CONTROL_PX = 200;
 // A press on the scrollbar is held open by the pointer release, which the
 // native scrollbar does not always deliver (the pointer left the window mid
 // drag). Past this the press no longer vouches for upward scrolls.
@@ -153,16 +153,17 @@ export function atWrittenOffset(writtenTops: readonly number[], top: number): bo
   return writtenTops.includes(Math.round(top));
 }
 
-/** Does this move of the offset bring the reader back near the end: down, not onto an offset the timeline wrote, and
- *  ending where a scroll toward the end takes follow back? Content resizing or a write that brings the end near is
- *  not the reader coming back. */
+/** Does this move of the offset bring the reader back to the end: down, not
+ *  onto an offset the timeline wrote, and ending within the end tolerance?
+ *  Scrolling slightly downward while still reading above the bottom must not
+ *  auto-reacquire follow and snap the view to the end. */
 export function moveArrivesNearEnd(move: {
   previousTop: number;
   top: number;
   distance: number;
   written: boolean;
 }): boolean {
-  return move.top > move.previousTop && !move.written && move.distance <= JUMP_CONTROL_PX;
+  return move.top > move.previousTop && !move.written && move.distance <= END_TOLERANCE_PX;
 }
 
 type ScrollVerdict = 'pin' | 'unpin' | 'restore' | 'none';
@@ -173,7 +174,7 @@ type ScrollVerdict = 'pin' | 'unpin' | 'restore' | 'none';
  * Only the reader leaves the end: a pinned viewport that moved up past the end tolerance is a leave when an upward
  * input of theirs is behind the move (a wheel notch, a key, a travelled finger or its fling, a dragged thumb, a
  * selection dragged above the view). An upward move nothing of theirs explains (a clamp to a shrunken extent, a
- * zoom's rounding) is never theirs: it is put back. A move down onto the band near the end that the timeline did not
+ * zoom's rounding) is never theirs: it is put back. A move down onto the end tolerance that the timeline did not
  * write, with no input of theirs in flight, is the reader coming back.
  */
 export function judgeScrollEvent(input: {
@@ -182,8 +183,10 @@ export function judgeScrollEvent(input: {
   top: number;
   /** Distance from the end after this move. */
   distance: number;
-  /** The last move that changed the offset was the reader's way back near the end (`moveArrivesNearEnd`). */
+  /** The last move that changed the offset was the reader's way back to the end (`moveArrivesNearEnd`). */
   arrived: boolean;
+  /** Bottom arrival was recorded while holding a drag/touch gesture before streaming grew the extent. */
+  heldArrival?: boolean;
   /** An upward input of the reader's is behind this move. */
   upward: boolean;
   /** Input of the reader's is still in flight (a finger on the glass, a held thumb): it is judged when it ends. */
@@ -197,7 +200,7 @@ export function judgeScrollEvent(input: {
     !input.upward &&
     !input.atWrittenTop &&
     input.arrived &&
-    input.distance <= JUMP_CONTROL_PX
+    (input.distance <= END_TOLERANCE_PX || input.heldArrival === true)
   ) {
     return 'pin';
   }

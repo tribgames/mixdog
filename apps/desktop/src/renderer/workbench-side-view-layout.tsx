@@ -20,6 +20,7 @@ import {
   DESKTOP_UTILITY_DOCK_MIN_WIDTH,
 } from '../shared/window-layout';
 import { t } from './i18n';
+import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
 import { useResizeGesture } from './resize-gesture';
 import { useDockIconVisibility } from './dock-icon-visibility';
 import {
@@ -690,7 +691,10 @@ export function useSidePanelWidth({
   widthRange,
   widthOverride,
   onWidthDrag,
-}: Pick<WorkbenchSidePanelProps, 'side' | 'widthStorageKey' | 'widthRange' | 'widthOverride' | 'onWidthDrag'>) {
+  panelRef,
+}: Pick<WorkbenchSidePanelProps, 'side' | 'widthStorageKey' | 'widthRange' | 'widthOverride' | 'onWidthDrag'> & {
+  panelRef?: RefObject<HTMLElement | null>;
+}) {
   const widthKey = widthStorageKey ?? SIDE_PANEL_WIDTH_KEY[side];
   const widthMin = widthRange?.min ?? SIDE_PANEL_MIN_WIDTH[side];
   const widthMax = widthRange?.max ?? SIDE_PANEL_MAX_WIDTH[side];
@@ -704,14 +708,39 @@ export function useSidePanelWidth({
     }
   });
   const effectiveWidth = widthOverride ?? width;
+  const effectiveWidthRef = useRef(effectiveWidth);
+  effectiveWidthRef.current = effectiveWidth;
   const resizeStart = useRef<{ x: number; width: number } | null>(null);
   const dragPending = useRef<number | null>(null);
+  const lastPreviewed = useRef<number | null>(null);
+  const frameScheduled = useRef(false);
+  const previewFrameKey = useRef({});
+  useEffect(() => () => cancelLayoutFrame(previewFrameKey.current), []);
+  const applyPreview = (value: number) => {
+    if (lastPreviewed.current === value) return;
+    lastPreviewed.current = value;
+    if (onWidthDrag) {
+      onWidthDrag(value, 'preview');
+      return;
+    }
+    if (panelRef?.current) {
+      panelRef.current.style.setProperty('--workbench-side-panel-width', `${value}px`);
+      return;
+    }
+    setWidth(value);
+  };
   const resizeGesture = useResizeGesture((commit) => {
+    cancelLayoutFrame(previewFrameKey.current);
+    frameScheduled.current = false;
+    lastPreviewed.current = null;
     const start = resizeStart.current;
     if (!start) return;
     resizeStart.current = null;
     const pending = dragPending.current;
     dragPending.current = null;
+    if (!onWidthDrag && panelRef?.current) {
+      panelRef.current.style.setProperty('--workbench-side-panel-width', `${effectiveWidthRef.current}px`);
+    }
     // Only a width the gesture changed is written: one that never left its
     // starting width, or came back to it, puts back what was there.
     if (pending === null) return;
@@ -724,6 +753,7 @@ export function useSidePanelWidth({
       onWidthDrag(pending, 'commit');
       return;
     }
+    setWidth(pending);
     try {
       window.localStorage.setItem(widthKey, String(pending));
     } catch {
@@ -733,6 +763,9 @@ export function useSidePanelWidth({
   const resizeHandleProps = {
     onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return;
+      cancelLayoutFrame(previewFrameKey.current);
+      frameScheduled.current = false;
+      lastPreviewed.current = null;
       resizeGesture.begin(event);
       resizeStart.current = { x: event.clientX, width: effectiveWidth };
       dragPending.current = null;
@@ -744,9 +777,17 @@ export function useSidePanelWidth({
       const next = Math.max(widthMin, Math.min(widthMax, Math.round(start.width + delta)));
       // Movement that leaves the width where it started (straight along the edge) is no resize yet.
       if (dragPending.current === null && next === start.width) return;
+      if (dragPending.current === next) return;
       dragPending.current = next;
-      if (onWidthDrag) onWidthDrag(next, 'preview');
-      else setWidth(next);
+      if (!frameScheduled.current) {
+        frameScheduled.current = true;
+        applyPreview(next);
+        scheduleLayoutFrame(previewFrameKey.current, () => {
+          frameScheduled.current = false;
+          const latest = dragPending.current;
+          if (latest !== null) applyPreview(latest);
+        });
+      }
     },
     ...resizeGesture.handlers,
   };
@@ -785,18 +826,19 @@ export function WorkbenchSidePanel({
   const splitKey = sideSplitKey(side, selectedGroup);
   const [splitSizesByKey, setSplitSizesByKey] = useState<Record<string, number[]>>({});
   const splitSizes = splitSizesByKey[splitKey] ?? readSideSplitSizes(splitKey, selectedGroup.length);
+  const panelRef = useRef<HTMLElement | null>(null);
   const { effectiveWidth, widthMin, widthMax, resizeHandleProps } = useSidePanelWidth({
     side,
     widthStorageKey,
     widthRange,
     widthOverride,
     onWidthDrag,
+    panelRef,
   });
   const panelBodyRef = useRef<HTMLDivElement | null>(null);
   const [paneDrop, setPaneDrop] = useState<PaneDrop | null>(null);
   const splitCleanupRef = useRef<(() => void) | null>(null);
   useEffect(() => () => splitCleanupRef.current?.(), []);
-  const panelRef = useRef<HTMLElement | null>(null);
   const drawerPhone = usePhoneSurfaceMarked() && !embedded;
   usePhoneDrawerInert(panelRef, open, drawerPhone, Boolean(root) && groups.length > 0);
   useDrawerClosingMark(panelRef, open);

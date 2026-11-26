@@ -1,5 +1,38 @@
 import { useCallback, useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
 
+let activeResizeCount = 0;
+const activeResizeEndListeners = new Set<() => void>();
+
+/** True while any pointer-captured split or panel resize drag is active. */
+export function isActiveResize(): boolean {
+  return activeResizeCount > 0;
+}
+
+/** Runs `listener` once the last active resize drag ends. */
+export function onActiveResizeEnd(listener: () => void): () => void {
+  activeResizeEndListeners.add(listener);
+  return () => {
+    activeResizeEndListeners.delete(listener);
+  };
+}
+
+export function beginActiveResize(): void {
+  activeResizeCount += 1;
+  if (activeResizeCount === 1 && typeof document !== 'undefined') {
+    document.documentElement.dataset.resizing = 'true';
+  }
+}
+
+export function endActiveResize(): void {
+  if (activeResizeCount <= 0) return;
+  activeResizeCount -= 1;
+  if (activeResizeCount > 0) return;
+  if (typeof document !== 'undefined') {
+    delete document.documentElement.dataset.resizing;
+  }
+  for (const listener of [...activeResizeEndListeners]) listener();
+}
+
 /**
  * One end-of-gesture path for pointer-captured resize handles. `finish(true)`
  * runs on pointerup (commit); `finish(false)` runs on pointercancel, lost
@@ -26,6 +59,7 @@ export function useResizeGesture(finish: (commit: boolean) => void) {
     } catch {
       // The pointer was already released (cancelled or element detached).
     }
+    endActiveResize();
     finishRef.current(commit);
   }, []);
   useEffect(() => () => end(false), [end]);
@@ -42,6 +76,7 @@ export function useResizeGesture(finish: (commit: boolean) => void) {
     };
     window.addEventListener('keydown', onKeyDown, true);
     session.current = { target, pointerId: event.pointerId, onBlur, onKeyDown };
+    beginActiveResize();
   };
   return {
     begin,

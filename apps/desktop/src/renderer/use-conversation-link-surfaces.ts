@@ -10,8 +10,13 @@ type OpenFolder = (project: string, rel: string) => void;
  *  the turn has let go of it, not when its end is written. It does not once that end is passed (`pastLastEnd`,
  *  use-conversation-rows.ts; for the running turn's key, `turnPastEnd`: nothing of it has settled): the card is the
  *  ended turn's, already read. */
-export function trailingTurnRuns(busy: unknown, pendingPrompts: number, turnPastEnd: boolean): boolean {
-  return Boolean(busy) && pendingPrompts === 0 && !turnPastEnd;
+export function trailingTurnRuns(
+  busy: unknown,
+  pendingPrompts: number,
+  turnPastEnd: boolean,
+  closingRowStreaming = false
+): boolean {
+  return (Boolean(busy) || closingRowStreaming) && pendingPrompts === 0 && !turnPastEnd;
 }
 
 /** Context values for transcript rows and file links: stable openers and the

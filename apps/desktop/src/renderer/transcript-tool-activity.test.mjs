@@ -2067,3 +2067,265 @@ test('optimistic user submission mounts Thinking row and pending UserMessage avo
     false
   );
 });
+
+test('ToolActivityRichBody keeps raw pre visible while an async parse is pending', async () => {
+  const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
+  const { SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS } = await import('./markdown-worker-client');
+  const { ToolActivityRichBody, warmToolMarkdownBody } = await import('./transcript-tool-ui.tsx');
+  try {
+    await warmToolMarkdownBody();
+    const longMarkdown = `## Large Tool Result\n\n${'item '.repeat(SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS / 2)}`;
+    // Inspect the synchronous commit before the async parse resolves:
+    // must keep raw <pre> visible rather than flashing an empty pending marker.
+    act(() => {
+      dom.root.render(
+        React.createElement(ToolActivityRichBody, { text: longMarkdown, fallbackClassName: 'raw-fallback' })
+      );
+    });
+    assert.ok(document.querySelector('pre.raw-fallback'), 'keeps raw pre visible while async parse is in flight');
+    assert.ok(document.querySelector('[data-transcript-pending]'), 'marks rich parse pending');
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+    assert.equal(document.querySelector('pre.raw-fallback'), null, 'replaces fallback once rich AST lands');
+    assert.equal(document.querySelector('h2')?.textContent, 'Large Tool Result');
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test('previewOutputLines clamps cleanly on line 6 and growing markdown tool output stays rich past 20,000 chars', async () => {
+  const { previewOutputLines } = await import('./transcript-tool-preview.ts');
+  const { setToolActivityExpansion } = await import('./tool-activity-expansion.ts');
+  assert.deepEqual(previewOutputLines('l1\nl2\nl3\nl4\nl5'), { text: 'l1\nl2\nl3\nl4\nl5', hidden: 0 });
+  assert.deepEqual(previewOutputLines('l1\nl2\nl3\nl4\nl5\n'), { text: 'l1\nl2\nl3\nl4\nl5\n', hidden: 0 });
+  assert.deepEqual(previewOutputLines('l1\nl2\nl3\nl4\nl5\nl6'), { text: 'l1\nl2\nl3\nl4\nl5', hidden: 1 });
+  assert.deepEqual(previewOutputLines('l1\nl2\nl3\nl4\nl5\nl6\nl7'), { text: 'l1\nl2\nl3\nl4\nl5', hidden: 2 });
+
+  const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
+  try {
+    setToolActivityExpansion('all');
+    const shortMd = '# Report\n\n- first item\n- second item';
+    const longMd = `${shortMd}\n\n${'detail line '.repeat(2_000)}`;
+    assert.ok(longMd.length > 20_000);
+    await act(async () => {
+      dom.root.render(
+        React.createElement(ToolActivityGroup, {
+          disclosureScope: 'stable-rich-preview',
+          items: [
+            { kind: 'tool', id: 'fetch-1', name: 'web_fetch', args: { url: 'https://example.com' }, result: shortMd },
+          ],
+        })
+      );
+    });
+    assert.equal(document.querySelector('.tool-activity-preview')?.getAttribute('data-clamped'), 'height');
+    assert.ok(document.querySelector('.tool-activity-markdown'), 'renders markdown output richly');
+
+    await act(async () => {
+      dom.root.render(
+        React.createElement(ToolActivityGroup, {
+          disclosureScope: 'stable-rich-preview',
+          items: [
+            { kind: 'tool', id: 'fetch-1', name: 'web_fetch', args: { url: 'https://example.com' }, result: longMd },
+          ],
+        })
+      );
+    });
+    assert.equal(
+      document.querySelector('.tool-activity-preview')?.getAttribute('data-clamped'),
+      'height',
+      'keeps height-clamped preview mode past 20,000 chars'
+    );
+    assert.ok(
+      document.querySelector('.tool-activity-markdown'),
+      'keeps rich markdown mounted instead of flipping back to plain pre past 20,000 chars'
+    );
+
+    // Virtual-row unmount + fresh remount with the >20,000-char result must resolve identically.
+    await act(async () => {
+      dom.root.render(null);
+    });
+    await act(async () => {
+      dom.root.render(
+        React.createElement(ToolActivityGroup, {
+          disclosureScope: 'stable-rich-preview-remount',
+          items: [
+            { kind: 'tool', id: 'fetch-1', name: 'web_fetch', args: { url: 'https://example.com' }, result: longMd },
+          ],
+        })
+      );
+    });
+    assert.equal(
+      document.querySelector('.tool-activity-preview')?.getAttribute('data-clamped'),
+      'height',
+      'fresh mount past 20,000 chars resolves to the same height-clamped preview mode'
+    );
+    assert.ok(
+      document.querySelector('.tool-activity-markdown'),
+      'fresh mount past 20,000 chars renders rich markdown identically to the streamed mount'
+    );
+  } finally {
+    await act(async () => dom.root.unmount());
+    setToolActivityExpansion('collapsed');
+    dom.close();
+  }
+});
+
+test('tool preview matches between incremental streaming (plain -> markdown) and fresh mount on identical text', async () => {
+  const { setToolActivityExpansion } = await import('./tool-activity-expansion.ts');
+  const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
+  try {
+    setToolActivityExpansion('all');
+    const initial = 'Report';
+    const final = 'Report\n\n## Findings\n\n- item one';
+
+    // Incremental stream: plain text arrives first, then a markdown heading appends.
+    await act(async () => {
+      dom.root.render(
+        React.createElement(ToolActivityGroup, {
+          disclosureScope: 'incremental-to-rich',
+          items: [
+            { kind: 'tool', id: 'fetch-inc', name: 'web_fetch', args: { url: 'https://example.com' }, result: initial },
+          ],
+        })
+      );
+    });
+    assert.equal(document.querySelector('.tool-activity-preview')?.getAttribute('data-clamped'), 'lines');
+    assert.equal(document.querySelector('.tool-activity-markdown'), null);
+
+    await act(async () => {
+      dom.root.render(
+        React.createElement(ToolActivityGroup, {
+          disclosureScope: 'incremental-to-rich',
+          items: [
+            { kind: 'tool', id: 'fetch-inc', name: 'web_fetch', args: { url: 'https://example.com' }, result: final },
+          ],
+        })
+      );
+    });
+    const incrementalClamped = document.querySelector('.tool-activity-preview')?.getAttribute('data-clamped');
+    const incrementalRich = Boolean(document.querySelector('.tool-activity-markdown'));
+    assert.equal(incrementalClamped, 'height', 'incremental stream upgrades to height preview once heading arrives');
+    assert.equal(incrementalRich, true, 'incremental stream renders markdown richly once heading arrives');
+
+    // Virtual-row unmount + fresh remount with the identical final text must match exactly.
+    await act(async () => {
+      dom.root.render(null);
+    });
+    await act(async () => {
+      dom.root.render(
+        React.createElement(ToolActivityGroup, {
+          disclosureScope: 'incremental-to-rich-remount',
+          items: [
+            { kind: 'tool', id: 'fetch-inc', name: 'web_fetch', args: { url: 'https://example.com' }, result: final },
+          ],
+        })
+      );
+    });
+    assert.equal(
+      document.querySelector('.tool-activity-preview')?.getAttribute('data-clamped'),
+      incrementalClamped,
+      'fresh mount matches incremental preview mode'
+    );
+    assert.equal(
+      Boolean(document.querySelector('.tool-activity-markdown')),
+      incrementalRich,
+      'fresh mount matches incremental rich markdown rendering'
+    );
+  } finally {
+    await act(async () => dom.root.unmount());
+    setToolActivityExpansion('collapsed');
+    dom.close();
+  }
+});
+
+test('a provisional pipe row without a trailing newline never latches rich mode and matches fresh remount after extension', async () => {
+  const { setToolActivityExpansion } = await import('./tool-activity-expansion.ts');
+  const { toolActivityLooksMarkdown } = await import('./transcript-tool-preview.ts');
+  assert.equal(toolActivityLooksMarkdown('Report\n| a |'), false, 'candidate pipe row requires a real newline');
+  assert.equal(toolActivityLooksMarkdown('Report\n| a | draft'), false, 'extended pipe line stays plain');
+  assert.equal(toolActivityLooksMarkdown('Report\n| a |\n'), true, 'pipe row terminated by newline detects markdown');
+
+  const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
+  try {
+    setToolActivityExpansion('all');
+    const firstChunk = 'Report\n| a |';
+    const extended = `${firstChunk} draft`;
+
+    await act(async () => {
+      dom.root.render(
+        React.createElement(ToolActivityGroup, {
+          disclosureScope: 'pipe-row-stream',
+          items: [
+            {
+              kind: 'tool',
+              id: 'fetch-pipe',
+              name: 'web_fetch',
+              args: { url: 'https://example.com' },
+              result: firstChunk,
+            },
+          ],
+        })
+      );
+    });
+    assert.equal(document.querySelector('.tool-activity-preview')?.getAttribute('data-clamped'), 'lines');
+    assert.equal(document.querySelector('.tool-activity-markdown'), null);
+
+    await act(async () => {
+      dom.root.render(
+        React.createElement(ToolActivityGroup, {
+          disclosureScope: 'pipe-row-stream',
+          items: [
+            {
+              kind: 'tool',
+              id: 'fetch-pipe',
+              name: 'web_fetch',
+              args: { url: 'https://example.com' },
+              result: extended,
+            },
+          ],
+        })
+      );
+    });
+    const streamedClamped = document.querySelector('.tool-activity-preview')?.getAttribute('data-clamped');
+    const streamedRich = Boolean(document.querySelector('.tool-activity-markdown'));
+    assert.equal(streamedClamped, 'lines', 'streamed row keeps lines clamp');
+    assert.equal(streamedRich, false, 'streamed row keeps plain pre renderer');
+
+    await act(async () => {
+      dom.root.render(null);
+    });
+    await act(async () => {
+      dom.root.render(
+        React.createElement(ToolActivityGroup, {
+          disclosureScope: 'pipe-row-remount',
+          items: [
+            {
+              kind: 'tool',
+              id: 'fetch-pipe',
+              name: 'web_fetch',
+              args: { url: 'https://example.com' },
+              result: extended,
+            },
+          ],
+        })
+      );
+    });
+    assert.equal(
+      document.querySelector('.tool-activity-preview')?.getAttribute('data-clamped'),
+      streamedClamped,
+      'fresh remount matches streamed clamp mode'
+    );
+    assert.equal(
+      Boolean(document.querySelector('.tool-activity-markdown')),
+      streamedRich,
+      'fresh remount matches streamed renderer'
+    );
+  } finally {
+    await act(async () => dom.root.unmount());
+    setToolActivityExpansion('collapsed');
+    dom.close();
+  }
+});

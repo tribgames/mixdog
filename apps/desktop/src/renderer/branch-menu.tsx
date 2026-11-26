@@ -603,6 +603,8 @@ type BranchMenuContentsProps = {
   /** Remembers the unfiltered list's height under this key, so a reopened
    *  list starts at it instead of growing as rows arrive. */
   heightKey?: string;
+  /** Shows end-aligned group counts (the Composer Island's branch panel). */
+  showGroupCounts?: boolean;
   autoFocusSearch: boolean;
   onPickWorktree(): void;
   onPickRow(row: BranchRow): void;
@@ -625,6 +627,7 @@ function BranchMenuContents({
   rows,
   worktreeBound,
   heightKey = '',
+  showGroupCounts = false,
   autoFocusSearch,
   onPickRow,
   onCreateFromSearch,
@@ -636,7 +639,12 @@ function BranchMenuContents({
   // (the menu carries commit times); a search always lists every hit.
   const collapsible = !query.trim() && rows.some((row) => row.committedAt !== undefined);
   const otherCollapsed = collapsible && !otherExpanded;
-  const otherCount = rows.filter((row) => row.group === 'other').length;
+  const groupCounts = useMemo(() => {
+    const counts: Partial<Record<BranchGroup, number>> = {};
+    for (const row of rows) counts[row.group] = (counts[row.group] ?? 0) + 1;
+    return counts;
+  }, [rows]);
+  const otherCount = groupCounts.other ?? 0;
   const toggleOther = () => setOtherExpanded((expanded) => !expanded);
   const track = useStableMenuList(list, rows, query, heightKey, otherExpanded, loading);
   const newName = onCreateFromSearch ? searchedNewBranch(rows, query) : '';
@@ -667,17 +675,36 @@ function BranchMenuContents({
           if (row.group === 'other' && otherCollapsed) {
             if (rows[index - 1]?.group === 'other') return [];
             return [
-              <OtherBranchesToggle key="group:other" count={otherCount} expanded={false} onToggle={toggleOther} />,
+              <OtherBranchesToggle
+                key="group:other"
+                count={otherCount}
+                expanded={false}
+                splitCount={showGroupCounts}
+                onToggle={toggleOther}
+              />,
             ];
           }
           const group =
             row.group !== rows[index - 1]?.group &&
             row.group !== 'current' &&
             (row.group === 'other' && collapsible ? (
-              <OtherBranchesToggle key="group:other" count={otherCount} expanded onToggle={toggleOther} />
+              <OtherBranchesToggle
+                key="group:other"
+                count={otherCount}
+                expanded
+                splitCount={showGroupCounts}
+                onToggle={toggleOther}
+              />
             ) : (
               <h3 className="branch-menu-label" data-group={row.group} key={`group:${row.group}`}>
-                {GROUP_LABELS[row.group]()}
+                {showGroupCounts ? (
+                  <>
+                    <span className="branch-menu-group-name">{GROUP_LABELS[row.group]()}</span>
+                    <span className="branch-menu-group-count">{groupCounts[row.group] ?? 0}</span>
+                  </>
+                ) : (
+                  GROUP_LABELS[row.group]()
+                )}
               </h3>
             ));
           const item = (
@@ -752,13 +779,57 @@ const GROUP_LABELS: Record<Exclude<BranchGroup, 'current'>, () => string> = {
   external: () => t('Other worktrees'),
 };
 
+/** Splits a localized "Other branches: {{count}}" label around its count so
+ *  localized count suffixes (e.g. Japanese "3件", Korean "3개", Chinese "3 个")
+ *  stay intact while the label and count render in separate aligned spans. */
+export function splitOtherBranchesCount(phrase: string, count: number): { label: string; countText: string } {
+  const token = String(count);
+  const at = phrase.lastIndexOf(token);
+  if (at < 0) return { label: phrase, countText: token };
+  const label = phrase.slice(0, at).replace(/[\s:\u00a0：]+$/, '');
+  const countText = phrase.slice(at).trim();
+  return label ? { label, countText } : { label: phrase, countText: token };
+}
+
 /** The "other branches" header: collapses and expands the group. */
-function OtherBranchesToggle({ count, expanded, onToggle }: { count: number; expanded: boolean; onToggle(): void }) {
+function OtherBranchesToggle({
+  count,
+  expanded,
+  splitCount = false,
+  onToggle,
+}: {
+  count: number;
+  expanded: boolean;
+  splitCount?: boolean;
+  onToggle(): void;
+}) {
+  const phrase = t('Other branches: {{count}}', { count });
+  const split = splitCount ? splitOtherBranchesCount(phrase, count) : null;
   return (
     <h3 className="branch-menu-label" data-group="other">
-      <button type="button" className="branch-menu-group-toggle" aria-expanded={expanded} onClick={onToggle}>
-        {expanded ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />}
-        <span>{t('Other branches: {{count}}', { count })}</span>
+      <button
+        type="button"
+        className="branch-menu-group-toggle"
+        aria-expanded={expanded}
+        aria-label={split ? phrase : undefined}
+        onClick={onToggle}
+      >
+        {split ? (
+          <>
+            <span className="branch-menu-group-name" aria-hidden="true">
+              {split.label}
+            </span>
+            {expanded ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />}
+            <span className="branch-menu-group-count" aria-hidden="true">
+              {split.countText}
+            </span>
+          </>
+        ) : (
+          <>
+            {expanded ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />}
+            <span>{phrase}</span>
+          </>
+        )}
       </button>
     </h3>
   );
@@ -987,7 +1058,7 @@ export function BranchIslandPanel({
    *  popup under a row that names the branch). */
   title?: ReactNode;
   /** The branch's status beside the chip, muted ("Modified 3 · ↑2"). */
-  meta?: string;
+  meta?: ReactNode;
   worktreeActions?: ReactNode;
   onCreateBranch(): void;
   /** Collapses the tab (✕, Escape) and hands focus back to the segment. */
@@ -1013,6 +1084,7 @@ export function BranchIslandPanel({
       <div className="composer-island-pbody branch-menu-body">
         <BranchMenuContents
           {...contents}
+          showGroupCounts={Boolean(title)}
           autoFocusSearch={!touchPrimaryPointer() && !worktreeActions}
           onCreateFromSearch={worktreeActions ? undefined : onCreateBranch}
         />

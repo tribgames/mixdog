@@ -125,9 +125,10 @@ pub(super) async fn history_items(deps: &SessionDeps, id: &ThreadId) -> Result<V
     Ok(history(deps, id).await?.rows.into_iter().map(|(item, _)| item).collect())
 }
 
-/// The stored history: each item with the byte length of its display row.
+/// The stored history: each item with the byte length of its display row, and its pre-substitution canonical item id.
 pub(super) struct History {
     pub rows: Vec<(ThreadItem, usize)>,
+    pub stored_ids: Vec<ItemId>,
 }
 
 pub(super) async fn history(deps: &SessionDeps, id: &ThreadId) -> Result<History, CoreError> {
@@ -136,17 +137,50 @@ pub(super) async fn history(deps: &SessionDeps, id: &ThreadId) -> Result<History
     let (store, thread) = (deps.store.clone(), id.clone());
     // The whole history is its newest rows without a bound, marked as every page of it is.
     let (_, records, decor, _) = on_lane_wait(deps.lanes.io, &token, move |lane| store.history_tail_decor(lane, &thread, usize::MAX)).await??;
-    Ok(History { rows: display_rows(deps, records, decor).await? })
+    let (rows, stored_ids) = display_rows(deps, records, decor).await?;
+    Ok(History { rows, stored_ids })
+}
+
+fn merge_stored_update(row: &mut ThreadItem, update: &ThreadItem) {
+    let provisional_started_at = match &*row {
+        ThreadItem::ToolCall { id, run, .. } if id.as_str().starts_with("call:") => run.started_at,
+        _ => None,
+    };
+    *row = super::seams::merge_update(row, update);
+    if let (Some(started_at), ThreadItem::ToolCall { run, .. }) = (provisional_started_at, row) {
+        run.started_at = Some(started_at);
+    }
+}
+
+fn canonical_ids_for(record: &mixdog_store::schema::record::ItemRecord, end: Option<TurnEndForm>, own: &[(ThreadItem, usize)]) -> Vec<ItemId> {
+    if let mixdog_store::schema::blob::Slot::Inline(body) = &record.body
+        && body.pointer("/meta/transcript/provisionalToolCalls").is_some()
+    {
+        let canonical = super::transcript::transcript_rows::canonical_row_ids_as(record, body, end);
+        return own.iter().enumerate().map(|(i, (item, _))| canonical.get(i).cloned().unwrap_or_else(|| item.id().clone())).collect();
+    }
+    own.iter().map(|(item, _)| item.id().clone()).collect()
 }
 
 async fn display_rows(
     deps: &SessionDeps,
     records: Vec<mixdog_store::schema::record::ItemRecord>,
     decor: Vec<super::seams::RowDecor>,
-) -> Result<Vec<(ThreadItem, usize)>, CoreError> {
+) -> Result<(Vec<(ThreadItem, usize)>, Vec<ItemId>), CoreError> {
     let token = CancellationToken::new();
     let transcript = deps.transcript.clone();
-    on_lane_wait(deps.lanes.cpu, &token, move |lane| decorated_rows(&records, &decor, |record, end| transcript.rows_as(lane, record, end))).await
+    on_lane_wait(deps.lanes.cpu, &token, move |lane| {
+        let mut shown = Vec::new();
+        let mut stored_ids = Vec::new();
+        for (at, record) in records.iter().enumerate() {
+            let end = end_of(&decor, at);
+            let own = transcript.rows_as(lane, record, end);
+            stored_ids.extend(canonical_ids_for(record, end, &own));
+            decorate(&mut shown, own, decor.get(at));
+        }
+        (shown, stored_ids)
+    })
+    .await
 }
 
 /// The rows of one stored page ([`ThreadStore::history_page`]), oldest first.
@@ -289,7 +323,7 @@ pub(super) async fn transcript_units(
             .await??;
             for update in &updates {
                 if let Some((row, _)) = read.rows.iter_mut().find(|(row, _)| super::seams::updates(row, update)) {
-                    *row = super::seams::merge_update(row, update);
+                    merge_stored_update(row, update);
                 }
             }
         }
@@ -387,7 +421,7 @@ async fn page_shown(
                     super::seams::Shown::Item(_) => None,
                 }) {
                     if let Some((row, _)) = rows.iter_mut().find(|(row, _)| super::seams::updates(row, &update)) {
-                        *row = super::seams::merge_update(row, &update);
+                        merge_stored_update(row, &update);
                     }
                 }
             }
@@ -467,7 +501,7 @@ pub(super) async fn history_tail(
     let (_, records, decor, complete) = on_lane_wait(lanes.io, &token, move |lane| store.history_tail_decor(lane, &thread, rows)).await??;
     let transcript = transcript.clone();
     let rows = on_lane_wait(lanes.cpu, &token, move |lane| decorated_rows(&records, &decor, |record, end| transcript.rows_as(lane, record, end))).await?;
-    Ok((History { rows }, complete))
+    Ok((History { stored_ids: Vec::new(), rows }, complete))
 }
 
 /// `thread/items/list`: the page around the cursor's row. The cursor names a row by its id, so a
@@ -642,13 +676,20 @@ where
     }
 }
 
-fn items_read(id: &ThreadId, items: &[ThreadItem], p: ThreadItemsReadParams) -> Result<Reply, CoreError> {
+fn items_read(id: &ThreadId, items: &[ThreadItem], stored_ids: &[ItemId], p: ThreadItemsReadParams) -> Result<Reply, CoreError> {
     let mut found = Vec::with_capacity(p.item_ids.len());
     for wanted in &p.item_ids {
-        let in_turn =
-            items.iter().filter(|item| p.turn_id.as_ref().is_none_or(|turn| meta(item).turn_id.as_ref().is_some_and(|t| t.as_str() == turn.as_str())));
+        let matches_turn = |item: &ThreadItem| p.turn_id.as_ref().is_none_or(|turn| meta(item).turn_id.as_ref().is_some_and(|t| t.as_str() == turn.as_str()));
+        let in_turn = items.iter().filter(|item| matches_turn(item));
         let item = position_of_id(in_turn.clone(), wanted.as_str())
             .and_then(|at| in_turn.clone().nth(at))
+            .or_else(|| {
+                let call_id = wanted.as_str().strip_prefix("call:")?;
+                in_turn.clone().find(|item| matches!(item, ThreadItem::ToolCall { run, .. } if run.call_id.as_deref() == Some(call_id)))
+            })
+            .or_else(|| {
+                items.iter().zip(stored_ids.iter()).find(|(item, stored_id)| matches_turn(item) && stored_id.as_str() == wanted.as_str()).map(|(item, _)| item)
+            })
             .ok_or_else(|| CoreError::ItemNotFound { thread_id: id.clone(), item_id: wanted.clone() })?;
         found.push(item.clone());
     }
@@ -1432,11 +1473,11 @@ impl DirInner {
         if req.method.as_str() == "thread/turns/list" {
             return self.read_turns(id, params(req, "ThreadTurnsListParams")?, &req.ctx.cancel).await;
         }
-        let History { rows } = history(&self.deps, id).await?;
+        let History { rows, stored_ids } = history(&self.deps, id).await?;
         let mut items: Vec<ThreadItem> = rows.iter().map(|(item, _)| item.clone()).collect();
         self.open_running(id, items.iter_mut());
         match req.method.as_str() {
-            "thread/items/read" => items_read(id, &items, params(req, "ThreadItemsReadParams")?),
+            "thread/items/read" => items_read(id, &items, &stored_ids, params(req, "ThreadItemsReadParams")?),
             "thread/attachment/list" => attachment_list(&items, params(req, "ThreadPageParams")?),
             "thread/modelMessages/list" => self.model_messages_list(id, params(req, "ThreadModelMessagesListParams")?).await,
             _ => unreachable!("`serves` admits only these methods"),
@@ -1453,7 +1494,7 @@ impl DirInner {
                 history_tail(&self.deps.store, &self.deps.transcript, self.deps.lanes, id, 1).await?;
                 return Ok(Reply::Value(Value::Null));
             }
-            let (History { rows }, complete) = history_tail(&self.deps.store, &self.deps.transcript, self.deps.lanes, id, want).await?;
+            let (History { rows, .. }, complete) = history_tail(&self.deps.store, &self.deps.transcript, self.deps.lanes, id, want).await?;
             let shown: Vec<Value> = rows.iter().map(|(item, _)| display_row(item)).collect();
             if complete || holds_final_turn(&shown) {
                 // The record's result is the newest ended turn's only when it names that turn.
@@ -1495,13 +1536,41 @@ impl DirInner {
         turns_list(&items, p, self.active_turn(id))
     }
 
-    /// The stored rows as they read while the loaded thread runs a turn: a call of that turn no record answers is
-    /// still running, and reads open as its live card does. Only a call whose turn has ended reads ended without a
-    /// result.
+    /// Projects loaded provisional tool-call identities (`call:*` ids and timestamps) onto stored rows so read RPCs
+    /// agree with live `item/completed` and transcript units, and marks calls of the active turn open as their live
+    /// cards do.
     fn open_running<'a>(&self, id: &ThreadId, items: impl Iterator<Item = &'a mut ThreadItem>) {
-        let Some(turn) = self.active_turn(id) else { return };
-        for item in items.filter(|item| meta(item).turn_id.as_ref().is_some_and(|of| of.as_str() == turn)) {
-            super::live_end::open_call(item);
+        let Some(handle) = self.loaded(id) else { return };
+        let view = handle.cell.view.load_full();
+        let provisional: std::collections::HashMap<&str, (&ItemId, Option<i64>, Option<i64>)> = view
+            .items
+            .iter()
+            .filter_map(|item| match item.as_ref() {
+                ThreadItem::ToolCall { id: live_id, run, meta, .. } if live_id.as_str().starts_with("call:") => {
+                    run.call_id.as_deref().filter(|cid| !cid.is_empty()).map(|cid| (cid, (live_id, run.started_at, meta.at)))
+                }
+                _ => None,
+            })
+            .collect();
+        let active_turn = handle.cell.run.load_full().map(|run| run.turn.as_str().to_owned());
+        for item in items {
+            if !provisional.is_empty()
+                && let ThreadItem::ToolCall { id: item_id, run, meta, .. } = item
+                && let Some(&(live_id, started_at, at)) = run.call_id.as_deref().and_then(|cid| provisional.get(cid))
+            {
+                *item_id = live_id.clone();
+                if started_at.is_some() {
+                    run.started_at = started_at;
+                }
+                if at.is_some() {
+                    meta.at = at;
+                }
+            }
+            if let Some(turn) = active_turn.as_deref()
+                && meta(item).turn_id.as_ref().is_some_and(|of| of.as_str() == turn)
+            {
+                super::live_end::open_call(item);
+            }
         }
     }
 

@@ -146,6 +146,7 @@ export function turnReviewSegment({
       busy={busy}
       label={label}
       title={t('Files {{count}}', { count: fileCount })}
+      fileCount={fileCount}
       files={files}
       sourcePicker={sourcePicker}
       emptyText={emptyText}

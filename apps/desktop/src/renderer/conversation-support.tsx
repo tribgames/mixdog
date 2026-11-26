@@ -28,7 +28,7 @@ import { backgroundWorkCounts, completionActivityKey, hadLiveActivity, LiveActiv
 import { dropTranscriptScrollDeviation } from './transcript-follow-rules';
 import { ToolActivityGroup } from './transcript-tool-ui';
 import { AskUserRecord, askUserCardKey, splitAskUser, toolCallsOf } from './ask-user-record';
-import { PreviewedTurnChangesCard } from './transcript-visualize-card';
+import { PreviewedTurnChangesCard, type TurnPreviewContext } from './transcript-visualize-card';
 import { ToolTurnProvider } from './TurnChangesCard';
 import { turnRecordOf } from './turn-changes-model';
 import { desktopPromptDisplayText, pendingPromptImages, type PendingPromptItem } from './conversation-prompt-items';
@@ -390,6 +390,10 @@ export type TurnCardsSeat = {
   placed: boolean;
   /** The files the turn showed as visualize cards: its changes card lists none of them. */
   visualized?: readonly string[];
+  /** Unified turn-end reveal decision shared with `ToolVisualizeCards`. */
+  revealed?: boolean;
+  /** Synchronous preview-exclusion context shared with `ToolVisualizeCards`. */
+  previewContext?: TurnPreviewContext;
 };
 
 function errorRowNode(
@@ -453,11 +457,18 @@ function errorRowNode(
       role="status"
     />
   );
-  return row.turnChanges ? (
+  const cardsRevealed = turnCards?.revealed !== false;
+  return row.turnChanges || turnCards ? (
     <>
       {notice}
-      {seatTurnCards(turnCards)}
-      <PreviewedTurnChangesCard turnChanges={row.turnChanges} visualized={turnCards?.visualized} />
+      {cardsRevealed ? seatTurnCards(turnCards) : null}
+      {row.turnChanges && cardsRevealed ? (
+        <PreviewedTurnChangesCard
+          turnChanges={row.turnChanges}
+          visualized={turnCards?.visualized}
+          previewContext={turnCards?.previewContext}
+        />
+      ) : null}
     </>
   ) : (
     notice
@@ -595,12 +606,19 @@ function assistantRowNode(
   ) : (
     <TranscriptAssistantRow {...assistantProps} />
   );
-  return row.turnChanges ? (
+  const cardsRevealed = turnCards?.revealed !== false;
+  return row.turnChanges || turnCards ? (
     <>
       {assistant}
-      {seatTurnCards(turnCards)}
-      <PreviewedTurnChangesCard turnChanges={row.turnChanges} visualized={turnCards?.visualized} />
-      {footerAfterCards && row.item && row.completion && (
+      {cardsRevealed ? seatTurnCards(turnCards) : null}
+      {row.turnChanges && cardsRevealed ? (
+        <PreviewedTurnChangesCard
+          turnChanges={row.turnChanges}
+          visualized={turnCards?.visualized}
+          previewContext={turnCards?.previewContext}
+        />
+      ) : null}
+      {row.turnChanges && footerAfterCards && row.item && row.completion && (
         <TranscriptResponseFooter
           trailing
           revealKey={assistantProps.revealKey}

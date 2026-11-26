@@ -80,9 +80,11 @@ test('the header keeps Comment and Versions inline; toggles live in ⋯ as check
     }
     const menu = await openMenu();
     const byLabel = (label) => menu.find((item) => item.textContent.includes(label));
-    for (const label of ['All visuals', 'Source', 'Zoom bar']) {
+    for (const label of ['Source', 'Zoom bar']) {
       assert.equal(byLabel(label)?.getAttribute('role'), 'menuitemcheckbox', label);
     }
+    assert.equal(byLabel('All visuals'), undefined, 'old history list toggle is omitted');
+    assert.equal(document.querySelector('.visualize-history'), null, 'old history list never renders');
     assert.equal(byLabel('Zoom bar').getAttribute('aria-checked'), 'true');
     assert.equal(
       menu.some((item) => /network/i.test(item.textContent)),
@@ -853,6 +855,47 @@ test('the shared toggle reaches the browser pill and every panel at once', async
   );
   setZoomBarVisible(true);
   assert.equal(typeof BrowserZoomPill, 'function');
+});
+
+test('split panes stay stacked at fractional width 719.5px and only switch side-by-side at 720px', async () => {
+  const observers = [];
+  const OriginalResizeObserver = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    constructor(callback) {
+      this.callback = callback;
+      observers.push(this);
+    }
+    observe(target) {
+      this.target = target;
+    }
+    unobserve() {}
+    disconnect() {}
+  };
+  putTab({
+    id: 'w-frac',
+    label: 'split',
+    revision: 0,
+    panes: [image('a.png'), image('b.png')],
+  });
+  const root = await mount();
+  try {
+    const body = document.querySelector('.visualize-body');
+    const bodyObserver = observers.find((observer) => observer.target === body);
+    assert.ok(bodyObserver, 'ResizeObserver watches the visualize body');
+    await act(async () => {
+      bodyObserver.callback([{ contentRect: { width: 719.5 } }]);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    assert.equal(body.classList.contains('is-stacked'), true, '719.5px stays stacked instead of rounding up to 720px');
+    await act(async () => {
+      bodyObserver.callback([{ contentRect: { width: 720 } }]);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    assert.equal(body.classList.contains('is-stacked'), false, '720px switches side-by-side');
+  } finally {
+    globalThis.ResizeObserver = OriginalResizeObserver;
+    await act(async () => root.unmount());
+  }
 });
 
 test('a network-off page frame carries a policy that allows no worker; an allowed one carries none', async () => {

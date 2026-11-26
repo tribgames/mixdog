@@ -50,8 +50,8 @@ import { type TurnCardsSeat, transcriptRowNode } from './conversation-support';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import type { TranscriptRowModel } from './transcript-rows';
 import { backgroundWorkCounts } from './transcript-status';
-import { ToolVisualizeCards } from './transcript-visualize-card';
-import { turnOf } from './conversation-turn-index';
+import { ToolVisualizeCards, type TurnPreviewContext } from './transcript-visualize-card';
+import { turnCardsRevealed, turnOf, turnRowsRevealOf } from './conversation-turn-index';
 import { carriedLast } from './list-carry';
 import { runningTurnKeyOf } from './turn-preview-model';
 import { visualizeCardCalls } from './visualize-card-model';
@@ -93,26 +93,35 @@ function turnCards(
     settledItems,
     settledTurnKeys,
     disclosureScope,
+    snapshotBusy,
     cardProps,
   }: {
     settledItems: TranscriptItem[];
     settledTurnKeys: string[];
     disclosureScope: string;
+    snapshotBusy: boolean;
     cardProps: { compact: boolean; frame: (children: ReactNode) => ReactNode } | null;
   }
-): { cards: ReactNode; visualized: readonly string[] | undefined } {
+): {
+  cards: ReactNode;
+  visualized: readonly string[] | undefined;
+  revealed: boolean;
+  previewContext: TurnPreviewContext | undefined;
+} {
   // The turn's changed-files card (on its reply or error row) lists no file
   // its visualize cards showed; Undo moves onto them when none is left.
   const turn = turnOf(rows, row.turnKey);
   const changesRef = turn?.changes;
   const visualized = turn && changesRef ? turn.visualized() : undefined;
-  // The turn's last row (its live band aside), once the turn no longer runs: the items of its tool rounds, oldest
-  // first, close it under its reply.
-  const endsTurn = row._tag !== 'Thinking' && turn !== undefined && !turn.running && turn.lastRow === index;
-  const rounds = endsTurn ? turn.toolItems() : NO_TOOL_ITEMS;
+  const reveal = turnRowsRevealOf(rows) ?? {
+    trailingTurnRunning: snapshotBusy,
+    trailingCheckpointShown: undefined,
+  };
+  const revealed = row._tag !== 'Thinking' && turnCardsRevealed(turn, index, reveal);
+  const rounds = revealed && turn ? turn.toolItems() : NO_TOOL_ITEMS;
   // A turn that changed files gets the card too, tool rounds or not: its
   // previews (the changed files the panel can show) fill it at its end.
-  const bareCard = changesRef && endsTurn ? NO_TOOL_ITEMS : null;
+  const bareCard = changesRef && revealed ? NO_TOOL_ITEMS : null;
   const tools = rounds.length ? rounds : bareCard;
   const turnEnd =
     tools && turn && changesRef
@@ -123,6 +132,15 @@ function turnCards(
           endedAt: turn.endedAt,
         }
       : null;
+  const previewContext: TurnPreviewContext | undefined =
+    revealed && turn && changesRef
+      ? {
+          sessionId: disclosureScope,
+          toolItems: turn.toolItems(),
+          replyText: turn.replyText,
+          surfacedBefore: turn.surfacedBefore,
+        }
+      : undefined;
   const cards =
     tools && (changesRef || visualizeCardCalls(tools).length)
       ? createElement(ToolVisualizeCards, {
@@ -134,7 +152,7 @@ function turnCards(
           ...turnEnd,
         })
       : null;
-  return { cards, visualized };
+  return { cards, visualized, revealed, previewContext };
 }
 
 /** The hand-off lines `rows[index]` paints (agent-chat-place.ts
@@ -470,13 +488,14 @@ export function useConversationRowRenderer({
           waiting,
         });
       };
-      const { cards, visualized } = turnCards(rows, index, row, {
+      const { cards, visualized, revealed, previewContext } = turnCards(rows, index, row, {
         settledItems: currentSettledItems,
         settledTurnKeys: currentSettledTurnKeys,
         disclosureScope,
+        snapshotBusy,
         cardProps: agentMode ? { compact: true, frame: asideRow } : null,
       });
-      const seat = { cards, placed: false, visualized };
+      const seat: TurnCardsSeat = { cards, placed: false, visualized, revealed, previewContext };
       const node = renderRow(row, index, rows, seat);
       const carded = cards && !seat.placed ? createElement(Fragment, null, node, cards) : node;
       // A room member's handed-off questions, under its newest words.
@@ -642,10 +661,11 @@ function agentChatRow(
   // that ended it). A bot chat shows no changed-files card: the conversation
   // is about the result, not the diff.
   const changes = row._tag === 'AssistantPart' || row._tag === 'Error' ? row.turnChanges : undefined;
+  const showChanges = Boolean(changes) && seat.revealed !== false;
   // A turn status row ("Response complete", compaction) shows nothing.
-  if (place?.side === 'hidden' && !changes) return null;
-  if (changes) seat.placed = true;
-  const line = changes ? createElement(Fragment, null, bubble, seat.cards) : bubble;
+  if (place?.side === 'hidden' && !showChanges) return null;
+  if (showChanges) seat.placed = true;
+  const line = showChanges ? createElement(Fragment, null, bubble, seat.cards) : bubble;
   // A round that held an answered question: its connect card goes under the
   // question summary (a card-only round returned it above).
   return withLines(connectorCards ? createElement(Fragment, null, line, asideRow(connectorCards)) : line);

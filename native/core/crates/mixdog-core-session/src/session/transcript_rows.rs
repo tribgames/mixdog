@@ -410,7 +410,7 @@ fn call_args(call: &Value) -> Option<Value> {
 use mixdog_protocol::tool_visibility::is_task_wait;
 
 /// The rows of a message's tool calls `calls` (a run of `message_calls`, in order).
-fn restored_calls(calls: &[Value], meta: &Row, ids: &mut Ids<'_>, out: &mut Vec<Restored>) {
+fn restored_calls(calls: &[Value], meta: &Row, provisional: Option<&Map<String, Value>>, ids: &mut Ids<'_>, out: &mut Vec<Restored>) {
     let at = meta.get("at").and_then(Value::as_f64).filter(|a| a.is_finite());
     for call in calls {
         let named = ["/function/name", "/name"]
@@ -430,9 +430,15 @@ fn restored_calls(calls: &[Value], meta: &Row, ids: &mut Ids<'_>, out: &mut Vec<
         if is_task_wait(&name, args.as_ref()) {
             continue;
         }
+        let canonical_id = ids.next();
+        let call_id = call.get("id").and_then(Value::as_str).filter(|id| !id.is_empty());
+        let prov = call_id.and_then(|cid| provisional.and_then(|m| m.get(cid)).and_then(Value::as_object));
+        let id = prov.and_then(|e| e.get("itemId")).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned).unwrap_or(canonical_id);
+        let row_at = prov.and_then(|e| e.get("at")).and_then(Value::as_f64).filter(|a| a.is_finite()).or(at);
+        let started_at = prov.and_then(|e| e.get("startedAt")).and_then(Value::as_f64).filter(|a| a.is_finite()).or(at);
         let mut row = Row::new();
         row.insert("kind".into(), json!("tool"));
-        row.insert("id".into(), json!(ids.next()));
+        row.insert("id".into(), json!(id));
         row.insert("name".into(), json!(name));
         if let Some(args) = args {
             row.insert("args".into(), args);
@@ -440,12 +446,16 @@ fn restored_calls(calls: &[Value], meta: &Row, ids: &mut Ids<'_>, out: &mut Vec<
         row.insert("expanded".into(), json!(false));
         row.insert("count".into(), json!(1));
         row.insert("completedCount".into(), json!(1));
+        if let Some(row_at) = row_at {
+            row.insert("at".into(), num_value(row_at));
+        }
+        if let Some(started_at) = started_at {
+            row.insert("startedAt".into(), num_value(started_at));
+        }
         if let Some(at) = at {
-            row.insert("at".into(), num_value(at));
-            row.insert("startedAt".into(), num_value(at));
             row.insert("completedAt".into(), num_value(at));
         }
-        if let Some(call_id) = call.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+        if let Some(call_id) = call_id {
             row.insert("callId".into(), json!(call_id));
         }
         out.push(Restored::Row { row, source: None });
@@ -495,8 +505,9 @@ fn result_fact(message: &Value) -> Option<ResultFact> {
 
 /// `restoredAssistantTranscriptItems` and the message's tool calls. `own_end`: the message shows the end recorded on it;
 /// not so in a turn that stores its end as a display item, where it shows none and takes no id for one.
-fn assistant_rows(message: &Value, own_end: bool, ids: &mut Ids<'_>, out: &mut Vec<Restored>) {
+fn assistant_rows(message: &Value, own_end: bool, apply_provisional: bool, ids: &mut Ids<'_>, out: &mut Vec<Restored>) {
     let Metadata { fields, completion } = metadata(message);
+    let provisional = apply_provisional.then(|| message.pointer("/meta/transcript/provisionalToolCalls").and_then(Value::as_object)).flatten();
     let runs = imported_tool_runs(message);
     if let Some(runs) = runs {
         let mut meta = fields;
@@ -537,7 +548,7 @@ fn assistant_rows(message: &Value, own_end: bool, ids: &mut Ids<'_>, out: &mut V
     let mut last = None;
     for (index, (named, text, after)) in parts.into_iter().enumerate() {
         let after = after.clamp(placed, calls.len());
-        restored_calls(&calls[placed..after], &fields, ids, out);
+        restored_calls(&calls[placed..after], &fields, provisional, ids, out);
         placed = after;
         if text.is_empty() {
             continue;
@@ -564,7 +575,7 @@ fn assistant_rows(message: &Value, own_end: bool, ids: &mut Ids<'_>, out: &mut V
             out.push(Restored::Row { row: end, source: None });
         }
     }
-    restored_calls(&calls[placed..], &fields, ids, out);
+    restored_calls(&calls[placed..], &fields, provisional, ids, out);
 }
 
 /// The segments a reply's text was shown as (`meta.segments`, `[{id, len, after}]`, `len` in bytes): each one's id, its part
@@ -1024,6 +1035,24 @@ pub fn restore(record: &ItemRecord, message: &Value) -> Vec<Restored> {
 /// build). Without one the end is the message's own, recorded on it and shown here. With a display end the turn's
 /// end is a record of its own: this message shows no end, whatever completion it carries.
 pub fn restore_as(record: &ItemRecord, message: &Value, end: Option<TurnEndForm>) -> Vec<Restored> {
+    restore_inner(record, message, end, true)
+}
+
+/// Pre-substitution record-derived item ids for the rows `restore_as` produces for `record`, so
+/// `thread/items/read` still resolves canonical `itm_*` ids after `/meta/transcript/provisionalToolCalls`
+/// substitutes `call:*` ids.
+pub(in crate::session) fn canonical_row_ids_as(record: &ItemRecord, message: &Value, end: Option<TurnEndForm>) -> Vec<mixdog_protocol::ItemId> {
+    restore_inner(record, message, end, false)
+        .into_iter()
+        .filter_map(|restored| match restored {
+            Restored::Row { row, .. } => row.get("id").and_then(Value::as_str).map(mixdog_protocol::ItemId::from),
+            Restored::Room { id } => Some(mixdog_protocol::ItemId::from(id)),
+            Restored::Result(_) => None,
+        })
+        .collect()
+}
+
+fn restore_inner(record: &ItemRecord, message: &Value, end: Option<TurnEndForm>, apply_provisional: bool) -> Vec<Restored> {
     let own_end = end.is_none();
     let iid = record.iid.as_str();
     let mut ids = Ids::new(iid);
@@ -1034,7 +1063,7 @@ pub fn restore_as(record: &ItemRecord, message: &Value, end: Option<TurnEndForm>
     }
     match text_field(message, "role") {
         "user" => user_rows(record, message, own_end, &mut ids, &mut out),
-        "assistant" if !is_context_ack(message) => assistant_rows(message, own_end, &mut ids, &mut out),
+        "assistant" if !is_context_ack(message) => assistant_rows(message, own_end, apply_provisional, &mut ids, &mut out),
         "tool" => out.extend(result_fact(message).map(Restored::Result)),
         _ => {}
     }
@@ -1095,7 +1124,7 @@ mod tests {
     /// An assistant record's rows as `(kind, id, text or tool name)`.
     fn shown(message: &Value) -> Vec<(String, String, String)> {
         let mut out = Vec::new();
-        assistant_rows(message, true, &mut Ids::new("itm_a"), &mut out);
+        assistant_rows(message, true, true, &mut Ids::new("itm_a"), &mut out);
         out.iter()
             .filter_map(|restored| match restored {
                 Restored::Row { row, .. } => Some((
@@ -1251,7 +1280,7 @@ mod tests {
     /// The record's rows as `(kind, id, text or tool name)`, for a record id of the live form (`itm_` and 32 hex digits).
     fn shown_live(message: &Value) -> Vec<(String, String, String)> {
         let mut out = Vec::new();
-        assistant_rows(message, true, &mut Ids::new(LIVE), &mut out);
+        assistant_rows(message, true, true, &mut Ids::new(LIVE), &mut out);
         out.iter()
             .filter_map(|restored| match restored {
                 Restored::Row { row, .. } => Some((
@@ -1329,5 +1358,48 @@ mod tests {
         assert_eq!(shown(&rewritten), [row("assistant", "itm_a", "[redacted] after")]);
         let one = json!({ "role": "assistant", "content": "only", "meta": { "segments": [{ "id": "itm_a", "len": 4, "after": 0 }] } });
         assert_eq!(shown(&one), [row("assistant", "itm_a", "only")]);
+    }
+
+    #[test]
+    fn provisional_tool_calls_applied_before_row_bytes_and_canonical_ids_preserved() {
+        let big_arg = "x".repeat(4_096);
+        let message = json!({
+            "role": "assistant",
+            "content": "",
+            "toolCalls": [{ "id": "real_1", "name": "read", "arguments": { "payload": big_arg } }],
+            "meta": {
+                "transcript": {
+                    "at": 50_000,
+                    "provisionalToolCalls": {
+                        "real_1": { "itemId": "call:synth_1", "startedAt": 40_000, "at": 40_000 }
+                    }
+                }
+            }
+        });
+        let record: ItemRecord = serde_json::from_value(json!({
+            "iid": "itm_000000000000000000000000000000a1",
+            "form": "message",
+            "role": "assistant",
+            "model": true,
+            "visible": true,
+            "refs": [],
+            "body": { "inline": message },
+        }))
+        .expect("record shape");
+        let mixdog_store::schema::blob::Slot::Inline(body) = &record.body else { panic!("inline") };
+
+        let canonical = canonical_row_ids_as(&record, body, None);
+        assert_eq!(canonical, vec![mixdog_protocol::ItemId::from("itm_000000000000000000000000000000a1")]);
+
+        let converted = crate::session::transcript::transcript_convert::message_shown_as(&record, body, None);
+        assert_eq!(converted.len(), 1);
+        let (crate::session::seams::Shown::Item(mixdog_protocol::ThreadItem::ToolCall { id, run, meta, .. }), Some(bytes)) = &converted[0] else {
+            panic!("expected tool call item with row bytes");
+        };
+        assert_eq!(id.as_str(), "call:synth_1");
+        assert_eq!(run.call_id.as_deref(), Some("real_1"));
+        assert_eq!(run.started_at, Some(40_000));
+        assert_eq!(meta.at, Some(40_000));
+        assert!(*bytes > 4_096, "row bytes ({bytes}) must include full substituted tool arguments");
     }
 }

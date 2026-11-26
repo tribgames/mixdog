@@ -640,6 +640,7 @@ export function createRendererConnection({
       reopeningListeners.clear();
       stateListeners.clear();
       storeListeners.clear();
+      eventListeners.clear();
       closedByOwner = true;
       epoch += 1;
       newest = null;

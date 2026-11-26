@@ -94,6 +94,7 @@ import {
 } from './ComposerFooter';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { useOneLineOverflow } from './composer-card-layout';
+import { useSurfaceActive } from './surface-activity';
 import { CapabilityIcon } from './CapabilityIcon';
 import { shouldRemoveSelectedSkill, skillTitle, useComposerSkill } from './composer-skill';
 import { VisualizeFeedbackCards } from './VisualizeFeedbackCards';
@@ -1066,8 +1067,10 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     },
     [afterLanding]
   );
+  const surfaceActive = useSurfaceActive();
   const phone = useMobileRemoteSurface() && !roomMembers;
-  const oneLineOverflows = useOneLineOverflow(paletteAnchor, !phone && !roomMembers);
+  const layoutKey = `${surfaceActive ? 1 : 0}:${bare ? 1 : 0}:${usageReadout ? 1 : 0}:${contextBar ? 1 : 0}:${identityScope}`;
+  const oneLineOverflows = useOneLineOverflow(paletteAnchor, !phone && !roomMembers && !bare, layoutKey);
   const card = !roomMembers && (phone || oneLineOverflows);
   const modelControlProps: ComposerModelControlProps = {
     modelAside,

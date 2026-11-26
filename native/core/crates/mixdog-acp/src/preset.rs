@@ -95,6 +95,17 @@ pub struct Quirks {
     /// The most bytes of one MCP call's result the agent hands its model whole, asked of it when it opens a session it
     /// is handed Mixdog's tools in; `None` for an agent that takes no such setting.
     pub mcp_max_output_bytes: Option<u64>,
+    /// Whether `initialize` advertises `clientCapabilities.fs.readTextFile`. Off for Neon / Google's official ACP
+    /// server so it uses Mixdog's `read` tool instead of exposing its own `client_view_file`.
+    pub fs_read_text_file: bool,
+    /// Actual usable context window caps by model id prefix (lowercase), capping inflated server reports (e.g. 1.0m)
+    /// to real limits (256,000 / 128,000).
+    pub context_window_caps: Vec<(String, u64)>,
+    /// Fallback context window cap used on the `"default"` route when the active model id does not match a specific
+    /// prefix in [`Self::context_window_caps`].
+    pub default_context_window_cap: Option<u64>,
+    /// Percentage of the effective context window where a mid-turn compaction cliff warning/advisory fires.
+    pub compaction_cliff_percent: Option<u8>,
 }
 
 /// Which of the models an agent lists a preset runs, by the start of a model's id.
@@ -122,6 +133,45 @@ impl Quirks {
         let mark = self.failure_mark.as_deref()?;
         let said = chunk.strip_prefix('\n')?.strip_suffix('\n')?.strip_prefix(mark)?.strip_prefix(' ')?;
         (!said.trim().is_empty() && !said.contains('\n')).then(|| said.to_owned())
+    }
+
+    /// Actual usable context window cap for `model`, if this preset's server inflates its reported window.
+    pub fn context_window_cap(&self, model: &str) -> Option<u64> {
+        let lower = model.trim().to_ascii_lowercase();
+        if lower.is_empty() {
+            return None;
+        }
+        self.context_window_caps
+            .iter()
+            .find_map(|(prefix, cap)| lower.starts_with(prefix.as_str()).then_some(*cap))
+            .or_else(|| (lower == crate::agents::DEFAULT_MODEL).then_some(self.default_context_window_cap).flatten())
+    }
+
+    /// Caps a server-reported context window size by [`Self::context_window_cap`].
+    pub fn effective_context_window(&self, model: &str, reported: u64) -> u64 {
+        if reported == 0 {
+            return 0;
+        }
+        self.context_window_cap(model).map_or(reported, |cap| reported.min(cap))
+    }
+
+    /// Caps a server-reported context window size using the active session model when available, falling back to the
+    /// route model and [`Self::default_context_window_cap`] on the `"default"` route.
+    pub fn effective_context_window_for(&self, route_model: &str, active_model: Option<&str>, reported: u64) -> u64 {
+        if reported == 0 {
+            return 0;
+        }
+        let cap = active_model
+            .and_then(|model| self.context_window_cap(model))
+            .or_else(|| self.context_window_cap(route_model))
+            .or_else(|| route_model.trim().eq_ignore_ascii_case(crate::agents::DEFAULT_MODEL).then_some(self.default_context_window_cap).flatten());
+        cap.map_or(reported, |cap| reported.min(cap))
+    }
+
+    /// Token threshold within `effective_window` where the agent hits its mid-turn compaction cliff.
+    pub fn mid_turn_compaction_cliff(&self, effective_window: u64) -> Option<u64> {
+        let pct = self.compaction_cliff_percent.filter(|pct| *pct > 0 && *pct <= 100)?;
+        (effective_window > 0).then(|| effective_window.saturating_mul(u64::from(pct)) / 100)
     }
 }
 
@@ -329,7 +379,7 @@ pub struct AgentPreset {
     pub own_tools_off: Option<OwnToolsOff>,
     /// The arguments that print the CLI's version and exit; an agent of the registry is never run for its version.
     pub version_args: Vec<String>,
-    /// Set for the agent's ACP mode and its sign-in, not for its version, install and update runs.
+    /// Set for the agent's version, ACP, sign-in and usage runs, not for its install and update runs.
     pub env: Vec<(String, String)>,
     pub minimum_version: Version,
     pub quirks: Quirks,
@@ -410,6 +460,10 @@ fn antigravity_quirks() -> Quirks {
         runs_default: false,
         append_tool_guidance: true,
         mcp_max_output_bytes: None,
+        fs_read_text_file: true,
+        context_window_caps: vec![("gpt-oss".into(), 128_000), ("gemini-4-".into(), 256_000), ("gemini-".into(), 256_000), ("claude-".into(), 256_000)],
+        default_context_window_cap: None,
+        compaction_cliff_percent: Some(76),
     }
 }
 
@@ -462,8 +516,8 @@ pub fn builtin() -> Vec<AgentPreset> {
         quirks: Quirks {
             // It replies only to a prompt, and tells a failure only as the prompt's error.
             replies_without_prompt: false,
-            // Its calls of an MCP server's tool name the server and the tool under `_meta.mcp` alone.
-            mcp_tool_name: None,
+            // Neon / official ACP server may emit either `_meta.mcp` or `mcp_mixdog_<tool>` in `name`.
+            mcp_tool_name: Some("mcp_{server}_{tool}".into()),
             failure_mark: None,
             signed_out_failures: vec!["UNAUTHENTICATED".into(), "(code 401)".into(), "Authentication required".into()],
             // It answers a prompt of a session it does not hold with -32002, which is a lost session whatever it says.
@@ -475,6 +529,9 @@ pub fn builtin() -> Vec<AgentPreset> {
             append_tool_guidance: false,
             // Above 4096 bytes it withholds a result from its model and saves it to a file instead.
             mcp_max_output_bytes: Some(100_000),
+            // Disable fs.readTextFile on the official/Neon server so it routes file reads through Mixdog's `read` tool.
+            fs_read_text_file: false,
+            default_context_window_cap: Some(256_000),
             ..antigravity_quirks()
         },
         distribution: Distribution::Registry {
@@ -517,9 +574,10 @@ pub fn builtin() -> Vec<AgentPreset> {
             body: "You are a coding agent working in the user's workspace, with the tools Mixdog hands you.\n".into(),
         })),
         version_args: vec!["--version".into()],
-        // The CLI replaces its own binary in the background of a regular run; a session's process is not to have
-        // that happen under it, so Mixdog runs the update itself while no session's agent is running.
-        env: vec![("AGY_CLI_DISABLE_AUTO_UPDATE".into(), "1".into())],
+        // The CLI spawns `--bg-updater` detached (`DETACHED_PROCESS`), which opens a visible console on Windows for
+        // its `--version` check and can replace the binary under a running session; `agy` checks
+        // `AGY_CLI_DISABLE_AUTO_UPDATE == "true"` literally, not `"1"`.
+        env: vec![("AGY_CLI_DISABLE_AUTO_UPDATE".into(), "true".into())],
         distribution: Distribution::Cli {
             installer: Some(antigravity_installer()),
             installed_at: antigravity_installed_at(),

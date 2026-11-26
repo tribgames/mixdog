@@ -237,7 +237,8 @@ function SessionDiffSource({
     expandRow,
     select: setSelectedPath,
   });
-  const tabStrip = (
+  const hasTabs = Boolean(pendingPath) || tabRows.length > 0 || (fileTabs?.tabs.length ?? 0) > 0;
+  const tabStrip = hasTabs ? (
     <SessionDiffTabStrip
       pendingPath={pendingPath}
       showChanges={showChanges}
@@ -249,7 +250,7 @@ function SessionDiffSource({
       onOpenDiffTab={tabs.openDiffTab}
       onCloseDiffTab={tabs.closeDiffTab}
     />
-  );
+  ) : null;
   const scope = (
     <SessionDiffScope
       pendingPath={pendingPath}

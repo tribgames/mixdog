@@ -289,243 +289,15 @@ export function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRe
   }, [islandRef, pillRef]);
 }
 
-/** The island's own glides (useIslandGlide): one id, so a later change can
- *  find and restart them. */
+/** Identifier retained for callers/tests inspecting island animations (none run). */
 export const ISLAND_GLIDE_ID = 'island-glide';
-const GLIDE_TIMING: KeyframeAnimationOptions = {
-  id: ISLAND_GLIDE_ID,
-  duration: 200,
-  easing: 'cubic-bezier(0.2, 0, 0, 1)',
-};
-/** Changes smaller than this are left to land in place. */
-const GLIDE_MIN_PX = 0.5;
-/** What can move the pill's segments or a panel's rows and height. */
-const GLIDE_ATTRIBUTES = ['data-mode', 'data-expanded', 'data-fit', 'data-line-start', 'hidden', 'style'];
 
-/** The element's own glides, its ::before frame's included (which only a
- *  subtree query lists). */
-function glides(element: Element): Animation[] {
-  return element
-    .getAnimations({ subtree: true })
-    .filter(
-      (animation) => animation.id === ISLAND_GLIDE_ID && (animation.effect as KeyframeEffect | null)?.target === element
-    );
+/** Reads layout immediately (the island runs no glide animations). */
+export function withoutGlides<T>(_island: Element, read: () => T): T {
+  return read();
 }
 
-/** The translation a running glide paints over the element's laid-out box. */
-function glideOffset(element: Element): { x: number; y: number } {
-  if (!glides(element).length) return { x: 0, y: 0 };
-  const matrix = new DOMMatrixReadOnly(getComputedStyle(element).transform);
-  return { x: matrix.m41, y: matrix.m42 };
-}
-
-/** Reads the island (or a list in it) as laid out: its glides are held at
- *  their end for the read (no painted offset, no height held by a panel's
- *  glide), then resume where they were. */
-export function withoutGlides<T>(island: Element, read: () => T): T {
-  const running =
-    typeof island.getAnimations === 'function'
-      ? island.getAnimations({ subtree: true }).filter((animation) => animation.id === ISLAND_GLIDE_ID)
-      : [];
-  const times = running.map((animation) => animation.currentTime);
-  for (const animation of running) animation.currentTime = Number(animation.effect?.getComputedTiming().endTime);
-  try {
-    return read();
-  } finally {
-    running.forEach((animation, index) => {
-      animation.currentTime = times[index] ?? null;
-    });
-  }
-}
-
-function glideTo(element: Element, keyframes: Keyframe[], options: KeyframeAnimationOptions = {}): Animation {
-  const animation = element.animate(keyframes, { ...GLIDE_TIMING, ...options });
-  // One start for every glide of a change: a composited one (a row's transform) would otherwise start a frame after
-  // a main-thread one (the panel's height), and the rows would drift against the panel's edge meanwhile.
-  animation.startTime = document.timeline.currentTime;
-  return animation;
-}
-
-/** The island never jumps when something in it changes size or place: a
- *  segment that comes or goes, a count that gains a digit, a panel row that
- *  arrives, leaves or moves, a panel that grows or shrinks. Each change is
- *  laid out at once (nothing waits on the motion), then painted from where
- *  things were and eased to where they are: the pill's segments slide and its
- *  frame's edges follow them, a panel's rows slide to their new places and
- *  its height eases (its body scrolls meanwhile, so the header and footer
- *  ride the edge). A new segment or row fades in where it lands. Nothing
- *  moves under reduced motion, and nothing is watched while the island's
- *  surface is not shown (`active`): it starts again from where things are. */
-export function useIslandGlide(
-  islandRef: RefObject<HTMLDivElement | null>,
-  pillRef: RefObject<HTMLDivElement | null>,
-  active: boolean
-) {
-  useLayoutEffect(() => {
-    const island = islandRef.current;
-    const pill = pillRef.current;
-    // jsdom (the logic tests) has no Web Animations: there nothing glides.
-    if (!active || !island || !pill || typeof island.animate !== 'function') return undefined;
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    let mode: string | null = null;
-    let segments = new Map<Element, { x: number; y: number }>();
-    let frame: { left: number; right: number; top: number; bottom: number } | null = null;
-    let panelHeight = -1;
-    let rows = new Map<Element, number>();
-
-    const visibleSegments = () =>
-      Array.from(pill.children).filter(
-        (child) => !child.classList.contains('composer-island-reserve') && child.getClientRects().length > 0
-      );
-    const listRows = () => Array.from(island.querySelector('.composer-island-jobs')?.children ?? []);
-    const frameInsets = () => {
-      if (!glides(island).some((animation) => (animation.effect as KeyframeEffect | null)?.pseudoElement)) {
-        return { left: 0, right: 0, top: 0, bottom: 0 };
-      }
-      const style = getComputedStyle(island, '::before');
-      const px = (value: string) => Number.parseFloat(value) || 0;
-      return { left: px(style.left), right: px(style.right), top: px(style.top), bottom: px(style.bottom) };
-    };
-    const settleFrame = () => {
-      if (!glides(island).some((animation) => animation.playState === 'running')) island.removeAttribute('data-glide');
-    };
-
-    const recordPill = (box = island.getBoundingClientRect()) => {
-      segments = new Map(
-        visibleSegments().map((segment) => {
-          const rect = segment.getBoundingClientRect();
-          const offset = glideOffset(segment);
-          return [segment, { x: rect.left - offset.x, y: rect.top - offset.y }];
-        })
-      );
-      frame =
-        mode === 'pill' && box.width > 0
-          ? { left: box.left, right: box.right, top: box.top, bottom: box.bottom }
-          : null;
-    };
-    const syncPill = () => {
-      if (mode === 'pill' && island.getAttribute('data-mode') === 'pill') recordPill();
-    };
-    const record = () => {
-      mode = island.getAttribute('data-mode');
-      const box = island.getBoundingClientRect();
-      recordPill(box);
-      panelHeight = mode === 'panel' ? box.height : -1;
-      rows = new Map(listRows().map((row) => [row, (row as HTMLElement).offsetTop]));
-    };
-    const cancelAll = () => {
-      for (const element of [island, ...segments.keys(), ...rows.keys(), ...visibleSegments(), ...listRows()]) {
-        for (const animation of glides(element)) animation.cancel();
-      }
-      island.removeAttribute('data-glide');
-    };
-
-    const glide = () => {
-      const nextMode = island.getAttribute('data-mode');
-      if (reducedMotion.matches || nextMode !== mode) {
-        // A new shape (pill, panel, approval, flash) has its own entry; reduced
-        // motion lands every change in place.
-        cancelAll();
-        record();
-        return;
-      }
-      // Where everything is painted now: the last laid-out place plus any glide
-      // still running toward it.
-      const paintedSegments = new Map<Element, { x: number; y: number }>();
-      for (const [segment, place] of segments) {
-        if (!segment.isConnected) continue;
-        const offset = glideOffset(segment);
-        paintedSegments.set(segment, { x: place.x + offset.x, y: place.y + offset.y });
-      }
-      const insets = frameInsets();
-      const paintedFrame = frame && {
-        left: frame.left + insets.left,
-        right: frame.right - insets.right,
-        top: frame.top + insets.top,
-        bottom: frame.bottom - insets.bottom,
-      };
-      const heightGliding = glides(island).some(
-        (animation) => !(animation.effect as KeyframeEffect | null)?.pseudoElement
-      );
-      const paintedHeight = heightGliding ? island.getBoundingClientRect().height : panelHeight;
-      const paintedRows = new Map<Element, number>();
-      for (const [row, top] of rows) if (row.isConnected) paintedRows.set(row, top + glideOffset(row).y);
-      cancelAll();
-      record();
-
-      if (mode === 'pill') {
-        for (const [segment, place] of segments) {
-          const from = paintedSegments.get(segment);
-          if (from === undefined) glideTo(segment, [{ opacity: 0 }, { opacity: 1 }]);
-          else {
-            const x = from.x - place.x;
-            const y = from.y - place.y;
-            if (Math.abs(x) > GLIDE_MIN_PX || Math.abs(y) > GLIDE_MIN_PX) {
-              glideTo(segment, [{ transform: `translate(${x}px, ${y}px)` }, { transform: 'none' }]);
-            }
-          }
-        }
-        if (paintedFrame && frame) {
-          const left = paintedFrame.left - frame.left;
-          const right = frame.right - paintedFrame.right;
-          const top = paintedFrame.top - frame.top;
-          const bottom = frame.bottom - paintedFrame.bottom;
-          if ([left, right, top, bottom].some((inset) => Math.abs(inset) > GLIDE_MIN_PX)) {
-            island.setAttribute('data-glide', '');
-            glideTo(
-              island,
-              [
-                { left: `${left}px`, right: `${right}px`, top: `${top}px`, bottom: `${bottom}px` },
-                { left: '0px', right: '0px', top: '0px', bottom: '0px' },
-              ],
-              {
-                pseudoElement: '::before',
-              }
-            ).finished.then(settleFrame, settleFrame);
-          }
-        }
-      }
-      if (mode === 'panel') {
-        if (paintedHeight >= 0 && Math.abs(paintedHeight - panelHeight) > GLIDE_MIN_PX) {
-          glideTo(island, [{ height: `${paintedHeight}px` }, { height: `${panelHeight}px` }]);
-        }
-        for (const [row, top] of rows) {
-          const from = paintedRows.get(row);
-          if (from === undefined) {
-            if (paintedRows.size > 0) glideTo(row, [{ opacity: 0 }, { opacity: 1 }]);
-          } else if (Math.abs(from - top) > GLIDE_MIN_PX) {
-            glideTo(row, [{ transform: `translateY(${from - top}px)` }, { transform: 'none' }]);
-          }
-        }
-      }
-    };
-
-    record();
-    const mutation = new MutationObserver((records) => {
-      if (records.every((entry) => entry.type === 'attributes' && entry.attributeName === 'data-line-start')) {
-        syncPill();
-        return;
-      }
-      glide();
-    });
-    mutation.observe(island, {
-      subtree: true,
-      childList: true,
-      characterData: true,
-      attributeFilter: GLIDE_ATTRIBUTES,
-    });
-    const resize = new ResizeObserver(syncPill);
-    if (island.parentElement) resize.observe(island.parentElement);
-    resize.observe(pill);
-    return () => {
-      resize.disconnect();
-      mutation.disconnect();
-      cancelAll();
-    };
-  }, [islandRef, pillRef, active]);
-}
-
-/** How long an emptied island keeps its slot before the slot eases shut:
+/** How long an emptied island keeps its slot before closing:
  *  content returning within it (one segment handing over to the next) moves
  *  nothing. */
 export const ISLAND_COLLAPSE_GRACE_MS = 500;
@@ -536,7 +308,7 @@ const ISLAND_CONTENT =
  *  module is loading): the only thing a reserved slot can wait for. */
 const ISLAND_UNDECIDED = '[data-island-pending], [data-entry-pending]';
 
-type SlotPresence = 'open' | 'grace' | 'closing' | 'closed';
+type SlotPresence = 'open' | 'grace' | 'closed';
 
 const RESTING_SLOT_HEIGHTS_KEY = 'mixdog:composer-island-resting-heights';
 const RESTING_SLOT_HEIGHTS_MAX = 200;
@@ -709,27 +481,29 @@ function measureApprovalRoom(slot: HTMLElement, island: HTMLElement, stage: HTML
   slot.removeAttribute('data-measuring');
 }
 
-/** Calls `sync` on size changes without a DOM change (wrapping, the pane's
+/** Calls `sync` on height changes without a DOM change (wrapping, the pane's
  *  height bound); returns the teardown. */
 function observeIslandSizes(slot: HTMLElement, island: HTMLElement, pane: Element | null, sync: () => void) {
   // Only a HEIGHT change can move the slot's target: a width-only change
   // (every step of a window drag) must not toggle data-measuring and force
   // two style passes for a target that cannot have changed.
   const observedHeights = new WeakMap<Element, number>();
+  const region = slot.closest('.composer-region');
   const resizeObserver = new ResizeObserver((entries) => {
     let heightChanged = false;
     for (const entry of entries) {
       const height = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
-      if (observedHeights.get(entry.target) === height) continue;
-      observedHeights.set(entry.target, height);
-      heightChanged = true;
+      if (observedHeights.get(entry.target) !== height) {
+        observedHeights.set(entry.target, height);
+        if (entry.target !== slot) heightChanged = true;
+      }
     }
     if (heightChanged) sync();
   });
+  resizeObserver.observe(slot);
   resizeObserver.observe(island);
   // The dock (textarea, queue, /btw) and the pane move the panel's floor.
   if (pane) resizeObserver.observe(pane);
-  const region = slot.closest('.composer-region');
   if (region) resizeObserver.observe(region);
   for (const child of island.children) resizeObserver.observe(child);
   const children = new MutationObserver(() => {
@@ -754,7 +528,6 @@ export function useIslandSlotPresence(
     const island = islandRef.current;
     const stage = island?.parentElement;
     if (!slot || !island || !stage) return undefined;
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     // Dock chrome this island replaces wins; otherwise the session's resting
     // height is reserved for the mount (see restingSlotHeights).
     let held =
@@ -773,22 +546,13 @@ export function useIslandSlotPresence(
     let armed = false;
     let grace = 0;
     let height = -1;
-    let carried = false;
-    let shape: string | null = null;
-    // The session's island was open when it was last shown: its first
-    // content after this mount (segments re-reading, a lane landing) is the
-    // island coming back, not appearing, so it draws without the entry fade.
-    let returning = (rememberedSlotHeight(sessionIdRef.current) ?? 0) > 0;
     const presence = (value: SlotPresence) => slot.setAttribute('data-presence', value);
-    // An unchanged target starts no transition: it leaves any motion running.
-    const resize = (target: number, animate: boolean) => {
+    const resize = (target: number) => {
       if (target === height) return;
       height = target;
-      if (animate) slot.setAttribute('data-motion', '');
-      else slot.removeAttribute('data-motion');
       slot.style.setProperty(SLOT_HEIGHT, `${target}px`);
     };
-    // The stage's own height, unshrunk by the slot (mid-motion or squeezed).
+    // The stage's own height, unshrunk by the slot.
     const natural = () => {
       slot.setAttribute('data-measuring', '');
       const value = stage.offsetHeight;
@@ -799,45 +563,23 @@ export function useIslandSlotPresence(
       window.clearTimeout(grace);
       grace = 0;
     };
-    // The height motion is over (it ran out, or reduced motion cut it short).
-    const endMotion = () => {
-      slot.removeAttribute('data-motion');
-      if (slot.getAttribute('data-presence') === 'closing') presence('closed');
-    };
-    const collapse = (animate: boolean) => {
-      if (animate && height > 0) {
-        presence('closing');
-        resize(0, true);
-      } else {
-        resize(0, false);
-        presence('closed');
-      }
+    const collapse = () => {
+      resize(0);
+      presence('closed');
     };
     const pane = slot.closest('.conversation');
     const sync = () => {
       const mode = island.getAttribute('data-mode');
-      // Kept current while the pill rests, not only once a panel is open: a
-      // panel's first frame then lays out under its real room, where a room
-      // left from an earlier opening gave it a height the glide (useIslandGlide,
-      // which reads the panel before this) then eased away from.
       if (pane && (mode === 'pill' || mode === 'panel')) measurePanelRoom(slot, stage, pane);
-      const animate = armed && !reducedMotion.matches;
       const content = Boolean(island.querySelector(ISLAND_CONTENT));
-      if (armed && content && (!carried || mode !== shape)) {
-        if (returning || slot.closest('[data-retained]')) slot.removeAttribute('data-entry');
-        else slot.setAttribute('data-entry', '');
-      }
-      carried = content;
-      shape = mode;
       if (content) {
-        returning = false;
         cancelGrace();
         reserve(false);
         // Shown first: a closed slot has no box to measure.
         presence('open');
         if (pane && mode === 'approval') measureApprovalRoom(slot, island, stage, pane);
         const target = natural();
-        resize(target, animate);
+        resize(target);
         if (mode === 'pill') {
           rememberSlotHeight(sessionIdRef.current, target);
           // Laid out by natural() above.
@@ -850,19 +592,18 @@ export function useIslandSlotPresence(
         cancelGrace();
         reserve(false);
         held = 0;
-        returning = false;
         rememberSlotHeight(sessionIdRef.current, 0);
-        collapse(animate && !pane?.hasAttribute('data-transcript-entering'));
+        collapse();
         return;
       }
       if (!armed) {
         cancelGrace();
         if (held > 0) {
           presence('grace');
-          resize(held, false);
+          resize(held);
           return;
         }
-        collapse(false);
+        collapse();
         return;
       }
       // A held mount's grace starts once the island is armed.
@@ -875,40 +616,24 @@ export function useIslandSlotPresence(
       grace = window.setTimeout(() => {
         grace = 0;
         reserve(false);
-        returning = false;
         rememberSlotHeight(sessionIdRef.current, 0);
-        collapse(!reducedMotion.matches);
+        collapse();
       }, ISLAND_COLLAPSE_GRACE_MS);
     };
-    // Ended or cancelled (the slot left the rendered tree mid-motion): either way no motion runs.
-    const onTransitionEnd = (event: TransitionEvent) => {
-      if (event.target === slot && event.propertyName === SLOT_HEIGHT) endMotion();
-    };
-    // Dropping data-motion removes the transition, so the browser cancels it
-    // and the slot takes its target height in the next style pass.
-    const onMotionPreference = () => {
-      if (reducedMotion.matches && slot.hasAttribute('data-motion')) endMotion();
-    };
     sync();
-    // The first painted frame shows the true state; changes after it animate.
+    // A held mount starts its grace after the first frame.
     const frame = window.requestAnimationFrame(() => {
       armed = true;
       if (slot.getAttribute('data-presence') === 'grace') sync();
     });
-    const mutation = new MutationObserver(sync);
+    const mutation = new MutationObserver(() => sync());
     mutation.observe(island, { subtree: true, childList: true, characterData: true, attributes: true });
     const stopObserving = observeIslandSizes(slot, island, pane, sync);
-    slot.addEventListener('transitionend', onTransitionEnd);
-    slot.addEventListener('transitioncancel', onTransitionEnd);
-    reducedMotion.addEventListener('change', onMotionPreference);
     return () => {
       window.cancelAnimationFrame(frame);
       cancelGrace();
       mutation.disconnect();
       stopObserving();
-      slot.removeEventListener('transitionend', onTransitionEnd);
-      slot.removeEventListener('transitioncancel', onTransitionEnd);
-      reducedMotion.removeEventListener('change', onMotionPreference);
     };
   }, [slotRef, islandRef, heldHeightRef, sessionIdRef, carriedHeightRef]);
 }

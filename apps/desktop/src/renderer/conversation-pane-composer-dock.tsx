@@ -8,6 +8,7 @@ import { ProjectContextSelector } from './composer-support';
 import { ComposerDock } from './ComposerDock';
 import type { ConversationProps } from './conversation-pane-props';
 import { useComposerUserMessages } from './conversation-pane-user-messages';
+import { syncTranscriptWidths } from './transcript-list-resize-patch';
 import type { RecordValue, Snapshot, TranscriptItem } from './desktop-types';
 import type { ConversationIsland } from './use-conversation-island';
 import type { ConversationSubmission } from './use-conversation-submission';
@@ -260,18 +261,25 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
   const handOver = useContext(PaneHandOverContext);
   const SessionRail = useDeferredModule(sessionRailModule, { load: Boolean(railSlot.element) })?.default;
   const railDraftId = draftMode ? draftId : '';
-  const railPlace = SessionRail
-    ? sessionRailPlace(railSlot, {
-        sessionId: railSessionId,
-        draftId: railDraftId,
-        onScreen,
-        handOver,
-      })
-    : { host: null, taken: false };
-  const railHost = railPlace.host;
+  // Commit island ownership immediately when the rail slot opens so the tall
+  // composer island never flashes while rail space is reserved; gate composer
+  // controls (`bare` / `contextBar`) on SessionRail so no frame paints without
+  // controls in either surface.
+  const railPlace = sessionRailPlace(railSlot, {
+    sessionId: railSessionId,
+    draftId: railDraftId,
+    onScreen,
+    handOver,
+  });
+  const railHost = SessionRail ? railPlace.host : null;
   const contextControls = Boolean(showProjectSelector) && !agentMode;
-  const railShown = railPlace.taken;
+  const railShown = Boolean(SessionRail) && railPlace.taken;
   const railHeld = useRailHeld(railShown);
+  // When rail ownership flips (shrinking or growing the composer dock),
+  // re-measure the transcript dock inset before paint so the transcript never bounces.
+  useLayoutEffect(() => {
+    syncTranscriptWidths({ dockInset: true });
+  }, [railShown, railPlace.taken]);
   let projectScope = routeProject;
   if (draftMode) projectScope = activeProjectPath;
   else if (held) projectScope = '';
@@ -355,7 +363,7 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
         reviewBusy={reviewBusy}
         reviewSessionId={reviewSessionId}
         reviewCwd={routeProject}
-        islandHidden={railShown}
+        islandHidden={railPlace.taken}
       >
         <Composer
           onOpenFile={props.openFile}

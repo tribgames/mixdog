@@ -281,7 +281,7 @@ async function islandPage(t, surface, script = 'js') {
 }
 
 for (const surface of SURFACES) {
-  test(`bar (${surface.name}): a segment arriving, leaving or gaining a digit moves no neighbour in its first frame`, async (t) => {
+  test(`bar (${surface.name}): a segment arriving, leaving or gaining a digit settles at once without glide animations`, async (t) => {
     const page = await islandPage(t, surface);
     const neighbours = ['seg:branch', 'seg:files', 'frame'];
     const cases = [
@@ -292,22 +292,22 @@ for (const surface of SURFACES) {
       ],
       ['the agents segment leaves', () => window.__pool([])],
     ];
-    // A segment's place is its leading edge: the fit (compact, tight) may give
-    // a segment other padding at once, never another place.
-    const places = (snapshot) =>
-      Object.fromEntries(Object.entries(snapshot).map(([key, box]) => [key, key === 'frame' ? box : box.slice(0, 2)]));
     for (const [label, apply] of cases) {
       const { before, start, end, glides } = await page.evaluate(
         (body) => window.__change(new Function(`return (${body})()`)),
         apply.toString()
       );
-      assert.deepEqual(moved(places(before), places(start), neighbours), [], `${label}: painted where they were`);
-      assert.ok(glides > 0 && moved(before, end, neighbours).length > 0, `${label}: then eased to their new place`);
+      assert.equal(glides, 0, `${label}: no glide animations run`);
+      assert.deepEqual(moved(start, end, neighbours), [], `${label}: settled without a second jump`);
       assert.deepEqual(moved(before, end, ['composer']), [], `${label}: the composer stays`);
+      assert.ok(
+        Math.abs(end.island[1] + end.island[3] - (before.island[1] + before.island[3])) <= 0.5,
+        `${label}: the island stays anchored above the composer`
+      );
     }
   });
 
-  test(`agents panel (${surface.name}): rows arriving or leaving ease from their prior frame while a failing row stays in place`, async (t) => {
+  test(`agents panel (${surface.name}): rows arriving or leaving resize immediately without glide animations while a failing row stays in place`, async (t) => {
     const page = await islandPage(t, surface);
     await page.evaluate(() => window.__pool([window.__agent('first')]));
     await page.click('.composer-island-seg-agents');
@@ -322,21 +322,32 @@ for (const surface of SURFACES) {
       ],
       ['a row leaves', () => window.__pool([window.__agent('second')]), -1, true],
     ];
-    for (const [label, apply, rowsAdded, eases] of cases) {
+    for (const [label, apply, rowsAdded, changes] of cases) {
       const { before, start, end, glides } = await page.evaluate(
         (body) => window.__change(new Function(`return (${body})()`)),
         apply.toString()
       );
       const kept = Object.keys(before).filter((key) => /^(island|head|row:|copy:|mark:)/.test(key) && key in end);
-      assert.deepEqual(moved(before, start, kept), [], `${label}: painted where it was`);
-      if (eases) {
-        assert.ok(glides > 0 && moved(before, end, kept).length > 0, `${label}: then eased to its new place`);
-      } else {
-        const rows = Object.keys(before).filter((key) => /^(island|head|row:)/.test(key) && key in end);
-        assert.equal(glides, 0, `${label}: triggers no row glide`);
-        assert.deepEqual(moved(before, end, rows), [], `${label}: keeps every row in place`);
-      }
+      assert.equal(glides, 0, `${label}: no glide animations run`);
+      assert.deepEqual(moved(start, end, kept), [], `${label}: settled without a second jump`);
       assert.deepEqual(moved(before, end, ['composer']), [], `${label}: the composer stays`);
+      assert.ok(
+        Math.abs(end.island[1] + end.island[3] - (before.island[1] + before.island[3])) <= 0.5,
+        `${label}: the panel stays anchored above the composer`
+      );
+      if (!changes) {
+        const rows = Object.keys(before).filter((key) => /^(island|head|row:)/.test(key) && key in end);
+        assert.deepEqual(moved(before, end, rows), [], `${label}: keeps every row in place`);
+      } else {
+        for (const key of kept.filter((entry) => entry.startsWith('row:'))) {
+          assert.ok(
+            Math.abs(end[key][0] - before[key][0]) <= 0.5 &&
+              Math.abs(end[key][2] - before[key][2]) <= 0.5 &&
+              Math.abs(end[key][3] - before[key][3]) <= 0.5,
+            `${label}: ${key} kept its horizontal geometry and height`
+          );
+        }
+      }
       // One row's stride in the list (its height and the gap after it).
       const both = before['row:first'] && before['row:second'] ? before : end;
       const rowHeight = Math.abs(both['row:second'][1] - both['row:first'][1]);

@@ -56,19 +56,17 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-cell {
   margin-right: var(--session-rail-band);
   border-top-right-radius: 0;
 }
-/* When the right margin alone is too narrow, the conversation re-centres
-   left of the panel (--session-rail-reserve, set on the cell by
-   SessionRailCard): its pane container narrows by that much, so every width
-   rule inside follows. */
+/* Continuous overlap shift: as the rail meets the centred reading column,
+   --session-rail-reserve grows smoothly by twice the overlap up to the rail's
+   full band, keeping the column flush beside the rail without a sudden jump. */
 .pane-conversation-slot > .conversation-persistent-surface > .workspace {
   box-sizing: border-box;
   padding-right: var(--session-rail-reserve, 0px);
 }
-/* While the margin holds the panel the conversation keeps the pane's width
-   and its column stays where it was: the scroller alone ends at the panel's
-   edge (--session-rail-over, the panel's width then), its scrollbar beside
-   the panel, and gives the same room up on its left so its rows stay centred
-   in the pane. */
+/* Scrollbar clearance for the part of the rail still sitting over the
+   workspace's right margin (--session-rail-over = band - reserve): the
+   scroller ends at the panel's edge while balancing left padding keeps the
+   reading column on the workspace's exact centre. */
 .pane-conversation-slot .conversation > .transcript-shell > .transcript {
   margin-right: var(--session-rail-over, 0px);
   padding-left: var(--session-rail-over, 0px);
@@ -269,6 +267,8 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-cell {
 }
 .session-rail-tg > .session-rail-ct {
   margin-left: 4px;
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-medium);
 }
 /* The island's figures in a head, the mark before its figure 6px apart: an
    agent's or a shell's state mark before the count (the head's own gap), the
@@ -1032,12 +1032,15 @@ button.session-rail-row:focus-visible {
   line-height: var(--mx-line-meta);
 }
 .session-rail .composer-island-agents .agent-pool-row > .agent-activity-status {
-  contain: inline-size;
   min-width: 0;
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  gap: 4px;
   line-height: var(--mx-line-meta);
+}
+.session-rail .composer-island-agents .agent-pool-row > .agent-activity-status:not(:has(> .agent-row-steps)) {
+  contain: inline-size;
 }
 /* An agent and a kind's line: the To-do list's rows and "Remaining" line
    (AgentGroupList's rhythm), on the heads' left line. Their wash reaches as

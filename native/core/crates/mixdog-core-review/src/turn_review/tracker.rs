@@ -131,6 +131,7 @@ pub struct View {
 pub struct TrackerMeta {
     pub owner_session_id: Option<String>,
     pub owner_generation: u64,
+    pub owner_epoch: u64,
     pub checkpoint_id: String,
     pub worktree_request: String,
     /// The directory the turn ran in: a non-Git record's patch root.

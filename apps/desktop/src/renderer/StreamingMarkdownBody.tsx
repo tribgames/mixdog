@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, memo, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { MarkdownAstRoot } from './markdown-ast';
 import type { MarkdownCopyControl } from './markdown-components';
@@ -15,6 +15,10 @@ import {
 import MarkdownAstBody from './MarkdownAstBody';
 import { containsFencedCodeMarkdown, MarkdownSourceFallback } from './MarkdownSourceFallback';
 import { noteStreamSyncParse, noteStreamWorkerParse } from './transcript-stream-metrics';
+
+/** Optional visible fallback provided by an enclosing host (e.g. tool output
+ *  panels) while the first parsed AST is still loading or parsing off-thread. */
+export const StreamingMarkdownFallbackContext = createContext<ReactNode>(null);
 
 interface RenderedMarkdownAst {
   text: string;
@@ -48,6 +52,7 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   sync,
   live,
   copyControl,
+  fallback,
 }: {
   text: string;
   parseText: string;
@@ -56,6 +61,7 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   /** A growing tail: its parses never enter the shared cache. */
   live: boolean;
   copyControl: MarkdownCopyControl;
+  fallback?: ReactNode;
 }) {
   const slowAt = useRef(Number.POSITIVE_INFINITY);
   const lastSync = useRef<RenderedMarkdownAst | null>(null);
@@ -138,8 +144,18 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   }, [parse, parseText, syncRoot]);
   useEffect(() => () => queue.current?.dispose(), []);
 
+  const contextFallback = useContext(StreamingMarkdownFallbackContext);
+  const resolvedFallback = fallback ?? contextFallback;
   if (usable) {
     return <MarkdownAstBody root={usable.root} copyControl={copyControl} />;
+  }
+  if (resolvedFallback != null) {
+    return (
+      <>
+        {resolvedFallback}
+        {parse && <span hidden data-transcript-pending />}
+      </>
+    );
   }
   if (showFencedSourceFallback) {
     // The projection only reserves geometry. Entry still waits for the parse:
@@ -152,6 +168,9 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
       </>
     );
   }
+  if (sync && !parse && text.trim()) {
+    return <p className="markdown-plain">{text}</p>;
+  }
   // A capped live tail has no pending parse to wait for.
   return parse ? <span hidden data-transcript-pending /> : null;
 });
@@ -162,6 +181,7 @@ const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
   parse = true,
   sync = false,
   copyControl,
+  fallback,
 }: {
   text: string;
   parseText?: string;
@@ -169,6 +189,8 @@ const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
   /** Live text: small text parses on the main thread (see SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS). */
   sync?: boolean;
   copyControl: MarkdownCopyControl;
+  /** Visible fallback kept mounted until the first parsed AST lands. */
+  fallback?: ReactNode;
 }) {
   return (
     <ParsedMarkdownBody
@@ -178,6 +200,7 @@ const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
       sync={sync}
       live={sync && parseText !== undefined}
       copyControl={copyControl}
+      fallback={fallback}
     />
   );
 });

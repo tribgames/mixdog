@@ -47,18 +47,34 @@ const LINE_PADDING = 16;
 /** Whether a PC composer's one-line layout cannot show every item in full, so
  *  the card (Composer.tsx) is the layout. Measured from the items' natural
  *  widths in either layout, so the answer does not depend on the layout shown. */
-export function useOneLineOverflow(form: RefObject<HTMLElement | null>, active: boolean): boolean {
+export function useOneLineOverflow(form: RefObject<HTMLElement | null>, active: boolean, layoutKey?: unknown): boolean {
   const [overflow, setOverflow] = useState(false);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: overflow re-binds the observers on purpose, see above
+  // biome-ignore lint/correctness/useExhaustiveDependencies: overflow and layoutKey re-bind observers and re-measure synchronously on handoff/reveal
   useLayoutEffect(() => {
+    if (!active) {
+      setOverflow(false);
+      return undefined;
+    }
     const element = form.current;
-    if (!active || !element) return undefined;
+    if (!element) return undefined;
     const lineOf = () => {
       const next = element.nextElementSibling as HTMLElement | null;
       return next?.matches('.composer-model-line') ? next : null;
     };
+    const footer = element.querySelector('.composer-footer');
+    const mutationOptions: MutationObserverInit = {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ['data-full-width'],
+    };
+    let observedLine: HTMLElement | null = null;
     const measure = () => {
       const line = lineOf();
+      const boxWidth = line ? line.clientWidth : element.clientWidth;
+      // Hidden surfaces (display: none / hidden ancestor) report 0px; wait for reveal.
+      if (boxWidth <= 0) return;
       let available = element.clientWidth - LINE_PADDING;
       if (line) {
         const style = window.getComputedStyle(line);
@@ -66,33 +82,43 @@ export function useOneLineOverflow(form: RefObject<HTMLElement | null>, active: 
       }
       setOverflow((card) => wantsCard(oneLineItemsWidth(element, line ?? element), available, card));
     };
-    measure();
-    const line = lineOf();
     // The form exists in every layout and is as wide as the line, so a line
     // that comes or goes never orphans the resize observation.
     const resize = new ResizeObserver(measure);
     resize.observe(element);
-    if (line) resize.observe(line);
     // The model, effort, workflow or readout figures change a width without
     // resizing the line; the controls also move between the card's row and the line.
     const mutation = new MutationObserver(measure);
-    const footer = element.querySelector('.composer-footer');
-    for (const root of [footer, line]) {
-      if (root)
-        mutation.observe(root, {
-          childList: true,
-          subtree: true,
-          characterData: true,
-          attributes: true,
-          attributeFilter: ['data-full-width'],
-        });
-    }
+    if (footer) mutation.observe(footer, mutationOptions);
+    const bindLine = () => {
+      const line = lineOf();
+      if (line === observedLine) return;
+      if (observedLine && typeof resize.unobserve === 'function') resize.unobserve(observedLine);
+      observedLine = line;
+      mutation.disconnect();
+      if (footer) mutation.observe(footer, mutationOptions);
+      if (line) {
+        resize.observe(line);
+        mutation.observe(line, mutationOptions);
+      }
+    };
+    bindLine();
+    measure();
+    const parent = element.parentElement;
+    const siblings = parent
+      ? new MutationObserver(() => {
+          bindLine();
+          measure();
+        })
+      : null;
+    if (siblings && parent) siblings.observe(parent, { childList: true });
     document.fonts?.addEventListener('loadingdone', measure);
     return () => {
       resize.disconnect();
       mutation.disconnect();
+      siblings?.disconnect();
       document.fonts?.removeEventListener('loadingdone', measure);
     };
-  }, [form, active, overflow]);
+  }, [form, active, overflow, layoutKey]);
   return active && overflow;
 }

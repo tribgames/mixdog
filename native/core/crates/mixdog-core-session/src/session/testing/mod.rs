@@ -2160,6 +2160,7 @@ pub struct Rig {
     pub sink: Arc<MockServerRequests>,
     pub clock: Arc<FixedClock>,
     pub turn_starts: Arc<super::LateTurnStarts>,
+    pub worker_wakes: Arc<super::LateWorkerWakes>,
     /// Every turn's workspace admission and its release, in order.
     pub admissions: Arc<TestAdmission>,
     pub wakes: Arc<mixdog_tools::exec::WakeHub>,
@@ -2680,6 +2681,7 @@ impl Rig {
             sink: Arc::new(MockServerRequests::default()),
             clock: Arc::new(FixedClock(AtomicU64::new(1000))),
             turn_starts: Arc::default(),
+            worker_wakes: Arc::default(),
             admissions: Arc::default(),
             wakes: mixdog_tools::exec::WakeHub::new(),
             warms: Arc::default(),
@@ -2752,6 +2754,7 @@ impl Rig {
             devices: Arc::new(NamedDevices),
             clock: self.clock.clone(),
             turn_starts: self.turn_starts.clone(),
+            worker_wakes: self.worker_wakes.clone(),
             // A test core has no lifecycle: nothing holds its turn starts.
             start_hold: tokio::sync::watch::channel(super::StartHold::Open).1,
             core_work: Arc::new(super::NoCoreWork),

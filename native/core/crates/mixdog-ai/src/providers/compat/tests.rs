@@ -485,12 +485,13 @@ fn retry_delay(verdict: &Verdict) -> Option<Duration> {
 #[test]
 fn profile_numbers_drive_the_one_verdict() {
     let transient = status_error(ErrorKind::Transient, 503, None);
-    // xai: 15 sends = 14 retries, 2 s first step.
+    // xai configures 15 sends (14 retries), 2 s first step; StandardRetryDecider enforces MAX_RETRIES_HARD_CAP (12).
     let xai = CompatProfile::xai();
+    assert_eq!(xai.retry_policy().request.schedule.max_retries, 14);
     assert_eq!(retry_delay(&verdict_for(&xai, &transient, 0)), Some(Duration::from_secs(2)));
     assert_eq!(retry_delay(&verdict_for(&xai, &transient, 5)), Some(Duration::from_secs(30)));
-    assert_eq!(retry_delay(&verdict_for(&xai, &transient, 13)), Some(Duration::from_secs(30)));
-    assert_eq!(verdict_for(&xai, &transient, 14), Verdict::Exhausted);
+    assert_eq!(retry_delay(&verdict_for(&xai, &transient, crate::retry::MAX_RETRIES_HARD_CAP - 1)), Some(Duration::from_secs(30)));
+    assert_eq!(verdict_for(&xai, &transient, crate::retry::MAX_RETRIES_HARD_CAP), Verdict::Exhausted);
     // xai's terminal statuses surface at once.
     assert_eq!(verdict_for(&xai, &status_error(ErrorKind::Transient, 409, None), 0), Verdict::Surface);
 

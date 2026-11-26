@@ -99,6 +99,11 @@ impl JobHandle {
         self.cancel.get().cloned()
     }
 
+    /// The job's turn had nothing to run ([`super::seams::TurnError::wake_taken`]): its row leaves the board, told to nobody.
+    pub fn withdraw(&self) {
+        self.board.withdraw(&self.task_id);
+    }
+
     /// The job's turn entered `stage`: its card names it.
     pub fn set_stage(&self, stage: super::stages::TurnStage) {
         self.board.set_turn_stage(&self.task_id, stage);

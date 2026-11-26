@@ -42,6 +42,8 @@ use crate::env::Clock;
 use crate::env::CommitError;
 use crate::env::JitterSource;
 use crate::env::McpCatalog;
+use crate::env::ModelVision;
+use crate::env::Reactions;
 use crate::env::ResultReuse;
 use crate::env::RetryWait;
 use crate::env::Rewrite;
@@ -53,6 +55,7 @@ use crate::env::ToolHooks;
 use crate::env::TranscriptSink;
 use crate::env::TurnGuards;
 use crate::env::Yielder;
+use crate::limits::TurnLimits;
 use crate::message::AgentMessage;
 use crate::message::ToolKind;
 use crate::offload::ArtifactStore;
@@ -91,6 +94,14 @@ pub struct HandedParts {
     /// The approvals the turn's gate asks on where the gate holds its own (`PolicyGate` waits inside its judgement),
     /// made with [`JudgedAsks::over`]. `None` for a gate that asks on the calls' own approvals.
     pub asks: Option<Arc<JudgedAsks>>,
+    /// Turn-wide caps (tool calls, rounds, wrap-up time) enforced across handed batches.
+    pub limits: Option<TurnLimits>,
+    /// Whether this turn runs a hidden/internal agent (exempt from user-facing completion reminders).
+    pub hidden_agent: bool,
+    /// Model vision capability for handed tool outputs (e.g. PDF page images vs OCR).
+    pub vision: Option<Arc<dyn ModelVision>>,
+    /// Reaction recognition and target resolution for handed reaction calls.
+    pub reactions: Option<Arc<dyn Reactions>>,
 }
 
 /// The approvals a turn's calls are asked on. What a call that is only being judged would be asked is put to nobody:
@@ -306,23 +317,43 @@ impl Drop for ActiveGuard<'_> {
     }
 }
 
+#[derive(Default)]
+struct HandedLimitState {
+    tool_calls_total: u64,
+    tool_rounds: u64,
+    turn_limit_noticed: bool,
+}
+
 /// The calls of one turn.
 pub struct HandedCalls {
-    /// A new run over the turn's parts, with the repeat guards given: each concurrent call runs on its own [`Lane`],
+    /// A new run over the turn's parts, sharing the turn's repeat guards: each concurrent call runs on its own [`Lane`],
     /// so sibling calls and plan updates never serialize on one shared call mutex.
-    fresh: Mutex<Box<dyn Fn(RepeatGuards) -> Lane + Send>>,
+    fresh: Mutex<Box<dyn Fn(Arc<Mutex<RepeatGuards>>) -> Lane + Send>>,
     /// Active calls' `answer_by` cells, keyed by call id, so [`Self::let_go`] clears only the released call's deadline.
     active: Mutex<HashMap<String, crate::tools::AnswerBy>>,
     env: Arc<crate::tools::CallEnv>,
     asks: Arc<JudgedAsks>,
-    /// The session's repeat guards as the last call that ended left them: each call starts from them.
-    repeat: Mutex<RepeatGuards>,
+    /// Shared repeat guards mutated under one lock across concurrent lanes so updates never clobber each other.
+    repeat: Arc<Mutex<RepeatGuards>>,
+    slot: Option<Arc<dyn Yielder>>,
+    guards: Arc<dyn TurnGuards>,
+    hooks: Option<Arc<dyn ToolHooks>>,
+    clock: Arc<dyn Clock>,
+    limits: Option<TurnLimits>,
+    hidden_agent: bool,
+    limit_state: Mutex<HandedLimitState>,
 }
 
 impl HandedCalls {
     pub fn new(mut parts: HandedParts) -> Self {
         let asks = parts.asks.take().unwrap_or_else(|| JudgedAsks::over(parts.tool_env.approvals.clone()));
         parts.tool_env.approvals = asks.alongside(parts.tool_env.approvals.clone());
+        let clock = parts.clock.clone();
+        let guards = parts.guards.clone();
+        let hooks = parts.hooks.clone();
+        let slot = parts.slot.clone();
+        let limits = parts.limits;
+        let hidden_agent = parts.hidden_agent;
         let mut env = crate::one_shot::isolated(parts.clock, Arc::new(Unsent), Arc::new(Unsent), Arc::new(Unsent));
         env.observer = parts.observer;
         env.gate = parts.gate;
@@ -333,23 +364,41 @@ impl HandedCalls {
         env.artifacts = parts.artifacts;
         env.images = parts.images;
         env.failures = parts.failures;
+        env.reactions = parts.reactions;
         let mut config = RunConfig::new(parts.tool_env.thread_id.clone(), parts.tool_env.turn_id.clone(), String::new());
         config.live_cwd = parts.live_cwd;
         config.slot = parts.slot;
+        config.limits = limits;
+        config.hidden_agent = hidden_agent;
+        config.vision = parts.vision;
         let provider: Arc<dyn ProviderAdapter> = Arc::new(NoModel { id: ProviderId::from("outside"), policy: RetryPolicy::codex_default() });
         let (cancel, tools, tool_env) = (parts.cancel, parts.tools, parts.tool_env);
-        let fresh = move |repeat: RepeatGuards| {
+        let repeat = Arc::new(Mutex::new(parts.repeat));
+        let fresh = move |shared_repeat: Arc<Mutex<RepeatGuards>>| {
             let kept = Arc::new(Kept::default());
             let mut env = env.clone();
             env.sink = kept.clone();
-            let carry = RunCarry { repeat, ..RunCarry::default() };
-            let mut run = Run::new(env, cancel.clone(), provider.clone(), tools.clone(), tool_env.clone(), config.clone(), Vec::new(), carry);
+            let mut run = Run::new(env, cancel.clone(), provider.clone(), tools.clone(), tool_env.clone(), config.clone(), Vec::new(), RunCarry::default())
+                .with_shared_repeat(shared_repeat);
             run.outside = true;
             Lane { answer_by: run.answer_by.clone(), run, kept }
         };
-        let lane = fresh(parts.repeat.clone());
+        let lane = fresh(Arc::clone(&repeat));
         let env = lane.run.call_env();
-        Self { fresh: Mutex::new(Box::new(fresh)), active: Mutex::default(), env, asks, repeat: Mutex::new(parts.repeat) }
+        Self {
+            fresh: Mutex::new(Box::new(fresh)),
+            active: Mutex::default(),
+            env,
+            asks,
+            repeat,
+            slot,
+            guards,
+            hooks,
+            clock,
+            limits,
+            hidden_agent,
+            limit_state: Mutex::default(),
+        }
     }
 
     /// Runs `call` as a batch of one: a `call_tool` as its target, any other call as itself.
@@ -372,7 +421,7 @@ impl HandedCalls {
     }
 
     async fn calls_by(&self, calls: &[ToolCall], answer_by: Option<std::time::Instant>) -> Vec<Handed> {
-        let mut lane = (*lock(&self.fresh))(lock(&self.repeat).clone());
+        let mut lane = (*lock(&self.fresh))(Arc::clone(&self.repeat));
         *lock(&lane.answer_by) = answer_by;
         let ids: Vec<String> = calls.iter().map(|call| call.id.clone()).collect();
         {
@@ -399,14 +448,53 @@ impl HandedCalls {
                 outcomes.extend(batch.iter().map(|call| cancelled(&call.id)));
                 continue;
             }
+            let (allowed, reserved) = {
+                let mut state = lock(&self.limit_state);
+                let remaining = crate::limits::calls_allowed(self.limits.as_ref(), state.turn_limit_noticed, state.tool_calls_total, self.clock.now_ms());
+                let reserve = (batch.len() as u64).min(remaining);
+                state.tool_calls_total = state.tool_calls_total.saturating_add(reserve);
+                (reserve, reserve)
+            };
             // The batch reads its calls in the transcript they belong to, as the loop's batch reads its response's.
             run.messages.push(AgentMessage::assistant("", batch.to_vec()));
-            let ended = run.process_tool_batch(batch, batch.len() as u64).await;
+            let ended = run.process_tool_batch(batch, allowed).await;
             stopped = ended.is_err();
             let mut told = std::mem::take(&mut *lock(&lane.kept.0));
             let results: Vec<Option<AgentMessage>> =
                 batch.iter().map(|call| told.iter().position(|message| message.tool_call_id() == Some(call.id.as_str())).map(|at| told.remove(at))).collect();
             let mut follow_ups: Vec<String> = told.iter().map(AgentMessage::text).collect();
+            if stopped {
+                let executed = (results.iter().filter(|result| result.is_some()).count() as u64).min(reserved);
+                let unused = reserved.saturating_sub(executed);
+                if unused > 0 {
+                    let mut state = lock(&self.limit_state);
+                    state.tool_calls_total = state.tool_calls_total.saturating_sub(unused);
+                }
+            } else {
+                let limit_notice = {
+                    let mut state = lock(&self.limit_state);
+                    if reserved > 0 {
+                        state.tool_rounds = state.tool_rounds.saturating_add(1);
+                    }
+                    if !state.turn_limit_noticed {
+                        let notice = crate::limits::notice_if_reached(self.limits.as_ref(), state.tool_calls_total, state.tool_rounds, self.clock.now_ms());
+                        if notice.is_some() {
+                            state.turn_limit_noticed = true;
+                        }
+                        notice
+                    } else {
+                        None
+                    }
+                };
+                if let Some(notice) = limit_notice {
+                    follow_ups.push(notice.text());
+                }
+                self.guards.note_progress();
+                let batch_results: Vec<AgentMessage> = results.iter().flatten().cloned().collect();
+                if let Some(Some(stale)) = crate::env::or_cancelled(&self.env.cancel, self.guards.stale_reminder(batch, &batch_results)).await {
+                    follow_ups.push(stale);
+                }
+            }
             for (index, (call, result)) in batch.iter().zip(results).enumerate() {
                 let follow_ups = if index + 1 == batch.len() { std::mem::take(&mut follow_ups) } else { Vec::new() };
                 outcomes.push(match result.filter(|_| !stopped) {
@@ -416,7 +504,6 @@ impl HandedCalls {
                 });
             }
         }
-        *lock(&self.repeat) = run.carry.repeat.clone();
         outcomes
     }
 
@@ -474,6 +561,27 @@ impl HandedCalls {
     /// The session's repeat guards after the turn's calls that ended, as its record keeps them.
     pub fn repeat_saved(&self) -> serde_json::Map<String, serde_json::Value> {
         lock(&self.repeat).to_saved()
+    }
+
+    /// The worker admission lease for this turn, if owned by a worker lane.
+    pub fn slot(&self) -> Option<Arc<dyn Yielder>> {
+        self.slot.clone()
+    }
+
+    pub fn guards(&self) -> &Arc<dyn TurnGuards> {
+        &self.guards
+    }
+
+    pub fn hooks(&self) -> Option<&Arc<dyn ToolHooks>> {
+        self.hooks.as_ref()
+    }
+
+    pub fn turn_limit_noticed(&self) -> bool {
+        lock(&self.limit_state).turn_limit_noticed
+    }
+
+    pub fn hidden_agent(&self) -> bool {
+        self.hidden_agent
     }
 }
 
@@ -643,6 +751,10 @@ mod tests {
             cancel,
             slot: None,
             asks: None,
+            limits: None,
+            hidden_agent: false,
+            vision: None,
+            reactions: None,
         })
     }
 
@@ -946,12 +1058,7 @@ mod tests {
         let release = Arc::new(tokio::sync::Notify::new());
         let tokens = mixdog_rt::testing::tokens();
         let calls = HandedCalls::new(HandedParts {
-            tools: ToolSet::new(vec![Arc::new(GateTool {
-                spec: spec("work"),
-                entered: entered.clone(),
-                release: release.clone(),
-                seen: seen.clone(),
-            })]),
+            tools: ToolSet::new(vec![Arc::new(GateTool { spec: spec("work"), entered: entered.clone(), release: release.clone(), seen: seen.clone() })]),
             tool_env: ToolEnv {
                 thread_id: ThreadId::from("t"),
                 turn_id: TurnId::from("r"),
@@ -981,6 +1088,10 @@ mod tests {
             cancel: CancellationToken::new(),
             slot: None,
             asks: None,
+            limits: None,
+            hidden_agent: false,
+            vision: None,
+            reactions: None,
         });
 
         let due = Some(std::time::Instant::now() + Duration::from_secs(60));
@@ -994,9 +1105,8 @@ mod tests {
         }
 
         // Second call completes while first is still inside its tool implementation.
-        let second = tokio::time::timeout(Duration::from_secs(5), calls.call_by(second_call, due))
-            .await
-            .expect("sibling call must not wait on first call's lane");
+        let second =
+            tokio::time::timeout(Duration::from_secs(5), calls.call_by(second_call, due)).await.expect("sibling call must not wait on first call's lane");
         assert_eq!(second.message.text(), "ok:second");
 
         // Releasing first does not disturb anything else and lets first finish cleanly.
@@ -1007,5 +1117,304 @@ mod tests {
         let recorded = seen.lock().unwrap().clone();
         assert!(recorded.iter().any(|s| s == "second:true"), "{recorded:?}");
         assert!(recorded.iter().any(|s| s == "first:true"), "{recorded:?}");
+    }
+
+    /// Concurrent failing calls share one locked `RepeatGuards`, so a slow call finishing after a fast sibling has
+    /// tripped its repeat guard never clobbers the sibling's recorded failures.
+    #[tokio::test]
+    async fn concurrent_calls_do_not_clobber_repeat_guards() {
+        struct FailingGateTool {
+            spec: ToolSpec,
+            entered: Arc<tokio::sync::Notify>,
+            release: Arc<tokio::sync::Notify>,
+        }
+        #[async_trait::async_trait]
+        impl Tool for FailingGateTool {
+            fn spec(&self) -> &ToolSpec {
+                &self.spec
+            }
+            async fn call(&self, _: &ToolContext, args: Value) -> ToolOutcome {
+                if args["tag"] == "slow" {
+                    self.entered.notify_one();
+                    self.release.notified().await;
+                }
+                Ok(ToolOutput { parts: vec![ToolPart::Text("Error: boom".into())], ..ToolOutput::default() })
+            }
+        }
+
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let tokens = mixdog_rt::testing::tokens();
+        let calls = HandedCalls::new(HandedParts {
+            tools: ToolSet::new(vec![Arc::new(FailingGateTool { spec: spec("flaky"), entered: entered.clone(), release: release.clone() })]),
+            tool_env: ToolEnv {
+                thread_id: ThreadId::from("t"),
+                turn_id: TurnId::from("r"),
+                cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+                surface: SurfaceKind::Lead,
+                io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
+                approvals: Arc::new(MockApprovalGate::default()),
+                files: Arc::new(MockFileService::default()),
+                processes: Arc::new(MockProcessManager::default()),
+                progress: Arc::new(MockProgress::default()),
+                deadline_of: Some(Arc::new(|_: &ToolSpec| Some(Duration::from_secs(60)))),
+                notify: None,
+                review: None,
+            },
+            gate: Arc::new(Witness(Arc::default())),
+            hooks: None,
+            guards: Arc::new(crate::env::NoGuards),
+            reuse: None,
+            clock: Arc::new(Fixed),
+            observer: Arc::new(crate::env::NullObserver),
+            mcp: None,
+            live_cwd: None,
+            artifacts: None,
+            images: None,
+            failures: None,
+            repeat: RepeatGuards::default(),
+            cancel: CancellationToken::new(),
+            slot: None,
+            asks: None,
+            limits: None,
+            hidden_agent: false,
+            vision: None,
+            reactions: None,
+        });
+
+        let slow_call = ToolCall { id: "s1".into(), name: "flaky".into(), arguments: json!({ "tag": "slow" }), native_type: None };
+        let fast_call = |id: &str| ToolCall { id: id.into(), name: "flaky".into(), arguments: json!({ "tag": "fast" }), native_type: None };
+
+        let mut slow = Box::pin(calls.call(slow_call));
+        tokio::select! {
+            _ = &mut slow => panic!("slow finished before release"),
+            () = entered.notified() => {}
+        }
+
+        // Fast call fails twice while slow is in flight, building up `_repeatFailHistory`.
+        assert!(calls.call(fast_call("f1")).await.failed);
+        assert!(calls.call(fast_call("f2")).await.failed);
+
+        // Slow finishes with a distinct failure afterwards: it must append to the shared RepeatGuards
+        // rather than overwriting them with its pre-flight snapshot (which would erase f1 and f2).
+        release.notify_one();
+        let slow_outcome = slow.await;
+        assert!(slow_outcome.failed);
+
+        let saved = calls.repeat_saved();
+        let history = saved.get("_repeatFailHistory").and_then(Value::as_array).expect("repeat fail history saved");
+        assert_eq!(history.len(), 3, "concurrent slow completion must preserve fast failures in _repeatFailHistory: {saved:?}");
+        let fast_entries = history.iter().filter(|entry| entry.as_str().is_some_and(|s| s.contains("fast"))).count();
+        let slow_entries = history.iter().filter(|entry| entry.as_str().is_some_and(|s| s.contains("slow"))).count();
+        assert_eq!((fast_entries, slow_entries), (2, 1), "both fast and slow failures must be retained: {history:?}");
+    }
+
+    /// Two concurrent calls with `max_tool_calls: Some(1)` reserve slots atomically before execution so at most one
+    /// executes and the second is immediately refused with `[turn-limit]`.
+    #[tokio::test]
+    async fn concurrent_turn_limits_never_exceed_max_tool_calls() {
+        struct BlockingOk {
+            spec: ToolSpec,
+            entered: Arc<tokio::sync::Notify>,
+            release: Arc<tokio::sync::Notify>,
+            executed: Arc<std::sync::atomic::AtomicUsize>,
+        }
+        #[async_trait]
+        impl Tool for BlockingOk {
+            fn spec(&self) -> &ToolSpec {
+                &self.spec
+            }
+            async fn call(&self, _: &ToolContext, args: Value) -> ToolOutcome {
+                self.executed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if args.get("block") == Some(&json!(true)) {
+                    self.entered.notify_one();
+                    self.release.notified().await;
+                }
+                Ok(ToolOutput { parts: vec![ToolPart::Text("ok".into())], ..ToolOutput::default() })
+            }
+        }
+
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let executed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen: Seen = Arc::default();
+        let tokens = mixdog_rt::testing::tokens();
+        let calls = HandedCalls::new(HandedParts {
+            tools: ToolSet::new(vec![Arc::new(BlockingOk {
+                spec: spec("edit"),
+                entered: entered.clone(),
+                release: release.clone(),
+                executed: executed.clone(),
+            })]),
+            tool_env: ToolEnv {
+                thread_id: ThreadId::from("t"),
+                turn_id: TurnId::from("r"),
+                cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+                surface: SurfaceKind::Lead,
+                io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
+                approvals: Arc::new(MockApprovalGate::default()),
+                files: Arc::new(MockFileService::default()),
+                processes: Arc::new(MockProcessManager::default()),
+                progress: Arc::new(MockProgress::default()),
+                deadline_of: Some(Arc::new(|_: &ToolSpec| Some(Duration::from_secs(60)))),
+                notify: None,
+                review: None,
+            },
+            gate: Arc::new(Witness(seen)),
+            hooks: None,
+            guards: Arc::new(crate::env::NoGuards),
+            reuse: None,
+            clock: Arc::new(Fixed),
+            observer: Arc::new(crate::env::NullObserver),
+            mcp: None,
+            live_cwd: None,
+            artifacts: None,
+            images: None,
+            failures: None,
+            repeat: RepeatGuards::default(),
+            cancel: CancellationToken::new(),
+            slot: None,
+            asks: None,
+            limits: Some(TurnLimits { max_tool_calls: Some(1), ..TurnLimits::default() }),
+            hidden_agent: false,
+            vision: None,
+            reactions: None,
+        });
+
+        let mut first = Box::pin(calls.call(ToolCall { id: "c1".into(), name: "edit".into(), arguments: json!({ "block": true }), native_type: None }));
+        tokio::select! {
+            _ = &mut first => panic!("first call finished before release"),
+            () = entered.notified() => {}
+        }
+
+        // While first is in flight and holding the single allowed slot, second must be refused immediately.
+        let second = calls.call(ToolCall { id: "c2".into(), name: "edit".into(), arguments: json!({ "block": false }), native_type: None }).await;
+        assert!(second.failed, "second concurrent call must be refused");
+        assert!(second.message.text().contains("[turn-limit]"), "{}", second.message.text());
+        assert_eq!(executed.load(std::sync::atomic::Ordering::SeqCst), 1, "at most one call may execute");
+
+        release.notify_one();
+        let first_outcome = first.await;
+        assert!(!first_outcome.failed);
+        assert_eq!(executed.load(std::sync::atomic::Ordering::SeqCst), 1, "still only one execution total");
+    }
+
+    /// `TurnLimits` caps handed calls across batches, emits the one-time turn-limit notice, and refuses later calls.
+    #[tokio::test]
+    async fn turn_limits_cap_handed_calls_and_emit_one_time_notice() {
+        let seen: Seen = Arc::default();
+        let tokens = mixdog_rt::testing::tokens();
+        let calls = HandedCalls::new(HandedParts {
+            tools: ToolSet::new(vec![Arc::new(Target(spec("edit"), seen.clone()))]),
+            tool_env: ToolEnv {
+                thread_id: ThreadId::from("t"),
+                turn_id: TurnId::from("r"),
+                cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+                surface: SurfaceKind::Lead,
+                io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
+                approvals: Arc::new(MockApprovalGate::default()),
+                files: Arc::new(MockFileService::default()),
+                processes: Arc::new(MockProcessManager::default()),
+                progress: Arc::new(MockProgress::default()),
+                deadline_of: Some(Arc::new(|_: &ToolSpec| Some(Duration::from_secs(60)))),
+                notify: None,
+                review: None,
+            },
+            gate: Arc::new(Witness(seen.clone())),
+            hooks: None,
+            guards: Arc::new(crate::env::NoGuards),
+            reuse: None,
+            clock: Arc::new(Fixed),
+            observer: Arc::new(crate::env::NullObserver),
+            mcp: None,
+            live_cwd: None,
+            artifacts: None,
+            images: None,
+            failures: None,
+            repeat: RepeatGuards::default(),
+            cancel: CancellationToken::new(),
+            slot: None,
+            asks: None,
+            limits: Some(TurnLimits { max_tool_calls: Some(1), ..TurnLimits::default() }),
+            hidden_agent: false,
+            vision: None,
+            reactions: None,
+        });
+
+        let first = calls.call(ToolCall { id: "c1".into(), name: "edit".into(), arguments: json!({ "path": "a" }), native_type: None }).await;
+        assert!(!first.failed);
+        assert!(calls.turn_limit_noticed());
+        assert!(first.follow_ups.iter().any(|text| text.contains("tool-call or time limit")), "{:?}", first.follow_ups);
+
+        let second = calls.call(ToolCall { id: "c2".into(), name: "edit".into(), arguments: json!({ "path": "b" }), native_type: None }).await;
+        assert!(second.failed);
+        assert!(second.message.text().contains("[turn-limit]"), "{}", second.message.text());
+        assert!(second.follow_ups.is_empty(), "turn-limit notice is emitted once: {:?}", second.follow_ups);
+    }
+
+    /// Handed batches notify `TurnGuards::note_progress` and attach any returned `stale_reminder` to `follow_ups`.
+    #[tokio::test]
+    async fn mid_turn_todo_guard_attaches_stale_reminder_and_notes_progress() {
+        struct StaleGuard(Arc<std::sync::atomic::AtomicUsize>);
+        #[async_trait::async_trait]
+        impl TurnGuards for StaleGuard {
+            fn note_progress(&self) {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            fn note_user_wait(&self) {}
+            fn saved(&self) -> Option<serde_json::Value> {
+                None
+            }
+            async fn stale_reminder(&self, _: &[ToolCall], _: &[AgentMessage]) -> Option<String> {
+                Some("[mixdog-runtime] update your todo list".into())
+            }
+            async fn completion_reminder(&self, _: bool) -> Option<String> {
+                None
+            }
+        }
+
+        let progressed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen: Seen = Arc::default();
+        let tokens = mixdog_rt::testing::tokens();
+        let calls = HandedCalls::new(HandedParts {
+            tools: ToolSet::new(vec![Arc::new(Target(spec("edit"), seen.clone()))]),
+            tool_env: ToolEnv {
+                thread_id: ThreadId::from("t"),
+                turn_id: TurnId::from("r"),
+                cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+                surface: SurfaceKind::Lead,
+                io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
+                approvals: Arc::new(MockApprovalGate::default()),
+                files: Arc::new(MockFileService::default()),
+                processes: Arc::new(MockProcessManager::default()),
+                progress: Arc::new(MockProgress::default()),
+                deadline_of: Some(Arc::new(|_: &ToolSpec| Some(Duration::from_secs(60)))),
+                notify: None,
+                review: None,
+            },
+            gate: Arc::new(Witness(seen.clone())),
+            hooks: None,
+            guards: Arc::new(StaleGuard(progressed.clone())),
+            reuse: None,
+            clock: Arc::new(Fixed),
+            observer: Arc::new(crate::env::NullObserver),
+            mcp: None,
+            live_cwd: None,
+            artifacts: None,
+            images: None,
+            failures: None,
+            repeat: RepeatGuards::default(),
+            cancel: CancellationToken::new(),
+            slot: None,
+            asks: None,
+            limits: None,
+            hidden_agent: false,
+            vision: None,
+            reactions: None,
+        });
+
+        let handed = calls.call(ToolCall { id: "c1".into(), name: "edit".into(), arguments: json!({ "path": "a" }), native_type: None }).await;
+        assert_eq!(progressed.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(handed.follow_ups.iter().any(|text| text.contains("update your todo list")), "{:?}", handed.follow_ups);
     }
 }

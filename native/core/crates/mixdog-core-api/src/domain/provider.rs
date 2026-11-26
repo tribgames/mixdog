@@ -1670,6 +1670,12 @@ pub enum StreamEvent {
         id: String,
         name: String,
     },
+    /// A compat indexed tool call that started under a synthesized id received its provider id on a later chunk.
+    /// Internal attribution event; folds into nothing.
+    ToolCallIdRenamed {
+        from: String,
+        to: String,
+    },
     ToolCallArgsDelta {
         id: String,
         delta: String,

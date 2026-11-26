@@ -7,6 +7,7 @@ import {
   SESSION_RAIL_GAP,
   SESSION_RAIL_MAX_WIDTH,
   SESSION_RAIL_MIN_WIDTH,
+  sessionRailFit,
   setSessionRailWidth,
   useSessionRailSlot,
   useSessionRailWidth,
@@ -28,6 +29,33 @@ export function sessionRailWidthForKey(key: string, width: number): number | nul
   if (key === 'Home') return SESSION_RAIL_MIN_WIDTH;
   if (key === 'End') return SESSION_RAIL_MAX_WIDTH;
   return null;
+}
+
+function applyRailDom(
+  aside: HTMLElement | null,
+  covered: boolean,
+  nextWidth: number,
+  nextReserve: number,
+  nextPresentation: PaneSidePresentation
+): void {
+  const cell = aside?.parentElement;
+  if (!aside || !cell || covered) return;
+  const nextBeside = nextPresentation === 'beside';
+  const nextFull = nextPresentation === 'full';
+  const taken = nextWidth + SESSION_RAIL_GAP;
+  const effectiveReserve = nextBeside ? nextReserve : 0;
+  const over = nextBeside ? Math.max(0, taken - effectiveReserve) : 0;
+  aside.dataset.presentation = nextPresentation;
+  if (nextFull) aside.style.removeProperty('width');
+  else aside.style.width = `${nextWidth}px`;
+  cell.style.setProperty('--session-rail-reserve', `${effectiveReserve}px`);
+  // Scrollbar clearance for the portion of the panel still overlapping the
+  // workspace right margin; balanced on the left so the transcript keeps the
+  // workspace's exact centre while its scrollbar sits beside the panel.
+  cell.style.setProperty('--session-rail-over', `${over}px`);
+  // The panel's whole width: the tab strip ends at its edge, its toggle beside the panel; over the whole pane the
+  // panel stands under the strip.
+  cell.style.setProperty('--session-rail-band', `${nextFull ? 0 : taken}px`);
 }
 
 /** The session panel in a pane cell, a band at its right edge from the pane's
@@ -75,24 +103,18 @@ export function SessionRailCard({
   const hidden = covered || slotCovered;
   // The column's position, for its edge fades (session-rail.css).
   useEffect(() => (body && !hidden ? bindScrollProgress(body) : undefined), [body, hidden]);
-  const beside = presentation === 'beside';
   const full = presentation === 'full';
   // What the conversation gives up on its right (spent in session-rail.css); nothing while the panel floats over it.
   useLayoutEffect(() => {
     const cell = root.current?.parentElement;
     if (!cell || covered) return undefined;
-    cell.style.setProperty('--session-rail-reserve', `${beside ? reserve : 0}px`);
-    // While the margin holds the panel, the scroller ends at the panel's edge instead.
-    cell.style.setProperty('--session-rail-over', `${beside && reserve === 0 ? width + SESSION_RAIL_GAP : 0}px`);
-    // The panel's whole width: the tab strip ends at its edge, its toggle beside the panel; over the whole pane the
-    // panel stands under the strip.
-    cell.style.setProperty('--session-rail-band', `${full ? 0 : width + SESSION_RAIL_GAP}px`);
+    applyRailDom(root.current, covered, width, reserve, presentation);
     return () => {
       cell.style.removeProperty('--session-rail-reserve');
       cell.style.removeProperty('--session-rail-over');
       cell.style.removeProperty('--session-rail-band');
     };
-  }, [reserve, width, beside, full, covered]);
+  }, [reserve, width, presentation, covered]);
   // Over the whole pane the conversation under it is out of reach: no Tab stop, no typing into a hidden composer.
   const overPane = full && !covered;
   useLayoutEffect(() => {
@@ -105,12 +127,22 @@ export function SessionRailCard({
       stack.inert = false;
     };
   }, [overPane]);
-  // The edge's drag sets the one width every pane's panel takes; a cancel
-  // puts back the width chosen before it, not this pane's fitted one.
+  // Imperative DOM preview during drag keeps width subscribers from re-rendering
+  // every frame; the shared store updates once on commit.
   const dragRailWidth = usePanelWidthDrag({
     dockPref: useSessionRailWidth(),
     setDockPref: (next) => setSessionRailWidth(next, false),
     storageKey: SESSION_RAIL_WIDTH_KEY,
+    preview: (next) => {
+      if (next === null) {
+        applyRailDom(root.current, covered, width, reserve, presentation);
+        return;
+      }
+      const cellWidth = root.current?.parentElement?.clientWidth ?? 0;
+      const fitted =
+        cellWidth > 0 ? sessionRailFit({ cellWidth, railPref: next }) : { width: next, reserve, presentation };
+      applyRailDom(root.current, covered, fitted.width, fitted.reserve, fitted.presentation);
+    },
   });
   const { resizeHandleProps } = useSidePanelWidth({
     side: 'right',

@@ -483,7 +483,7 @@ fn every_method_of_the_domains_built_here_has_a_real_service() {
                     log: crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new()),
                     stop: mixdog_rt::CancellationToken::new(),
                     catalog_http: crate::compose_test_support::offline_http(),
-                    agent_presets: crate::acp_tools::builtin_presets(),
+                    agent_presets: Vec::new(),
                     acp_data_dir: None,
                     pg_install: None,
                 },

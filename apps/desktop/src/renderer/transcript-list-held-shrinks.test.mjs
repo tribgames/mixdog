@@ -215,7 +215,7 @@ test('a provisional estimate is not a slot to hold: the first parsed height belo
       hasScrollGestureRef: useRef(() => false),
       visibleTop: () => 0,
       maxScrollTop: () => 0,
-      endPin: { request() {}, now() {} },
+      endPin: { request() {}, now() {}, cancel() {} },
       resizePinned: useRef([]),
       resizePinFrame: useRef(0),
       pendingResizes: useRef(new Map()),
@@ -305,7 +305,7 @@ test('a held shrink kept alive past 350ms by a pending parse stops polling timer
       hasScrollGestureRef: useRef(() => false),
       visibleTop: () => 0,
       maxScrollTop: () => 0,
-      endPin: { request() {}, now() {} },
+      endPin: { request() {}, now() {}, cancel() {} },
       resizePinned: useRef([]),
       resizePinFrame: useRef(0),
       pendingResizes: useRef(new Map()),
@@ -478,7 +478,7 @@ test("the reader's release and the measurement snapshot land held sizes without 
       settleHeldShrinks,
     });
     useTranscriptHandles({
-      endPin: { request() {}, now() {} },
+      endPin: { request() {}, now() {}, cancel() {} },
       scrollToEndRef,
       setAnchorBottomRef,
       virtualizerRef,
@@ -566,4 +566,131 @@ test('provisional row settles on DOM commit via MutationObserver without rAF pol
   reply.parse(188);
   await Promise.resolve();
   assert.equal(core.itemSizeCache.get('reply'), 188, 'settles immediately on DOM mutation commit');
+});
+
+test('settling a held shrink re-reads the connected element live box height instead of replaying a stale dip', async () => {
+  const { HELD_SHRINK_WINDOW_MS } = await import('./transcript-list-held-shrinks.ts');
+  let clock = 1_000;
+  const held = createHeldRowShrinks(() => clock);
+  let liveHeight = 480;
+  const recovered = {
+    ...rowElement(),
+    getBoundingClientRect: () => ({ top: 0, bottom: liveHeight, height: liveHeight, left: 0, right: 600, width: 600 }),
+  };
+  let grownHeight = 520;
+  const grown = {
+    ...rowElement(),
+    getBoundingClientRect: () => ({
+      top: 0,
+      bottom: grownHeight,
+      height: grownHeight,
+      left: 0,
+      right: 600,
+      width: 600,
+    }),
+  };
+  const host = virtualHost(held, [
+    { key: 'recovered', size: 600, element: recovered },
+    { key: 'grown', size: 600, element: grown },
+  ]);
+  assert.equal(held.hold(host, 'recovered', 480), true);
+  assert.equal(held.hold(host, 'grown', 520), true);
+  // Both elements recover before the 350ms window expires.
+  liveHeight = 600;
+  grownHeight = 625;
+  clock += HELD_SHRINK_WINDOW_MS + 10;
+  const landed = [];
+  held.settle(host, (index, size) => landed.push([index, size]));
+  assert.deepEqual(
+    landed,
+    [[1, 625]],
+    'recovered row skips writing a stale dip and grown row lands its live box height'
+  );
+  assert.equal(held.size, 0);
+});
+
+test('a shrink held for a pending markdown parse settles immediately on readiness with the live box height', () => {
+  let clock = 1_000;
+  const held = createHeldRowShrinks(() => clock);
+  let liveHeight = 420;
+  const element = {
+    isConnected: true,
+    pending: true,
+    getBoundingClientRect: () => ({ top: 0, bottom: liveHeight, height: liveHeight, left: 0, right: 600, width: 600 }),
+    querySelector(selector) {
+      if (selector === '.message.streaming') return {};
+      if (selector === '[data-transcript-pending]') return this.pending ? {} : null;
+      return null;
+    },
+    querySelectorAll(selector) {
+      if (selector === '[data-transcript-pending]') return this.pending ? [{ parentElement: null }] : [];
+      return [];
+    },
+  };
+  const host = virtualHost(held, [{ key: 'reply', size: 600, element }]);
+  assert.equal(held.hold(host, 'reply', 420), true);
+  // Pending parse finishes after only 40ms (well before 350ms) and live box is 590px.
+  clock += 40;
+  element.pending = false;
+  liveHeight = 590;
+  const landed = [];
+  held.settle(host, (index, size) => landed.push([index, size]));
+  assert.deepEqual(landed, [[0, 590]], 'settles immediately on pending-parse completion at the live box height');
+  assert.equal(held.size, 0);
+});
+
+test('settling a held shrink in a hidden pane (0x0 rect) discards the stale shrink and preserves the cached slot', async () => {
+  const { HELD_SHRINK_WINDOW_MS } = await import('./transcript-list-held-shrinks.ts');
+  let clock = 1_000;
+  const held = createHeldRowShrinks(() => clock);
+  let hiddenRect = { top: 0, bottom: 420, height: 420, left: 0, right: 600, width: 600 };
+  const hiddenRow = {
+    ...rowElement(),
+    getBoundingClientRect: () => hiddenRect,
+  };
+  let collapsedRect = { top: 0, bottom: 420, height: 420, left: 0, right: 600, width: 600 };
+  const collapsedRow = {
+    ...rowElement(),
+    getBoundingClientRect: () => collapsedRect,
+  };
+  const host = virtualHost(held, [
+    { key: 'hidden', size: 600, element: hiddenRow },
+    { key: 'collapsed', size: 600, element: collapsedRow },
+  ]);
+  assert.equal(held.hold(host, 'hidden', 420), true);
+  assert.equal(held.hold(host, 'collapsed', 420), true);
+
+  // Pane becomes hidden (0x0 rect) while another row intentionally collapses (width > 0, height === 0).
+  hiddenRect = { top: 0, bottom: 0, height: 0, left: 0, right: 0, width: 0 };
+  collapsedRect = { top: 0, bottom: 0, height: 0, left: 0, right: 600, width: 600 };
+  clock += HELD_SHRINK_WINDOW_MS + 10;
+  const landed = [];
+  held.settle(host, (index, size) => landed.push([index, size]));
+  assert.deepEqual(
+    landed,
+    [[1, 0]],
+    'hidden 0x0 row discards the held shrink without writing 420px; intentional collapse with width > 0 lands 0px'
+  );
+  assert.equal(host.itemSizeCache.get('hidden'), 600, 'hidden row preserves its 600px cached slot');
+  assert.equal(held.size, 0);
+});
+
+test('hold skips DOM pending-marker scans on ordinary streaming growth', () => {
+  const held = createHeldRowShrinks();
+  let queries = 0;
+  const element = {
+    isConnected: true,
+    querySelector(selector) {
+      queries += 1;
+      return selector === '.message.streaming' ? {} : null;
+    },
+    querySelectorAll() {
+      queries += 1;
+      return [];
+    },
+  };
+  const host = virtualHost(held, [{ key: 'reply', size: 600, element }]);
+  assert.equal(held.hold(host, 'reply', 600), false);
+  assert.equal(held.hold(host, 'reply', 640), false);
+  assert.equal(queries, 0, 'ordinary growth performs zero DOM queries');
 });

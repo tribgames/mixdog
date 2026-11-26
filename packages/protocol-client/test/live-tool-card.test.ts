@@ -103,3 +103,141 @@ test('the stored rows of the same call (a reopened window) are the same card in 
     live.map((row) => [row.kind, row.id])
   );
 });
+
+test('tool rows from item/started, item/completed, and snapshot preserve turnId across standalone and aggregate cards', () => {
+  let state = sessionReducer.initial({ thread: { id: 'thread' }, state: {}, items: [] });
+  // item/started with turnId only on notification params (not inside item.meta)
+  state = sessionReducer.apply(state, {
+    jsonrpc: '2.0',
+    method: 'item/started',
+    params: {
+      threadId: 'thread',
+      turnId: 'turn-wake-2',
+      item: {
+        type: 'toolCall',
+        id: 'itm_start',
+        name: 'edit',
+        input: { file_path: 'src/b.ts' },
+        run: { callId: 'c-start', startedAt: 10, count: 1, completedCount: 0, live: true },
+        meta: { at: 10 },
+      },
+    },
+  } as never);
+  const startedRows = desktopSessionState(state, []).items as Obj[];
+  assert.equal(startedRows.length, 1);
+  assert.equal(startedRows[0]?.turnId, 'turn-wake-2', 'item/started aggregate tool row carries params.turnId');
+
+  // item/completed closes the same live aggregate card and keeps turnId
+  state = sessionReducer.apply(state, {
+    jsonrpc: '2.0',
+    method: 'item/completed',
+    params: {
+      threadId: 'thread',
+      turnId: 'turn-wake-2',
+      item: {
+        type: 'toolCall',
+        id: 'itm_start',
+        name: 'edit',
+        input: { file_path: 'src/b.ts' },
+        output: 'ok',
+        run: {
+          callId: 'c-start',
+          result: 'ok',
+          startedAt: 10,
+          completedAt: 12,
+          count: 1,
+          completedCount: 1,
+          live: true,
+        },
+        meta: { turnId: 'turn-wake-2', at: 10, status: 'completed' },
+      },
+    },
+  } as never);
+  const completedRows = desktopSessionState(state, []).items as Obj[];
+  assert.equal(completedRows.length, 1);
+  assert.equal(completedRows[0]?.turnId, 'turn-wake-2', 'item/completed aggregate tool row carries turnId');
+
+  // Snapshot items preserve meta.turnId on both standalone and restored aggregate tool rows
+  const snap = sessionReducer.initial({
+    thread: { id: 'thread' },
+    state: {},
+    items: [
+      {
+        type: 'toolCall',
+        id: 'itm_snap_1',
+        name: 'read',
+        input: { file_path: 'a.ts' },
+        output: 'one',
+        meta: { turnId: 'turn-snap-1', status: 'completed', at: 1 },
+      },
+      {
+        type: 'toolCall',
+        id: 'itm_snap_2',
+        name: 'read',
+        input: { file_path: 'b.ts' },
+        output: 'two',
+        meta: { turnId: 'turn-snap-1', status: 'completed', at: 2 },
+      },
+      {
+        type: 'toolCall',
+        id: 'itm_snap_3',
+        name: 'read',
+        input: { file_path: 'c.ts' },
+        output: 'three',
+        meta: { turnId: 'turn-snap-2', status: 'completed', at: 3 },
+      },
+    ],
+  });
+  const snapRows = desktopSessionState(snap, []).items as Obj[];
+  assert.deepEqual(
+    snapRows.map((row) => [row.id, row.name, row.turnId]),
+    [
+      ['itm_snap_1', '__aggregate__', 'turn-snap-1'],
+      ['itm_snap_3', 'read', 'turn-snap-2'],
+    ],
+    'snapshot tool rows preserve meta.turnId and do not merge across distinct turns'
+  );
+});
+
+test('item/agentMessage/delta restores turnId on a snapshot-restored untagged live row', () => {
+  let state = sessionReducer.initial({
+    thread: { id: 'thread' },
+    state: {},
+    items: [
+      {
+        type: 'agentMessage',
+        id: 'itm_live',
+        text: 'Hello',
+        meta: { status: 'inProgress', at: 10 },
+      },
+    ],
+  });
+  const before = desktopSessionState(state, []);
+  assert.equal(
+    ((before.streamingPartial as Obj | undefined)?.tail as Obj | undefined)?.turnId,
+    undefined,
+    'snapshot live starts untagged'
+  );
+
+  // First delta attaches turnId onto existing untagged live row (partial only).
+  state = sessionReducer.apply(state, {
+    jsonrpc: '2.0',
+    method: 'item/agentMessage/delta',
+    params: { threadId: 'thread', turnId: 't2', itemId: 'itm_live', delta: ' world' },
+  } as never);
+  const afterPartial = desktopSessionState(state, []);
+  assert.equal(
+    ((afterPartial.streamingPartial as Obj | undefined)?.tail as Obj | undefined)?.turnId,
+    't2',
+    'delta restores turnId on snapshot-restored live partial'
+  );
+
+  // Subsequent delta with a newline promotes into streamingTail keeping turnId.
+  state = sessionReducer.apply(state, {
+    jsonrpc: '2.0',
+    method: 'item/agentMessage/delta',
+    params: { threadId: 'thread', turnId: 't2', itemId: 'itm_live', delta: '\nnext' },
+  } as never);
+  const afterTail = desktopSessionState(state, []);
+  assert.equal((afterTail.streamingTail as Obj | undefined)?.turnId, 't2', 'streamingTail preserves restored turnId');
+});

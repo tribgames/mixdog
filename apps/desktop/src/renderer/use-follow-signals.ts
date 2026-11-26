@@ -12,6 +12,10 @@ export type FollowSignals = {
   touchEndUpAt: number;
   /** The last offset change was the reader's way back near the end (`moveArrivesNearEnd`). */
   arrived: boolean;
+  /** Bottom arrival happened while holding a scrollbar/touch gesture so streaming growth before release still pins. */
+  heldArrival: boolean;
+  /** The scrollTop where the reader arrived at the bottom. */
+  arrivedTop: number | null;
   touchStartTop: number;
   touchStartX: number;
   touchStartY: number;
@@ -31,6 +35,8 @@ function freshSignals(): FollowSignals {
     selectUpAt: 0,
     touchEndUpAt: 0,
     arrived: false,
+    heldArrival: false,
+    arrivedTop: null,
     touchStartTop: 0,
     touchStartX: 0,
     touchStartY: 0,

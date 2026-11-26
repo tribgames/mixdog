@@ -491,23 +491,32 @@ async function mountReturningReader() {
   };
 }
 
-// The band is the jump control's: where it would not show, a reader coming back down is following again.
-test('a reader scrolling back down to where the jump control would not show follows again, pinned once the scroll is over', async () => {
+// Stopping 150px above the end keeps follow off (no early snap); reaching the bottom takes follow back.
+test('a reader scrolling back down only follows again once reaching the bottom, not 150px above it', async () => {
   for (const input of ['wheel', 'touch']) {
     const reader = await mountReturningReader();
     try {
-      const near = reader.max() - 150;
+      const above = reader.max() - 150;
+      const bottom = reader.max();
       if (input === 'wheel') {
         await reader.wheel(100);
-        await reader.scroll(near);
-        assert.equal(reader.follow.followingRef.current, true, `${input}: 150px above the end takes follow back`);
+        await reader.scroll(above);
+        assert.equal(reader.follow.followingRef.current, false, `${input}: 150px above the end stays unpinned`);
+        await reader.wheel(150);
+        await reader.scroll(bottom);
+        assert.equal(reader.follow.followingRef.current, true, `${input}: reaching the bottom takes follow back`);
       } else {
         await reader.touch.start(300);
         await reader.touch.move(200);
-        await reader.scroll(near);
+        await reader.scroll(above);
+        await reader.touch.end();
+        assert.equal(reader.follow.followingRef.current, false, `${input}: lifting 150px above the end stays unpinned`);
+        await reader.touch.start(300);
+        await reader.touch.move(100);
+        await reader.scroll(bottom);
         assert.equal(reader.follow.followingRef.current, false, `${input}: not while the finger is down`);
         await reader.touch.end();
-        assert.equal(reader.follow.followingRef.current, true, `${input}: the lift 150px above the end takes it back`);
+        assert.equal(reader.follow.followingRef.current, true, `${input}: lifting at the bottom takes follow back`);
       }
       await reader.grow(40);
       assert.deepEqual(reader.writes, [], `${input}: nothing is written under the reader's hand`);
@@ -1807,7 +1816,13 @@ test('the jump control shows only while follow is off and the end is more than 2
     state.now += 1_000;
     await harness.scroll(1850);
     await frame();
-    assert.equal(state.hook.showJump, false, 'the way back to within 200px of the end follows again');
+    assert.equal(state.hook.followingRef.current, false, '150px above the end stays unpinned');
+    assert.equal(state.hook.showJump, true, 'jump control stays visible while unpinned above the bottom');
+    state.now += 100;
+    await harness.scroll(2000);
+    await frame();
+    assert.equal(state.hook.followingRef.current, true, 'reaching the bottom follows again');
+    assert.equal(state.hook.showJump, false, 'reaching the bottom hides the jump control');
   } finally {
     await harness.dispose();
   }
@@ -2085,7 +2100,7 @@ test('a pressed scrollbar whose release is lost ends when chromePressHeld lets g
   }
 });
 
-test('a thumb dragged down near the end takes follow back when it is let go, not while it is held', async () => {
+test('a thumb dragged down to the bottom takes follow back when let go, not while held and not 150px above', async () => {
   const harness = await tailHarness('thumb-into-band');
   const { state } = harness;
   try {
@@ -2095,17 +2110,23 @@ test('a thumb dragged down near the end takes follow back when it is let go, not
     await harness.pressBar();
     state.now += 50;
     await harness.scroll(1850);
-    assert.equal(state.hook.followingRef.current, false, 'held 150px above the end: not yet');
+    await harness.act(async () => window.dispatchEvent(new window.Event('pointerup')));
+    assert.equal(state.hook.followingRef.current, false, 'let go 150px above the end: stays unpinned');
+    state.now += 100;
+    await harness.pressBar();
+    state.now += 50;
+    await harness.scroll(1998);
+    assert.equal(state.hook.followingRef.current, false, 'held at the bottom: not yet');
     const before = state.restores;
     await harness.act(async () => window.dispatchEvent(new window.Event('pointerup')));
-    assert.equal(state.hook.followingRef.current, true, 'let go there: follow is taken back');
+    assert.equal(state.hook.followingRef.current, true, 'let go at the bottom: follow is taken back');
     assert.equal(state.restores, before + 1, 'and the end is asked for');
   } finally {
     await harness.dispose();
   }
 });
 
-test('a selection autoscroll released over the composer ends its press there: a scroll back into the band follows again', async () => {
+test('a selection autoscroll released over the composer ends its press there: scrolling back to the bottom follows again', async () => {
   const harness = await tailHarness('selection-release-outside');
   const { state, row } = harness;
   const composer = document.createElement('div');
@@ -2120,9 +2141,96 @@ test('a selection autoscroll released over the composer ends its press there: a 
     await harness.act(async () => composer.dispatchEvent(new window.Event('pointerup', { bubbles: true })));
     state.now += 1_000;
     await harness.scroll(1850);
-    assert.equal(state.hook.followingRef.current, true, 'the press ended at its release: the band takes follow back');
+    assert.equal(state.hook.followingRef.current, false, '150px above bottom does not snap follow back');
+    await harness.scroll(2000);
+    assert.equal(
+      state.hook.followingRef.current,
+      true,
+      'the press ended at its release: reaching bottom takes follow back'
+    );
   } finally {
     composer.remove();
+    await harness.dispose();
+  }
+});
+
+test('returning to bottom during streaming clears stale upward wheel input so a layout clamp stays pinned', async () => {
+  const harness = await tailHarness('streaming-bottom-return');
+  const { state } = harness;
+  try {
+    harness.wheel({ deltaY: -120 });
+    await harness.scroll(1400);
+    assert.equal(state.hook.followingRef.current, false, 'scrolled up');
+    // Immediately return to bottom within the wheelUpRecent window via resume/jump.
+    state.now += 50;
+    await harness.act(async () => state.hook.resume());
+    assert.equal(state.hook.followingRef.current, true, 're-pinned at bottom');
+    // Streaming layout clamp moves scrollTop up by 3px right after re-pinning without any new upward input.
+    state.now += 20;
+    await harness.scroll(1997);
+    assert.equal(
+      state.hook.followingRef.current,
+      true,
+      'stale upward input was cleared, so clamp restores instead of unpinning'
+    );
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test('holding thumb at the bottom while streaming appends height before pointer release still pins cleanly', async () => {
+  const harness = await tailHarness('thumb-held-during-stream');
+  const { state } = harness;
+  try {
+    await harness.act(async () => state.hook.pause());
+    await harness.scroll(1400);
+    state.now += 1_000;
+    await harness.pressBar();
+    state.now += 50;
+    // Reader drags thumb all the way to the current bottom (2000).
+    await harness.scroll(2000);
+    assert.equal(state.hook.followingRef.current, false, 'held at bottom: waits for pointer release');
+    // Before rAF or pointerup, a streamed row appends 120px to the transcript.
+    state.content += 120;
+    const before = state.restores;
+    await harness.act(async () => window.dispatchEvent(new window.Event('pointerup')));
+    assert.equal(state.hook.followingRef.current, true, 'releasing preserves recorded bottom arrival and pins');
+    assert.equal(state.restores, before + 1, 'pin restores to the newly grown bottom');
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test('reversing a held drag after streaming growth does not snap back to bottom on release', async () => {
+  const harness = await tailHarness('thumb-reverse-after-growth');
+  const { state } = harness;
+  try {
+    await harness.act(async () => state.hook.pause());
+    await harness.scroll(1400);
+    await harness.frame();
+    state.now += 1_000;
+    await harness.pressBar();
+    state.now += 50;
+    // Thumb reaches the bottom (2000).
+    await harness.scroll(2000);
+    // Streaming appends 120px (new bottom 2120) before the first rAF runs.
+    state.content += 120;
+    await harness.frame();
+    // Reader drags further down to 2080, then deliberately reverses up to 2050.
+    state.now += 50;
+    await harness.scroll(2080);
+    state.now += 50;
+    await harness.scroll(2050);
+    const before = state.restores;
+    // Reader releases the thumb and waits past the gesture window so idle settle runs.
+    await harness.act(async () => window.dispatchEvent(new window.Event('pointerup')));
+    state.now += 1_000;
+    await harness.frame();
+    await harness.frame();
+    assert.equal(state.hook.followingRef.current, false, 'deliberate reversal from 2080 to 2050 does not rearm follow');
+    assert.equal(state.restores, before, 'idle callback does not snap back to 2120');
+    assert.equal(state.hook.showJump, true, 'jump control stays visible at 2050');
+  } finally {
     await harness.dispose();
   }
 });

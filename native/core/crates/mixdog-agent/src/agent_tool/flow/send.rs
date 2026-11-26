@@ -8,6 +8,8 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_ai::service::admin_route::Obj;
+use mixdog_ai::service::admin_route::resolve_route_context_state;
 use mixdog_ai::service::admin_route::truthy;
 use mixdog_tools::orch::agent::AgentReply;
 use mixdog_tools::orch::agent::QueuedView;
@@ -19,7 +21,9 @@ use super::job_starter::StartContext;
 use super::preset::agent_preset_name;
 use super::preset::preset_key;
 use super::preset::resolve_agent_spawn_preset;
+use super::reconcile::JobHandle;
 use super::result::WorkerResult;
+use super::seams::TurnKind;
 use super::turn::TurnPlan;
 use super::turn::TurnRunner;
 use super::worker_turns::TurnOwner;
@@ -74,18 +78,131 @@ fn facts_of(session: &Value) -> SessionFacts {
     }
 }
 
-fn route_value(key: &str, source: &Value) -> Value {
+fn normalized_params(source: &Value) -> Option<&Map<String, Value>> {
+    source.get("modelParameters").and_then(Value::as_object).filter(|o| !o.is_empty())
+}
+
+fn provider_model_window_meta(config: &Obj, raw_provider: &str, canonical_provider: &str, model: &str) -> Option<Value> {
+    let providers = config.get("providers").and_then(Value::as_object)?;
+    let entry = providers.get(raw_provider).or_else(|| providers.get(canonical_provider))?;
+    let models = entry.get("models").and_then(Value::as_array)?;
+    models
+        .iter()
+        .find(|row| {
+            let id = clean(row.get("id"));
+            (id == model || id.eq_ignore_ascii_case(model)) && (row.get("contextWindow").is_some() || row.get("maxContextWindow").is_some())
+        })
+        .cloned()
+}
+
+fn effective_target_window(target: &Value, config: &Obj) -> Option<f64> {
+    if let Some(window) = mixdog_ai::service::admin_route::normalize_context_tokens(target.get("selectedContextWindow")) {
+        return Some(window);
+    }
+    let obj = target.as_object()?;
+    if target.get("contextWindow").is_some() || target.get("maxContextWindow").is_some() {
+        if let Some(window) = resolve_route_context_state(obj, Some(target)).selected_context_window {
+            return Some(window);
+        }
+    }
+    let raw_provider = clean(target.get("provider"));
+    let canonical = mixdog_ai::service::routes::canonical_route_provider(&raw_provider);
+    let model = clean(target.get("model"));
+    if !canonical.is_empty()
+        && !model.is_empty()
+        && let Some(meta) = provider_model_window_meta(config, &raw_provider, &canonical, &model)
+    {
+        return resolve_route_context_state(obj, Some(&meta)).selected_context_window;
+    }
+    None
+}
+
+fn route_field_matches(key: &str, preset: &Value, target: &Value, config: &Obj) -> bool {
     match key {
-        "fast" => Value::Bool(source.get("fast") == Some(&Value::Bool(true))),
-        "autoEffort" => Value::Bool(source.get("autoEffort") != Some(&Value::Bool(false))),
-        _ => match source.get(key) {
-            None | Some(Value::Null) => Value::Null,
-            Some(v) => Value::String(v.to_string()),
-        },
+        "provider" => {
+            mixdog_ai::service::routes::canonical_route_provider(&clean(preset.get("provider")))
+                == mixdog_ai::service::routes::canonical_route_provider(&clean(target.get("provider")))
+        }
+        "model" | "effort" => clean(preset.get(key)) == clean(target.get(key)),
+        "fast" => (preset.get("fast") == Some(&Value::Bool(true))) == (target.get("fast") == Some(&Value::Bool(true))),
+        "autoEffort" => (preset.get("autoEffort") != Some(&Value::Bool(false))) == (target.get("autoEffort") != Some(&Value::Bool(false))),
+        "modelParameters" => normalized_params(preset) == normalized_params(target),
+        "contextPercent" => {
+            mixdog_ai::service::admin_route::clean_context_percent(preset.get("contextPercent"))
+                == mixdog_ai::service::admin_route::clean_context_percent(target.get("contextPercent"))
+        }
+        "contextTokens" => {
+            let want = mixdog_ai::service::admin_route::normalize_context_tokens(preset.get("contextTokens"));
+            let have = mixdog_ai::service::admin_route::normalize_context_tokens(target.get("contextTokens"));
+            if want == have {
+                return true;
+            }
+            if let Some(tokens) = want
+                && have.is_none()
+            {
+                return effective_target_window(target, config) == Some(tokens);
+            }
+            false
+        }
+        _ => preset.get(key) == target.get(key),
     }
 }
 
-fn route_to_set(keys: &[&str], preset: &Value) -> Value {
+fn route_matches(keys: &[&str], preset: &Value, target: &Value, config: &Obj) -> bool {
+    keys.iter().all(|key| route_field_matches(key, preset, target, config))
+}
+
+fn fallback_source_changed(session: &Value, preset: &Value) -> bool {
+    let Some(current) = session.get("routeFallbackSource").filter(|s| truthy(Some(s))) else {
+        return false;
+    };
+    Some(current) != preset.get("fallbackSource").filter(|s| truthy(Some(s)))
+}
+
+fn fallbacks_changed(session: &Value, preset: &Value, config: &Obj) -> bool {
+    let current = session.get("routeFallbacks").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+    let wanted = preset.get("fallbacks").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+    if current.len() != wanted.len() {
+        return true;
+    }
+    current.iter().zip(wanted.iter()).any(|(a, b)| !route_matches(&AGENT_ROUTE_KEYS, b, a, config))
+}
+
+fn active_fallback_permitted(session: &Value, preset: &Value, config: &Obj) -> bool {
+    let wanted = preset.get("fallbacks").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+    wanted.iter().any(|entry| {
+        let keys: Vec<&str> = AGENT_ROUTE_KEYS
+            .into_iter()
+            .filter(|key| {
+                matches!(*key, "provider" | "model" | "effort" | "fast" | "autoEffort" | "modelParameters" | "contextTokens")
+                    || !matches!(entry.get(*key), None | Some(Value::Null))
+            })
+            .collect();
+        route_matches(&keys, entry, session, config)
+    })
+}
+
+/// When a worker has hopped off its primary onto an active fallback route, returns the configured
+/// primary assignment it hopped from (`(primary, full_fields)`). `full_fields` is true when
+/// `routeFallbackPrimary` carries the full route leaf and false when falling back to a failure entry.
+fn active_fallback_primary(session: &Value) -> Option<(&Value, bool)> {
+    let hopped = session.get("routeFallbackIndex").and_then(Value::as_f64).is_some_and(|i| i > 0.0)
+        || session.get("routeFallbackFailures").and_then(Value::as_array).is_some_and(|f| !f.is_empty());
+    if !hopped {
+        return None;
+    }
+    if let Some(primary) = session.get("routeFallbackPrimary").filter(|p| truthy(p.get("provider")) && truthy(p.get("model"))) {
+        return Some((primary, true));
+    }
+    session
+        .get("routeFallbackFailures")
+        .and_then(Value::as_array)
+        .and_then(|f| f.first())
+        .filter(|p| truthy(p.get("provider")) && truthy(p.get("model")))
+        .map(|p| (p, false))
+}
+
+fn route_to_set(keys: &[&str], preset: &Value, clear_context_tokens: bool) -> Value {
     let mut route = Map::new();
     for key in keys {
         match *key {
@@ -101,6 +218,13 @@ fn route_to_set(keys: &[&str], preset: &Value) -> Value {
                 route.insert(other.into(), preset[other].clone());
             }
         }
+    }
+    if clear_context_tokens && !route.contains_key("contextTokens") {
+        route.insert("contextTokens".into(), Value::Null);
+    }
+    route.insert("routeFallbacks".into(), Value::Array(preset.get("fallbacks").and_then(Value::as_array).cloned().unwrap_or_default()));
+    if let Some(source) = preset.get("fallbackSource").filter(|s| truthy(Some(s))) {
+        route.insert("routeFallbackSource".into(), source.clone());
     }
     Value::Object(route)
 }
@@ -254,23 +378,56 @@ impl SendFlowImpl {
             .into_iter()
             .filter(|key| *key == "fast" || *key == "autoEffort" || !matches!(preset.get(*key), None | Some(Value::Null)))
             .collect();
-        let matches = |target: &Value| set.iter().all(|key| route_value(key, preset) == route_value(key, target));
+        let mut compare_keys = set.clone();
+        if !compare_keys.contains(&"contextTokens") {
+            compare_keys.push("contextTokens");
+        }
         let id = id_of(session);
-        if matches(session) {
+        let source_changed = fallback_source_changed(session, preset);
+        if route_matches(&compare_keys, preset, session, &config) && !source_changed && !fallbacks_changed(session, preset, &config) {
             // Saved back to the running route: an earlier hold is obsolete.
             if truthy(session.get("heldRoute")) {
                 self.world.hold_session_route(&id, None);
             }
             return Ok(None);
         }
-        if let Some(held) = session.get("heldRoute").filter(|h| truthy(Some(h))) {
-            let mut merged = session.as_object().cloned().unwrap_or_default();
-            merged.extend(held.as_object().cloned().unwrap_or_default());
-            if matches(&Value::Object(merged)) {
+        // Keep an active fallback route only when the agent's configured assignment has not changed
+        // and the active fallback is still permitted by the current fallback chain.
+        let chain_compatible =
+            active_fallback_permitted(session, preset, &config) && (truthy(session.get("routeFallbackSource")) || !fallbacks_changed(session, preset, &config));
+        let active_primary = active_fallback_primary(session);
+        if !source_changed
+            && chain_compatible
+            && let Some((primary, full_fields)) = active_primary
+        {
+            let same_assignment = if full_fields {
+                route_matches(&compare_keys, preset, primary, &config)
+            } else {
+                route_field_matches("provider", preset, primary, &config) && route_field_matches("model", preset, primary, &config)
+            };
+            if same_assignment {
+                if truthy(session.get("heldRoute")) {
+                    self.world.hold_session_route(&id, None);
+                }
                 return Ok(None);
             }
         }
-        Ok(Some(route_to_set(&set, preset)))
+        if let Some(held) = session.get("heldRoute").filter(|h| truthy(Some(h))) {
+            let mut merged = session.as_object().cloned().unwrap_or_default();
+            merged.extend(held.as_object().cloned().unwrap_or_default());
+            let merged = Value::Object(merged);
+            if route_matches(&compare_keys, preset, &merged, &config)
+                && !fallback_source_changed(&merged, preset)
+                && !fallbacks_changed(&merged, preset, &config)
+            {
+                return Ok(None);
+            }
+        }
+        let clear_context_tokens = mixdog_ai::service::admin_route::normalize_context_tokens(preset.get("contextTokens")).is_none()
+            && (mixdog_ai::service::admin_route::normalize_context_tokens(session.get("contextTokens")).is_some()
+                || active_primary
+                    .is_some_and(|(primary, _)| mixdog_ai::service::admin_route::normalize_context_tokens(primary.get("contextTokens")).is_some()));
+        Ok(Some(route_to_set(&set, preset, clear_context_tokens)))
     }
 
     async fn settle_route(&self, prepared: &Prepared, mut session: Value) -> Result<Value, String> {
@@ -336,18 +493,34 @@ impl SendFlowImpl {
                 return Ok(queued_view(Some(depth)));
             }
         }
-        let meta = send_job_meta(&session, &id, tag.clone(), options.resumed);
-        let start = send_start_context(notify);
-        let (flow, prepared_run) = (self.clone(), prepared.clone());
-        let job = self.starter.start_job("send", meta, start, move |job, owner_context| async move {
-            let plan = flow.turn_plan(&prepared_run).await;
-            let value: WorkerResult = flow.runner.run(plan, Some(owner_context), Some(job)).await?;
-            Ok(Some(value))
-        })?;
+        let job = self.start_send_job(prepared, &session, tag, notify, options.resumed, TurnKind::Send, None)?;
         let mut card = self.views.card(job.task_id(), &Scope::default(), false).await.ok_or_else(|| "agent job did not start".to_owned())?;
         card.view.reused = options.reused;
         card.view.resumed = options.resumed || card.view.resumed;
         Ok(AgentReply::Task { view: card.view, diagnostics: false })
+    }
+
+    /// The background send job that runs one turn of `kind` on the worker `prepared` names; `held` lives as long as the job's
+    /// work, or until the job ends without it.
+    #[allow(clippy::too_many_arguments, reason = "One job start, its pieces as both dispatches have them")]
+    fn start_send_job(
+        self: &Arc<Self>,
+        prepared: &Prepared,
+        session: &Value,
+        tag: Option<String>,
+        notify: &SpawnContext,
+        resumed: bool,
+        kind: TurnKind,
+        held: Option<Box<dyn Send>>,
+    ) -> Result<Arc<JobHandle>, String> {
+        let meta = send_job_meta(session, &prepared.session_id, tag, resumed);
+        let (flow, prepared) = (self.clone(), prepared.clone());
+        self.starter.start_job("send", meta, send_start_context(notify), move |job, owner_context| async move {
+            let _held = held;
+            let plan = TurnPlan { kind, ..flow.turn_plan(&prepared).await };
+            let value: WorkerResult = flow.runner.run(plan, Some(owner_context), Some(job)).await?;
+            Ok(Some(value))
+        })
     }
 
     /// What `runSend` runs: a follow-up turn on the existing worker.
@@ -379,15 +552,21 @@ impl SendFlowImpl {
         }
     }
 
-    /// A background-task completion was queued for this worker. A busy worker takes it at its
-    /// next tool boundary; an idle one runs a follow-up turn on an empty prompt, which drains the
-    /// queued completion (never an empty user turn). Its answer reaches the owner like any send.
-    pub async fn wake_idle_worker(self: &Arc<Self>, session_id: &str) -> bool {
+    /// The worker's session found a background completion queued while the worker was idle and
+    /// handed its wake here: the wake is a send job of the worker's owner, whose turn
+    /// ([`TurnKind::Wake`]) takes the queued completions as its input (never an empty user turn),
+    /// so its answer reaches the owner and the board like any send. A busy worker is never woken:
+    /// its running turn takes the completion at its next tool boundary. `handoff` is the session's
+    /// hand-off of the wake, held while the wake's job lasts: let go before the wake's turn started
+    /// (the job could not start or start its turn), the session hands its next wake on.
+    pub async fn wake_worker(self: &Arc<Self>, session_id: &str, handoff: Box<dyn Send>) -> Result<(), String> {
         let id = clean_str(session_id);
-        if id.is_empty() || self.world.is_busy(&id).await {
-            return false;
+        let session =
+            self.world.session(&id).await.filter(|s| s.get("closed") != Some(&Value::Bool(true))).ok_or_else(|| format!("agent session \"{id}\" is closed"))?;
+        // `dispatchToExistingSession` reveals the session first (`send-flow.mjs:236`): a closed agent woken is listed again.
+        if let Some(sessions) = &self.sessions {
+            sessions.reveal_session(&id).await;
         }
-        let Some(session) = self.world.session(&id).await.filter(|s| s.get("closed") != Some(&Value::Bool(true))) else { return false };
         let owner = either(&session, "ownerSessionId", "parentSessionId");
         let notify = SpawnContext {
             caller_session_id: Some(owner.clone()).filter(|o| !o.is_empty()),
@@ -397,19 +576,9 @@ impl SendFlowImpl {
             ..SpawnContext::default()
         };
         let prepared = Prepared { args: Value::Object(Map::new()), session: facts_of(&session), session_id: id, prompt: Some(String::new()), route: None };
-        let (flow, sessions) = (self.clone(), self.sessions.clone());
-        // A wake that cannot dispatch has nobody to tell: the completion stays queued, and Node
-        // writes the failure to stderr (`send-flow.mjs:340-344`).
-        drop(mixdog_rt::spawn("agent-completion-wake", mixdog_rt::TaskClass::Work, async move {
-            // `dispatchToExistingSession` reveals the session first (`send-flow.mjs:236`): a closed agent woken is listed again.
-            if let Some(sessions) = sessions {
-                sessions.reveal_session(&prepared.session_id).await;
-            }
-            if let Err(error) = flow.dispatch_to_existing_session(&prepared, &notify, DispatchOptions::default()).await {
-                mixdog_rt::node_stderr!("[agent] completion wake failed session={}: {error}", prepared.session_id);
-            }
-        }));
-        true
+        let session = self.settle_route(&prepared, session).await?;
+        let tag = self.registry.tag_for_session(&prepared.session_id).await;
+        self.start_send_job(&prepared, &session, tag, &notify, false, TurnKind::Wake, Some(handoff)).map(drop)
     }
 }
 

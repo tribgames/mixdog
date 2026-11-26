@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering::SeqCst;
 use std::time::Duration;
 
+use mixdog_agent::agent_tool::flow::seams::TurnKind;
 use mixdog_agent::agent_tool::flow::seams::TurnOutcome;
 use mixdog_agent::agent_tool::flow::seams::TurnResult;
 use mixdog_agent::agent_tool::flow::seams::TurnStart;
@@ -686,6 +687,10 @@ pub const TURN_NOT_DURABLE: &str = "ETURNNOTDURABLE";
 /// The code of a start whose work a user Stop froze: a stopped start's waiter, and an owner's retry of a stopped submission.
 pub const TURN_STOPPED: &str = "ETURNSTOPPED";
 
+/// The code of a worker's wake with nothing to run: another turn of the session took its completions, or runs and takes
+/// them; a completion it leaves is handed on again when it ends.
+pub const WAKE_TAKEN: &str = "EWAKETAKEN";
+
 /// The code of a Stop whose cancellation fired here but whose record could not be saved.
 pub const STOP_NOT_SAVED: &str = "ESTOPNOTSAVED";
 
@@ -846,6 +851,8 @@ struct Plan {
 enum PlanKind {
     /// The input as the message is built from it, how many of its images went without their original, and the op.
     StartRun(TurnInput, u32, Option<OpRef>),
+    /// A worker's wake: the queued completions its turn takes as its input, the op, and the wake's submission.
+    StartWake(Vec<super::state::Queued>, Option<OpRef>, String),
     /// Records with their class, display and accept-time notes, then view-only changes.
     Records(Vec<(Record, Class, Display, Vec<Note>)>, Vec<Change>),
 }
@@ -1590,6 +1597,13 @@ impl ProducerPlaces {
     }
 }
 
+#[derive(Clone, Debug)]
+pub(super) struct ProvisionalToolIdentity {
+    pub(super) item_id: mixdog_core_api::ids::ItemId,
+    pub(super) started_at: Option<i64>,
+    pub(super) at: Option<i64>,
+}
+
 pub(crate) struct SessionActor {
     /// The directory slot the actor holds from its launch to its end. The first field, so it is released before anything else
     /// the actor holds is dropped, the create's reply among them: whoever learns the actor ended finds the slot gone.
@@ -1650,6 +1664,14 @@ pub(crate) struct SessionActor {
     /// The calls of the running turns, folded from the released entries (`units.rs`): how each reads in a stored
     /// record's unit until its turn ends. A demand's read holds the calls as they stood when it began.
     calls: Arc<super::window::Calls>,
+    /// Provisional tool-call identities (`call_id -> ProvisionalToolIdentity`) preserved across assistant
+    /// commits and later stored-record rereads (`UnitJob::Record` on tool results, `Tail`, `Held`, `Demand`).
+    provisional_tool_identities: std::collections::HashMap<String, ProvisionalToolIdentity>,
+    /// Tool call IDs whose assistant record has been durably stored (mapping to stored record ordinal), so late
+    /// duplicate `ItemStarted` notifications cannot recreate a provisional live card and partial rewinds retain
+    /// pre-rewind entries. In-flight records still encoding/flushing are checked via `self.outbox.records()` so an
+    /// encode failure never leaves stale entries behind.
+    committed_tool_calls: std::collections::HashMap<String, u64>,
     /// The read of the newest stored records that failed, until one succeeds: a positioned snapshot is not attached on
     /// it ([`Inbox::TailReady`]).
     tail_unread: Option<CoreError>,
@@ -1784,6 +1806,9 @@ pub(crate) struct SessionActor {
     starting: bool,
     /// The starting turn is a completion wake (see [`Self::ask_lock_held`]).
     starting_wake: bool,
+    /// How many wakes this worker handed to the agent tool ([`super::WorkerWakes`]): each hand-off's number
+    /// (`ControlCell::wake_handoff`).
+    wake_handoffs: u64,
     /// Who sent the prompt the next run starts on: its device, and whether the composer may take it back. Set where the
     /// prompt is admitted (`turn/start`, a queued entry that starts), read when the run's input row is built.
     submitter: Option<Submitter>,
@@ -2236,6 +2261,8 @@ impl SessionActor {
             tail_older: acked_end > 0,
             tail_next: acked_end,
             calls: Arc::default(),
+            provisional_tool_identities: Default::default(),
+            committed_tool_calls: Default::default(),
             tail_unread: None,
             starting_end: None,
             rebase_cut: None,
@@ -2294,6 +2321,7 @@ impl SessionActor {
             completed_reasons: None,
             starting: false,
             starting_wake: false,
+            wake_handoffs: 0,
             submitter: None,
             submissions: Submissions::default(),
             submission_lookup: None,
@@ -2598,7 +2626,8 @@ impl SessionActor {
         let rows_leave = matches!(&*record, Record::Compacted(_) | Record::Rewind(_));
         if let Record::Item(item) = &*record
             && item.role.as_ref().is_some_and(|role| role.as_str() == "assistant")
-            && matches!(&item.body, Slot::Inline(body) if body.get("toolCalls").and_then(Value::as_array).is_some_and(|calls| !calls.is_empty()))
+            && let Slot::Inline(body) = &item.body
+            && body.get("toolCalls").and_then(Value::as_array).is_some_and(|calls| !calls.is_empty())
         {
             self.calls_entered = true;
         }
@@ -2830,14 +2859,77 @@ impl SessionActor {
         self.accept_view_after(None, change, notes, effects);
     }
 
+    fn tool_call_committed_or_in_flight(&self, call_id: &str) -> bool {
+        self.committed_tool_calls.contains_key(call_id) || self.outbox.records().any(|record| assistant_record_has_call_id(record, call_id))
+    }
+
     /// [`Self::accept_view_with`] for a view that stands on the record `needs` accepted before it: it is released
     /// after that record and dropped, failed, with it when the record cannot be encoded. A workspace carries the header's
     /// Project move as each state holds it: the projected header's here, the released header's when it is released
     /// ([`Self::release`]).
-    fn accept_view_after(&mut self, needs: Option<u64>, change: Change, notes: Vec<Note>, effects: Vec<Effect>) {
+    fn accept_view_after(&mut self, needs: Option<u64>, change: Change, mut notes: Vec<Note>, effects: Vec<Effect>) {
         let change = match change {
             Change::Section(Section::Workspace(workspace)) => {
                 Change::Section(Section::Workspace(super::thread_settings::with_project_move(workspace, &self.projected.header)))
+            }
+            Change::ItemStarted { turn, mut item } => {
+                if let ThreadItem::ToolCall { id, run, meta, .. } = &mut item {
+                    if let Some(call_id) = run.call_id.as_deref()
+                        && (self.tool_call_committed_or_in_flight(call_id)
+                            || self
+                                .projected
+                                .window
+                                .iter()
+                                .any(|row| matches!(&*row.item, ThreadItem::ToolCall { run, .. } if run.call_id.as_deref() == Some(call_id)))
+                            || self
+                                .acked
+                                .window
+                                .iter()
+                                .any(|row| matches!(&*row.item, ThreadItem::ToolCall { run, .. } if run.call_id.as_deref() == Some(call_id))))
+                    {
+                        return;
+                    }
+                    let mut replaced_call_id: Option<String> = None;
+                    let existing = self
+                        .projected
+                        .live
+                        .iter()
+                        .find_map(|live| match &live.item {
+                            ThreadItem::ToolCall { id: live_id, run: live_run, meta: live_meta, .. } if live_id == id => {
+                                if live_run.call_id != run.call_id {
+                                    replaced_call_id = live_run.call_id.clone();
+                                }
+                                Some((live_run.started_at, live_meta.at))
+                            }
+                            _ => None,
+                        })
+                        .or_else(|| {
+                            run.call_id.as_deref().and_then(|cid| self.provisional_tool_identities.get(cid)).map(|identity| (identity.started_at, identity.at))
+                        });
+                    if let Some(old_call_id) = replaced_call_id {
+                        self.provisional_tool_identities.remove(&old_call_id);
+                    }
+                    let now = self.deps.clock.now_ms();
+                    run.live = Some(true);
+                    run.completed_count = Some(0);
+                    run.started_at = existing.and_then(|(started, _)| started).or(run.started_at).or(Some(now));
+                    meta.at = existing.and_then(|(_, at)| at).or(meta.at).or(Some(now));
+                    meta.turn_id.get_or_insert_with(|| turn.clone());
+                    meta.ext.insert("provisional".into(), Value::Bool(true));
+                    if let Some(call_id) = run.call_id.as_deref() {
+                        self.provisional_tool_identities
+                            .insert(call_id.to_owned(), ProvisionalToolIdentity { item_id: id.clone(), started_at: run.started_at, at: meta.at });
+                    }
+                    for note in &mut notes {
+                        if note.method == "item/started" {
+                            *note = Note::new(
+                                "item/started",
+                                &ItemNotificationParams { thread_id: self.id.clone(), turn_id: turn.clone(), item: item.clone(), room_view: None },
+                            );
+                        }
+                    }
+                }
+                Change::ItemStarted { turn, item }
             }
             change => change,
         };
@@ -2875,6 +2967,30 @@ impl SessionActor {
             Record::Item(row) => self.end_form(row),
             _ => None,
         };
+        let mut provisional_calls = std::collections::HashMap::new();
+        if let Record::Item(row) = &*record
+            && row.role.as_ref().is_some_and(|role| role.as_str() == "assistant")
+            && let mixdog_store::schema::blob::Slot::Inline(body) = &row.body
+        {
+            for key in ["toolCalls", "tool_calls"] {
+                if let Some(calls) = body.get(key).and_then(Value::as_array) {
+                    for call_id in calls.iter().filter_map(|call| call.get("id").and_then(Value::as_str)).filter(|id| !id.is_empty()) {
+                        if let Some(identity) = self.provisional_tool_identities.get(call_id) {
+                            provisional_calls.insert(call_id.to_owned(), identity.clone());
+                        } else if live
+                            && let Some(identity) = self.projected.live.iter().find_map(|live_item| match &live_item.item {
+                                ThreadItem::ToolCall { id, run, meta, .. } if run.result.is_none() && run.call_id.as_deref() == Some(call_id) => {
+                                    Some(ProvisionalToolIdentity { item_id: id.clone(), started_at: run.started_at, at: meta.at })
+                                }
+                                _ => None,
+                            })
+                        {
+                            provisional_calls.insert(call_id.to_owned(), identity);
+                        }
+                    }
+                }
+            }
+        }
         // A full cpu lane is waited out: the record is a row of the thread, never dropped for a busy lane.
         let encode = move |lane: &mixdog_rt::InLane<mixdog_rt::CpuInteractive>| {
             // The log holds the record as the sensitive projection stores it; the live rows show it as committed.
@@ -2884,10 +3000,25 @@ impl SessionActor {
                     return (encoded, Vec::new(), Vec::new());
                 };
                 // The record's unit: its rows as a page of the log reads them, from this commit and no later read.
-                let unit = match stored.as_ref().unwrap_or(&record) {
+                let mut unit: Vec<ThreadItem> = match stored.as_ref().unwrap_or(&record) {
                     Record::Item(logged) if logged.visible => deps.transcript.rows_as(lane, logged, end).into_iter().map(|(item, _)| item).collect(),
                     _ => Vec::new(),
                 };
+                if !provisional_calls.is_empty() {
+                    for item in &mut unit {
+                        if let ThreadItem::ToolCall { id, run, meta, .. } = item
+                            && let Some(identity) = run.call_id.as_deref().and_then(|cid| provisional_calls.get(cid))
+                        {
+                            *id = identity.item_id.clone();
+                            if identity.started_at.is_some() {
+                                run.started_at = identity.started_at;
+                            }
+                            if identity.at.is_some() {
+                                meta.at = identity.at;
+                            }
+                        }
+                    }
+                }
                 if !shown {
                     return (encoded, Vec::new(), unit);
                 }
@@ -2913,7 +3044,22 @@ impl SessionActor {
                         };
                         let live = |item| super::live_end::live_form(item, attempt, verb, turn.as_ref(), raw, reply_at);
                         match shown {
-                            Shown::Item(item) => Shown::Item(live(item)),
+                            Shown::Item(item) => {
+                                let mut item = live(item);
+                                if let ThreadItem::ToolCall { id, run, meta, .. } = &mut item
+                                    && run.result.is_none()
+                                    && let Some(identity) = run.call_id.as_deref().and_then(|cid| provisional_calls.get(cid))
+                                {
+                                    *id = identity.item_id.clone();
+                                    if identity.started_at.is_some() {
+                                        run.started_at = identity.started_at;
+                                    }
+                                    if identity.at.is_some() {
+                                        meta.at = identity.at;
+                                    }
+                                }
+                                Shown::Item(item)
+                            }
                             Shown::Update(item) => Shown::Update(super::live_end::live_result(live(item), at, &abort_ended)),
                         }
                     })
@@ -4390,18 +4536,65 @@ impl SessionActor {
         );
     }
 
+    /// Stamps live provisional tool-call identities (`call:*` ids and original timestamps) onto an
+    /// assistant record's `/meta/transcript/provisionalToolCalls` so evicted cards and reloaded threads
+    /// resolve the exact `item/completed` item id and timestamps across read RPCs and transcript units.
+    fn stamp_provisional_tool_identities(&self, body: &mut Value) {
+        let call_ids: Vec<String> = ["toolCalls", "tool_calls"]
+            .into_iter()
+            .filter_map(|key| body.get(key).and_then(Value::as_array))
+            .flatten()
+            .filter_map(|call| call.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned))
+            .collect();
+        if call_ids.is_empty() {
+            return;
+        }
+        let mut stamped = serde_json::Map::new();
+        for call_id in call_ids {
+            let identity = self.provisional_tool_identities.get(&call_id).cloned().or_else(|| {
+                self.projected.live.iter().find_map(|live| match &live.item {
+                    ThreadItem::ToolCall { id, run, meta, .. } if run.result.is_none() && run.call_id.as_deref() == Some(call_id.as_str()) => {
+                        Some(ProvisionalToolIdentity { item_id: id.clone(), started_at: run.started_at, at: meta.at })
+                    }
+                    _ => None,
+                })
+            });
+            let Some(identity) = identity else { continue };
+            let mut entry = serde_json::Map::new();
+            entry.insert("itemId".into(), Value::String(identity.item_id.as_str().to_owned()));
+            if let Some(started_at) = identity.started_at {
+                entry.insert("startedAt".into(), Value::from(started_at));
+            }
+            if let Some(at) = identity.at {
+                entry.insert("at".into(), Value::from(at));
+            }
+            stamped.insert(call_id, Value::Object(entry));
+        }
+        if stamped.is_empty() {
+            return;
+        }
+        let Some(root) = body.as_object_mut() else { return };
+        let meta = root.entry("meta").or_insert_with(|| Value::Object(serde_json::Map::new()));
+        let Some(meta_obj) = meta.as_object_mut() else { return };
+        let transcript = meta_obj.entry("transcript").or_insert_with(|| Value::Object(serde_json::Map::new()));
+        let Some(transcript_obj) = transcript.as_object_mut() else { return };
+        transcript_obj.insert("provisionalToolCalls".into(), Value::Object(stamped));
+    }
+
     /// A run's committed row, its facts read.
-    fn commit_with_facts(&mut self, turn: TurnId, item: ItemCommit, facts: RowFacts, ack: oneshot::Sender<Result<(), RunError>>) {
+    fn commit_with_facts(&mut self, turn: TurnId, mut item: ItemCommit, facts: RowFacts, ack: oneshot::Sender<Result<(), RunError>>) {
         if !self.active(&turn) {
             let _ = ack.send(Err(RunError::NotApplied));
             return;
         }
+        let is_assistant = item.role.as_deref() == Some("assistant");
+        if is_assistant {
+            self.stamp_provisional_tool_identities(&mut item.body);
+        }
         let display = self.row_display(item.role.as_deref(), &item.body);
         // A provider batch of tool calls opens its cards as the assistant row that holds them is committed
         // (`openToolCalls`): the live end counts the ones Node would give a card.
-        if item.role.as_deref() == Some("assistant")
-            && let Some(calls) = item.body.get("toolCalls").and_then(Value::as_array)
-        {
+        if is_assistant && let Some(calls) = item.body.get("toolCalls").and_then(Value::as_array) {
             let now = self.deps.clock.now_ms();
             if let Some(run) = self.run.as_mut() {
                 run.live.tool_batch(calls, self.deps.builtin_skills.as_ref(), now);
@@ -4436,6 +4629,9 @@ impl SessionActor {
                 let entry = self.accept_record_entry(record, Class::Normal, display, Vec::new(), vec![Effect::ItemAck(ack)]);
                 if let Some(call) = drafted {
                     self.draft_results.insert(entry, (turn.as_str().to_owned(), call));
+                }
+                if is_assistant {
+                    self.withdraw_live_tool_calls(&turn);
                 }
             }
             Err(_) => {
@@ -4814,6 +5010,39 @@ impl SessionActor {
         }
     }
 
+    /// Emits `item/completed` with `meta.status = Interrupted` and `meta.ext.withdrawn = true` for every
+    /// uncommitted provisional `ThreadItem::ToolCall` still live for `turn`, removing it from `live`.
+    pub(super) fn withdraw_live_tool_calls(&mut self, turn: &TurnId) {
+        let dead_calls: Vec<ThreadItem> = self
+            .projected
+            .live
+            .iter()
+            .filter(|live| {
+                live.turn == *turn
+                    && matches!(
+                        &live.item,
+                        ThreadItem::ToolCall { run, .. }
+                            if !run.call_id.as_deref().is_some_and(|call_id| self.tool_call_committed_or_in_flight(call_id))
+                    )
+            })
+            .map(|live| live.item.clone())
+            .collect();
+        for mut item in dead_calls {
+            let id = item.id().clone();
+            if let ThreadItem::ToolCall { run, meta, .. } = &mut item {
+                if let Some(call_id) = run.call_id.as_deref()
+                    && !self.tool_call_committed_or_in_flight(call_id)
+                {
+                    self.provisional_tool_identities.remove(call_id);
+                }
+                meta.status = Some(mixdog_protocol::ItemStatus::Interrupted);
+                meta.ext.insert("withdrawn".into(), Value::Bool(true));
+            }
+            let note = Note::new("item/completed", &ItemNotificationParams { thread_id: self.id.clone(), turn_id: turn.clone(), item, room_view: None });
+            self.accept_view(Change::LiveEnded(id), vec![note]);
+        }
+    }
+
     /// A run's notice, live-only line or notification (`RunPort::notice`, `usage`, `compact_event`).
     fn run_shown(&mut self, turn: TurnId, shown: RunShown) {
         match shown {
@@ -4891,6 +5120,7 @@ impl SessionActor {
                 if let Some((id, text)) = reasoning {
                     self.show_reasoning(&turn, id.as_str(), &[text]);
                 }
+                self.withdraw_live_tool_calls(&turn);
             }
             RunShown::Usage(report) => self.shown_usage(report),
             RunShown::Call(mark) => self.shown_call(mark),
@@ -5658,7 +5888,7 @@ impl SessionActor {
         }
         // A worker's turn (`SessionTurns`): its input row carries the handoff content and the
         // submission it answers, as `askSession` stamps them (`askTurns.started` submissionIds).
-        let agent = self.claim_agent(wake, &mut body);
+        let agent = self.claim_agent(wake, work.submissions.first().map_or("", String::as_str), &mut body);
         // A routine fire's queued turn (`routine-home-turn.mjs`): its input row carries the
         // fire's content, the submission and the marker row's trigger; it starts "committed".
         let routine = self.claim_routine(wake, &input, &mut body);
@@ -5706,12 +5936,25 @@ impl SessionActor {
         });
     }
 
-    fn claim_agent(&self, wake: bool, body: &mut Value) -> Option<super::control::AgentStart> {
-        if wake {
-            return None;
+    /// A worker turn of submission `submission` waits to start, and it is a wake ([`TurnKind::Wake`]).
+    fn waiting_wake(&self, submission: Option<&str>) -> bool {
+        let waiting = self.cell.agent_starts.lock().unwrap_or_else(|p| p.into_inner());
+        submission.and_then(|submission| waiting.get(submission)).is_some_and(|start| start.turn.kind == TurnKind::Wake)
+    }
+
+    /// The worker turn of `submission` this run is: a completion wake takes a worker's wake start, whose input row is the
+    /// completions; any other run takes any other start, whose content is its input row's.
+    fn claim_agent(&self, wake: bool, submission: &str, body: &mut Value) -> Option<super::control::AgentStart> {
+        let agent = {
+            let mut waiting = self.cell.agent_starts.lock().unwrap_or_else(|p| p.into_inner());
+            match waiting.get(submission) {
+                Some(start) if (start.turn.kind == TurnKind::Wake) == wake => waiting.remove(submission),
+                _ => None,
+            }
+        }?;
+        if !wake {
+            body["content"] = agent.content.clone();
         }
-        let agent = self.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner()).take()?;
-        body["content"] = agent.content.clone();
         let submission = &agent.turn.hooks.submission_id;
         if !submission.is_empty() {
             body["meta"]["transcript"]["submissionIds"] = json!([submission]);
@@ -5856,6 +6099,8 @@ impl SessionActor {
     /// [`Self::start_run_with`] once the input row's facts are read.
     fn start_run_read(&mut self, start: InputStart, shown: Option<Goal>) {
         self.starting = false;
+        // The turn takes what completions are queued at its boundaries; one left when it ends is handed on again.
+        self.cell.wake_handoff.store(0, SeqCst);
         let submitter = self.submitter.take();
         // A delete closed the thread meanwhile: the turn never starts, and its waiter hears so.
         if self.deleting {
@@ -5896,11 +6141,14 @@ impl SessionActor {
             op.result = Json::try_from(value.clone()).ok();
         }
         let input_iid = mixdog_core_api::ids::ItemId::from(new_id());
-        // The first submitted row is the turn's checkpoint; a wake submits none. Its key rides
-        // the row's transcript metadata so the change record maps back to it (`stampCheckpoint`).
-        // Every client reads the record by the submission id its prompt row carries; a start that names none has the item id as its row id.
-        let checkpoint = if wake { "" } else { submission_id(&input).unwrap_or(input_iid.as_str()) };
-        if !checkpoint.is_empty()
+        // Every turn (including a completion wake) gets its own distinct checkpoint so every
+        // `turndone` independently seals and fixes its own change card. A start that names a
+        // submission id uses it; any other turn (including a wake) uses its input item id.
+        // Wake turns do not pre-stamp `meta.transcript.checkpointId` before `review.start`, so a
+        // wake blocked before its review begins leaves no orphan `checkpointId` on its end row.
+        let checkpoint = submission_id(&input).unwrap_or(input_iid.as_str());
+        if !wake
+            && !checkpoint.is_empty()
             && let Some(meta) = body.pointer_mut("/meta/transcript").and_then(Value::as_object_mut)
         {
             meta.insert("checkpointId".into(), Value::String(checkpoint.to_owned()));
@@ -5908,7 +6156,7 @@ impl SessionActor {
         self.stamp_input_meta(&mut body, &input, submitter.as_ref());
         self.sync_turn_chain();
         self.mint_transcript_epoch();
-        let review = super::turn_snapshot::TurnSnapshot::new(self.deps.turn_review.clone(), self.id.as_str(), checkpoint, wake);
+        let review = super::turn_snapshot::TurnSnapshot::new(self.deps.turn_review.clone(), self.id.as_str(), checkpoint);
         self.stamp_retry(&mut body);
         let input_body = body.clone();
         let hidden = std::mem::take(&mut self.retry_hidden);
@@ -6205,4 +6453,1546 @@ impl SessionActor {
     fn cwd(&self) -> String {
         self.acked.header.get("cwd").and_then(Value::as_str).unwrap_or_default().to_owned()
     }
+}
+
+#[cfg(test)]
+mod provisional_tool_call_tests {
+    use std::sync::Arc;
+    use std::sync::Mutex;
+    use std::sync::atomic::Ordering::SeqCst;
+
+    use mixdog_core_api::Reply;
+    use mixdog_core_api::ThreadHandle;
+    use mixdog_core_api::call::CallContext;
+    use mixdog_core_api::call::CoreRequest;
+    use mixdog_core_api::ids::ConnectionId;
+    use mixdog_core_api::ids::ItemId;
+    use mixdog_core_api::ids::Method;
+    use mixdog_core_api::ids::OpId;
+    use mixdog_core_api::thread::Stop;
+    use mixdog_protocol::ItemMeta;
+    use mixdog_protocol::ThreadItem;
+    use mixdog_protocol::ToolRun;
+    use mixdog_rt::CancellationToken;
+    use serde_json::Value;
+    use serde_json::json;
+    use tokio::sync::mpsc;
+
+    use crate::session::RunOutcome;
+    use crate::session::SessionDirectory;
+    use crate::session::run::ItemCommit;
+    use crate::session::store::CoreThreadFeeds;
+    use crate::session::testing::Rig;
+    use crate::session::tests::idle;
+    use crate::session::tests::request;
+    use crate::session::tests::start_thread;
+    use crate::session::tests::turn;
+
+    fn provisional_call(id: &str, call_id: &str, name: &str, input: serde_json::Value) -> ThreadItem {
+        ThreadItem::ToolCall {
+            id: ItemId::from(id),
+            name: name.to_owned(),
+            input,
+            output: None,
+            run: Box::new(ToolRun { call_id: Some(call_id.to_owned()), count: Some(1), completed_count: Some(0), live: Some(true), ..Default::default() }),
+            meta: ItemMeta::default(),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn provisional_tool_call_start_done_commit_and_result_dedup_without_duplicates() {
+        let rig = Rig::new();
+        rig.clock.0.store(10_000, SeqCst);
+        let (stage_tx, mut stage_rx) = mpsc::unbounded_channel::<&'static str>();
+        let (go_tx, go_rx) = mpsc::unbounded_channel::<()>();
+        let steps = Arc::new(Mutex::new(Some((stage_tx, go_rx))));
+        rig.set_script(Arc::new(move |run| {
+            let steps = steps.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let Some((stage, mut go)) = steps.lock().unwrap().take() else {
+                    return RunOutcome::Completed(Default::default());
+                };
+                // 1. Provisional start (args still streaming).
+                run.port.item_started(provisional_call("call:c1", "c1", "read", json!({}))).await.expect("provisional start");
+                let _ = stage.send("started");
+                go.recv().await;
+
+                // 2. Provisional done (full parsed args, same id).
+                run.port.item_started(provisional_call("call:c1", "c1", "read", json!({ "file_path": "a.rs" }))).await.expect("provisional done");
+                let _ = stage.send("done");
+                go.recv().await;
+
+                // 3. Committed assistant message with tool call (real RecordTranscript assigns an opaque id,
+                //    which actor.rs remaps to the provisional live id so clients upsert cleanly).
+                let assistant = ItemCommit {
+                    iid: ItemId::from("itm_00000000000000000000000000000001"),
+                    role: Some("assistant".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({
+                        "role": "assistant",
+                        "content": "",
+                        "toolCalls": [{ "id": "c1", "name": "read", "arguments": { "file_path": "a.rs" } }],
+                    }),
+                    prompt: None,
+                };
+                run.port.commit_item(assistant).await.expect("commit assistant");
+                // Late duplicate start after commit must be ignored.
+                run.port.item_started(provisional_call("call:c1", "c1", "read", json!({ "file_path": "a.rs" }))).await.expect("late start ignored");
+                let _ = stage.send("committed");
+                go.recv().await;
+
+                // 4. Committed tool result closes the same card.
+                let result = ItemCommit {
+                    iid: ItemId::from("itm_00000000000000000000000000000002"),
+                    role: Some("tool".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "role": "tool", "toolCallId": "c1", "content": "file contents" }),
+                    prompt: None,
+                };
+                run.port.commit_item(result).await.expect("commit result");
+                RunOutcome::Completed(Default::default())
+            })
+        }));
+
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.transcript = Arc::new(crate::session::transcript::RecordTranscript);
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let handle = start_thread(&directory).await;
+        turn(&handle, "read a.rs", "op-1").await;
+
+        let tool_cards = |handle: &crate::session::SessionHandle| -> Vec<ThreadItem> {
+            handle.cell.view.load_full().items.iter().filter(|item| matches!(item.as_ref(), ThreadItem::ToolCall { .. })).map(|item| (**item).clone()).collect()
+        };
+
+        assert_eq!(stage_rx.recv().await, Some("started"));
+        crate::eventually_on!(&[&handle.cell.stepped], || (tool_cards(&handle).len() == 1).then_some(())).await;
+        let cards = tool_cards(&handle);
+        assert_eq!(cards.len(), 1);
+        let ThreadItem::ToolCall { id, input, run, .. } = &cards[0] else { panic!("tool call") };
+        assert_eq!(id.as_str(), "call:c1");
+        assert_eq!(input, &json!({}));
+        assert_eq!(run.live, Some(true));
+        assert_eq!(run.started_at, Some(10_000));
+
+        // Advance clock before ToolCallDone update: started_at must stay pinned to 10_000.
+        rig.clock.0.store(10_400, SeqCst);
+        go_tx.send(()).expect("advance to done");
+        assert_eq!(stage_rx.recv().await, Some("done"));
+        crate::eventually_on!(&[&handle.cell.stepped], || {
+            tool_cards(&handle)
+                .first()
+                .is_some_and(|card| matches!(card, ThreadItem::ToolCall { input, .. } if input == &json!({ "file_path": "a.rs" })))
+                .then_some(())
+        })
+        .await;
+        let cards = tool_cards(&handle);
+        assert_eq!(cards.len(), 1, "provisional done updates in place without duplicating");
+        let ThreadItem::ToolCall { id, run, .. } = &cards[0] else { panic!("tool call") };
+        assert_eq!(id.as_str(), "call:c1");
+        assert_eq!(run.started_at, Some(10_000), "provisional start time preserved across arg completion");
+
+        // Advance clock before assistant commit: committed card takes over id and started_at with zero duplicates.
+        rig.clock.0.store(10_800, SeqCst);
+        go_tx.send(()).expect("advance to commit");
+        assert_eq!(stage_rx.recv().await, Some("committed"));
+        crate::eventually_on!(&[&handle.cell.stepped], || (handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+        let cards = tool_cards(&handle);
+        assert_eq!(cards.len(), 1, "committed assistant tool call replaces provisional live card cleanly");
+        let ThreadItem::ToolCall { id, run, .. } = &cards[0] else { panic!("tool call") };
+        assert_eq!(id.as_str(), "call:c1");
+        assert_eq!(run.started_at, Some(10_000), "committed card preserves original provisional start time");
+        assert!(run.result.is_none());
+
+        // Tool result closes the same card.
+        rig.clock.0.store(11_200, SeqCst);
+        go_tx.send(()).expect("advance to result");
+        crate::eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+        let cards = tool_cards(&handle);
+        assert_eq!(cards.len(), 1, "tool result closes existing card without duplicating");
+        let ThreadItem::ToolCall { id, run, .. } = &cards[0] else { panic!("tool call") };
+        assert_eq!(id.as_str(), "call:c1");
+        assert!(run.result.is_some());
+
+        // Immediate frame flush was emitted on item/started for toolCall.
+        let frames = rig.feeds.frames(handle.id.as_str());
+        assert!(frames.iter().any(|(_, method, params)| method == "item/started" && params["item"]["id"] == "call:c1"));
+        assert!(frames.iter().any(|(_, method, params)| method == "thread/frame" && params["structureChanged"] == true));
+        drop(directory);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn positioned_provisional_tool_call_keeps_id_and_started_at_across_commit_and_result() {
+        let data = tempfile::tempdir().expect("data dir");
+        let store = crate::session::tests::real_store(data.path()).await;
+        let rig = Rig::new();
+        rig.clock.0.store(20_000, SeqCst);
+
+        let (stage_tx, mut stage_rx) = mpsc::unbounded_channel::<&'static str>();
+        let (go_tx, go_rx) = mpsc::unbounded_channel::<()>();
+        let steps = Arc::new(std::sync::Mutex::new(Some((stage_tx, go_rx))));
+
+        rig.set_script(Arc::new(move |run| {
+            let steps = steps.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let Some((stage, mut go)) = steps.lock().unwrap().take() else {
+                    return RunOutcome::Completed(Default::default());
+                };
+                run.port.item_started(provisional_call("call:p1", "p1", "read", json!({}))).await.expect("start");
+                let _ = stage.send("started");
+                go.recv().await;
+
+                run.port.item_started(provisional_call("call:p1", "p1", "read", json!({ "file_path": "p.rs" }))).await.expect("done");
+                let _ = stage.send("done");
+                go.recv().await;
+
+                run.port
+                    .commit_item(ItemCommit {
+                        iid: ItemId::from("itm_00000000000000000000000000000011"),
+                        role: Some("assistant".into()),
+                        model: true,
+                        visible: true,
+                        body: json!({
+                            "role": "assistant",
+                            "content": "",
+                            "toolCalls": [{ "id": "p1", "name": "read", "arguments": { "file_path": "p.rs" } }],
+                        }),
+                        prompt: None,
+                    })
+                    .await
+                    .expect("commit assistant");
+                let _ = stage.send("committed");
+                go.recv().await;
+
+                run.port
+                    .commit_item(ItemCommit {
+                        iid: ItemId::from("itm_00000000000000000000000000000012"),
+                        role: Some("tool".into()),
+                        model: true,
+                        visible: true,
+                        body: json!({ "role": "tool", "toolCallId": "p1", "content": "ok" }),
+                        prompt: None,
+                    })
+                    .await
+                    .expect("commit result");
+                RunOutcome::Completed(Default::default())
+            })
+        }));
+
+        let mut deps = rig.deps_parts(store);
+        deps.transcript = Arc::new(crate::session::transcript::RecordTranscript);
+        deps.feeds = Arc::new(CoreThreadFeeds::new(&mixdog_app_protocol::limits::Limits::default(), mixdog_rt::testing::tokens().cpu_interactive));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let handle = start_thread(&directory).await;
+
+        // Attach a real positioned subscription so `thread/transcript/changed` unit frames are delivered.
+        let conn = mixdog_core_api::mock::MockConnection::new(ConnectionId(77), mixdog_core_api::mock::MockLimits::default());
+        let Reply::Subscribe(reply) = handle
+            .request(request("thread/resume", json!({ "threadId": handle.id.as_str(), "window": { "lastItems": 32 }, "positionedWindow": true }), "op-pos-sub"))
+            .await
+            .expect("thread/resume positioned")
+        else {
+            panic!("thread/resume subscribes");
+        };
+        let sub = mixdog_core_api::ids::SubscriptionId::from("sub-pos");
+        let attached = mixdog_core_api::feed::subscribe(&reply.feed, sub.clone(), reply.window, reply.resume_from, &conn).expect("attach positioned");
+        mixdog_core_api::sink::ConnectionSink::send_control_release(&conn, bytes::Bytes::from_static(b"{}"), attached.release).expect("release");
+        let _ = conn.drain_text_until(|frames| frames.iter().any(|f| f.contains("thread/snapshot"))).await;
+
+        let collect_unit_tool_calls = |raw: &[String]| -> Vec<Value> {
+            raw.iter()
+                .filter(|frame| !frame.starts_with("control:"))
+                .filter_map(|frame| frame.split_once(':'))
+                .filter_map(|(_, json)| serde_json::from_str::<Value>(json).ok())
+                .filter(|frame| frame["method"] == "thread/transcript/changed")
+                .filter_map(|frame| frame["params"]["change"]["unit"]["items"].as_array().cloned())
+                .flatten()
+                .filter(|item| item["type"] == "toolCall")
+                .collect()
+        };
+
+        turn(&handle, "read p.rs", "op-pos").await;
+
+        assert_eq!(stage_rx.recv().await, Some("started"));
+        crate::eventually_on!(&[&handle.cell.stepped], || {
+            handle
+                .cell
+                .view
+                .load_full()
+                .items
+                .iter()
+                .any(|item| matches!(item.as_ref(), ThreadItem::ToolCall { id, .. } if id.as_str() == "call:p1"))
+                .then_some(())
+        })
+        .await;
+        rig.clock.0.store(20_500, SeqCst);
+        go_tx.send(()).unwrap();
+        assert_eq!(stage_rx.recv().await, Some("done"));
+        crate::eventually_on!(&[&handle.cell.stepped], || {
+            handle
+                .cell
+                .view
+                .load_full()
+                .items
+                .iter()
+                .any(|item| matches!(item.as_ref(), ThreadItem::ToolCall { id, input, .. } if id.as_str() == "call:p1" && input == &json!({ "file_path": "p.rs" })))
+                .then_some(())
+        })
+        .await;
+        rig.clock.0.store(21_000, SeqCst);
+        go_tx.send(()).unwrap();
+        assert_eq!(stage_rx.recv().await, Some("committed"));
+        let committed_raw =
+            conn.drain_text_until(|frames| collect_unit_tool_calls(frames).iter().any(|item| item["id"] == "call:p1" && item["run"]["result"].is_null())).await;
+        let committed_units = collect_unit_tool_calls(&committed_raw);
+        let first_unit = committed_units.last().expect("committed unit toolCall");
+        assert_eq!(first_unit["id"], "call:p1", "committed positioned unit preserves provisional id");
+        assert_eq!(first_unit["run"]["startedAt"], 20_000, "committed positioned unit preserves startedAt");
+        assert_eq!(first_unit["meta"]["at"], 20_000, "committed positioned unit preserves meta.at");
+
+        // Now deliver tool result which triggers `UnitJob::Record` reread of the assistant record.
+        rig.clock.0.store(21_500, SeqCst);
+        go_tx.send(()).unwrap();
+        let closed_raw = conn.drain_text_until(|frames| collect_unit_tool_calls(frames).iter().any(|item| !item["run"]["result"].is_null())).await;
+        let after_result = collect_unit_tool_calls(&closed_raw);
+        let closed_unit = after_result.iter().rev().find(|item| !item["run"]["result"].is_null()).expect("result unit toolCall");
+        assert_eq!(closed_unit["id"], "call:p1", "reread positioned unit after result preserves provisional id");
+        assert_eq!(closed_unit["run"]["startedAt"], 20_000, "reread positioned unit preserves startedAt");
+        assert_eq!(closed_unit["meta"]["at"], 20_000, "reread positioned unit preserves meta.at");
+        reply.feed.detach(sub);
+        drop(directory);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stop_after_uncommitted_provisional_tool_call_restores_prompt_and_withdraws_card() {
+        let rig = Rig::new();
+        rig.clock.0.store(30_000, SeqCst);
+
+        let (started_tx, mut started_rx) = mpsc::unbounded_channel::<()>();
+        let started_tx = Arc::new(std::sync::Mutex::new(Some(started_tx)));
+
+        rig.set_script(Arc::new(move |run| {
+            let started_tx = started_tx.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                run.port.item_started(provisional_call("call:abort1", "abort1", "read", json!({}))).await.expect("start");
+                if let Some(tx) = started_tx.lock().unwrap().take() {
+                    let _ = tx.send(());
+                }
+                run.cancel.cancelled().await;
+                let _ = run.port.queue_display_settled(Vec::new(), None).await;
+                RunOutcome::Interrupted
+            })
+        }));
+
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.transcript = Arc::new(crate::session::transcript::RecordTranscript);
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let handle = start_thread(&directory).await;
+        let ctx = || CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, CancellationToken::new());
+        handle
+            .request(CoreRequest {
+                method: Method("turn/start"),
+                params: json!({
+                    "threadId": handle.id,
+                    "opId": "op-start-restore",
+                    "input": {
+                        "prompt": "please inspect foo.rs",
+                        "options": { "clientSubmissionId": "sub-restore-1" }
+                    }
+                }),
+                op: Some(OpId::from("op-start-restore")),
+                ctx: ctx(),
+            })
+            .await
+            .expect("turn/start");
+
+        assert_eq!(started_rx.recv().await, Some(()));
+        crate::eventually_on!(&[&handle.cell.stepped], || {
+            handle
+                .cell
+                .view
+                .load_full()
+                .items
+                .iter()
+                .any(|item| matches!(item.as_ref(), ThreadItem::ToolCall { id, .. } if id.as_str() == "call:abort1"))
+                .then_some(())
+        })
+        .await;
+
+        let stop_reply = handle.stop(Stop { turn: None, restore_prompt: None, submission_id: None, ctx: ctx() }).await.expect("stop");
+        assert_eq!(stop_reply["aborted"], true);
+        assert_eq!(
+            stop_reply["restoreText"], "please inspect foo.rs",
+            "uncommitted provisional ToolCallStart must NOT prevent Stop from restoring the user prompt"
+        );
+        assert_eq!(stop_reply["restoredSubmissionIds"], json!(["sub-restore-1"]));
+        crate::eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+
+        let frames = rig.feeds.frames(handle.id.as_str());
+        assert!(
+            frames.iter().any(|(_, method, params)| {
+                method == "item/completed" && params["item"]["id"] == "call:abort1" && params["item"]["meta"]["ext"]["withdrawn"] == true
+            }),
+            "DisplaySettled must emit withdrawn item/completed for aborted provisional tool call"
+        );
+        drop(directory);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn provisional_tool_compat_rename_alias_keeps_single_card_across_commit() {
+        let rig = Rig::new();
+        rig.clock.0.store(12_000, SeqCst);
+        let (stage_tx, mut stage_rx) = mpsc::unbounded_channel::<&'static str>();
+        let (go_tx, go_rx) = mpsc::unbounded_channel::<()>();
+        let steps = Arc::new(Mutex::new(Some((stage_tx, go_rx))));
+        rig.set_script(Arc::new(move |run| {
+            let steps = steps.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let Some((stage, mut go)) = steps.lock().unwrap().take() else {
+                    return RunOutcome::Completed(Default::default());
+                };
+                run.port.item_started(provisional_call("call:call_synth", "call_synth", "grep", json!({}))).await.expect("synth start");
+                let _ = stage.send("started");
+                go.recv().await;
+
+                // Compat rename completion reuses synthesized card id while carrying final call_id.
+                run.port.item_started(provisional_call("call:call_synth", "call_real", "grep", json!({ "pattern": "foo" }))).await.expect("renamed done");
+                let _ = stage.send("renamed");
+                go.recv().await;
+
+                run.port
+                    .commit_item(ItemCommit {
+                        iid: ItemId::from("itm_00000000000000000000000000000021"),
+                        role: Some("assistant".into()),
+                        model: true,
+                        visible: true,
+                        body: json!({
+                            "role": "assistant",
+                            "content": "",
+                            "toolCalls": [{ "id": "call_real", "name": "grep", "arguments": { "pattern": "foo" } }],
+                        }),
+                        prompt: None,
+                    })
+                    .await
+                    .expect("commit assistant");
+                RunOutcome::Completed(Default::default())
+            })
+        }));
+
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.transcript = Arc::new(crate::session::transcript::RecordTranscript);
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let handle = start_thread(&directory).await;
+        turn(&handle, "grep foo", "op-rename").await;
+
+        let tool_cards = |handle: &crate::session::SessionHandle| -> Vec<ThreadItem> {
+            handle.cell.view.load_full().items.iter().filter(|item| matches!(item.as_ref(), ThreadItem::ToolCall { .. })).map(|item| (**item).clone()).collect()
+        };
+
+        assert_eq!(stage_rx.recv().await, Some("started"));
+        crate::eventually_on!(&[&handle.cell.stepped], || (tool_cards(&handle).len() == 1).then_some(())).await;
+
+        rig.clock.0.store(12_400, SeqCst);
+        go_tx.send(()).unwrap();
+        assert_eq!(stage_rx.recv().await, Some("renamed"));
+        crate::eventually_on!(&[&handle.cell.stepped], || {
+            tool_cards(&handle)
+                .first()
+                .is_some_and(|card| matches!(card, ThreadItem::ToolCall { run, .. } if run.call_id.as_deref() == Some("call_real")))
+                .then_some(())
+        })
+        .await;
+        let cards = tool_cards(&handle);
+        assert_eq!(cards.len(), 1, "compat rename must update synthesized card in place with no orphan");
+        let ThreadItem::ToolCall { id, run, .. } = &cards[0] else { panic!("tool call") };
+        assert_eq!(id.as_str(), "call:call_synth");
+        assert_eq!(run.call_id.as_deref(), Some("call_real"));
+        assert_eq!(run.started_at, Some(12_000));
+
+        rig.clock.0.store(12_800, SeqCst);
+        go_tx.send(()).unwrap();
+        crate::eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+        let cards = tool_cards(&handle);
+        assert_eq!(cards.len(), 1, "committed renamed call keeps single card with no orphan");
+        let ThreadItem::ToolCall { id, run, .. } = &cards[0] else { panic!("tool call") };
+        assert_eq!(id.as_str(), "call:call_synth");
+        assert_eq!(run.call_id.as_deref(), Some("call_real"));
+        assert_eq!(run.started_at, Some(12_000));
+        drop(directory);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn provisional_tool_reused_id_after_withdrawal_gets_fresh_timestamp() {
+        let rig = Rig::new();
+        rig.clock.0.store(30_000, SeqCst);
+        let (stage_tx, mut stage_rx) = mpsc::unbounded_channel::<&'static str>();
+        let (go_tx, go_rx) = mpsc::unbounded_channel::<()>();
+        let steps = Arc::new(Mutex::new(Some((stage_tx, go_rx))));
+
+        rig.set_script(Arc::new(move |run| {
+            let steps = steps.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let Some((stage, mut go)) = steps.lock().unwrap().take() else {
+                    return RunOutcome::Completed(Default::default());
+                };
+                // Attempt 1 emits a provisional start that is withdrawn before commit.
+                run.port.item_started(provisional_call("call:retry1", "retry1", "read", json!({}))).await.expect("attempt 1 start");
+                let _ = stage.send("first_started");
+                go.recv().await;
+
+                run.port.queue_display_settled(Vec::new(), None).await.expect("withdraw uncommitted");
+                let _ = stage.send("withdrawn");
+                go.recv().await;
+
+                // Attempt 2 reuses the same call_id after withdrawal: must get a fresh start timestamp.
+                run.port.item_started(provisional_call("call:retry1", "retry1", "read", json!({ "file_path": "r.rs" }))).await.expect("attempt 2 start");
+                let _ = stage.send("retry_started");
+                go.recv().await;
+
+                run.port
+                    .commit_item(ItemCommit {
+                        iid: ItemId::from("itm_00000000000000000000000000000031"),
+                        role: Some("assistant".into()),
+                        model: true,
+                        visible: true,
+                        body: json!({
+                            "role": "assistant",
+                            "content": "",
+                            "toolCalls": [{ "id": "retry1", "name": "read", "arguments": { "file_path": "r.rs" } }],
+                        }),
+                        prompt: None,
+                    })
+                    .await
+                    .expect("commit retry assistant");
+                RunOutcome::Completed(Default::default())
+            })
+        }));
+
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.transcript = Arc::new(crate::session::transcript::RecordTranscript);
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let handle = start_thread(&directory).await;
+        turn(&handle, "read r.rs", "op-retry").await;
+
+        let tool_cards = |handle: &crate::session::SessionHandle| -> Vec<ThreadItem> {
+            handle.cell.view.load_full().items.iter().filter(|item| matches!(item.as_ref(), ThreadItem::ToolCall { .. })).map(|item| (**item).clone()).collect()
+        };
+
+        assert_eq!(stage_rx.recv().await, Some("first_started"));
+        crate::eventually_on!(&[&handle.cell.stepped], || (tool_cards(&handle).len() == 1).then_some(())).await;
+        let ThreadItem::ToolCall { run, meta, .. } = &tool_cards(&handle)[0] else { panic!("tool call") };
+        assert_eq!(run.started_at, Some(30_000));
+        assert_eq!(meta.at, Some(30_000));
+
+        go_tx.send(()).unwrap();
+        assert_eq!(stage_rx.recv().await, Some("withdrawn"));
+        crate::eventually_on!(&[&handle.cell.stepped], || tool_cards(&handle).is_empty().then_some(())).await;
+
+        rig.clock.0.store(35_000, SeqCst);
+        go_tx.send(()).unwrap();
+        assert_eq!(stage_rx.recv().await, Some("retry_started"));
+        crate::eventually_on!(&[&handle.cell.stepped], || (tool_cards(&handle).len() == 1).then_some(())).await;
+        let ThreadItem::ToolCall { run, meta, .. } = &tool_cards(&handle)[0] else { panic!("tool call") };
+        assert_eq!(run.started_at, Some(35_000), "reused id after withdrawal must get fresh started_at");
+        assert_eq!(meta.at, Some(35_000), "reused id after withdrawal must get fresh meta.at");
+
+        rig.clock.0.store(36_000, SeqCst);
+        go_tx.send(()).unwrap();
+        crate::eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+        let cards = tool_cards(&handle);
+        assert_eq!(cards.len(), 1);
+        let ThreadItem::ToolCall { run, meta, .. } = &cards[0] else { panic!("tool call") };
+        assert_eq!(run.started_at, Some(35_000), "committed retry preserves fresh retry start timestamp");
+        assert_eq!(meta.at, Some(35_000));
+        drop(directory);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn provisional_tool_partial_rewind_preserves_pre_rewind_timestamps_on_reread() {
+        let data = tempfile::tempdir().expect("data dir");
+        let store = crate::session::tests::real_store(data.path()).await;
+        let rig = Rig::new();
+        let turn_num = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let turn_num_script = turn_num.clone();
+        let (stage_tx, mut stage_rx) = mpsc::unbounded_channel::<&'static str>();
+        let (go_tx, go_rx) = mpsc::unbounded_channel::<()>();
+        let go_rx = Arc::new(tokio::sync::Mutex::new(go_rx));
+
+        rig.set_script(Arc::new(move |run| {
+            let n = turn_num_script.fetch_add(1, SeqCst);
+            let stage_tx = stage_tx.clone();
+            let go_rx = go_rx.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let (call_id, assistant_iid, result_iid) = match n {
+                    0 => ("c_keep", "itm_00000000000000000000000000000041", "itm_00000000000000000000000000000042"),
+                    1 => ("c_drop", "itm_00000000000000000000000000000043", "itm_00000000000000000000000000000044"),
+                    _ => ("c_drop", "itm_00000000000000000000000000000045", "itm_00000000000000000000000000000046"),
+                };
+                run.port.item_started(provisional_call(&format!("call:{call_id}"), call_id, "read", json!({}))).await.expect("provisional start");
+                let _ = stage_tx.send(call_id);
+                let _ = go_rx.lock().await.recv().await;
+                run.port
+                    .commit_item(ItemCommit {
+                        iid: ItemId::from(assistant_iid),
+                        role: Some("assistant".into()),
+                        model: true,
+                        visible: true,
+                        body: json!({
+                            "role": "assistant",
+                            "content": "",
+                            "toolCalls": [{ "id": call_id, "name": "read", "arguments": { "file_path": "f.rs" } }],
+                        }),
+                        prompt: None,
+                    })
+                    .await
+                    .expect("commit assistant");
+                run.port
+                    .commit_item(ItemCommit {
+                        iid: ItemId::from(result_iid),
+                        role: Some("tool".into()),
+                        model: true,
+                        visible: true,
+                        body: json!({ "role": "tool", "toolCallId": call_id, "content": "ok" }),
+                        prompt: None,
+                    })
+                    .await
+                    .expect("commit result");
+                RunOutcome::Completed(Default::default())
+            })
+        }));
+
+        let mut deps = rig.deps_parts(store);
+        deps.transcript = Arc::new(crate::session::transcript::RecordTranscript);
+        deps.feeds = Arc::new(CoreThreadFeeds::new(&mixdog_app_protocol::limits::Limits::default(), mixdog_rt::testing::tokens().cpu_interactive));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let handle = start_thread(&directory).await;
+
+        let run_provisional_turn = |prompt: &'static str, op: &'static str, expected_call: &'static str, start_ms: u64, commit_ms: u64| {
+            let handle = handle.clone();
+            let clock = rig.clock.clone();
+            let go_tx = go_tx.clone();
+            async move {
+                clock.0.store(start_ms, SeqCst);
+                turn(&handle, prompt, op).await;
+                crate::eventually_on!(&[&handle.cell.stepped], || {
+                    handle
+                        .cell
+                        .view
+                        .load_full()
+                        .items
+                        .iter()
+                        .any(|item| {
+                            matches!(
+                                item.as_ref(),
+                                ThreadItem::ToolCall { id, run, .. }
+                                    if id.as_str() == format!("call:{expected_call}") && run.started_at == Some(start_ms as i64)
+                            )
+                        })
+                        .then_some(())
+                })
+                .await;
+                clock.0.store(commit_ms, SeqCst);
+                go_tx.send(()).unwrap();
+                crate::eventually_on!(&[&handle.cell.stepped], || crate::session::tests::settled_idle(&handle).then_some(())).await;
+            }
+        };
+
+        let t1 = run_provisional_turn("first turn", "op-t1", "c_keep", 40_000, 40_500);
+        t1.await;
+        assert_eq!(stage_rx.recv().await, Some("c_keep"));
+
+        let t2 = run_provisional_turn("second turn", "op-t2", "c_drop", 50_000, 50_500);
+        t2.await;
+        assert_eq!(stage_rx.recv().await, Some("c_drop"));
+
+        // Find the second user message to partially rewind back before turn 2 (preserving turn 1).
+        let second_user_id = handle
+            .cell
+            .view
+            .load_full()
+            .items
+            .iter()
+            .filter_map(|item| match item.as_ref() {
+                ThreadItem::UserMessage { id, .. } => Some(id.clone()),
+                _ => None,
+            })
+            .nth(1)
+            .expect("second user message");
+
+        handle
+            .request(request("thread/rewind", json!({ "threadId": handle.id, "opId": "op-rewind", "itemId": second_user_id }), "op-rewind"))
+            .await
+            .expect("partial rewind");
+        crate::eventually_on!(&[&handle.cell.stepped], || {
+            let view = handle.cell.view.load_full();
+            let has_drop = view.items.iter().any(|item| matches!(item.as_ref(), ThreadItem::ToolCall { run, .. } if run.call_id.as_deref() == Some("c_drop")));
+            (crate::session::tests::settled_idle(&handle) && !has_drop).then_some(())
+        })
+        .await;
+
+        // Attach a positioned subscription after the rewind so its snapshot comes from the reread `self.tail`.
+        let conn = mixdog_core_api::mock::MockConnection::new(ConnectionId(88), mixdog_core_api::mock::MockLimits::default());
+        let Reply::Subscribe(reply) = handle
+            .request(request(
+                "thread/resume",
+                json!({ "threadId": handle.id.as_str(), "window": { "lastItems": 32 }, "positionedWindow": true }),
+                "op-pos-after-rewind",
+            ))
+            .await
+            .expect("thread/resume after rewind")
+        else {
+            panic!("thread/resume subscribes");
+        };
+        let sub = mixdog_core_api::ids::SubscriptionId::from("sub-rewind");
+        let attached = mixdog_core_api::feed::subscribe(&reply.feed, sub.clone(), reply.window, reply.resume_from, &conn).expect("attach");
+        mixdog_core_api::sink::ConnectionSink::send_control_release(&conn, bytes::Bytes::from_static(b"{}"), attached.release).expect("release");
+        let snap_raw = conn.drain_text_until(|frames| frames.iter().any(|f| f.contains("thread/snapshot"))).await;
+        let snap_items: Vec<Value> = snap_raw
+            .iter()
+            .filter(|frame| !frame.starts_with("control:"))
+            .filter_map(|frame| frame.split_once(':'))
+            .filter_map(|(_, json)| serde_json::from_str::<Value>(json).ok())
+            .filter(|frame| frame["method"] == "thread/snapshot")
+            .filter_map(|frame| frame["params"]["window"]["added"].as_array().cloned())
+            .flatten()
+            .filter_map(|range| range["units"].as_array().cloned())
+            .flatten()
+            .filter_map(|unit| unit["items"].as_array().cloned())
+            .flatten()
+            .filter(|item| item["type"] == "toolCall")
+            .collect();
+        assert_eq!(snap_items.len(), 1, "only pre-rewind committed tool call survives partial rewind");
+        assert_eq!(snap_items[0]["id"], "call:c_keep", "pre-rewind committed tool call keeps provisional id on reread");
+        assert_eq!(snap_items[0]["run"]["startedAt"], 40_000, "pre-rewind committed tool call keeps original startedAt on reread");
+        assert_eq!(snap_items[0]["meta"]["at"], 40_000, "pre-rewind committed tool call keeps original meta.at on reread");
+        reply.feed.detach(sub);
+
+        // Turn 3 reuses the rewound-away call id (`c_drop`): must be accepted and get its fresh timestamp (60_000).
+        let t3 = run_provisional_turn("third turn", "op-t3", "c_drop", 60_000, 60_500);
+        t3.await;
+        assert_eq!(stage_rx.recv().await, Some("c_drop"));
+        let reused_card = handle
+            .cell
+            .view
+            .load_full()
+            .items
+            .iter()
+            .find_map(|item| match item.as_ref() {
+                ThreadItem::ToolCall { id, run, meta, .. } if run.call_id.as_deref() == Some("c_drop") => Some((id.clone(), run.started_at, meta.at)),
+                _ => None,
+            })
+            .expect("reused post-rewind tool call card");
+        assert_eq!(reused_card.0.as_str(), "call:c_drop");
+        assert_eq!(reused_card.1, Some(60_000), "rewound-away call id must not inherit old pre-rewind timestamp");
+        assert_eq!(reused_card.2, Some(60_000));
+        drop(directory);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn provisional_tool_items_read_matches_item_completed_id() {
+        let data = tempfile::tempdir().expect("data dir");
+        let store = crate::session::tests::real_store(data.path()).await;
+        let rig = Rig::new();
+        rig.clock.0.store(50_000, SeqCst);
+
+        let (stage_tx, mut stage_rx) = mpsc::unbounded_channel::<&'static str>();
+        let (go_tx, go_rx) = mpsc::unbounded_channel::<()>();
+        let steps = Arc::new(Mutex::new(Some((stage_tx, go_rx))));
+
+        rig.set_script(Arc::new(move |run| {
+            let steps = steps.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let Some((stage, mut go)) = steps.lock().unwrap().take() else {
+                    return RunOutcome::Completed(Default::default());
+                };
+                // Ordinary provisional call and compat-renamed provisional call in one turn.
+                run.port.item_started(provisional_call("call:read_ok", "read_ok", "read", json!({}))).await.expect("ordinary start");
+                run.port.item_started(provisional_call("call:synth_1", "synth_1", "grep", json!({}))).await.expect("compat start");
+                run.port.item_started(provisional_call("call:synth_1", "real_1", "grep", json!({ "pattern": "x" }))).await.expect("compat rename");
+                let _ = stage.send("started");
+                go.recv().await;
+
+                run.port
+                    .commit_item(ItemCommit {
+                        iid: ItemId::from("itm_00000000000000000000000000000051"),
+                        role: Some("assistant".into()),
+                        model: true,
+                        visible: true,
+                        body: json!({
+                            "role": "assistant",
+                            "content": "",
+                            "toolCalls": [
+                                { "id": "read_ok", "name": "read", "arguments": { "file_path": "a.rs" } },
+                                { "id": "real_1", "name": "grep", "arguments": { "pattern": "x" } }
+                            ],
+                        }),
+                        prompt: None,
+                    })
+                    .await
+                    .expect("commit assistant");
+                RunOutcome::Completed(Default::default())
+            })
+        }));
+
+        let mut deps = rig.deps_parts(store);
+        deps.transcript = Arc::new(crate::session::transcript::RecordTranscript);
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let handle = start_thread(&directory).await;
+
+        let conn = mixdog_core_api::mock::MockConnection::new(ConnectionId(91), mixdog_core_api::mock::MockLimits::default());
+        let Reply::Subscribe(reply) = handle
+            .request(request("thread/resume", json!({ "threadId": handle.id.as_str(), "window": { "lastItems": 32 } }), "op-sub-read"))
+            .await
+            .expect("thread/resume")
+        else {
+            panic!("thread/resume subscribes");
+        };
+        let sub = mixdog_core_api::ids::SubscriptionId::from("sub-items-read");
+        let attached = mixdog_core_api::feed::subscribe(&reply.feed, sub.clone(), reply.window, reply.resume_from, &conn).expect("attach");
+        mixdog_core_api::sink::ConnectionSink::send_control_release(&conn, bytes::Bytes::from_static(b"{}"), attached.release).expect("release");
+        let _ = conn.drain_text_until(|frames| frames.iter().any(|f| f.contains("thread/snapshot"))).await;
+
+        turn(&handle, "read and grep", "op-items-read").await;
+        assert_eq!(stage_rx.recv().await, Some("started"));
+        crate::eventually_on!(&[&handle.cell.stepped], || {
+            let view = handle.cell.view.load_full();
+            let count = view.items.iter().filter(|item| matches!(item.as_ref(), ThreadItem::ToolCall { .. })).count();
+            (count == 2).then_some(())
+        })
+        .await;
+
+        rig.clock.0.store(50_500, SeqCst);
+        go_tx.send(()).unwrap();
+        let frames = conn.drain_text_until(|frames| frames.iter().filter(|f| f.contains("item/completed") && f.contains("\"toolCall\"")).count() >= 2).await;
+        let completed_ids: Vec<String> = frames
+            .iter()
+            .filter(|frame| !frame.starts_with("control:"))
+            .filter_map(|frame| frame.split_once(':'))
+            .filter_map(|(_, json)| serde_json::from_str::<Value>(json).ok())
+            .filter(|frame| frame["method"] == "item/completed" && frame["params"]["item"]["type"] == "toolCall")
+            .filter_map(|frame| frame["params"]["item"]["id"].as_str().map(str::to_owned))
+            .collect();
+        assert_eq!(completed_ids, vec!["call:read_ok".to_owned(), "call:synth_1".to_owned()]);
+
+        let Reply::Value(read_reply) = mixdog_core_api::ThreadDirectory::request(
+            &directory,
+            request("thread/items/read", json!({ "threadId": handle.id.as_str(), "itemIds": completed_ids }), "op-read-completed"),
+        )
+        .await
+        .expect("thread/items/read must succeed for exact item/completed ids") else {
+            panic!("thread/items/read returns value");
+        };
+        let items = read_reply["items"].as_array().expect("items array");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["id"], "call:read_ok");
+        assert_eq!(items[0]["run"]["callId"], "read_ok");
+        assert_eq!(items[0]["run"]["startedAt"], 50_000);
+        assert_eq!(items[0]["meta"]["at"], 50_000);
+        assert_eq!(items[1]["id"], "call:synth_1");
+        assert_eq!(items[1]["run"]["callId"], "real_1");
+        assert_eq!(items[1]["run"]["startedAt"], 50_000);
+        assert_eq!(items[1]["meta"]["at"], 50_000);
+
+        reply.feed.detach(sub);
+        drop(directory);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn provisional_tool_encode_failure_does_not_block_retry_with_same_id() {
+        struct FailFirstAssistantCodec {
+            failed_once: std::sync::atomic::AtomicBool,
+        }
+        impl crate::session::seams::RecordCodec for FailFirstAssistantCodec {
+            fn encode(
+                &self,
+                lane: &mixdog_rt::InLane<mixdog_rt::CpuInteractive>,
+                record: &mixdog_store::schema::record::Record,
+            ) -> Result<crate::session::seams::EncodedRecord, mixdog_core_api::CoreError> {
+                if let mixdog_store::schema::record::Record::Item(item) = record
+                    && item.role.as_ref().is_some_and(|role| role.as_str() == "assistant")
+                    && !self.failed_once.swap(true, SeqCst)
+                {
+                    return Err(mixdog_core_api::CoreError::ItemTooLarge { limit: 0 });
+                }
+                crate::session::store::StoreCodec.encode(lane, record)
+            }
+        }
+
+        let rig = Rig::new();
+        rig.clock.0.store(70_000, SeqCst);
+        let (stage_tx, mut stage_rx) = mpsc::unbounded_channel::<&'static str>();
+        let (go_tx, go_rx) = mpsc::unbounded_channel::<()>();
+        let steps = Arc::new(Mutex::new(Some((stage_tx, go_rx))));
+
+        rig.set_script(Arc::new(move |run| {
+            let steps = steps.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let Some((stage, mut go)) = steps.lock().unwrap().take() else {
+                    return RunOutcome::Completed(Default::default());
+                };
+                // First commit fails during encode: must not poison committed_tool_calls.
+                let first_commit = run
+                    .port
+                    .commit_item(ItemCommit {
+                        iid: ItemId::from("itm_00000000000000000000000000000061"),
+                        role: Some("assistant".into()),
+                        model: true,
+                        visible: true,
+                        body: json!({
+                            "role": "assistant",
+                            "content": "",
+                            "toolCalls": [{ "id": "enc_retry_1", "name": "read", "arguments": { "file_path": "x.rs" } }],
+                        }),
+                        prompt: None,
+                    })
+                    .await;
+                assert!(first_commit.is_err(), "first assistant encode must fail");
+                let _ = stage.send("encode_failed");
+                go.recv().await;
+
+                // Retry reuses the exact same tool call id: provisional start must be accepted (not silently dropped).
+                run.port.item_started(provisional_call("call:enc_retry_1", "enc_retry_1", "read", json!({}))).await.expect("retry provisional start");
+                let _ = stage.send("retry_started");
+                go.recv().await;
+
+                run.port
+                    .commit_item(ItemCommit {
+                        iid: ItemId::from("itm_00000000000000000000000000000062"),
+                        role: Some("assistant".into()),
+                        model: true,
+                        visible: true,
+                        body: json!({
+                            "role": "assistant",
+                            "content": "",
+                            "toolCalls": [{ "id": "enc_retry_1", "name": "read", "arguments": { "file_path": "x.rs" } }],
+                        }),
+                        prompt: None,
+                    })
+                    .await
+                    .expect("retry commit assistant");
+                RunOutcome::Completed(Default::default())
+            })
+        }));
+
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.codec = Arc::new(FailFirstAssistantCodec { failed_once: std::sync::atomic::AtomicBool::new(false) });
+        deps.transcript = Arc::new(crate::session::transcript::RecordTranscript);
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let handle = start_thread(&directory).await;
+        turn(&handle, "read x.rs", "op-enc-fail").await;
+
+        assert_eq!(stage_rx.recv().await, Some("encode_failed"));
+        rig.clock.0.store(72_000, SeqCst);
+        go_tx.send(()).unwrap();
+
+        assert_eq!(stage_rx.recv().await, Some("retry_started"));
+        crate::eventually_on!(&[&handle.cell.stepped], || {
+            handle
+                .cell
+                .view
+                .load_full()
+                .items
+                .iter()
+                .any(|item| {
+                    matches!(
+                        item.as_ref(),
+                        ThreadItem::ToolCall { id, run, .. } if id.as_str() == "call:enc_retry_1" && run.started_at == Some(72_000)
+                    )
+                })
+                .then_some(())
+        })
+        .await;
+
+        rig.clock.0.store(73_000, SeqCst);
+        go_tx.send(()).unwrap();
+        crate::eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+        let card = handle
+            .cell
+            .view
+            .load_full()
+            .items
+            .iter()
+            .find_map(|item| match item.as_ref() {
+                ThreadItem::ToolCall { id, run, meta, .. } if run.call_id.as_deref() == Some("enc_retry_1") => Some((id.clone(), run.started_at, meta.at)),
+                _ => None,
+            })
+            .expect("committed retry tool call");
+        assert_eq!(card.0.as_str(), "call:enc_retry_1");
+        assert_eq!(card.1, Some(72_000));
+        assert_eq!(card.2, Some(72_000));
+        drop(directory);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn provisional_tool_evicted_renamed_card_reads_and_lists_without_item_not_found() {
+        let rig = Rig::new();
+        rig.clock.0.store(40_000, SeqCst);
+        let _data = tempfile::tempdir().expect("data dir");
+        let store = crate::session::tests::real_store(_data.path()).await;
+        let (stage_tx, mut stage_rx) = mpsc::unbounded_channel::<&'static str>();
+        let (go_tx, go_rx) = mpsc::unbounded_channel::<()>();
+        let steps = Arc::new(Mutex::new(Some((stage_tx, go_rx))));
+
+        rig.set_script(Arc::new(move |run| {
+            let steps = steps.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let Some((stage, mut go)) = steps.lock().unwrap().take() else {
+                    return RunOutcome::Completed(Default::default());
+                };
+                // Start with synthesized id, then rename in place to real provider id before committing.
+                run.port.item_started(provisional_call("call:synth_evict", "synth_evict", "grep", json!({}))).await.expect("start");
+                run.port.item_started(provisional_call("call:synth_evict", "real_evict", "grep", json!({ "pattern": "evict" }))).await.expect("rename");
+                let _ = stage.send("started");
+                go.recv().await;
+
+                run.port
+                    .commit_item(ItemCommit {
+                        iid: ItemId::from("itm_00000000000000000000000000000071"),
+                        role: Some("assistant".into()),
+                        model: true,
+                        visible: true,
+                        body: json!({
+                            "role": "assistant",
+                            "content": "",
+                            "toolCalls": [{ "id": "real_evict", "name": "grep", "arguments": { "pattern": "evict" } }],
+                        }),
+                        prompt: None,
+                    })
+                    .await
+                    .expect("commit renamed tool call");
+                // Commit additional messages to evict the renamed tool call out of `view.items` (cap = 2).
+                for i in 0..4u8 {
+                    run.port
+                        .commit_item(ItemCommit {
+                            iid: ItemId::from(format!("itm_0000000000000000000000000000007{}", i + 2)),
+                            role: Some("assistant".into()),
+                            model: true,
+                            visible: true,
+                            body: json!({ "role": "assistant", "content": format!("filler message {i}") }),
+                            prompt: None,
+                        })
+                        .await
+                        .expect("commit filler");
+                }
+                RunOutcome::Completed(Default::default())
+            })
+        }));
+
+        let mut deps = rig.deps_parts(store);
+        deps.limits.view_items = 2;
+        deps.transcript = Arc::new(crate::session::transcript::RecordTranscript);
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let handle = start_thread(&directory).await;
+        turn(&handle, "evict renamed card", "op-evict").await;
+
+        assert_eq!(stage_rx.recv().await, Some("started"));
+        crate::eventually_on!(&[&handle.cell.stepped], || {
+            handle
+                .cell
+                .view
+                .load_full()
+                .items
+                .iter()
+                .any(|item| matches!(item.as_ref(), ThreadItem::ToolCall { id, run, .. } if id.as_str() == "call:synth_evict" && run.call_id.as_deref() == Some("real_evict")))
+                .then_some(())
+        })
+        .await;
+
+        rig.clock.0.store(45_000, SeqCst);
+        go_tx.send(()).unwrap();
+        crate::eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+
+        // Confirm the renamed card has genuinely left the bounded `view.items` sliding window.
+        let view = handle.cell.view.load_full();
+        assert!(
+            !view.items.iter().any(|item| item.id().as_str() == "call:synth_evict"),
+            "renamed tool card must be evicted from view.items before testing durable reads: {:?}",
+            view.items
+        );
+
+        // `thread/items/read` with the exact `item/completed` id must succeed with original timestamps.
+        let Reply::Value(read_reply) = mixdog_core_api::ThreadDirectory::request(
+            &directory,
+            request("thread/items/read", json!({ "threadId": handle.id.as_str(), "itemIds": ["call:synth_evict"] }), "op-evict-read"),
+        )
+        .await
+        .expect("evicted renamed card must still resolve via thread/items/read") else {
+            panic!("thread/items/read returns value");
+        };
+        let read_item = &read_reply["items"][0];
+        assert_eq!(read_item["id"], "call:synth_evict");
+        assert_eq!(read_item["run"]["callId"], "real_evict");
+        assert_eq!(read_item["run"]["startedAt"], 40_000);
+        assert_eq!(read_item["meta"]["at"], 40_000);
+
+        // `thread/items/list` must also project the exact `item/completed` id and original timestamps.
+        let Reply::Value(list_reply) = mixdog_core_api::ThreadDirectory::request(
+            &directory,
+            request("thread/items/list", json!({ "threadId": handle.id.as_str(), "limit": 20 }), "op-evict-list"),
+        )
+        .await
+        .expect("thread/items/list succeeds") else {
+            panic!("thread/items/list returns value");
+        };
+        let listed_tool =
+            list_reply["data"].as_array().expect("data array").iter().find(|item| item["type"] == "toolCall").expect("evicted tool call present in items/list");
+        assert_eq!(listed_tool["id"], "call:synth_evict");
+        assert_eq!(listed_tool["run"]["callId"], "real_evict");
+        assert_eq!(listed_tool["run"]["startedAt"], 40_000);
+        assert_eq!(listed_tool["meta"]["at"], 40_000);
+
+        // `thread/turns/list` with `itemsView: true` must agree too.
+        let Reply::Value(turns_reply) = mixdog_core_api::ThreadDirectory::request(
+            &directory,
+            request("thread/turns/list", json!({ "threadId": handle.id.as_str(), "itemsView": true }), "op-evict-turns"),
+        )
+        .await
+        .expect("thread/turns/list succeeds") else {
+            panic!("thread/turns/list returns value");
+        };
+        let turn_tool = turns_reply["data"]
+            .as_array()
+            .expect("turns array")
+            .iter()
+            .flat_map(|turn| turn["items"].as_array().into_iter().flatten())
+            .find(|item| item["type"] == "toolCall")
+            .expect("evicted tool call present in turns/list");
+        assert_eq!(turn_tool["id"], "call:synth_evict");
+        assert_eq!(turn_tool["run"]["callId"], "real_evict");
+        assert_eq!(turn_tool["run"]["startedAt"], 40_000);
+        assert_eq!(turn_tool["meta"]["at"], 40_000);
+        drop(directory);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn provisional_tool_partial_cut_commit_withdraws_unfinished_b_while_a_proceeds() {
+        let rig = Rig::new();
+        rig.clock.0.store(60_000, SeqCst);
+        let (stage_tx, mut stage_rx) = mpsc::unbounded_channel::<&'static str>();
+        let (go_tx, go_rx) = mpsc::unbounded_channel::<()>();
+        let steps = Arc::new(Mutex::new(Some((stage_tx, go_rx))));
+
+        rig.set_script(Arc::new(move |run| {
+            let steps = steps.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let Some((stage, mut go)) = steps.lock().unwrap().take() else {
+                    return RunOutcome::Completed(Default::default());
+                };
+                run.port.item_started(provisional_call("call:cut_a", "cut_a", "read", json!({ "file_path": "a.rs" }))).await.expect("start A");
+                run.port.item_started(provisional_call("call:cut_b", "cut_b", "grep", json!({}))).await.expect("start B");
+                let _ = stage.send("both_started");
+                go.recv().await;
+
+                // Partial-tool recovery commits assistant [A] alone while B was cut mid-stream.
+                run.port
+                    .commit_item(ItemCommit {
+                        iid: ItemId::from("itm_00000000000000000000000000000081"),
+                        role: Some("assistant".into()),
+                        model: true,
+                        visible: true,
+                        body: json!({
+                            "role": "assistant",
+                            "content": "",
+                            "toolCalls": [{ "id": "cut_a", "name": "read", "arguments": { "file_path": "a.rs" } }],
+                        }),
+                        prompt: None,
+                    })
+                    .await
+                    .expect("commit A");
+                let _ = stage.send("a_committed");
+                go.recv().await;
+
+                // Now A finishes executing and commits its result.
+                run.port
+                    .commit_item(ItemCommit {
+                        iid: ItemId::from("itm_00000000000000000000000000000082"),
+                        role: Some("tool".into()),
+                        model: true,
+                        visible: true,
+                        body: json!({
+                            "role": "tool",
+                            "toolCallId": "cut_a",
+                            "toolName": "read",
+                            "content": "file contents",
+                        }),
+                        prompt: None,
+                    })
+                    .await
+                    .expect("commit A result");
+                RunOutcome::Completed(Default::default())
+            })
+        }));
+
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.transcript = Arc::new(crate::session::transcript::RecordTranscript);
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let handle = start_thread(&directory).await;
+        turn(&handle, "partial cut", "op-partial-cut").await;
+
+        assert_eq!(stage_rx.recv().await, Some("both_started"));
+        crate::eventually_on!(&[&handle.cell.stepped], || {
+            let view = handle.cell.view.load_full();
+            let count = view.items.iter().filter(|item| matches!(item.as_ref(), ThreadItem::ToolCall { .. })).count();
+            (count == 2).then_some(())
+        })
+        .await;
+
+        rig.clock.0.store(61_000, SeqCst);
+        go_tx.send(()).unwrap();
+        assert_eq!(stage_rx.recv().await, Some("a_committed"));
+        // Before A's result commits or turn closes, B must ALREADY be withdrawn while A remains active.
+        crate::eventually_on!(&[&handle.cell.stepped], || {
+            let frames = rig.feeds.frames(handle.id.as_str());
+            let b_withdrawn = frames.iter().any(|(_, method, params)| {
+                method == "item/completed"
+                    && params["item"]["id"] == "call:cut_b"
+                    && params["item"]["meta"]["status"] == "interrupted"
+                    && params["item"]["meta"]["ext"]["withdrawn"] == true
+            });
+            let view = handle.cell.view.load_full();
+            let b_gone = !view.items.iter().any(|item| item.id().as_str() == "call:cut_b");
+            let a_present = view.items.iter().any(|item| item.id().as_str() == "call:cut_a");
+            (b_withdrawn && b_gone && a_present).then_some(())
+        })
+        .await;
+
+        rig.clock.0.store(62_000, SeqCst);
+        go_tx.send(()).unwrap();
+        crate::eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+        let view = handle.cell.view.load_full();
+        let tool_cards: Vec<_> = view
+            .items
+            .iter()
+            .filter_map(|item| match item.as_ref() {
+                ThreadItem::ToolCall { id, run, .. } => Some((id.as_str().to_owned(), run.call_id.clone(), run.started_at, run.result.is_some())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tool_cards, vec![("call:cut_a".to_owned(), Some("cut_a".to_owned()), Some(60_000), true)]);
+        drop(directory);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn provisional_tool_window_demand_refits_within_frame_budget_after_id_substitution() {
+        let rig = Rig::new();
+        rig.clock.0.store(80_000, SeqCst);
+        let _data = tempfile::tempdir().expect("data dir");
+        let store = crate::session::tests::real_store(_data.path()).await;
+        let long_call_id = format!("long_{}", "z".repeat(1_024));
+        let long_item_id = format!("call:{long_call_id}");
+        let long_call_for_script = long_call_id.clone();
+        let long_item_for_script = long_item_id.clone();
+        let (stage_tx, mut stage_rx) = mpsc::unbounded_channel::<&'static str>();
+        let (go_tx, go_rx) = mpsc::unbounded_channel::<()>();
+        let steps = Arc::new(Mutex::new(Some((stage_tx, go_rx))));
+
+        rig.set_script(Arc::new(move |run| {
+            let steps = steps.clone();
+            let long_call_id = long_call_for_script.clone();
+            let long_item_id = long_item_for_script.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let Some((stage, mut go)) = steps.lock().unwrap().take() else {
+                    return RunOutcome::Completed(Default::default());
+                };
+                // Commit padded assistant records (~15 KiB each) followed by a tool call with a long opaque call id
+                // so the range crosses the 64 KiB frame budget.
+                for i in 0..4u8 {
+                    run.port
+                        .commit_item(ItemCommit {
+                            iid: ItemId::from(format!("itm_0000000000000000000000000000009{i}")),
+                            role: Some("assistant".into()),
+                            model: true,
+                            visible: true,
+                            body: json!({ "role": "assistant", "content": format!("pad-{i}-{}", "a".repeat(15_000)) }),
+                            prompt: None,
+                        })
+                        .await
+                        .expect("commit pad");
+                }
+                run.port.item_started(provisional_call(&long_item_id, &long_call_id, "read", json!({ "file_path": "big.rs" }))).await.expect("start long");
+                let _ = stage.send("started");
+                go.recv().await;
+                run.port
+                    .commit_item(ItemCommit {
+                        iid: ItemId::from("itm_00000000000000000000000000000099"),
+                        role: Some("assistant".into()),
+                        model: true,
+                        visible: true,
+                        body: json!({
+                            "role": "assistant",
+                            "content": "",
+                            "toolCalls": [{ "id": long_call_id, "name": "read", "arguments": { "file_path": "big.rs" } }],
+                        }),
+                        prompt: None,
+                    })
+                    .await
+                    .expect("commit long");
+                RunOutcome::Completed(Default::default())
+            })
+        }));
+
+        let mut deps = rig.deps_parts(store);
+        deps.transcript = Arc::new(crate::session::transcript::RecordTranscript);
+        let feed_limits = mixdog_core_base::feed::FeedLimits { ring_bytes: 1 << 20, max_snapshot_bytes: 64 << 10 };
+        deps.feeds = Arc::new(CoreThreadFeeds { limits: feed_limits, cpu: mixdog_rt::testing::tokens().cpu_interactive });
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let handle = start_thread(&directory).await;
+
+        turn(&handle, "budget check", "op-budget").await;
+        assert_eq!(stage_rx.recv().await, Some("started"));
+        crate::eventually_on!(&[&handle.cell.stepped], || {
+            handle.cell.view.load_full().items.iter().any(|item| item.id().as_str() == long_item_id).then_some(())
+        })
+        .await;
+        go_tx.send(()).unwrap();
+        crate::eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+
+        let limits =
+            mixdog_core_api::mock::MockLimits { queue_bytes: 256 << 10, control_reserve_bytes: 64 << 10, max_snapshot_bytes: 64 << 10, ring_bytes: 1 << 20 };
+        let conn = mixdog_core_api::mock::MockConnection::new(ConnectionId(92), limits);
+        let Reply::Subscribe(reply) = handle
+            .request(CoreRequest {
+                ctx: CallContext::connection(ConnectionId(92), mixdog_protocol::Origin::Local, CancellationToken::new()),
+                ..request("thread/resume", json!({ "threadId": handle.id.as_str(), "window": { "lastItems": 32 }, "positionedWindow": true }), "op-sub-budget")
+            })
+            .await
+            .expect("thread/resume")
+        else {
+            panic!("thread/resume subscribes");
+        };
+        let budget = mixdog_core_api::feed::FeedSource::frame_budget(&*reply.feed);
+        let sub = mixdog_core_api::ids::SubscriptionId::from("sub-budget");
+        let attached = mixdog_core_api::feed::subscribe(&reply.feed, sub.clone(), reply.window, reply.resume_from, &conn).expect("attach");
+        mixdog_core_api::sink::ConnectionSink::send_control_release(&conn, bytes::Bytes::from_static(b"{}"), attached.release).expect("release");
+        let snap_frames = conn.drain_text_until(|frames| frames.iter().any(|f| f.contains("thread/snapshot"))).await;
+        let snapshot: Value = snap_frames
+            .iter()
+            .filter_map(|f| f.split_once(':'))
+            .filter_map(|(_, json)| serde_json::from_str::<Value>(json).ok())
+            .find(|v| v["method"] == "thread/snapshot")
+            .expect("thread/snapshot");
+        let version = snapshot["params"]["window"]["windowVersion"].as_u64().expect("windowVersion");
+
+        let set_req = CoreRequest {
+            ctx: CallContext::connection(ConnectionId(92), mixdog_protocol::Origin::Local, CancellationToken::new()),
+            ..request(
+                "thread/window/set",
+                json!({
+                    "threadId": handle.id.as_str(),
+                    "subscriptionId": "sub-budget",
+                    "requestId": "req-budget-1",
+                    "baseWindowVersion": version,
+                    "want": {
+                        "ranges": [{
+                            "at": "before",
+                            "position": "h1:0:itm_00000000000000000000000000000099",
+                            "rows": 10
+                        }],
+                        "pinned": [],
+                        "followTail": false
+                    }
+                }),
+                "op-window-budget",
+            )
+        };
+        handle.request(set_req).await.expect("thread/window/set succeeds within frame budget");
+
+        let frames = conn.drain_text_until(|frames| frames.iter().any(|f| f.contains("thread/window/changed"))).await;
+        let changed_frame = frames.iter().rev().find(|f| f.contains("thread/window/changed")).expect("thread/window/changed frame");
+        let (_, payload) = changed_frame.split_once(':').expect("prefixed frame");
+        assert!(payload.len() <= budget, "positioned thread/window/changed frame ({} bytes) must stay within transport budget ({budget} bytes)", payload.len());
+        assert!(payload.contains(&long_item_id), "fitted window still carries the substituted opaque call id");
+        reply.feed.detach(sub);
+        drop(directory);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn provisional_tool_cold_resume_publishes_call_id_and_items_read_accepts_both() {
+        let rig = Rig::new();
+        rig.clock.0.store(40_000, SeqCst);
+        let _data = tempfile::tempdir().expect("data dir");
+        let store = crate::session::tests::real_store(_data.path()).await;
+        let (stage_tx, mut stage_rx) = mpsc::unbounded_channel::<&'static str>();
+        let (go_tx, go_rx) = mpsc::unbounded_channel::<()>();
+        let steps = Arc::new(Mutex::new(Some((stage_tx, go_rx))));
+        let canonical_iid = "itm_00000000000000000000000000000081";
+
+        rig.set_script(Arc::new(move |run| {
+            let steps = steps.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let Some((stage, mut go)) = steps.lock().unwrap().take() else {
+                    return RunOutcome::Completed(Default::default());
+                };
+                run.port.item_started(provisional_call("call:synth_cold", "synth_cold", "read", json!({}))).await.expect("start");
+                run.port.item_started(provisional_call("call:synth_cold", "real_cold", "read", json!({ "file_path": "cold.rs" }))).await.expect("rename");
+                let _ = stage.send("started");
+                go.recv().await;
+                run.port
+                    .commit_item(ItemCommit {
+                        iid: ItemId::from(canonical_iid),
+                        role: Some("assistant".into()),
+                        model: true,
+                        visible: true,
+                        body: json!({
+                            "role": "assistant",
+                            "content": "",
+                            "toolCalls": [{ "id": "real_cold", "name": "read", "arguments": { "file_path": "cold.rs" } }],
+                            "meta": { "transcript": { "at": 45_000 } }
+                        }),
+                        prompt: None,
+                    })
+                    .await
+                    .expect("commit assistant");
+                RunOutcome::Completed(Default::default())
+            })
+        }));
+
+        let mut deps = rig.deps_parts(store.clone());
+        deps.transcript = Arc::new(crate::session::transcript::RecordTranscript);
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let handle = start_thread(&directory).await;
+        let thread_id = handle.id.clone();
+        turn(&handle, "cold resume check", "op-cold").await;
+        assert_eq!(stage_rx.recv().await, Some("started"));
+        crate::eventually_on!(&[&handle.cell.stepped], || {
+            handle
+                .cell
+                .view
+                .load_full()
+                .items
+                .iter()
+                .any(|item| matches!(item.as_ref(), ThreadItem::ToolCall { id, run, .. } if id.as_str() == "call:synth_cold" && run.call_id.as_deref() == Some("real_cold")))
+                .then_some(())
+        })
+        .await;
+        rig.clock.0.store(45_000, SeqCst);
+        go_tx.send(()).unwrap();
+        crate::eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+        drop(handle);
+        drop(directory);
+
+        // Cold resume from a brand-new SessionDirectory sharing only the durable store (`directory.rs::open` -> `items_as`).
+        let rig2 = Rig::new();
+        let mut deps2 = rig2.deps_parts(store);
+        deps2.transcript = Arc::new(crate::session::transcript::RecordTranscript);
+        let directory2 = SessionDirectory::new(Arc::new(deps2));
+        let resumed = directory2.open_handle(&thread_id, &CallContext::internal("cold-resume-test")).await.expect("cold resume open");
+        let view = resumed.cell.view.load_full();
+        let cold_tool = view
+            .items
+            .iter()
+            .find_map(|item| match item.as_ref() {
+                ThreadItem::ToolCall { id, run, meta, .. } if run.call_id.as_deref() == Some("real_cold") => Some((id.clone(), run.started_at, meta.at)),
+                _ => None,
+            })
+            .expect("cold-resumed view must contain the tool call");
+        assert_eq!(cold_tool.0.as_str(), "call:synth_cold", "cold resume must publish call:* id, not canonical itm_*");
+        assert_eq!(cold_tool.1, Some(40_000), "cold resume must preserve original startedAt");
+        assert_eq!(cold_tool.2, Some(40_000), "cold resume must preserve original meta.at");
+
+        // `thread/items/read` must accept BOTH the cold-resumed `call:*` id AND the canonical `itm_*` id.
+        let Reply::Value(read_reply) = mixdog_core_api::ThreadDirectory::request(
+            &directory2,
+            request("thread/items/read", json!({ "threadId": thread_id.as_str(), "itemIds": ["call:synth_cold", canonical_iid] }), "op-cold-read"),
+        )
+        .await
+        .expect("thread/items/read must accept both call:* and canonical itm_* ids") else {
+            panic!("thread/items/read returns value");
+        };
+        let items = read_reply["items"].as_array().expect("items array");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["id"], "call:synth_cold");
+        assert_eq!(items[1]["id"], "call:synth_cold");
+        assert_eq!(items[0]["run"]["startedAt"], 40_000);
+        drop(resumed);
+        drop(directory2);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn provisional_tool_items_list_byte_budget_counts_full_substituted_arguments() {
+        let rig = Rig::new();
+        rig.clock.0.store(70_000, SeqCst);
+        let _data = tempfile::tempdir().expect("data dir");
+        let store = crate::session::tests::real_store(_data.path()).await;
+        let steps = Arc::new(Mutex::new(true));
+
+        rig.set_script(Arc::new(move |run| {
+            let steps = steps.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                if !std::mem::replace(&mut *steps.lock().unwrap(), false) {
+                    return RunOutcome::Completed(Default::default());
+                }
+                for i in 0..10u8 {
+                    let call_id = format!("big_call_{i}");
+                    let item_id = format!("call:{call_id}");
+                    let payload = "z".repeat(4_096);
+                    run.port.item_started(provisional_call(&item_id, &call_id, "write", json!({}))).await.expect("start");
+                    run.port
+                        .commit_item(ItemCommit {
+                            iid: ItemId::from(format!("itm_000000000000000000000000000000c{i}")),
+                            role: Some("assistant".into()),
+                            model: true,
+                            visible: true,
+                            body: json!({
+                                "role": "assistant",
+                                "content": "",
+                                "toolCalls": [{ "id": call_id, "name": "write", "arguments": { "content": payload } }],
+                            }),
+                            prompt: None,
+                        })
+                        .await
+                        .expect("commit big tool call");
+                }
+                RunOutcome::Completed(Default::default())
+            })
+        }));
+
+        let mut deps = rig.deps_parts(store);
+        deps.transcript = Arc::new(crate::session::transcript::RecordTranscript);
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let handle = start_thread(&directory).await;
+        turn(&handle, "byte budget check", "op-bytes").await;
+        crate::eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+
+        // With 10 substituted ~4 KiB tool rows (+ 1 user row = 11 rows) and byteBudget=5000,
+        // full argument bytes exceed 5000 on the 2nd row so paging must stop at MIN_ROWS (8),
+        // NOT return all 11 rows (which happened when summary display_row bytes overwrote row.bytes).
+        let Reply::Value(list_reply) = mixdog_core_api::ThreadDirectory::request(
+            &directory,
+            request("thread/items/list", json!({ "threadId": handle.id.as_str(), "limit": 50, "byteBudget": 5_000 }), "op-bytes-list"),
+        )
+        .await
+        .expect("thread/items/list succeeds") else {
+            panic!("thread/items/list returns value");
+        };
+        let data = list_reply["data"].as_array().expect("data array");
+        assert_eq!(data.len(), 8, "byteBudget=5000 must clamp substituted 4 KiB tool rows to MIN_ROWS (8), got {}", data.len());
+        assert_eq!(list_reply["hasOlder"], true);
+        drop(directory);
+    }
+}
+
+fn assistant_record_has_call_id(record: &Record, call_id: &str) -> bool {
+    let Record::Item(item) = record else { return false };
+    if !item.role.as_ref().is_some_and(|role| role.as_str() == "assistant") {
+        return false;
+    }
+    let Slot::Inline(body) = &item.body else { return false };
+    ["toolCalls", "tool_calls"].into_iter().any(|key| {
+        body.get(key).and_then(Value::as_array).is_some_and(|calls| calls.iter().any(|call| call.get("id").and_then(Value::as_str) == Some(call_id)))
+    })
 }

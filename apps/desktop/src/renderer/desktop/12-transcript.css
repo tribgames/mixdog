@@ -75,22 +75,16 @@
   }
 }
 @container mixdog-pane (max-width: 419px) {
-  .workspace > .session-header,
-  .conversation,
   .studio-shell {
     --pane-inset: 12px;
   }
 }
 @container mixdog-pane (min-width: 640px) {
-  .workspace > .session-header,
-  .conversation,
   .studio-shell {
     --pane-inset: 24px;
   }
 }
 @container mixdog-pane (min-width: 768px) {
-  .workspace > .session-header,
-  .conversation,
   .studio-shell {
     --pane-inset: 24px;
     --pane-column: clamp(800px, 80cqi, 848px);

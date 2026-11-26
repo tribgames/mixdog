@@ -21,19 +21,9 @@ pub struct NotifyContext {
 /// `workerNotifyFn`: tool completions produced inside a worker belong to that worker's own
 /// session. Mirroring them to the owner made every promoted shell command appear as a second
 /// Lead-level card, so only the agent task's terminal handoff crosses the parent boundary.
+/// A busy worker takes the completion at its next tool boundary; an idle one is woken by its
+/// session, which hands the wake to the send flow ([`super::send::SendFlowImpl::wake_worker`]).
 pub fn worker_notify(inbox: Arc<dyn WorkerInbox>, worker_session_id: &str) -> NotifyFn {
     let worker = clean_str(worker_session_id);
-    Arc::new(move |text, meta| {
-        if worker.is_empty() {
-            return false;
-        }
-        let queued = inbox.enqueue_completion(&worker, text, meta);
-        // A busy worker takes the completion at its next tool boundary; an idle one is woken so
-        // the result reaches it now, not at its next message.
-        if queued {
-            let (inbox, worker) = (inbox.clone(), worker.clone());
-            drop(mixdog_rt::spawn("agent-worker-wake", mixdog_rt::TaskClass::Work, async move { inbox.completion_queued(&worker) }));
-        }
-        queued
-    })
+    Arc::new(move |text, meta| !worker.is_empty() && inbox.enqueue_completion(&worker, text, meta))
 }

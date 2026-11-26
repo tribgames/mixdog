@@ -54,6 +54,10 @@ impl TurnReviewApi for TurnReview {
         self.inner.begin_turn(worktree, session_id, open).await
     }
 
+    fn close_turn(&self, session_id: &str, checkpoint_id: &str) {
+        self.inner.close_turn(session_id, checkpoint_id);
+    }
+
     async fn complete_turn(&self, session_id: &str, expected: Option<&TurnToken>) -> bool {
         self.inner.complete_turn(session_id, expected).await
     }

@@ -17,7 +17,7 @@ use mixdog_agent::step_effort::StepEffortJudge;
 use mixdog_agent::todo::{TodoGuards, TodoView};
 use mixdog_agent::tools::{ToolEnv, ToolSet};
 use mixdog_agent::{RunCarry, RunConfig};
-use mixdog_ai::retry::StandardRetryDecider;
+use mixdog_ai::retry::{FallbackAwareRetryDecider, StandardRetryDecider};
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::fs::FileService;
 use mixdog_core_api::domain::process::ProcessManager;
@@ -31,17 +31,17 @@ use mixdog_store::schema::record::Header;
 use mixdog_tools::policy::{ConnectorPermissions, ToolPolicy, ToolResolver};
 use serde_json::{Value, json};
 
-use super::factory::{AssembleInput, Assembled, GateBuilder, GateContext, RunParts, SkillContext, SkillsBuilder};
+use super::factory::{AssembleInput, Assembled, GateBuilder, GateContext, PreflightLoop, PreflightTurn, RouteSwitchBus, RunParts, SkillContext, SkillsBuilder};
 use super::hooks::{PostToolDispatch, SessionToolHooks};
 use super::reactions::{LoopReactions, ReactionScope, ReactionTargets};
 use super::turn_settings::TurnSettings;
 use mixdog_core_ports::ports::gate::GateEnv;
 use mixdog_core_ports::ports::gate::SessionGate;
+use mixdog_core_ports::ports::route_facts::RouteSender;
 use mixdog_core_run::run_host::artifact::ToolResultArtifacts;
 use mixdog_core_run::run_host::failure_log::FailureWriter;
 use mixdog_core_run::run_host::failure_log::RunFailureLog;
-use mixdog_core_run::run_host::route_fallback::HopHost;
-use mixdog_core_run::run_host::route_fallback::RouteHop;
+use mixdog_core_run::run_host::route_fallback::{HopHost, PreflightDecision, PreflightFailure, PreflightReason, RouteHop, refusal_is_auth};
 
 /// The tools of a session's surface.
 pub struct SessionTools {
@@ -350,10 +350,40 @@ fn refuse(message: impl Into<String>) -> TurnError {
     TurnError { message: message.into(), data: json!({}), provider_error: None }
 }
 
+fn preflight_failure_error(failure: PreflightFailure) -> TurnError {
+    let mut message = match &failure.reason {
+        PreflightReason::QuotaExhausted { refusal } | PreflightReason::Unauthenticated { refusal } | PreflightReason::Unavailable { refusal } => {
+            refusal.clone()
+        }
+    };
+    for line in &failure.skipped {
+        message.push('\n');
+        message.push_str(line);
+    }
+    match failure.reason {
+        PreflightReason::QuotaExhausted { .. } => {
+            mixdog_core_session::session::failure_record::quota_turn_error(message, &failure.provider, &failure.model, None, json!({}))
+        }
+        PreflightReason::Unauthenticated { .. } => mixdog_core_session::session::failure_record::auth_turn_error(message, &failure.provider, json!({})),
+        PreflightReason::Unavailable { .. } => refuse(message),
+    }
+}
+
 /// The route's provider cannot run: an outside agent's route with what the agent says why itself (`agent`); any other
-/// provider is named with the registry's cause (`cause`, when it recorded one) and what to do.
-fn not_available(provider_id: &str, agent: Option<&str>, cause: Option<&str>, switched_off: bool) -> TurnError {
-    refuse(agent.map_or_else(|| mixdog_ai::service::error_text::provider_unavailable_text(provider_id, cause, switched_off), str::to_owned))
+/// provider is named with the registry's cause (`cause`, when it recorded one) and accurate unavailability wording.
+fn not_available(
+    provider_id: &str,
+    config: Option<&serde_json::Map<String, Value>>,
+    agent: Option<&str>,
+    cause: Option<&str>,
+    switched_off: bool,
+) -> TurnError {
+    if let Some(agent) = agent {
+        return refuse(agent);
+    }
+    let empty = serde_json::Map::new();
+    let cfg = config.unwrap_or(&empty);
+    refuse(mixdog_core_run::run_host::route_fallback::unavailable_provider_message(cfg, provider_id, cause, switched_off))
 }
 
 /// `ensureCodexWireSessionId` (`ask-turn-open.mjs:85`): a Codex session with no valid stored wire identity (a fork
@@ -671,15 +701,22 @@ mod unserved_provider_tests {
     #[test]
     fn a_route_that_cannot_run_says_which_provider_why_and_what_to_do() {
         let cause = "[provider] Failed to init \"cursor-oauth\": not signed in — run /login";
-        let message = not_available("cursor-oauth", None, Some(cause), false).message;
+        let message = not_available("cursor-oauth", None, None, Some(cause), false).message;
         assert_eq!(message, "Cursor OAuth is not available: not signed in. Sign in under /providers, or add an API key there.");
+
+        let removed_custom = not_available("custom-removed", None, None, None, false).message;
+        assert_eq!(removed_custom, "Custom provider \"custom-removed\" is not configured or unavailable in Settings.");
+        assert!(!removed_custom.contains("not signed in") && !removed_custom.contains("no API key"), "{removed_custom}");
     }
 
     #[test]
     fn an_outside_agent_route_that_cannot_run_is_refused_with_the_agents_own_reason() {
         let refusal = Some("Test Agent is signed out. Sign in to it in Settings.");
-        assert_eq!(not_available("acp-test-agent", refusal, None, false).message, "Test Agent is signed out. Sign in to it in Settings.");
-        assert!(not_available("acp-test-agent", None, None, false).message.starts_with("acp-test-agent is not available"));
+        assert_eq!(not_available("acp-test-agent", None, refusal, None, false).message, "Test Agent is signed out. Sign in to it in Settings.");
+        assert_eq!(
+            not_available("acp-test-agent", None, None, None, false).message,
+            "ACP agent route \"acp-test-agent\" is not configured or unavailable in Settings."
+        );
     }
 }
 
@@ -942,45 +979,73 @@ impl HostRunParts {
         Ok(RequestParts { provider, cwd, tool_set, settings, options })
     }
 
-    fn route_hop(&self, thread: &ThreadId, header: &Header, turn: &mixdog_core_api::ids::TurnId) -> Option<Arc<RouteHop>> {
+    fn route_hop_with_bus(
+        &self,
+        thread: &ThreadId,
+        header: &Header,
+        turn: &mixdog_core_api::ids::TurnId,
+        cancel: Option<&tokio_util::sync::CancellationToken>,
+    ) -> Option<(Arc<RouteHop>, Arc<RouteSwitchBus>)> {
+        struct TokenCancel(tokio_util::sync::CancellationToken);
+
+        #[async_trait]
+        impl mixdog_core_run::run_host::route_fallback::CancelSignal for TokenCancel {
+            fn is_cancelled(&self) -> bool {
+                self.0.is_cancelled()
+            }
+            async fn cancelled(&self) {
+                self.0.cancelled().await;
+            }
+        }
+
         let s = &self.services;
-        let host = s.seams.hop_host(thread, header)?;
+        let host = s.seams.hop_host(thread, header).filter(|host| host.session().is_some())?;
         let (seams, thread, turn) = (s.seams.clone(), thread.clone(), turn.clone());
         let (ceilings, clock, directory) = (s.settings.ceilings.clone(), s.clock.clone(), s.directory.clone());
-        Some(Arc::new(RouteHop::new(host).with_request_for_route(move |header| {
-            let mut options = mixdog_core_api::domain::provider::RequestOptions::default();
-            apply_identity(&mut options, &thread, header, Some(turn.clone()));
-            apply_route_options(&mut options, header);
-            let ceiling = ceilings.ceilings(text(header, "provider"), text(header, "model"), header);
-            options.model_max_output_tokens = ceiling.model_max;
-            let run = seams.run_settings(&thread, header);
-            let auto_clear = run.auto_clear.clone().unwrap_or_else(|| Arc::new(|| true));
-            let (session, book, clock) = (thread.clone(), header.get("cacheTailBook").cloned(), clock.clone());
-            let tail_gate = directory.upgrade().map(|directory| -> mixdog_agent::env::TailGateFor {
-                Arc::new(move |compact: Option<&mixdog_agent::boundary::CompactSettings>| {
-                    let clock = clock.clone();
-                    directory.deps().cache_tail.gate(
-                        session.as_str(),
-                        book.as_ref(),
-                        mixdog_ai::cache_tail::GateSettings {
-                            clock: Arc::new(move || clock.now_ms()),
-                            auto_clear: auto_clear.clone(),
-                            sizing: sizing_key(compact),
-                            fresh: false,
-                            last_send_at: None,
-                        },
-                    )
-                })
+        let switch_bus = Arc::new(RouteSwitchBus::new());
+        let sink_bus = switch_bus.clone();
+        let mut hop = RouteHop::new(host)
+            .with_on_route_switch(move |event| {
+                sink_bus.push(event);
+            })
+            .with_request_for_route(move |header| {
+                let mut options = mixdog_core_api::domain::provider::RequestOptions::default();
+                apply_identity(&mut options, &thread, header, Some(turn.clone()));
+                apply_route_options(&mut options, header);
+                let ceiling = ceilings.ceilings(text(header, "provider"), text(header, "model"), header);
+                options.model_max_output_tokens = ceiling.model_max;
+                let run = seams.run_settings(&thread, header);
+                let auto_clear = run.auto_clear.clone().unwrap_or_else(|| Arc::new(|| true));
+                let (session, book, clock) = (thread.clone(), header.get("cacheTailBook").cloned(), clock.clone());
+                let tail_gate = directory.upgrade().map(|directory| -> mixdog_agent::env::TailGateFor {
+                    Arc::new(move |compact: Option<&mixdog_agent::boundary::CompactSettings>| {
+                        let clock = clock.clone();
+                        directory.deps().cache_tail.gate(
+                            session.as_str(),
+                            book.as_ref(),
+                            mixdog_ai::cache_tail::GateSettings {
+                                clock: Arc::new(move || clock.now_ms()),
+                                auto_clear: auto_clear.clone(),
+                                sizing: sizing_key(compact),
+                                fresh: false,
+                                last_send_at: None,
+                            },
+                        )
+                    })
+                });
+                mixdog_agent::env::RouteSwitchRequest {
+                    options,
+                    compact: run.compact,
+                    header: header.clone(),
+                    escalated_max_output_tokens: ceiling.escalated,
+                    tail_gate,
+                    system: Some(super::factory::system_messages(header)),
+                }
             });
-            mixdog_agent::env::RouteSwitchRequest {
-                options,
-                compact: run.compact,
-                header: header.clone(),
-                escalated_max_output_tokens: ceiling.escalated,
-                tail_gate,
-                system: Some(super::factory::system_messages(header)),
-            }
-        })))
+        if let Some(cancel) = cancel {
+            hop = hop.with_cancel(Arc::new(TokenCancel(cancel.clone())));
+        }
+        Some((Arc::new(hop), switch_bus))
     }
 
     /// The step judge exists only when auto effort is on for the turn and the shared model has a calibration made for steps.
@@ -1070,6 +1135,35 @@ impl HostRunParts {
         self.rebuild_request(thread, header, surface, loaded, user_message, Owners::Main).await
     }
 
+    pub(crate) fn rebuildable_header(header: &Header, owners: Owners) -> bool {
+        if owners == Owners::Main && super::compaction_world::is_agent_owner(header) {
+            return false;
+        }
+        // `nextMainRequest` is null for a closed session: nothing is sent from a tombstoned record.
+        if header.get("closed") == Some(&Value::Bool(true)) || header.get("status").and_then(Value::as_str) == Some("closed") {
+            return false;
+        }
+        cwd_of(header).is_ok()
+    }
+
+    /// Whether [`Self::next_request`] can build a request for `thread`, checked without building tools, settings, or
+    /// messages.
+    pub async fn has_next_request(
+        &self,
+        thread: &ThreadId,
+        header: &Header,
+        prior: &[(mixdog_core_api::ids::ItemId, Value)],
+        owners: Owners,
+    ) -> bool {
+        if !Self::rebuildable_header(header, owners) {
+            return false;
+        }
+        if !prior.iter().any(|(_, body)| mixdog_core_session::session::route_session::has_user_conversation(std::slice::from_ref(body))) {
+            return false;
+        }
+        self.ready_provider(thread, header).await.ok().flatten().is_some()
+    }
+
     async fn rebuild_request(
         &self,
         thread: &ThreadId,
@@ -1079,11 +1173,7 @@ impl HostRunParts {
         user_message: Option<&str>,
         owners: Owners,
     ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest)> {
-        if owners == Owners::Main && super::compaction_world::is_agent_owner(header) {
-            return None;
-        }
-        // `nextMainRequest` is null for a closed session: nothing is sent from a tombstoned record.
-        if header.get("closed") == Some(&Value::Bool(true)) || header.get("status").and_then(Value::as_str) == Some("closed") {
+        if !Self::rebuildable_header(header, owners) {
             return None;
         }
         let rows: Vec<Value> = prior.iter().map(|(_, body)| body.clone()).collect();
@@ -1127,6 +1217,40 @@ pub struct SkillParts {
     /// What a loaded skill delivers now (`currentSkillDelivery`), for the skill-update notices.
     pub deliveries: Option<Arc<dyn super::mcp_seams::SkillDeliveries>>,
 }
+/// Available skill names extracted from the session header's `availableSkills` list and `<available_skills>` prompt block.
+pub(crate) fn header_skill_names(header: &Header) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    if let Some(arr) = header.get("availableSkills").and_then(Value::as_array) {
+        for entry in arr {
+            if let Some(name) = entry.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+                names.insert(name.to_owned());
+            }
+        }
+    }
+    for message in super::factory::system_messages(header) {
+        let text = message.text();
+        let mut rest = text.as_str();
+        while let Some(start) = rest.find("<available_skills>") {
+            let after = &rest[start + "<available_skills>".len()..];
+            let Some(end) = after.find("</available_skills>") else { break };
+            let block = &after[..end];
+            for line in block.lines() {
+                let trimmed = line.trim();
+                if let Some(item) = trimmed.strip_prefix("- ")
+                    && let Some((name, _)) = item.split_once(':')
+                {
+                    let name = name.trim();
+                    if !name.is_empty() {
+                        names.insert(name.to_owned());
+                    }
+                }
+            }
+            rest = &after[end + "</available_skills>".len()..];
+        }
+    }
+    names
+}
+
 /// `prepareToolCall` rereads the session's folder for each call: a Project switch the turn makes moves the calls after it.
 fn live_cwd(directory: &SessionDirectory, thread: &ThreadId) -> mixdog_agent::tools::LiveCwd {
     let live = directory.live_header(thread);
@@ -1272,6 +1396,11 @@ async fn pin_wire_route(
 
 #[async_trait]
 impl RunParts for HostRunParts {
+    fn live_header(&self, thread: &ThreadId) -> Option<Header> {
+        let directory = self.services.directory.upgrade()?;
+        Some((*directory.live_header(thread).header()).clone())
+    }
+
     async fn reconcile_turn(&self, thread: &ThreadId, admitted: Header, conversation: bool) -> Result<Header, TurnError> {
         self.services.turn_settings.reconcile_admitted(thread, conversation, admitted.get("pendingRoute")).await.map_err(refuse)
     }
@@ -1346,6 +1475,97 @@ impl RunParts for HostRunParts {
         self.services.outside.clone()
     }
 
+    async fn preflight_turn(
+        &self,
+        thread: &ThreadId,
+        turn: &mixdog_core_api::ids::TurnId,
+        header: &Header,
+        cancel: &tokio_util::sync::CancellationToken,
+    ) -> Result<PreflightTurn, TurnError> {
+        let s = &self.services;
+        let directory = s.directory.upgrade().ok_or_else(|| refuse("the session directory is closed"))?;
+        let outside = s.outside.clone();
+        let provider_id = text(header, "provider");
+        let outside_serves = outside.as_ref().is_some_and(|agents| agents.serves(header));
+        let mut agent_refusal = outside.as_ref().filter(|_| outside_serves).and_then(|agents| agents.refusal(header));
+        let mut outside_signed_out = outside.as_ref().filter(|_| outside_serves).is_some_and(|agents| agents.signed_out(header));
+
+        // Cold ACP readiness: when an ACP agent serves the route and `OutsideAgents::refusal` returned `None` (which
+        // includes `Readiness::Checking` while the initial CLI/auth probe is in flight), await `facts.ensure_ready`
+        // before dispatching so missing-CLI or signed-out cold primaries fall back to ready HTTP or ACP routes.
+        if outside_serves && agent_refusal.is_none() && matches!(s.facts.sender(None, provider_id).await, Ok(Some(RouteSender::Agent(_)))) {
+            let config = s.seams.hop_host(thread, header).map(|host| host.config()).unwrap_or_default();
+            let ready = tokio::select! {
+                res = s.facts.ensure_ready(&config, provider_id) => Some(res),
+                () = cancel.cancelled() => None,
+            };
+            match ready {
+                None => return Ok(PreflightTurn::Cancelled { switch_events: Vec::new() }),
+                Some(Err(refusal)) => {
+                    outside_signed_out = outside.as_ref().is_some_and(|agents| agents.signed_out(header)) || refusal_is_auth(&refusal);
+                    agent_refusal = Some(refusal);
+                }
+                Some(Ok(())) => {
+                    if let Some(refusal) = outside.as_ref().and_then(|agents| agents.refusal(header)) {
+                        outside_signed_out = outside.as_ref().is_some_and(|agents| agents.signed_out(header)) || refusal_is_auth(&refusal);
+                        agent_refusal = Some(refusal);
+                    }
+                }
+            }
+        }
+
+        let Some((route, switch_bus)) = self.route_hop_with_bus(thread, header, turn, Some(cancel)) else {
+            if outside_serves && agent_refusal.is_none() {
+                return Ok(PreflightTurn::Outside { header: header.clone(), notice: None, switch_events: Vec::new(), leave_old_agent: false });
+            }
+            return Ok(PreflightTurn::Continue);
+        };
+
+        match route.preflight(agent_refusal.as_deref(), outside_serves, outside_signed_out).await.map_err(refuse)? {
+            PreflightDecision::Cancelled => Ok(PreflightTurn::Cancelled { switch_events: switch_bus.drain_buffered() }),
+            PreflightDecision::StayOutside => {
+                Ok(PreflightTurn::Outside { header: header.clone(), notice: None, switch_events: switch_bus.drain_buffered(), leave_old_agent: false })
+            }
+            PreflightDecision::SwitchOutside(moved) => {
+                if !outside.as_ref().is_some_and(|agents| agents.serves(&moved.header)) {
+                    return Err(refuse("the selected fallback route requires an outside agent host"));
+                }
+                Ok(PreflightTurn::Outside {
+                    header: moved.header,
+                    notice: (!moved.notice.is_empty()).then_some(moved.notice),
+                    switch_events: switch_bus.drain_buffered(),
+                    leave_old_agent: outside_serves,
+                })
+            }
+            PreflightDecision::StayLoop(provider) => {
+                let ensured = ensure_codex_wire_id(&directory, thread, header).await?;
+                let next_header = ensured.map(|h| (*h).clone()).unwrap_or_else(|| header.clone());
+                Ok(PreflightTurn::Loop(Box::new(PreflightLoop { header: next_header, provider, route, switch_bus, landed: false, leave_old_agent: false })))
+            }
+            PreflightDecision::SwitchLoop(provider) => {
+                let landed = directory.live_header(thread).header();
+                let next_header = ensure_codex_wire_id(&directory, thread, &landed).await?.map(|h| (*h).clone()).unwrap_or_else(|| (*landed).clone());
+                Ok(PreflightTurn::Loop(Box::new(PreflightLoop {
+                    header: next_header,
+                    provider,
+                    route,
+                    switch_bus,
+                    landed: true,
+                    leave_old_agent: outside_serves,
+                })))
+            }
+            PreflightDecision::Failed(failure) => Err(preflight_failure_error(failure)),
+        }
+    }
+
+    async fn assemble_preflight(&self, input: AssembleInput<'_>, preflight: PreflightLoop) -> Result<Assembled, TurnError> {
+        let header = match self.services.directory.upgrade() {
+            Some(directory) => ensure_codex_wire_id(&directory, input.thread, &preflight.header).await?.map(|h| (*h).clone()).unwrap_or(preflight.header),
+            None => preflight.header,
+        };
+        self.assemble_with_route(input, header, preflight.provider, Some(preflight.route), preflight.landed).await
+    }
+
     async fn assemble_outside(&self, input: AssembleInput<'_>) -> Result<super::factory::OutsideAssembled, TurnError> {
         let s = &self.services;
         let seams = &s.seams;
@@ -1368,6 +1588,7 @@ impl RunParts for HostRunParts {
             Some(guards) => guards,
             None => self.turn_guards(&input, header, hidden).await,
         };
+        let (route, switch_bus) = self.route_hop_with_bus(thread, header, input.turn, Some(input.cancel)).unzip();
         Ok(super::factory::OutsideAssembled {
             header: header.clone(),
             tools: self.run_tools(thread, header, &surface).await?,
@@ -1393,6 +1614,39 @@ impl RunParts for HostRunParts {
             handoff_budget_tokens: policy.as_ref().map_or(0, |policy| policy.target_budget()).max(super::inheritance_fit::MIN_COMPACT_BUDGET_TOKENS),
             context_tokens: settings.compact.as_ref().and_then(|settings| settings.last_context_tokens),
             compact: policy,
+            limits: settings.limits,
+            skills: seams.skill_parts().map(|parts| {
+                struct MergedSkillNames {
+                    primary: Arc<dyn mixdog_mcp::skill_select::SkillNames>,
+                    extra: std::collections::HashSet<String>,
+                }
+
+                #[async_trait]
+                impl mixdog_mcp::skill_select::SkillNames for MergedSkillNames {
+                    async fn names(&self, cwd: &Path) -> Result<std::collections::HashSet<String>, String> {
+                        let mut names = self.primary.names(cwd).await?;
+                        names.extend(self.extra.iter().cloned());
+                        Ok(names)
+                    }
+                }
+
+                let extra = header_skill_names(header);
+                let names: Arc<dyn mixdog_mcp::skill_select::SkillNames> =
+                    if extra.is_empty() { parts.names } else { Arc::new(MergedSkillNames { primary: parts.names, extra }) };
+                let selection = input.skill_selection.clone();
+                Box::new(move |run: SkillContext| {
+                    Arc::new(
+                        super::mcp_seams::ExplicitSkillSelector::new(names, parts.tool, run.gate, run.env, run.cancel)
+                            .with_selection(selection)
+                            .with_deliveries(parts.deliveries),
+                    ) as Arc<dyn SkillSelector>
+                }) as SkillsBuilder
+            }),
+            reaction_targets: Some(s.reaction_targets.clone()),
+            vision: settings.vision,
+            tail: Some(self.tail_reminder(header)),
+            route,
+            switch_bus,
         })
     }
 
@@ -1401,36 +1655,63 @@ impl RunParts for HostRunParts {
         let seams = &s.seams;
         let (thread, header) = (input.thread, input.header);
         let directory = s.directory.upgrade().ok_or_else(|| refuse("the session directory is closed"))?;
-        // `ensureCodexWireSessionId` (`ask-turn-open.mjs:85`): a Codex session with no valid stored wire identity (a fork
-        // or a cold heir does not carry the source's, `cold-heir.mjs:70`) mints one and stores it before its first request.
         let ensured = ensure_codex_wire_id(&directory, thread, header).await?;
         let header = ensured.as_deref().unwrap_or(header);
-        let route = self.route_hop(thread, header, input.turn);
-        let live;
-        // An outside agent's route that cannot run has no provider of Mixdog's to be served by.
+        if let Some((route, _bus)) = self.route_hop_with_bus(thread, header, input.turn, Some(input.cancel)) {
+            let outside_signed_out = input.agent_refusal.is_some() && s.outside.as_ref().is_some_and(|agents| agents.signed_out(header));
+            match route.preflight(input.agent_refusal, false, outside_signed_out).await.map_err(refuse)? {
+                PreflightDecision::Cancelled => return Err(refuse("cancelled")),
+                PreflightDecision::StayLoop(provider) => {
+                    return self.assemble_with_route(input, header.clone(), provider, Some(route), false).await;
+                }
+                PreflightDecision::SwitchLoop(provider) => {
+                    let landed = directory.live_header(thread).header();
+                    let next_header = ensure_codex_wire_id(&directory, thread, &landed).await?.map(|h| (*h).clone()).unwrap_or_else(|| (*landed).clone());
+                    return self.assemble_with_route(input, next_header, provider, Some(route), true).await;
+                }
+                PreflightDecision::StayOutside | PreflightDecision::SwitchOutside(_) => {
+                    return Err(refuse("the selected route requires an outside agent host"));
+                }
+                PreflightDecision::Failed(failure) => return Err(preflight_failure_error(failure)),
+            }
+        }
         let ready = match input.agent_refusal {
             Some(_) => None,
             None => self.ready_provider(thread, header).await?,
         };
-        let (header, provider, landed) = match ready {
-            Some(provider) => (header, provider, false),
-            None => {
-                let provider_id = text(header, "provider");
-                let switched_off =
-                    seams.hop_host(thread, header).is_some_and(|host| mixdog_ai::service::admin_route::provider_switched_off(&host.config(), provider_id));
-                let cause = s.facts.init_error(provider_id);
-                let mut refusal = not_available(provider_id, input.agent_refusal, cause.as_deref(), switched_off);
-                // An agent that is signed out fails as a provider whose sign-in does not hold.
-                if input.agent_refusal.is_some() && s.outside.as_ref().is_some_and(|agents| agents.signed_out(header)) {
-                    refusal = mixdog_core_session::session::failure_record::auth_turn_error(refusal.message, provider_id, refusal.data);
-                }
-                let Some(route) = &route else { return Err(refusal) };
-                let Some(provider) = route.unavailable(&refusal.message).await.map_err(refuse)? else { return Err(refusal) };
-                let landed = directory.live_header(thread).header();
-                live = ensure_codex_wire_id(&directory, thread, &landed).await?.unwrap_or(landed);
-                (&*live, provider, true)
+        let Some(provider) = ready else {
+            let provider_id = text(header, "provider");
+            let host_config = seams.hop_host(thread, header).map(|host| host.config());
+            let switched_off = host_config.as_ref().is_some_and(|cfg| mixdog_ai::service::admin_route::provider_switched_off(cfg, provider_id));
+            let cause = s.facts.init_error(provider_id);
+            let mut refusal = not_available(provider_id, host_config.as_ref(), input.agent_refusal, cause.as_deref(), switched_off);
+            if input.agent_refusal.is_some() && s.outside.as_ref().is_some_and(|agents| agents.signed_out(header)) {
+                refusal = mixdog_core_session::session::failure_record::auth_turn_error(refusal.message, provider_id, refusal.data);
             }
+            return Err(refusal);
         };
+        self.assemble_with_route(input, header.clone(), provider, None, false).await
+    }
+}
+
+impl HostRunParts {
+    #[allow(
+        clippy::result_large_err,
+        reason = "Preserve the canonical structured core/provider failure by value without boxing or changing this call contract"
+    )]
+    async fn assemble_with_route(
+        &self,
+        input: AssembleInput<'_>,
+        header: Header,
+        provider: Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>,
+        route: Option<Arc<RouteHop>>,
+        landed: bool,
+    ) -> Result<Assembled, TurnError> {
+        let s = &self.services;
+        let seams = &s.seams;
+        let thread = input.thread;
+        let header = &header;
+        let directory = s.directory.upgrade().ok_or_else(|| refuse("the session directory is closed"))?;
         let provider_id = text(header, "provider");
         let RequestParts { provider, cwd, tool_set, settings, mut options } = self
             .request_parts(
@@ -1453,7 +1734,10 @@ impl RunParts for HostRunParts {
         let hidden = seams.hidden_agent(agent) || settings.hidden_agent;
         let synced_cache_opts = pin_wire_route(&directory, &input, header, &*provider, &**seams, &mut options).await?;
         let tool_env = self.tool_env(&input, header, &cwd)?;
-        let guards = self.turn_guards(&input, header, hidden).await;
+        let guards = match input.guards.clone() {
+            Some(guards) => guards,
+            None => self.turn_guards(&input, header, hidden).await,
+        };
         let hooks = self.tool_hooks(&input, header, &cwd, hidden);
         let observer: super::tool_exclusions::ObserverSlot = Arc::default();
 
@@ -1530,6 +1814,14 @@ impl RunParts for HostRunParts {
             };
             route.assembled(request, config.effort.clone(), config.text_only.clone());
         }
+        let decider: Arc<dyn mixdog_core_api::domain::retry::RetryDecider> = match &route {
+            Some(route) => {
+                let _ = route.refresh_has_fallbacks().await;
+                let route = route.clone();
+                Arc::new(FallbackAwareRetryDecider::new(Arc::new(move || route.has_remaining_fallbacks())))
+            }
+            None => Arc::new(StandardRetryDecider),
+        };
         Ok(Assembled {
             header: header.clone(),
             rows: rows.clone(),
@@ -1540,7 +1832,7 @@ impl RunParts for HostRunParts {
             worktree: cwd.to_string_lossy().into_owned(),
             config,
             clock: s.clock.clone(),
-            decider: Arc::new(StandardRetryDecider),
+            decider,
             guards,
             compactor,
             route: route.map(|route| route as Arc<dyn RouteFallback>),

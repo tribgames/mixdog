@@ -19,6 +19,20 @@ use super::model::Window;
 const USAGE_EVIDENCE_MAX_AGE_MS: i64 = 60 * 60_000;
 /// A full window with no reset time counts for this long after its reading.
 const FULL_WINDOW_FRESH_MS: i64 = 60_000;
+/// `Block::blocked_limit` marker for an automatic-pool auth/entitlement failure cooldown.
+pub const AUTH_BLOCK_LIMIT: &str = "auth";
+
+pub fn is_auth_block(block: &Block) -> bool {
+    block.blocked_limit.as_deref() == Some(AUTH_BLOCK_LIMIT)
+}
+
+fn auth_block_model(block: &Block) -> Option<String> {
+    if !is_auth_block(block) {
+        return None;
+    }
+    let earned = js_trim(block.blocked_model.as_deref().unwrap_or(""));
+    (!earned.is_empty()).then(|| earned.to_owned())
+}
 
 /// Labels every current reading scopes with `models`/`except`. A stored window
 /// carrying one without a scope predates per-model gating, so its whole
@@ -136,6 +150,9 @@ fn claim_family(block: &Block) -> Option<String> {
 /// The meters a block stands for: the windows of the limit the refusal named,
 /// else the scoped windows that gate the model that earned it.
 fn block_windows<'a>(usage: &'a Option<Usage>, block: &Block) -> Vec<&'a Window> {
+    if is_auth_block(block) {
+        return Vec::new();
+    }
     let windows = windows_of(usage);
     let limit = block.blocked_limit.as_deref().unwrap_or("");
     if !limit.is_empty() {
@@ -157,6 +174,9 @@ fn block_windows<'a>(usage: &'a Option<Usage>, block: &Block) -> Vec<&'a Window>
 
 /// The windows a fresh reading must show below 100% to lift a block.
 pub fn block_evidence_windows<'a>(usage: &'a Option<Usage>, block: &Block) -> Vec<&'a Window> {
+    if is_auth_block(block) {
+        return Vec::new();
+    }
     let earned = js_trim(block.blocked_model.as_deref().unwrap_or(""));
     let mut out = block_windows(usage, block);
     for window in windows_of(usage) {
@@ -193,6 +213,9 @@ fn block_applies_to_model(usage: &Option<Usage>, block: &Block, model: &str) -> 
     if model.is_empty() {
         return true;
     }
+    if is_auth_block(block) {
+        return earned.is_empty() || earned == model;
+    }
     let windows = block_windows(usage, block);
     if windows.is_empty()
         && let Some(family) = claim_family(block)
@@ -203,6 +226,16 @@ fn block_applies_to_model(usage: &Option<Usage>, block: &Block, model: &str) -> 
         return true;
     }
     windows.is_empty() || windows.iter().any(|w| quota_window_applies_to_model(w, model))
+}
+
+/// Whether `row` is currently held by an automatic-pool auth/entitlement block for `model`.
+pub fn account_auth_blocked(row: &Account, now: i64, model: &str) -> bool {
+    row.blocks().iter().any(|b| b.blocked_until > now && is_auth_block(b) && block_applies_to_model(&row.usage, b, model))
+}
+
+/// Whether `row` is currently held by an account-wide automatic-pool auth block (not model-scoped).
+pub fn account_wide_auth_blocked(row: &Account, now: i64) -> bool {
+    row.blocks().iter().any(|b| b.blocked_until > now && is_auth_block(b) && auth_block_model(b).is_none())
 }
 
 /// When the blocks holding `model` lift (every block when none is named): the
@@ -337,7 +370,7 @@ pub fn account_limit(row: &Account, now: i64, use_credits: bool) -> Option<Limit
     let blocks = row.blocks();
     let covered = credits_cover_windows(row, use_credits);
     let covering: Vec<(Vec<&Window>, Option<String>)> =
-        blocks.iter().filter(|b| b.blocked_until > now).map(|b| (block_windows(&row.usage, b), claim_family(b))).collect();
+        blocks.iter().filter(|b| b.blocked_until > now).map(|b| (block_windows(&row.usage, b), claim_family(b).or_else(|| auth_block_model(b)))).collect();
     if covering.iter().any(|(meters, family)| (meters.is_empty() && family.is_none()) || meters.iter().any(|w| !is_scoped(w))) {
         return Some(Limit::Account);
     }
@@ -404,7 +437,7 @@ pub fn choose_account<'a>(pool: &'a Pool, excluded: &HashSet<String>, now: i64, 
     let selected = pool.selected();
     let policy = pool.policy();
     if policy == Policy::Manual {
-        return selected.filter(|row| usable(row));
+        return selected.filter(|row| !excluded.contains(&row.id) && !account_exhausted(&row.with_blocks(|b| !is_auth_block(b)), now, model, credits));
     }
     let preferred = if policy == Policy::Headroom { session_account_id.and_then(|id| pool.account(id)) } else { selected };
     if let Some(row) = preferred.filter(|r| usable(r)) {
@@ -620,5 +653,49 @@ mod tests {
         backup.has_credits = Some(true);
         let pool = Pool { accounts: vec![depleted, backup], selected_id: Some("a".into()), use_credits: Some(true), ..Pool::default() };
         assert_eq!(choose_account(&pool, &HashSet::new(), NOW, "gpt-6.2-astra", None).map(|r| r.id.as_str()), Some("backup"));
+    }
+
+    #[test]
+    fn auth_blocks_exclude_in_auto_survive_usage_readings_and_respect_manual_pinning() {
+        let none = HashSet::new();
+        let mut a = row("a", vec![win("5H", 10.0, Some(NOW + 60_000))], NOW);
+        let b = row("b", vec![win("5H", 20.0, Some(NOW + 60_000))], NOW);
+
+        let model_auth = Block {
+            blocked_until: NOW + 60_000,
+            blocked_model: Some("claude-opus-4".into()),
+            blocked_limit: Some(AUTH_BLOCK_LIMIT.into()),
+            ..Block::default()
+        };
+        a.set_blocks(vec![model_auth.clone()]);
+        assert!(is_auth_block(&model_auth));
+        assert!(block_evidence_windows(&a.usage, &model_auth).is_empty(), "usage readings below 100% never lift an auth block");
+        assert!(!block_covered_by_credits(&a.usage, &model_auth));
+        assert!(account_auth_blocked(&a, NOW, "claude-opus-4"));
+        assert!(!account_auth_blocked(&a, NOW, "claude-sonnet-4"));
+        assert!(!account_wide_auth_blocked(&a, NOW), "model-scoped auth block is not account-wide");
+        assert_eq!(account_limit(&a, NOW, true), Some(Limit::Model(vec!["claude-opus-4".into()])));
+        assert!(account_exhausted_for_model_only(&a, NOW, "claude-opus-4", true));
+        assert!(account_exhausted(&a, NOW, "claude-opus-4", true));
+        assert!(!account_exhausted(&a, NOW, "claude-sonnet-4", true));
+
+        let mut pool = Pool { accounts: vec![a.clone(), b.clone()], selected_id: Some("a".into()), ..Pool::default() };
+        assert_eq!(choose_account(&pool, &none, NOW, "claude-opus-4", None).map(|r| r.id.as_str()), Some("b"));
+        assert_eq!(choose_account(&pool, &none, NOW, "claude-sonnet-4", None).map(|r| r.id.as_str()), Some("a"));
+
+        // Account-wide auth block (401/reauth) holds every model in automatic policy.
+        let wide_auth = Block { blocked_until: NOW + 60_000, blocked_limit: Some(AUTH_BLOCK_LIMIT.into()), ..Block::default() };
+        pool.accounts[0].set_blocks(vec![wide_auth]);
+        assert!(account_auth_blocked(&pool.accounts[0], NOW, "claude-sonnet-4"));
+        assert!(account_wide_auth_blocked(&pool.accounts[0], NOW));
+        assert_eq!(account_limit(&pool.accounts[0], NOW, true), Some(Limit::Account));
+        assert!(!account_exhausted_for_model_only(&pool.accounts[0], NOW, "claude-sonnet-4", true));
+        assert_eq!(choose_account(&pool, &none, NOW, "claude-sonnet-4", None).map(|r| r.id.as_str()), Some("b"));
+
+        // Manual policy stays strictly pinned to the selected account and never rotates to B.
+        pool.set_policy(Policy::Manual);
+        assert_eq!(choose_account(&pool, &none, NOW, "claude-opus-4", None).map(|r| r.id.as_str()), Some("a"));
+        let excluded_a: HashSet<String> = ["a".to_owned()].into();
+        assert!(choose_account(&pool, &excluded_a, NOW, "claude-opus-4", None).is_none());
     }
 }

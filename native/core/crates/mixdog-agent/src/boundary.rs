@@ -32,7 +32,6 @@ use crate::env::Rewrite;
 use crate::env::RunEvent;
 use crate::env::SessionPressure;
 use crate::env::Stage;
-use crate::env::Tone;
 use crate::env::or_cancelled;
 use crate::message::AgentMessage;
 use crate::repair::repair_before_send;
@@ -535,9 +534,9 @@ impl Run {
 
     /// The loop's answer to the cache owner's cold decision for the attempt it refused: the transcript is compacted when
     /// a smaller valid one exists (sized as a manual compaction is when automatic compaction is off), else it goes out
-    /// unchanged; only a failed compaction is told to the user. `lease` is the claimed rewrite: resolved with the outcome, or, on a cancelled or surfaced
-    /// failure (or this future dropped), released undecided so a waiter takes it over. A failed reduction, whose notice
-    /// this run gave, returns the leave of the request it was decided for: only this run holds it.
+    /// unchanged without emitting a user-visible transcript notice. `lease` is the claimed rewrite: resolved with the
+    /// outcome, or, on a cancelled or surfaced failure (or this future dropped), released undecided so a waiter takes it
+    /// over. A failed reduction returns the leave of the request it was decided for: only this run holds it.
     pub(crate) async fn cold_pass(&mut self, lease: RewriteLease) -> Result<Option<mixdog_core_api::domain::cache_tail::Unreduced>, AgentError> {
         let resolution = self.cold_compaction().await?;
         Ok(lease.resolve(resolution))
@@ -573,11 +572,7 @@ impl Run {
             Ran::Changed => Ok(Resolution::Compacted),
             Ran::Unchanged => Ok(Resolution::Irreducible),
             Ran::QuietFailure => {
-                self.emit(RunEvent::Stage(Stage::Notice {
-                    message: "The transcript's prompt cache expired. Compacting the transcript failed, so this request will resend the transcript unchanged."
-                        .to_owned(),
-                    tone: Tone::Info,
-                }));
+                tracing::warn!(session = self.config.thread_id.as_str(), "prompt cache expired and compaction failed; resending transcript unchanged");
                 Ok(Resolution::Failed)
             }
         }

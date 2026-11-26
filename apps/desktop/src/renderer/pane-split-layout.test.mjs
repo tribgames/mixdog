@@ -87,3 +87,66 @@ test('PaneSplitLayout unconditionally restores React-owned flex before onRatioCh
   assert.equal(cells[0].style.flex, initialFirstFlex, 'clamped commit leaves first cell flex in sync with React');
   assert.equal(cells[1].style.flex, initialSecondFlex, 'clamped commit leaves second cell flex in sync with React');
 });
+
+test('window blur terminates an active split drag and clears data-resizing', async (t) => {
+  const { dom, document, root } = installTestDom(t, {
+    expose: ['HTMLElement', 'Node', 'Event', 'PointerEvent', 'requestAnimationFrame', 'cancelAnimationFrame'],
+    rootId: 'root',
+  });
+  const rafCallbacks = [];
+  const origRaf = globalThis.requestAnimationFrame;
+  const origCancel = globalThis.cancelAnimationFrame;
+  globalThis.requestAnimationFrame = (cb) => {
+    rafCallbacks.push(cb);
+    return rafCallbacks.length;
+  };
+  globalThis.cancelAnimationFrame = () => {};
+  dom.window.requestAnimationFrame = globalThis.requestAnimationFrame;
+  dom.window.cancelAnimationFrame = globalThis.cancelAnimationFrame;
+  t.after(() => {
+    act(() => root.unmount());
+    globalThis.requestAnimationFrame = origRaf;
+    globalThis.cancelAnimationFrame = origCancel;
+  });
+  const node = {
+    type: 'split',
+    direction: 'row',
+    ratio: 0.5,
+    first: { type: 'leaf', id: 'p1', tabs: [], activeTabId: '' },
+    second: { type: 'leaf', id: 'p2', tabs: [], activeTabId: '' },
+  };
+  let commits = 0;
+  await act(async () =>
+    root.render(
+      h(PaneSplitLayout, {
+        node,
+        renderLeaf: (leaf) => h('div', null, leaf.id),
+        onRatioChange: () => {
+          commits += 1;
+        },
+      })
+    )
+  );
+  const split = document.querySelector('.pane-split');
+  const cells = document.querySelectorAll('.pane-split-cell');
+  const handle = document.querySelector('.pane-resize-handle');
+  const initialFirstFlex = cells[0].style.flex;
+  split.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 600, right: 1000, bottom: 600 });
+  const captured = new Set();
+  handle.setPointerCapture = (id) => captured.add(id);
+  handle.hasPointerCapture = (id) => captured.has(id);
+  handle.releasePointerCapture = (id) => captured.delete(id);
+  const PointerEventCtor = dom.window.PointerEvent ?? dom.window.MouseEvent;
+  await act(async () => {
+    handle.dispatchEvent(new PointerEventCtor('pointerdown', { bubbles: true, pointerId: 1, clientX: 500 }));
+    handle.dispatchEvent(new PointerEventCtor('pointermove', { bubbles: true, pointerId: 1, clientX: 680 }));
+    for (const cb of rafCallbacks.splice(0)) cb(16);
+  });
+  assert.equal(document.documentElement.dataset.resizing, 'true', 'active drag sets data-resizing');
+  await act(async () => {
+    dom.window.dispatchEvent(new dom.window.Event('blur'));
+  });
+  assert.equal(document.documentElement.dataset.resizing, undefined, 'window blur clears data-resizing');
+  assert.equal(cells[0].style.flex, initialFirstFlex, 'window blur reverts imperative preview flex');
+  assert.equal(commits, 0, 'window blur cancels without committing');
+});

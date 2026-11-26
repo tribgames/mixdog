@@ -4,6 +4,8 @@
 
 use std::sync::Arc;
 use std::sync::OnceLock;
+use std::sync::atomic::AtomicU8;
+use std::sync::atomic::Ordering;
 
 use std::time::Duration;
 
@@ -27,10 +29,15 @@ pub struct TurnSnapshot {
     inner: Arc<Inner>,
 }
 
+const BEGIN_PENDING: u8 = 0;
+const BEGIN_STARTED: u8 = 1;
+const BEGIN_SKIPPED: u8 = 2;
+
 struct Inner {
     review: Arc<dyn TurnReviewApi>,
     session: String,
     open: TurnOpen,
+    begin_state: AtomicU8,
     /// Set by the first `start`: resolves to `begin_turn`'s token (`None` when nothing began).
     started: OnceLock<watch::Receiver<Option<Option<TurnToken>>>>,
 }
@@ -41,11 +48,11 @@ impl TurnSnapshot {
         self.inner.review.clone()
     }
 
-    /// `checkpoint_id` is the turn's first submitted row; a completion wake continues the turn
-    /// that launched the worker (`continue_turn`).
-    pub fn new(review: Arc<dyn TurnReviewApi>, session: &str, checkpoint_id: &str, continue_turn: bool) -> Self {
-        let open = TurnOpen { checkpoint_id: mixdog_js::js_trim(checkpoint_id).to_owned(), continue_turn };
-        Self { inner: Arc::new(Inner { review, session: session.to_owned(), open, started: OnceLock::new() }) }
+    /// `checkpoint_id` is the turn's own checkpoint (submission id, or input item id for a wake
+    /// or other turn without one).
+    pub fn new(review: Arc<dyn TurnReviewApi>, session: &str, checkpoint_id: &str) -> Self {
+        let open = TurnOpen { checkpoint_id: mixdog_js::js_trim(checkpoint_id).to_owned() };
+        Self { inner: Arc::new(Inner { review, session: session.to_owned(), open, begin_state: AtomicU8::new(BEGIN_PENDING), started: OnceLock::new() }) }
     }
 
     /// `tracker.start`: the turn's workspace is final at `worktree`; the baseline is taken in the
@@ -57,6 +64,10 @@ impl TurnSnapshot {
         }
         let (inner, worktree) = (self.inner.clone(), worktree.to_owned());
         drop(mixdog_rt::spawn("turn-review-begin", TaskClass::Work, async move {
+            if inner.begin_state.compare_exchange(BEGIN_PENDING, BEGIN_STARTED, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+                let _ = tx.send(Some(None));
+                return;
+            }
             let token = inner.review.begin_turn(&worktree, &inner.session, inner.open.clone()).await;
             let _ = tx.send(Some(token));
         }));
@@ -69,11 +80,14 @@ impl TurnSnapshot {
         rx.wait_for(Option::is_some).await.ok().and_then(|token| token.clone()).flatten()
     }
 
-    /// The checkpoint the turn's changes are recorded under, once its review began: the turn's own, or the one a
-    /// completion wake continues.
+    /// The checkpoint the turn's changes are recorded under, once its review began.
     pub fn checkpoint(&self) -> Option<String> {
-        let token = self.inner.started.get()?.borrow().clone().flatten()?;
-        Some(token.checkpoint_id).filter(|id| !id.is_empty())
+        let rx = self.inner.started.get()?;
+        match &*rx.borrow() {
+            Some(Some(token)) => Some(token.checkpoint_id.clone()).filter(|id| !id.is_empty()),
+            Some(None) => None,
+            None => (self.inner.begin_state.load(Ordering::SeqCst) == BEGIN_STARTED).then(|| self.inner.open.checkpoint_id.clone()).filter(|id| !id.is_empty()),
+        }
     }
 
     /// `tracker.finish(signal)`: a cancelled turn keeps its edits as a change record, sealed in
@@ -85,7 +99,11 @@ impl TurnSnapshot {
         if self.inner.started.get().is_none() {
             return;
         }
-        let background = cancel.is_aborted() && !self.inner.open.continue_turn;
+        let background = cancel.is_aborted();
+        if background && self.inner.begin_state.compare_exchange(BEGIN_PENDING, BEGIN_SKIPPED, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+            return;
+        }
+        self.inner.review.close_turn(&self.inner.session, &self.inner.open.checkpoint_id);
         let this = self.clone();
         let mut seal = mixdog_rt::spawn("turn-review-seal", TaskClass::Work, async move {
             let token = this.ready().await;
@@ -160,6 +178,9 @@ mod tests {
     struct Wedged {
         sealing: Notify,
         sealed: Mutex<Vec<Option<u64>>>,
+        closed: Mutex<Vec<(String, String)>>,
+        begin_entered: Notify,
+        block_begin: bool,
     }
 
     #[async_trait]
@@ -171,7 +192,14 @@ mod tests {
         }
         fn note_change(&self, _: Option<&[String]>) {}
         async fn begin_turn(&self, _: &str, _: &str, open: tr::TurnOpen) -> Option<tr::TurnToken> {
+            self.begin_entered.notify_one();
+            if self.block_begin {
+                std::future::pending::<()>().await;
+            }
             Some(tr::TurnToken { generation: 1, checkpoint_id: open.checkpoint_id })
+        }
+        fn close_turn(&self, session_id: &str, checkpoint_id: &str) {
+            self.closed.lock().unwrap().push((session_id.to_owned(), checkpoint_id.to_owned()));
         }
         async fn complete_turn(&self, _: &str, expected: Option<&tr::TurnToken>) -> bool {
             self.sealed.lock().unwrap().push(expected.map(|t| t.generation));
@@ -217,7 +245,7 @@ mod tests {
     fn started() -> (Arc<Wedged>, TurnSnapshot) {
         mixdog_rt::testing::tokens();
         let review = Arc::new(Wedged::default());
-        let snapshot = TurnSnapshot::new(review.clone(), "s1", "cp-1", false);
+        let snapshot = TurnSnapshot::new(review.clone(), "s1", "cp-1");
         snapshot.start("/work");
         (review, snapshot)
     }
@@ -245,5 +273,23 @@ mod tests {
         cancel.abort_default();
         let ended = mixdog_rt::time::timeout(Duration::from_millis(1), waiting).await;
         assert!(ended.is_ok(), "finish outlived the cancel");
+    }
+
+    /// On cancel while `begin_turn`'s baseline is still pending, `finish` synchronously calls
+    /// `close_turn` before returning so workers completing after turn end park for the next turn.
+    #[tokio::test(start_paused = true)]
+    async fn a_cancelled_finish_synchronously_closes_the_turn_before_returning() {
+        mixdog_rt::testing::tokens();
+        let review = Arc::new(Wedged { block_begin: true, ..Wedged::default() });
+        let snapshot = TurnSnapshot::new(review.clone(), "s1", "cp-2");
+        snapshot.start("/work");
+        review.begin_entered.notified().await;
+
+        let cancel = Cancel::new();
+        cancel.abort_default();
+        let ended = mixdog_rt::time::timeout(Duration::from_millis(1), snapshot.finish(&cancel)).await;
+        assert!(ended.is_ok(), "cancelled finish must return immediately");
+        assert_eq!(*review.closed.lock().unwrap(), vec![("s1".to_owned(), "cp-2".to_owned())]);
+        assert_eq!(snapshot.checkpoint().as_deref(), Some("cp-2"));
     }
 }

@@ -265,6 +265,11 @@ export function todoDoneLabel(done: TodoItem[]): string {
     .join(' · ');
 }
 
+function splitTrailingCount(label: string): [string, string] | null {
+  const match = /^(.+?\s+)(\d.*)$/.exec(label);
+  return match ? [match[1] ?? '', match[2] ?? ''] : null;
+}
+
 /** The step list: remaining rows (the first few, working ones
  *  always, the rest folded) and a fold for the finished and dropped ones. */
 function TodoList({ todo, finishedOpenByDefault }: { todo: TodoSnapshot; finishedOpenByDefault: boolean }) {
@@ -276,11 +281,26 @@ function TodoList({ todo, finishedOpenByDefault }: { todo: TodoSnapshot; finishe
   const { shown, rest } = todoRemainingSplit(remaining);
   // A finished list opens its done rows: they are all there is to read.
   const doneOpen = showDone ?? (finishedOpenByDefault && remaining.length === 0);
+  const remainingLabel = t('Remaining {{n}}', { n: remaining.length });
+  const remainingParts = splitTrailingCount(remainingLabel);
+  const restLabel = t('Rest {{n}}', { n: rest.length });
+  const restParts = splitTrailingCount(restLabel);
+  const doneLabel = todoDoneLabel(done);
+  const doneParts = splitTrailingCount(doneLabel);
   return (
     <div className="session-goal-tasks">
       {remaining.length > 0 && (
         <div className="session-goal-group">
-          <p className="session-goal-group-label">{t('Remaining {{n}}', { n: remaining.length })}</p>
+          <p className="session-goal-group-label">
+            {remainingParts ? (
+              <>
+                <span>{remainingParts[0]}</span>
+                <span className="session-goal-group-count">{remainingParts[1]}</span>
+              </>
+            ) : (
+              remainingLabel
+            )}
+          </p>
           <ul className="session-goal-task-list" aria-label={t('To-do')}>
             <TodoRows items={shown} phases={todo.phases} headings={headings} />
           </ul>
@@ -294,8 +314,18 @@ function TodoList({ todo, finishedOpenByDefault }: { todo: TodoSnapshot; finishe
                 aria-controls={restListId}
                 onClick={() => setShowRest(!showRest)}
               >
-                {t('Rest {{n}}', { n: rest.length })}
-                <MxIcon name="chevron-down" size={12} />
+                {restParts ? (
+                  <>
+                    <span>{restParts[0]}</span>
+                    <MxIcon name="chevron-down" size={12} />
+                    <span className="session-goal-fold-count">{restParts[1]}</span>
+                  </>
+                ) : (
+                  <>
+                    {restLabel}
+                    <MxIcon name="chevron-down" size={12} />
+                  </>
+                )}
               </button>
               <ul id={restListId} className="session-goal-task-list" hidden={!showRest}>
                 <TodoRows items={rest} phases={todo.phases} headings={headings} />
@@ -314,8 +344,18 @@ function TodoList({ todo, finishedOpenByDefault }: { todo: TodoSnapshot; finishe
             aria-controls={doneListId}
             onClick={() => setShowDone(!doneOpen)}
           >
-            {todoDoneLabel(done)}
-            <MxIcon name="chevron-down" size={12} />
+            {doneParts ? (
+              <>
+                <span>{doneParts[0]}</span>
+                <MxIcon name="chevron-down" size={12} />
+                <span className="session-goal-fold-count">{doneParts[1]}</span>
+              </>
+            ) : (
+              <>
+                {doneLabel}
+                <MxIcon name="chevron-down" size={12} />
+              </>
+            )}
           </button>
           <ul id={doneListId} className="session-goal-task-list" hidden={!doneOpen}>
             <TodoRows items={done} phases={todo.phases} headings={headings} />
@@ -656,17 +696,16 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
             chip={
               <>
                 <GoalRing kind={kind} progress={progress} />
-                <span className="session-goal-meta">
-                  {!goal && <span className="session-goal-tab-label">{t('To-do')}</span>}
-                  {progressLabel && <span className="session-goal-progress">{progressLabel}</span>}
-                  {goal && (
-                    <span className="session-goal-meta-time">
-                      <span aria-hidden="true">·</span>
-                      <span className="session-goal-time">{elapsedLabel}</span>
-                    </span>
-                  )}
-                </span>
+                <span className="session-goal-tab-label">{goal ? t('Goal') : t('To-do')}</span>
+                {progressLabel && <span className="session-goal-progress">{progressLabel}</span>}
               </>
+            }
+            meta={
+              goal && elapsedLabel ? (
+                <span className="session-goal-meta-time">
+                  <span className="session-goal-time">{elapsedLabel}</span>
+                </span>
+              ) : undefined
             }
             onClose={() => setOpen(false)}
           />

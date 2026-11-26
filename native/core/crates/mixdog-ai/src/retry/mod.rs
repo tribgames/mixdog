@@ -10,5 +10,13 @@ pub mod classify;
 mod decider;
 pub mod stage;
 
+pub use decider::FallbackAwareRetryDecider;
+pub use decider::FallbackRetryBudget;
+pub use decider::MAX_RETRIES_HARD_CAP;
 pub use decider::StandardRetryDecider;
+pub use decider::effective_row_max_retries;
+pub use decider::effective_sequence_cap;
+pub use decider::escalate_retry_state;
 pub use decider::random_samples;
+pub use decider::sequence_retries;
+pub use decider::with_sequence_retries;

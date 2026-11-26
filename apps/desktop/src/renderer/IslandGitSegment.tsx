@@ -2,11 +2,12 @@ import { ArrowUp, GitCommitHorizontal, GitPullRequest, Play } from 'lucide-react
 import { useEffect, useId, useRef, useState } from 'react';
 
 import type { DesktopGitStatus } from '../shared/contract';
+import { splitCountPhrase } from './ComposerIsland';
 import { IslandSegmentPending, useComposerIslandTab } from './composer-island-state';
 import { createGitRefreshScheduler, watchGitRefreshEvidence } from './git-refresh-scheduler';
 import { t } from './i18n';
 import { type IslandGitAction, useIslandGitRequest } from './island-git-request';
-import { IslandPanelHead } from './IslandPanelFoot';
+import { IslandPanelFoot, IslandPanelHead } from './IslandPanelFoot';
 import { useMobileBack } from './mobile-back';
 import { readCachedDockGitState, requestDockGitState, retainDockGitState } from './utility-dock-git-state';
 
@@ -39,7 +40,15 @@ export const GIT_ROWS: { action: IslandGitAction; label: () => string; icon: typ
   { action: 'commit', label: () => t('Commit'), icon: GitCommitHorizontal },
 ];
 
-export function IslandGitSegment({ sessionId, cwd }: { sessionId: string; cwd: string }) {
+export function IslandGitSegment({
+  sessionId,
+  cwd,
+  onViewChanges,
+}: {
+  sessionId: string;
+  cwd: string;
+  onViewChanges?: () => void;
+}) {
   const { changes, ...git } = useIslandGitRequest({ sessionId, cwd });
   const files = changes.summary.files.size + changes.untrackedOmitted;
   const [open, setOpen] = useComposerIslandTab('git');
@@ -96,7 +105,25 @@ export function IslandGitSegment({ sessionId, cwd }: { sessionId: string; cwd: s
     event.preventDefault();
     items[(index + step + items.length) % items.length]?.focus();
   };
-  const meta = [status?.branch, t('Files {{count}}', { count: files })].filter(Boolean).join(' · ');
+  const filesText = t('Files {{count}}', { count: files });
+  const filesParts = splitCountPhrase(filesText, files);
+  const meta = (
+    <>
+      {status?.branch ? `${status.branch} · ` : ''}
+      {filesParts ? (
+        <>
+          {filesParts.before}
+          <b>{filesParts.num}</b>
+          {filesParts.after}
+        </>
+      ) : (
+        filesText
+      )}
+    </>
+  );
+  const footMeta = [status?.branch, files > 0 ? filesText : '', ahead > 0 ? `↑${ahead}` : '']
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <>
@@ -159,6 +186,24 @@ export function IslandGitSegment({ sessionId, cwd }: { sessionId: string; cwd: s
               ))}
             </div>
           </div>
+          <IslandPanelFoot
+            end={
+              onViewChanges ? (
+                <button
+                  type="button"
+                  className="composer-island-button"
+                  onClick={() => {
+                    close();
+                    onViewChanges();
+                  }}
+                >
+                  {t('Island: View changes')}
+                </button>
+              ) : undefined
+            }
+          >
+            {footMeta && <span className="composer-island-foot-meta">{footMeta}</span>}
+          </IslandPanelFoot>
         </section>
       )}
     </>

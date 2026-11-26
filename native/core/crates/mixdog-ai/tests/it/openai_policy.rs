@@ -1,11 +1,11 @@
 //! The OpenAI retry policy as the product runs it: the request row (the initial POST) retries 4 times and the stream row
 //! (a Responses stream, the WebSocket handshake and pre-output failures) 5 times on a 200 ms base doubling, server advice
-//! replaces a step in full, and a connection failure waits on the 5/10/20/40/60 s ladder with its last step repeating and
-//! never gives up. The numbers are the documented ones of `providers/openai/policy.rs`, spelled out here.
+//! replaces a step in full, and a connection failure waits on the 5/10/20/40/60 s ladder for 5 bounded attempts before
+//! exhausting. The numbers are the documented ones of `providers/openai/policy.rs`, spelled out here.
 
 use std::time::Duration;
 
-use mixdog_ai::providers::openai::policy::retry_policy;
+use mixdog_ai::providers::openai::policy::{CONNECTION_RETRIES, retry_policy};
 use mixdog_ai::retry::StandardRetryDecider;
 use mixdog_core_api::domain::conformance::check_retry_policy;
 use mixdog_core_api::domain::provider::DeliveryState;
@@ -79,11 +79,10 @@ fn server_advice_replaces_the_step_in_full() {
 }
 
 #[test]
-fn a_connect_failure_waits_for_the_network_without_end() {
+fn a_connect_failure_retries_bounded_ladder_then_exhausts() {
     let err = ProviderError::transport(TransportFault::Connect { os_code: None }, DeliveryState::NotSent);
     let (waited, ended) = waits(RetryClass::Connection, &err, 100);
-    assert_eq!(ended, None, "never exhausted");
-    assert_eq!(waited.len(), 100);
-    assert_eq!(waited[..5], ms(&[5_000, 10_000, 20_000, 40_000, 60_000])[..]);
-    assert!(waited[5..].iter().all(|wait| *wait == Duration::from_secs(60)), "the last step repeats");
+    assert_eq!(ended, Some(Verdict::Exhausted), "connection retries are bounded");
+    assert_eq!(waited.len(), CONNECTION_RETRIES as usize);
+    assert_eq!(waited, ms(&[5_000, 10_000, 20_000, 40_000, 60_000]));
 }

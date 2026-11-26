@@ -1,5 +1,6 @@
-import { useLayoutEffect, useMemo, useRef } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { itemPlacesById, type PendingPromptItem } from './conversation-prompt-items';
+import { noteTurnRowsReveal } from './conversation-turn-index';
 import type { TranscriptItem } from './desktop-types';
 import { isRoomTypingItem } from './agent-chat-place';
 import { carriedLast, keptFrom, noteCarried, sharedPrefix } from './list-carry';
@@ -11,7 +12,7 @@ import {
   createSettledProjector,
   type TranscriptRowModel,
 } from './transcript-rows';
-import { isVisibleTranscriptItem } from './transcript-row';
+import { isRowVisuallyStreaming, isVisibleTranscriptItem, subscribeRowStreaming } from './transcript-row';
 import { transcriptRowNamespace } from './transcript-virtual-cache';
 import type { TurnChangesRef } from './turn-changes-model';
 
@@ -20,7 +21,80 @@ const NO_PLACES: readonly number[] = [];
 const attemptOf = (item: TranscriptItem | null | undefined): string =>
   typeof item?.attemptId === 'string' ? item.attemptId : '';
 
+const turnIdOf = (item: TranscriptItem | null | undefined): string =>
+  typeof item?.turnId === 'string' ? item.turnId : '';
+
+const checkpointOf = (item: TranscriptItem | null | undefined): string =>
+  typeof item?.checkpointId === 'string' ? item.checkpointId : '';
+
 const itemKey = (item: TranscriptItem | null | undefined): unknown => (item ? (item.id ?? item) : null);
+
+const OTHER_ROW = Symbol('other-row');
+
+const rowReplyToken = (item: TranscriptItem | null | undefined): string | symbol =>
+  item?.kind === 'assistant' && item.id != null ? String(item.id) : OTHER_ROW;
+
+function noteRowSource(
+  map: Map<string, string | symbol> | null,
+  key: string,
+  token: string | symbol
+): Map<string, string | symbol> | null {
+  if (!key) return map;
+  const target = map ?? new Map<string, string | symbol>();
+  const prev = target.get(key);
+  if (prev === undefined) target.set(key, token);
+  else if (prev !== token) target.set(key, OTHER_ROW);
+  return target;
+}
+
+function hasOtherRowWithKey(
+  map: ReadonlyMap<string, string | symbol> | null,
+  key: string,
+  namedReplyId: string
+): boolean {
+  if (!key || !map) return false;
+  const source = map.get(key);
+  if (source === undefined) return false;
+  return !namedReplyId || source !== namedReplyId;
+}
+
+function isNamedReplyOfEnd(end: TranscriptItem, other: TranscriptItem | null | undefined): boolean {
+  return (
+    end.kind === 'turndone' &&
+    end.finalAssistantId != null &&
+    other?.kind === 'assistant' &&
+    other.id != null &&
+    String(end.finalAssistantId) === String(other.id)
+  );
+}
+
+function itemsHaveDistinctTurn(end: TranscriptItem, other: TranscriptItem | null | undefined): boolean {
+  if (!other || isNamedReplyOfEnd(end, other)) return false;
+  const endAttempt = attemptOf(end);
+  const otherAttempt = attemptOf(other);
+  if (endAttempt && otherAttempt) return endAttempt !== otherAttempt;
+  const endTurn = turnIdOf(end);
+  const otherTurn = turnIdOf(other);
+  if (endTurn && otherTurn) return endTurn !== otherTurn;
+  const endCp = checkpointOf(end);
+  const otherCp = checkpointOf(other);
+  if (endCp && otherCp) return endCp !== otherCp;
+  return false;
+}
+
+function hasDistinctTurnAfter(
+  items: readonly TranscriptItem[],
+  endIndex: number,
+  end: TranscriptItem | null,
+  liveItem: TranscriptItem | null
+): boolean {
+  if (!end || endIndex < 0) return false;
+  if (itemsHaveDistinctTurn(end, liveItem)) return true;
+  for (let index = endIndex + 1; index < items.length; index += 1) {
+    if (itemsHaveDistinctTurn(end, items[index])) return true;
+  }
+  return false;
+}
 
 interface SessionTranscriptLifecycle {
   readonly hydrated: boolean;
@@ -130,10 +204,18 @@ function pruneSet<T>(set: ReadonlySet<T>, keep: ReadonlySet<T>): ReadonlySet<T> 
 
 function isLiveOfEndedTurn(end: TranscriptItem | null, liveItem: TranscriptItem | null): boolean {
   if (end === null || !liveItem) return false;
-  const endedAt = Number(end.at) || 0;
-  return end.finalAssistantId != null
-    ? String(end.finalAssistantId) === String(liveItem.id)
-    : !(endedAt > 0 && Number(liveItem.at ?? liveItem.startedAt) > endedAt);
+  if (itemsHaveDistinctTurn(end, liveItem)) return false;
+  if (end.finalAssistantId != null) return String(end.finalAssistantId) === String(liveItem.id);
+  const endAttempt = attemptOf(end);
+  const liveAttempt = attemptOf(liveItem);
+  if (endAttempt && liveAttempt) return endAttempt === liveAttempt;
+  const endTurn = turnIdOf(end);
+  const liveTurn = turnIdOf(liveItem);
+  if (endTurn && liveTurn) return endTurn === liveTurn;
+  const endCp = checkpointOf(end);
+  const liveCp = checkpointOf(liveItem);
+  if (endCp && liveCp) return endCp === liveCp;
+  return false;
 }
 
 function isEndPassedByActivity(
@@ -241,14 +323,15 @@ function derivePreLifecycle(
       const item = settledRowItems[index];
       if (item?.kind === 'turndone') {
         const id = itemKey(item);
-        const passed = isEndPassedByActivity(
-          item,
-          index === rawClosing,
-          prev.idleEnd,
-          arriving,
-          liveItem,
-          commandActivityStartedAt
-        );
+        const passed =
+          isEndPassedByActivity(
+            item,
+            index === rawClosing,
+            prev.idleEnd,
+            arriving,
+            liveItem,
+            commandActivityStartedAt
+          ) || hasDistinctTurnAfter(settledRowItems, index, item, liveItem);
         if (!knownEnds.has(id)) {
           addKnown(id);
           if (!passed) addActive(id);
@@ -278,40 +361,73 @@ function derivePreLifecycle(
  *  before it are over. Ascending. */
 function passedEnds(
   items: readonly TranscriptItem[],
-  liveAttempt: string,
+  liveItem: TranscriptItem | null,
   active: boolean,
   activeEnds: ReadonlySet<unknown>
 ): readonly number[] {
   let places: number[] | null = null;
-  let after: Set<string> | null = liveAttempt ? new Set([liveAttempt]) : null;
+  const liveToken = rowReplyToken(liveItem);
+  let afterAttempts = noteRowSource(null, attemptOf(liveItem), liveToken);
+  let afterTurnIds = noteRowSource(null, turnIdOf(liveItem), liveToken);
+  let segmentItems: TranscriptItem[] | null = liveItem ? [liveItem] : null;
   let seenToolAfter = false;
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index];
     if (item?.kind === 'user' && !item.steered) break;
     const attempt = attemptOf(item);
+    const turnId = turnIdOf(item);
     if (item?.kind !== 'turndone') {
       if (item?.kind === 'tool') seenToolAfter = true;
-      if (attempt) {
-        after ??= new Set();
-        after.add(attempt);
+      const token = rowReplyToken(item);
+      afterAttempts = noteRowSource(afterAttempts, attempt, token);
+      afterTurnIds = noteRowSource(afterTurnIds, turnId, token);
+      if (item) {
+        segmentItems ??= [];
+        segmentItems.push(item);
       }
       continue;
     }
     const id = itemKey(item);
-    const sameAttempt = Boolean(attempt && after?.has(attempt));
-    const toolContinuation = active && seenToolAfter && activeEnds.has(id);
+    const namedReplyId = item.finalAssistantId != null ? String(item.finalAssistantId) : '';
+    const sameAttempt =
+      hasOtherRowWithKey(afterAttempts, attempt, namedReplyId) ||
+      hasOtherRowWithKey(afterTurnIds, turnId, namedReplyId);
+    const distinctTurnAfter = Boolean(segmentItems?.some((after) => itemsHaveDistinctTurn(item, after)));
+    const toolContinuation = active && seenToolAfter && activeEnds.has(id) && !distinctTurnAfter;
     if (closesReply(item) && (sameAttempt || toolContinuation)) {
       places ??= [];
       places.unshift(index);
     } else {
       seenToolAfter = false;
+      segmentItems = [item];
     }
-    if (attempt) {
-      after ??= new Set();
-      after.add(attempt);
-    }
+    afterAttempts = noteRowSource(afterAttempts, attempt, OTHER_ROW);
+    afterTurnIds = noteRowSource(afterTurnIds, turnId, OTHER_ROW);
   }
   return places ?? NO_PLACES;
+}
+
+/** Row keys of settled assistant parts belonging to the trailing turn, so a
+ *  standalone tool-ending `turndone` waits until its turn's replies finish
+ *  visually draining paced text. */
+function trailingTurnAssistantKeys(rows: readonly TranscriptRowModel[]): string[] {
+  const keys: string[] = [];
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    if (row._tag === 'UserMessage' && !row.item.steered) break;
+    if (index < rows.length - 1) {
+      if (row._tag === 'Error') break;
+      if (row._tag === 'AssistantPart' && (Boolean(row.completion) || row.item.kind === 'turndone')) break;
+      if (row._tag === 'TurnGap') {
+        const next = rows[index + 1];
+        if (!(next?._tag === 'UserMessage' && next.item.steered)) break;
+      }
+    }
+    if (row._tag === 'AssistantPart' && row.item.kind === 'assistant') {
+      keys.push(row.key);
+    }
+  }
+  return keys;
 }
 
 function trailingTurnCard(rows: readonly TranscriptRowModel[]): TurnChangesRef | null {
@@ -457,14 +573,13 @@ export function useTranscriptRows({
   );
   // An end its own turn passed (`passedEnds`) is not shown: the turn runs, so its rows stand under the turn keys they have
   // without it (an end renames its turn, and closes it for the rows after).
-  const liveAttempt = attemptOf(liveItem);
   const shown = useMemo(() => {
-    const passed = passedEnds(settledRowItems, liveAttempt, arriving, preLifecycle.activeEnds);
+    const passed = passedEnds(settledRowItems, liveItem, arriving, preLifecycle.activeEnds);
     if (passed.length === 0) return { items: settledRowItems, turnKeys: settledTurnKeys };
     const left = new Set(passed);
     const items = settledRowItems.filter((_, index) => !left.has(index));
     return { items, turnKeys: transcriptTurnKeys(items) as string[] };
-  }, [settledRowItems, settledTurnKeys, liveAttempt, arriving, preLifecycle.activeEnds]);
+  }, [settledRowItems, settledTurnKeys, liveItem, arriving, preLifecycle.activeEnds]);
   const projectedItems = useMemo(() => {
     let end = shown.items.length;
     if (room) while (end > 0 && isRoomTypingItem(shown.items[end - 1])) end -= 1;
@@ -493,37 +608,77 @@ export function useTranscriptRows({
   const end = endIndex >= 0 ? (projectedItems[endIndex] as TranscriptItem) : null;
   const endId = itemKey(end);
   const trailingCard = trailingTurnCard(settledProjection.rows);
-  const nextIdleEnd = !busy && !commandBusy && settledRowItems.length > 0 ? endId : preLifecycle.idleEnd;
   // Activity that began before the end was recorded is the ended turn's own, still winding down; activity that began
   // after it is another turn's. An activity or an end that names no time says neither.
   const endedAt = Number(end?.at) || 0;
   const timed = commandActivityStartedAt > 0 && endedAt > 0;
   const activityOfEndedTurn = timed && commandActivityStartedAt <= endedAt;
-  // A reply still arriving when the end is written is the ended turn's own when the end names it (`finalAssistantId`; an
-  // end that names none, when the reply began no later than it): the end can settle before its reply does.
+  // A reply still arriving when the end is written is the ended turn's own only when explicit identity matches
+  // (`finalAssistantId`, `attemptId`, `turnId`, or `checkpointId`): the end can settle before its reply does.
   const liveOfEndedTurn = isLiveOfEndedTurn(end, liveItem);
+  // A reply arriving says work goes on while the session runs, or while the end written for it names it and it has not
+  // landed. Left behind by a turn that was stopped, with the session idle, it says nothing.
+  const namingEnd = end ?? shown.items[projectedItems.length];
+  const replyArriving =
+    Boolean(liveItem) &&
+    (Boolean(busy || commandBusy) ||
+      (namingEnd?.kind === 'turndone' &&
+        namingEnd.finalAssistantId != null &&
+        String(namingEnd.finalAssistantId) === String(liveItem?.id)));
+  const sessionIdle = !busy && !commandBusy;
+  const tentativeIdleEnd = sessionIdle && !replyArriving && settledRowItems.length > 0 ? endId : preLifecycle.idleEnd;
   // What runs now is past that end and has settled no row yet: the end was shown idle, the activity began after it, or
   // another reply is arriving after it (a wake with no prompt streams before anything of it settles).
   const turnPastEnd =
     end !== null &&
     Boolean(busy || commandBusy || liveItem) &&
     !liveOfEndedTurn &&
-    (nextIdleEnd === endId || (timed && !activityOfEndedTurn) || Boolean(liveItem));
-  const postActiveEnds =
-    turnPastEnd && endId !== null ? withoutSetItem(preLifecycle.activeEnds, endId) : preLifecycle.activeEnds;
+    (tentativeIdleEnd === endId || (timed && !activityOfEndedTurn) || Boolean(liveItem));
+  // Keep the 40px band slot mounted and hold turn-end cards while any assistant row in the trailing turn
+  // (including before a standalone tool-ending `turndone`) is still visually draining paced text or
+  // awaiting its final off-thread parse.
+  const closingAssistantKeysSig =
+    pendingItems.length === 0 && !turnPastEnd ? trailingTurnAssistantKeys(settledProjection.rows).join('\u0000') : '';
+  const subscribeClosingRow = useCallback(
+    (listener: () => void) => {
+      if (!closingAssistantKeysSig) return () => {};
+      const unsubs = closingAssistantKeysSig.split('\u0000').map((key) => subscribeRowStreaming(key, listener));
+      return () => {
+        for (const unsub of unsubs) unsub();
+      };
+    },
+    [closingAssistantKeysSig]
+  );
+  const getClosingRowStreaming = useCallback(() => {
+    if (!closingAssistantKeysSig) return false;
+    return closingAssistantKeysSig.split('\u0000').some((key) => isRowVisuallyStreaming(key));
+  }, [closingAssistantKeysSig]);
+  const closingRowStreaming = useSyncExternalStore(subscribeClosingRow, getClosingRowStreaming, () => false);
+  const turnLoopSettled = sessionIdle && !replyArriving && !closingRowStreaming;
+  const nextIdleEnd = turnLoopSettled && settledRowItems.length > 0 ? endId : preLifecycle.idleEnd;
   // The transcript's last turn end is passed by what runs, or by rows settled after it unless that end was observed
-  // active in this continuous loop with no visible prompt after it.
+  // active in this continuous loop with no visible prompt or distinct turn/attempt after it.
   const lastEndIndex = lastTurnEnd(projectedItems);
   const lastEndItem = lastEndIndex >= 0 ? (projectedItems[lastEndIndex] as TranscriptItem) : null;
   const lastEndId = itemKey(lastEndItem);
+  const lastEndPassedByDistinctTurn =
+    lastEndIndex >= 0 &&
+    lastEndIndex !== endIndex &&
+    hasDistinctTurnAfter(projectedItems, lastEndIndex, lastEndItem, liveItem);
+  const postActiveEnds =
+    turnPastEnd && endId !== null
+      ? withoutSetItem(preLifecycle.activeEnds, endId)
+      : lastEndPassedByDistinctTurn && lastEndId !== null
+        ? withoutSetItem(preLifecycle.activeEnds, lastEndId)
+        : preLifecycle.activeEnds;
   const pastLastEnd =
     turnPastEnd ||
     (lastEndIndex !== endIndex &&
       (!postActiveEnds.has(lastEndId) || (lastEndIndex >= 0 && hasVisiblePromptAfter(projectedItems, lastEndIndex))));
+  const trailingTurnRunning =
+    pendingItems.length === 0 && !pastLastEnd && Boolean(busy || commandBusy || replyArriving || closingRowStreaming);
   const checkpointId = trailingCard?.checkpointId;
-  const checkpointRevealed = Boolean(
-    checkpointId && ((!busy && !commandBusy && settledRowItems.length > 0) || pastLastEnd)
-  );
+  const checkpointRevealed = Boolean(checkpointId && ((turnLoopSettled && settledRowItems.length > 0) || pastLastEnd));
   const nextShownCheckpoints =
     checkpointId && checkpointRevealed
       ? withSetItem(preLifecycle.shownCheckpoints, checkpointId)
@@ -549,19 +704,11 @@ export function useTranscriptRows({
     !turnPastEnd &&
     settledProjection.endsWithCompletion &&
     (!commandActivityVisible || activityOfEndedTurn);
-  // A reply arriving says work goes on while the session runs, or while the end written for it names it and it has not
-  // landed. Left behind by a turn that was stopped, with the session idle, it says nothing.
-  const namingEnd = end ?? shown.items[projectedItems.length];
-  const replyArriving =
-    Boolean(liveItem) &&
-    (Boolean(busy || commandBusy) ||
-      (namingEnd?.kind === 'turndone' &&
-        namingEnd.finalAssistantId != null &&
-        String(namingEnd.finalAssistantId) === String(liveItem?.id)));
   const thinking = Boolean(
     (busy && !turnSettled) ||
       (commandBusy && commandActivityVisible) ||
       replyArriving ||
+      closingRowStreaming ||
       optimisticActivityStartedAt ||
       // A message sent now, while the core lists it in the queue: the turn it opens is on its way, between the end of
       // the one it stopped and its own start.
@@ -581,8 +728,20 @@ export function useTranscriptRows({
       turnRunning: Boolean(busy),
       prior: shownRows.current,
     });
+    noteTurnRowsReveal(rows, { trailingTurnRunning, trailingCheckpointShown });
     shownRows.current = rows;
     return rows;
-  }, [identity, settledProjection, pendingItems, steerItems, busy, thinking, opening, liveItem]);
-  return { settledTurnKeys, transcriptRows, turnPastEnd, pastLastEnd, trailingCheckpointShown };
+  }, [
+    identity,
+    settledProjection,
+    pendingItems,
+    steerItems,
+    busy,
+    thinking,
+    opening,
+    liveItem,
+    trailingTurnRunning,
+    trailingCheckpointShown,
+  ]);
+  return { settledTurnKeys, transcriptRows, turnPastEnd, pastLastEnd, trailingTurnRunning, trailingCheckpointShown };
 }

@@ -38,8 +38,8 @@ test('the panel takes what the conversation at its floor leaves it: it yields to
   const roomy = COLUMN_CAP + 2 * (400 + SESSION_RAIL_GAP);
   assert.deepEqual(fit(roomy), beside(400, 0));
   assert.deepEqual(fit(roomy + 500), beside(400, 0), 'no wider than its preferred width');
-  // Less than that: the conversation re-centres left of it, down to its floor.
-  assert.deepEqual(fit(roomy - 1), beside(400, 400 + SESSION_RAIL_GAP));
+  // Below `roomy`, reserve grows continuously by twice the overlap (1px at roomy - 1) until the left margin runs out.
+  assert.deepEqual(fit(roomy - 1), beside(400, 1));
   assert.deepEqual(fit(paneFor(400)), beside(400, 400 + SESSION_RAIL_GAP));
   assert.deepEqual(fit(paneFor(400) - 1), beside(399, 399 + SESSION_RAIL_GAP), 'then the panel gives up width');
   assert.deepEqual(
@@ -66,9 +66,7 @@ test('the panel takes what the conversation at its floor leaves it: it yields to
   }
 });
 
-test("nothing moves only while the transcript's rows keep the column the pane gives them", () => {
-  // Past 1,060px the pane gives its rows --pane-column's 848px cap (clamp(800px, 80cqi, 848px)); the scroller gives up
-  // the panel's band on its left and its right.
+test('nothing moves while the reading column clears the panel, and below that the column shifts continuously with no cliff', () => {
   for (const pref of [SESSION_RAIL_MIN_WIDTH, 400]) {
     const band = pref + SESSION_RAIL_GAP;
     const fit = (cellWidth) => sessionRailFit({ cellWidth, railPref: pref });
@@ -80,12 +78,24 @@ test("nothing moves only while the transcript's rows keep the column the pane gi
     );
     assert.deepEqual(
       fit(boundary - 1),
-      { width: pref, reserve: band, presentation: 'beside' },
-      `${pref}: one pixel less re-centres the conversation`
+      { width: pref, reserve: 1, presentation: 'beside' },
+      `${pref}: one pixel less shifts reserve continuously by 1px, not a full-band cliff`
     );
-    // Where the margins beside an 816px conversation would hold the band, the rows would be narrowed.
-    assert.equal(fit(816 + 2 * band).reserve, band, `${pref}: not an 816px conversation`);
+    // Once the left margin is exhausted (COLUMN_CAP + band), reserve reaches the full band.
+    assert.equal(fit(COLUMN_CAP + band).reserve, band, `${pref}: saturates at the full band`);
+    // Every 1px step across the transition moves the reading column's center by at most 1px.
+    for (let width = COLUMN_CAP + band; width < boundary; width += 1) {
+      const c1 = (width - fit(width).reserve) / 2;
+      const c2 = (width + 1 - fit(width + 1).reserve) / 2;
+      assert.ok(Math.abs(c2 - c1) <= 1, `${pref} at ${width}px: center jumped ${Math.abs(c2 - c1)}px`);
+    }
   }
+  // Regression for default 300px rail (taken=308): 1464px vs 1463px shifts center by <= 1px (not 154px).
+  const at1464 = sessionRailFit({ cellWidth: 1464, railPref: SESSION_RAIL_MIN_WIDTH });
+  const at1463 = sessionRailFit({ cellWidth: 1463, railPref: SESSION_RAIL_MIN_WIDTH });
+  assert.equal(at1464.reserve, 0);
+  assert.equal(at1463.reserve, 1);
+  assert.ok(Math.abs((1464 - at1464.reserve) / 2 - (1463 - at1463.reserve) / 2) <= 1);
 });
 
 test('the panel belongs to the session or draft the pane shows: a retained or another conversation keeps its composer', () => {
@@ -323,11 +333,17 @@ test('the remembered width is only what a drag or a key chose: a still press or 
   assert.equal(window.localStorage.getItem(SESSION_RAIL_WIDTH_KEY), '500');
   await pointer('pointerdown', 100);
   await pointer('pointermove', 90);
-  assert.equal(shared, 346, 'the drag previews in every pane');
+  assert.equal(shared, 500, 'preview stays imperative without re-rendering store subscribers');
+  assert.equal(
+    document.querySelector('.session-rail').style.width,
+    '346px',
+    'the drag previews imperatively on the DOM'
+  );
   await act(async () =>
     edge().dispatchEvent(new window.PointerEvent('pointercancel', { bubbles: true, pointerId: 1 }))
   );
   assert.equal(shared, 500, 'a cancel puts back the width chosen before the drag');
+  assert.equal(document.querySelector('.session-rail').style.width, '336px', 'cancel restores the rendered width');
   assert.equal(window.localStorage.getItem(SESSION_RAIL_WIDTH_KEY), '500');
   await pointer('pointerdown', 100);
   await pointer('pointermove', 80);
@@ -731,25 +747,26 @@ test("the Agents section is the island's list: a fold a kind, a line an agent wi
     name: row.querySelector('.agent-pool-name').textContent,
     ring: Boolean(row.querySelector(':scope > .agent-row-ring > svg')),
     dot: Boolean(row.querySelector(':scope > .agent-row-ring > svg > [data-glyph="active"]')),
-    step: row.querySelector(':scope > .agent-row-steps').textContent,
+    step: row.querySelector(':scope > .agent-activity-status > .agent-row-steps')?.textContent ?? '',
+    sep: Boolean(row.querySelector(':scope > .agent-activity-status > .agent-row-meta-sep')),
     time: row.querySelector(':scope > .agent-activity-status > .agent-activity-elapsed').textContent,
     working: row.hasAttribute('data-working'),
   });
   assert.deepEqual(rows.map(read), [
-    { name: 'fold-rules', ring: true, dot: true, step: '2/8', time: '11m', working: true },
-    { name: 'no-step', ring: true, dot: true, step: '', time: '1h 16m', working: true },
-    { name: 'tasks', ring: true, dot: true, step: '', time: '30s', working: true },
-    { name: 'unconfirmed', ring: true, dot: true, step: '', time: 'Cancel unconfirmed', working: false },
-    { name: 'queued', ring: true, dot: true, step: '', time: 'Queued', working: false },
-    { name: 'ask', ring: true, dot: true, step: '', time: 'Waiting for approval', working: false },
-    { name: 'review', ring: true, dot: false, step: '', time: 'Idle', working: false },
-    { name: 'audit', ring: true, dot: false, step: '', time: 'Idle', working: false },
+    { name: 'fold-rules', ring: true, dot: true, step: '2/8', sep: true, time: '11m', working: true },
+    { name: 'no-step', ring: true, dot: true, step: '', sep: false, time: '1h 16m', working: true },
+    { name: 'tasks', ring: true, dot: true, step: '', sep: false, time: '30s', working: true },
+    { name: 'unconfirmed', ring: true, dot: true, step: '', sep: false, time: 'Cancel unconfirmed', working: false },
+    { name: 'queued', ring: true, dot: true, step: '', sep: false, time: 'Queued', working: false },
+    { name: 'ask', ring: true, dot: true, step: '', sep: false, time: 'Waiting for approval', working: false },
+    { name: 'review', ring: true, dot: false, step: '', sep: false, time: 'Idle', working: false },
+    { name: 'audit', ring: true, dot: false, step: '', sep: false, time: 'Idle', working: false },
   ]);
   for (const row of rows) {
     assert.deepEqual(
       [...row.children].filter((part) => !part.hidden).map((part) => part.className),
-      ['agent-row-ring', 'schedules-row-copy agent-pool-heading', 'agent-row-steps', 'agent-activity-status'],
-      'one line: no brand mark, no model line'
+      ['agent-row-ring', 'schedules-row-copy agent-pool-heading', 'agent-activity-status'],
+      'one line: ring, name, and single trailing meta cluster'
     );
   }
   assert.equal(
@@ -774,7 +791,7 @@ test("the Agents section is the island's list: a fold a kind, a line an agent wi
   const [model, step] = rows[0].title.split('\n');
   assert.match(model, /\S/);
   assert.equal(step, 'To-do 2 of 8 done: Rewrite the fold rules');
-  assert.deepEqual(described(rows[0]), ['11m', rows[0].title]);
+  assert.deepEqual(described(rows[0]), ['2/8·11m', rows[0].title]);
   const [auditModel, worked] = rows[7].title.split('\n');
   assert.notEqual(auditModel, model, 'each its own model');
   assert.equal(worked, 'Worked 11m 53s');
@@ -813,8 +830,8 @@ test("the Agents section is the island's list: a fold a kind, a line an agent wi
   assert.equal(outline().length, 12);
   const rowsAgain = [...list.querySelectorAll(':scope > .composer-island-agent-item > [role="treeitem"]')];
   rows.splice(0, rows.length, ...rowsAgain);
-  // A row is described by its state column first.
-  assert.equal(document.getElementById(rows[0].getAttribute('aria-describedby').split(' ')[0]).textContent, '11m');
+  // A row is described by its trailing meta cluster first.
+  assert.equal(document.getElementById(rows[0].getAttribute('aria-describedby').split(' ')[0]).textContent, '2/8·11m');
 
   // A second's tick moves the working rows' clocks; their model lines do not read the catalog again.
   const storage = Object.getPrototypeOf(window.localStorage);
@@ -1843,11 +1860,11 @@ test("Context is a category of its own: the share, a bar and the two actions; ab
   const reading = { currentContextTokens: 80000, currentContextSource: 'last_api_request' };
   await act(async () => root.render(element({ sessionId: LEAD, contextTokens: 200000, stats: reading })));
   const section = document.querySelector('[data-category="context"]');
-  // What the window holds in stable canonical order: a segment per non-zero kind, every canonical row, then free space.
+  // Non-zero kinds ranked descending by tokens; zero-token kinds and free space are omitted from the list.
   assert.deepEqual(asked, [{ capability: 'contextStatus', sessionId: LEAD }]);
   assert.deepEqual(
     [...section.querySelectorAll('[role="meter"] b')].map((part) => part.dataset.contextKey),
-    ['system', 'tools', 'messages']
+    ['messages', 'system', 'tools']
   );
   assert.deepEqual(
     [...section.querySelectorAll('.session-rail-part')].map((row) => [
@@ -1855,22 +1872,13 @@ test("Context is a category of its own: the share, a bar and the two actions; ab
       row.querySelector('.session-rail-share').textContent,
     ]),
     [
+      ['messages', '25.0%'],
       ['system', '10.0%'],
       ['tools', '5.0%'],
-      ['mcp', '0.0%'],
-      ['agents', '0.0%'],
-      ['memory', '0.0%'],
-      ['skills', '0.0%'],
-      ['messages', '25.0%'],
-      ['reasoning', '0.0%'],
-      ['free', '60.0%'],
     ]
   );
-  // Kinds holding nothing stay mounted and marked so (their figure reads muted).
-  assert.deepEqual(
-    [...section.querySelectorAll('.session-rail-part[data-zero]')].map((row) => row.dataset.contextKey),
-    ['mcp', 'agents', 'memory', 'skills', 'reasoning']
-  );
+  assert.equal(section.querySelectorAll('.session-rail-part[data-zero]').length, 0);
+  assert.equal(section.querySelector('.session-rail-part[data-context-key="free"]'), null);
   assert.equal(section.querySelector('.session-rail-sm').textContent, '80k / 200k · 40.0%');
   // 40% is not toned: the percent stands in the text ink.
   assert.equal(section.querySelector('.session-rail-sm .session-rail-context-percent').dataset.tone, undefined);
@@ -1912,41 +1920,28 @@ test("Context's kinds divide the head's reading in their estimated proportions, 
     ]);
   const filled = () => Number.parseFloat(section().querySelector('.session-rail-meter-held').style.width);
   assert.equal(section().querySelector('.session-rail-sm').textContent, '480k / 500k · 96.0%');
-  // A reading twice the estimates: every kind's figure and segment doubles, the rows add up to the reading, and the
-  // free space is what the reading leaves, in stable canonical order.
+  // A reading twice the estimates: non-zero kinds scale proportionally, sorted descending, without zero or free rows.
   assert.deepEqual(rows(), [
+    ['messages', '440k', '88.0%'],
     ['system', '20k', '4.0%'],
     ['tools', '20k', '4.0%'],
-    ['mcp', '0', '0.0%'],
-    ['agents', '0', '0.0%'],
-    ['memory', '0', '0.0%'],
-    ['skills', '0', '0.0%'],
-    ['messages', '440k', '88.0%'],
-    ['reasoning', '0', '0.0%'],
-    ['free', '20k', '4.0%'],
   ]);
   assert.deepEqual(
     [...section().querySelectorAll('[role="meter"] b')].map((part) => part.dataset.contextKey),
-    ['system', 'tools', 'messages']
+    ['messages', 'system', 'tools']
   );
   assert.ok(Math.abs(filled() - 96) < 0.01, `the bar is filled to the reading: ${filled()}`);
-  // A reading half the estimates: the same proportions of the smaller figure, with identical canonical row order.
+  // A reading half the estimates: the same proportions of the smaller figure, sorted descending.
   await act(async () => root.render(element(120000)));
   assert.deepEqual(rows(), [
+    ['messages', '110k', '22.0%'],
     ['system', '5.0k', '1.0%'],
     ['tools', '5.0k', '1.0%'],
-    ['mcp', '0', '0.0%'],
-    ['agents', '0', '0.0%'],
-    ['memory', '0', '0.0%'],
-    ['skills', '0', '0.0%'],
-    ['messages', '110k', '22.0%'],
-    ['reasoning', '0', '0.0%'],
-    ['free', '380k', '76.0%'],
   ]);
   assert.ok(Math.abs(filled() - 24) < 0.01, `the bar is filled to the reading: ${filled()}`);
 });
 
-test("An external agent's context uses the same categories as a provider session and adds what the agent holds", async () => {
+test("An external agent's context uses the exact same category set as a provider session", async () => {
   const { contextMix, ContextBody } = await import('./ContextBody.tsx');
   const status = {
     messages: { semantic: { system: { tokens: 100 }, chat: { tokens: 50 } } },
@@ -1956,28 +1951,32 @@ test("An external agent's context uses the same categories as a provider session
     },
   };
   const rows = (mix) => Object.fromEntries(mix.categories.map((category) => [category.key, category.tokens]));
+  const acpMix = contextMix(status, 1000, 900, true);
+  const providerMix = contextMix(status, 1000, 900, false);
+  assert.deepEqual(
+    acpMix.categories.map((category) => category.key),
+    providerMix.categories.map((category) => category.key),
+    'ACP and provider sessions expose the exact same canonical categories'
+  );
+  assert.equal(rows(acpMix).host, undefined, 'no ACP-only host category');
   // External agent sessions omit provider HTTP requestOverheadTokens (charged only on provider sessions).
-  assert.deepEqual(rows(contextMix(status, 1000, 900, true)), {
-    system: 100,
-    tools: 30,
-    mcp: 10,
+  assert.deepEqual(rows(acpMix), {
+    system: 429,
+    tools: 128,
+    mcp: 43,
     agents: 0,
     memory: 0,
-    skills: 20,
-    messages: 50,
+    skills: 86,
+    messages: 214,
     reasoning: 0,
-    host: 690,
   });
   assert.equal(rows(contextMix(status, 1000, null, false)).tools, 37, 'provider sessions still include HTTP overhead');
-  const mix = contextMix(status, 1000, 900, true);
-  assert.equal(mix.held, 900);
-  assert.equal(mix.free, 100);
-  assert.equal(rows(contextMix(status, 1000, null, true)).host, 0, 'no reading, nothing to say the agent holds');
-  // An estimate (217) above the agent's own count (100): the count is the measurement, the parts divide within it, and
+  assert.equal(acpMix.held, 900);
+  assert.equal(acpMix.free, 100);
+  // An estimate above the agent's own count: the count is the measurement, the parts divide within it, and
   // parts plus free space never pass the window.
   const over = contextMix(status, 1000, 100, true);
   const sum = (mix) => mix.categories.reduce((total, category) => total + category.tokens, 0);
-  assert.equal(rows(over).host, 0);
   assert.equal(sum(over), 100);
   assert.equal(sum(over) + over.free, 1000);
   const tight = contextMix(status, 120, 120, true);
@@ -2002,7 +2001,6 @@ test("An external agent's context uses the same categories as a provider session
     skills: 0,
     messages: 168000,
     reasoning: 0,
-    host: 0,
   });
   assert.equal(compactedCli.free, 792000);
   const tinyCli = contextMix(
@@ -2016,9 +2014,9 @@ test("An external agent's context uses the same categories as a provider session
   );
   assert.equal(rows(tinyCli).messages, 0);
   assert.equal(rows(tinyCli).system + rows(tinyCli).tools + rows(tinyCli).mcp, 20000);
-  // A reading with no local estimate yet is all the agent's, and its rows show.
+  // A reading with no local estimate yet keeps the same 8 categories (0 categorized) without fabricating a host row.
   const bare = contextMix({}, 1000, 300, true);
-  assert.deepEqual([rows(bare).host, bare.categorized, bare.free], [300, 300, 700]);
+  assert.deepEqual([rows(bare).host, bare.categorized, bare.held, bare.free], [undefined, 0, 300, 700]);
   assert.equal(
     rows(contextMix(status, 1000, 900, false)).host,
     undefined,
@@ -2034,7 +2032,7 @@ test("An external agent's context uses the same categories as a provider session
       })
     );
   // The dialog reads `contextStatus` with an inspection attached: an agent's session renders ContextInspector with the
-  // same categories plus the unattributed host remainder.
+  // same canonical categories and no ACP-only host row.
   const inspected = renderToStaticMarkup(
     React.createElement(ContextBody, {
       status: {
@@ -2052,7 +2050,7 @@ test("An external agent's context uses the same categories as a provider session
       snapshot: { provider: 'acp-antigravity' },
     })
   );
-  assert.match(inspected, /context-mix-row[^>]*data-context-key="host"/);
+  assert.doesNotMatch(inspected, /data-context-key="host"/);
   assert.match(inspected, /<button[^>]*data-context-key="system"/);
   assert.match(label('acp-antigravity'), /Last call, prompt and output/);
   assert.doesNotMatch(label('acp-antigravity'), /Last measured input/);
@@ -2437,6 +2435,29 @@ test("the Changes head reads the island's files head: Files N and the lines adde
   }
   await act(async () => rows[0].click());
   assert.deepEqual(opened, ['changes', 'README.md']);
+});
+
+test('ChangesSection is omitted when there are no changed files even on an ahead or non-default branch', async (context) => {
+  const { ChangesSection } = await import('./session-rail-changes.tsx');
+  const view = {
+    label: 'Uncommitted',
+    fileCount: 0,
+    files: new Map(),
+    headlineStats: { additions: 0, deletions: 0, hasLineStats: false },
+    emptyText: 'No changes',
+  };
+  const { document } = await mount(
+    context,
+    React.createElement(ChangesSection, {
+      view,
+      cwd: 'C:/work/app',
+      open: true,
+      onToggle() {},
+      onOpenChanges() {},
+      onOpenChangeFile() {},
+    })
+  );
+  assert.equal(document.querySelector('[data-category="changes"]'), null);
 });
 
 test('a clean branch with commits not pushed keeps Git and its actions', async (context) => {

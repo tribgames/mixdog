@@ -5,7 +5,9 @@
 //! A turn the progress watchdog aborted on silence hands its owner the partial output behind the
 //! stop and names the background shells the stop ended; a user's abort never reaches that branch.
 
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::Weak;
 
 use serde_json::Map;
 use serde_json::Value;
@@ -71,6 +73,9 @@ pub struct TurnRunner {
     events: Arc<dyn SubagentEvents>,
     inbox: Arc<dyn WorkerInbox>,
     early: Arc<EarlyNotice>,
+    /// Each worker's turn in progress, by session id: one turn of a worker runs at a time, from its count of the
+    /// session's rows to its outcome.
+    running: std::sync::Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>,
 }
 
 impl TurnRunner {
@@ -82,7 +87,19 @@ impl TurnRunner {
         inbox: Arc<dyn WorkerInbox>,
         early: Arc<EarlyNotice>,
     ) -> Self {
-        Self { sessions, turns, reviews, events, inbox, early }
+        Self { sessions, turns, reviews, events, inbox, early, running: Default::default() }
+    }
+
+    /// The turn of worker `session_id` in progress, whoever holds it; the workers with none are let go.
+    fn turn_of(&self, session_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut running = self.running.lock().unwrap_or_else(|p| p.into_inner());
+        running.retain(|_, turn| turn.strong_count() > 0);
+        if let Some(turn) = running.get(session_id).and_then(Weak::upgrade) {
+            return turn;
+        }
+        let turn = Arc::default();
+        running.insert(session_id.to_owned(), Arc::downgrade(&turn));
+        turn
     }
 
     /// A cancelled turn reports the output it produced before it stopped.
@@ -127,8 +144,18 @@ impl TurnRunner {
             Arc::new(move |stage: TurnStage| job.set_stage(stage)) as Arc<StageCallback>
         });
         let stages = TurnStages::new(&plan.session_id, on_stage.clone(), cancel.clone());
-        let start = match stages.pass(TurnStage::CountingBeforeOpen, self.sessions.message_count(&plan.session_id)).await {
-            Ok(start) => start,
+        // A send and the worker's wake, or two sends, each run their own turn: the later once the earlier ended.
+        let turn = self.turn_of(&plan.session_id);
+        let waited = match turn.clone().try_lock_owned() {
+            Ok(held) => Ok(held),
+            Err(_) => stages.pass(TurnStage::Waiting, turn.lock_owned()).await,
+        };
+        let counted = match waited {
+            Ok(held) => stages.pass(TurnStage::CountingBeforeOpen, self.sessions.message_count(&plan.session_id)).await.map(|start| (held, start)),
+            Err(reason) => Err(reason),
+        };
+        let (_turn, start) = match counted {
+            Ok(counted) => counted,
             Err(reason) => {
                 // Nothing of the turn reached the session: there is no output of it to hand over.
                 if let Some(job) = job {
@@ -211,6 +238,13 @@ impl TurnRunner {
             }
             Err(error) => error,
         };
+        // Another turn of the worker took the completions the wake was for: the job ran nothing, and nobody is told of it.
+        if failure.wake_taken {
+            if let Some(job) = job {
+                job.withdraw();
+            }
+            return Err(failure.message);
+        }
         if job.is_some_and(|j| j.is_cancelled()) || cancel.as_ref().is_some_and(|cancel| cancel.is_aborted()) {
             match job {
                 // The session never started the turn: it has no rows to read a handoff from.

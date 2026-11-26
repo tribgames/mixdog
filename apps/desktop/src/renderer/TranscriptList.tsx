@@ -238,6 +238,7 @@ export function TranscriptList({
     scrollInset,
     indexForPendingKey,
     restoreReadingAnchor,
+    syncDockInset,
   });
   const { measureRow, bindSpacer } = useTranscriptRowRegistration({ spacer, content, virtualizerRef });
 

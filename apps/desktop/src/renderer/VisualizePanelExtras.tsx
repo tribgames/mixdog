@@ -1,19 +1,17 @@
-import { Code, Download, ExternalLink, History, LayoutList, Loader, Save, Undo2 } from 'lucide-react';
+import { Code, Download, ExternalLink, History, Loader, Save, Undo2 } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 
-import type { VisualizeHistoryItem, VisualizePaneView, VisualizeSessionState } from '../shared/visualize';
+import type { VisualizePaneView, VisualizeSessionState } from '../shared/visualize';
 import { dismissDesktopToast, showDesktopToast } from './desktop-toasts';
 import { fileDownloadFailureMessage } from './file-download-transfer';
 import { confirmAction } from './app-confirm';
 import { t } from './i18n';
-import { useMobileBack } from './mobile-back';
 import type { DockAction } from './pane-dock-chrome';
 import { downloadBlob, visualizePaneHasSource, visualizeSourceFileName } from './visualize-source';
 import { readVisualizeInlineBody } from './visualize-inline-body';
 import { downloadVisualizeExport, visualizeRemoteExportAvailable } from './visualize-remote-export';
 import {
   exportVisualizeTab,
-  openVisualizeHistory,
   reopenVisualizeTargets,
   requestVisualizeVersion,
   restoreVisualizeVersion,
@@ -74,30 +72,6 @@ async function downloadPane(
   } finally {
     URL.revokeObjectURL(source.url);
   }
-}
-
-function HistoryList({ items, onPick }: { items: VisualizeHistoryItem[]; onPick(item: VisualizeHistoryItem): void }) {
-  return (
-    <ul className="visualize-history" aria-label={t('All visuals')}>
-      {items.map((item) => (
-        <li key={item.id}>
-          <button
-            type="button"
-            className={`visualize-history-item${item.open ? ' is-open' : ''}`}
-            onClick={() => onPick(item)}
-          >
-            <span className="visualize-history-kind">{item.kind}</span>
-            <span className="visualize-history-label">{item.label}</span>
-            {item.versions > 1 ? <span className="visualize-history-versions">{versionTag(item.versions)}</span> : null}
-            <time className="visualize-history-time" dateTime={new Date(item.at).toISOString()}>
-              {visualizeHistoryTime(item.at)}
-            </time>
-            <span className="visualize-history-state">{item.open ? t('State: Open') : t('Closed')}</span>
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
 }
 
 /** The header's version button and its menu: versions newest first (the
@@ -205,15 +179,13 @@ export function visualizeTurnWorkAction(
 /** Toolbar actions and strips for the active `tab` (null = none open). */
 export function useVisualizePanelExtras(
   sessionId: string,
-  state: VisualizeSessionState,
+  _state: VisualizeSessionState,
   tab: Tab | null,
   remote: boolean,
-  active = true
+  _active = true
 ): { actions: DockAction[]; strips: ReactNode; sourceOn: boolean } {
   const tabId = tab?.id ?? '';
   const [sourceTabs, setSourceTabs] = useState<ReadonlySet<string>>(new Set());
-  const [historyOpen, setHistoryOpen] = useState(false);
-  useMobileBack(active && historyOpen && tab !== null && Boolean(state.history), () => setHistoryOpen(false));
   // One toast at a time per panel; a newer outcome replaces the previous one.
   const toast = useRef<string | undefined>(undefined);
   const setNotice = useCallback((notice: Notice | null) => {
@@ -231,25 +203,10 @@ export function useVisualizePanelExtras(
     setNotice(null);
     setSaved(null);
   }, [sessionId, tabId]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is the reset trigger
-  useEffect(() => setHistoryOpen(false), [sessionId]);
 
-  // With no tab open (the panel opened from the agent chat header), the
-  // session's list is the panel's content.
-  const listShown = historyOpen || (tab === null && Boolean(state.history?.length));
   const sourceKey = `${sessionId}\0${tabId}`;
   const sourceOn = tab !== null && sourceTabs.has(sourceKey);
   const actions: DockAction[] = [];
-  if (state.history) {
-    actions.push({
-      id: 'history',
-      label: t('All visuals'),
-      icon: LayoutList,
-      checked: listShown,
-      checkbox: true,
-      onSelect: () => setHistoryOpen(!historyOpen),
-    });
-  }
   if (tab?.panes.some(visualizePaneHasSource)) {
     actions.push({
       id: 'source',
@@ -356,15 +313,5 @@ export function useVisualizePanelExtras(
     });
   }
 
-  const strips =
-    listShown && state.history ? (
-      <HistoryList
-        items={state.history}
-        onPick={(item) => {
-          setHistoryOpen(false);
-          void run(openVisualizeHistory(sessionId, item.id));
-        }}
-      />
-    ) : null;
-  return { actions, strips, sourceOn };
+  return { actions, strips: null, sourceOn };
 }

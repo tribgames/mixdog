@@ -107,6 +107,90 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+enum RouteSwitchBusState {
+    Buffered(Vec<mixdog_core_run::run_host::route_fallback::RouteSwitchEvent>),
+    Live(mpsc::UnboundedSender<forwarding::Shown>),
+}
+
+impl Default for RouteSwitchBusState {
+    fn default() -> Self {
+        Self::Buffered(Vec::new())
+    }
+}
+
+/// Preserves strict FIFO order for `route_switch` stage events across pre-flight and mid-turn hops without detached
+/// tasks. Events emitted before the loop's `Shown` forwarder starts are buffered and flushed in order when attached (or
+/// drained directly before dispatching an outside agent turn).
+#[derive(Default)]
+pub struct RouteSwitchBus {
+    state: Mutex<RouteSwitchBusState>,
+}
+
+impl RouteSwitchBus {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn push(&self, event: mixdog_core_run::run_host::route_fallback::RouteSwitchEvent) {
+        let mut guard = lock(&self.state);
+        match &mut *guard {
+            RouteSwitchBusState::Buffered(buf) => buf.push(event),
+            RouteSwitchBusState::Live(tx) => {
+                if tx.send(forwarding::Shown::Stage("route_switch".to_owned(), Some(event.to_value()))).is_err() {
+                    *guard = RouteSwitchBusState::Buffered(vec![event]);
+                }
+            }
+        }
+    }
+
+    pub fn drain_buffered(&self) -> Vec<mixdog_core_run::run_host::route_fallback::RouteSwitchEvent> {
+        let mut guard = lock(&self.state);
+        match &mut *guard {
+            RouteSwitchBusState::Buffered(buf) => std::mem::take(buf),
+            RouteSwitchBusState::Live(_) => Vec::new(),
+        }
+    }
+
+    pub(in crate::run_host::factory) fn attach(&self, tx: mpsc::UnboundedSender<forwarding::Shown>) {
+        let mut guard = lock(&self.state);
+        if let RouteSwitchBusState::Buffered(buf) = &mut *guard {
+            for event in std::mem::take(buf) {
+                let _ = tx.send(forwarding::Shown::Stage("route_switch".to_owned(), Some(event.to_value())));
+            }
+        }
+        *guard = RouteSwitchBusState::Live(tx);
+    }
+}
+
+/// Pre-flight loop landing produced by a single [`RunParts::preflight_turn`] pass and consumed directly by
+/// [`RunParts::assemble_preflight`] without rescanning.
+pub struct PreflightLoop {
+    pub header: mixdog_store::schema::record::Header,
+    pub provider: Arc<dyn ProviderAdapter>,
+    pub route: Arc<mixdog_core_run::run_host::route_fallback::RouteHop>,
+    pub switch_bus: Arc<RouteSwitchBus>,
+    pub landed: bool,
+    pub leave_old_agent: bool,
+}
+
+/// Outcome of a turn's single pre-flight route decision.
+pub enum PreflightTurn {
+    /// Host did not implement unified pre-flight; fall back to legacy dispatch.
+    Continue,
+    /// Turn was cancelled while awaiting initial route readiness or post-switch budget refresh.
+    /// Carries any already-persisted `route_switch` events that must still be flushed on the closing port.
+    Cancelled { switch_events: Vec<mixdog_core_run::run_host::route_fallback::RouteSwitchEvent> },
+    /// Turn runs on an outside ACP agent (current or switched).
+    Outside {
+        header: mixdog_store::schema::record::Header,
+        notice: Option<String>,
+        switch_events: Vec<mixdog_core_run::run_host::route_fallback::RouteSwitchEvent>,
+        leave_old_agent: bool,
+    },
+    /// Turn runs in the loop on the selected provider.
+    Loop(Box<PreflightLoop>),
+}
+
 /// Everything of a turn the host supplies. Owners are named where the real source is not in this
 /// crate yet.
 pub struct Assembled {
@@ -201,6 +285,27 @@ pub trait RunParts: Send + Sync + 'static {
     /// The agents that run turns outside the loop; a host with none runs every turn in the loop.
     fn outside_agents(&self) -> Option<Arc<dyn OutsideAgents>> {
         None
+    }
+
+    /// Reads the thread's current live session header, if available.
+    fn live_header(&self, _thread: &ThreadId) -> Option<mixdog_store::schema::record::Header> {
+        None
+    }
+
+    /// Unified single-pass pre-flight route decision before dispatching either the loop or an outside ACP agent.
+    async fn preflight_turn(
+        &self,
+        _thread: &ThreadId,
+        _turn: &TurnId,
+        _header: &mixdog_store::schema::record::Header,
+        _cancel: &tokio_util::sync::CancellationToken,
+    ) -> Result<PreflightTurn, TurnError> {
+        Ok(PreflightTurn::Continue)
+    }
+
+    /// Assembles a loop turn directly from a [`PreflightLoop`] decision without rescanning fallbacks.
+    async fn assemble_preflight(&self, input: AssembleInput<'_>, _preflight: PreflightLoop) -> Result<Assembled, TurnError> {
+        self.assemble(input).await
     }
 
     /// The tool side of [`Self::assemble`], for a turn an outside agent runs: no provider, request or compactor.

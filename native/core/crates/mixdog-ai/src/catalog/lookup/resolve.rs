@@ -404,7 +404,7 @@ impl Lookup<'_> {
         if provider == "grok-oauth" {
             return registry::normalize_grok_model_id(model).to_owned();
         }
-        if provider != "antigravity-oauth" {
+        if !matches!(provider, "antigravity-oauth" | "acp-antigravity" | "acp-antigravity-cli") {
             return model.to_owned();
         }
         let wire_matches = |wire: Option<&Value>| match wire {
@@ -467,17 +467,21 @@ impl Lookup<'_> {
             && provider_matches(ov)
         {
             let mut m = normalize(ov).expect("an object");
-            m.insert("pricingSource".into(), json!("override"));
+            if has_rates(Some(&m)) {
+                m.insert("pricingSource".into(), json!("override"));
+            }
             meta = Some(m);
         }
         let from_override = meta.is_some();
-        if meta.is_none() {
-            meta = self.litellm_metadata(id, mapped, provider_matches);
+        let override_has_rates = has_rates(meta.as_ref());
+        if !override_has_rates {
+            let litellm = self.litellm_metadata(id, mapped, provider_matches);
+            meta = merge_metadata(meta, litellm, false, from_override);
         }
         if let Some(mapped) = mapped {
             let row = self.models_dev.model(mapped, id).filter(|r| truthy(Some(r)));
             if let Some(row) = &row {
-                meta = merge_metadata(meta, Some(models_dev_metadata(row)), from_override, from_override);
+                meta = merge_metadata(meta, Some(models_dev_metadata(row)), override_has_rates, from_override);
                 let mut m = meta.unwrap_or_default();
                 m.insert("displayName".into(), models_dev_display_name(row));
                 meta = Some(m);
@@ -553,8 +557,11 @@ impl Lookup<'_> {
         let mapped = self.catalog_metadata(&id, mapped_provider.as_deref());
         let mut meta = if source.as_ref().is_some_and(|s| !s.same_endpoint) { pricing_only(mapped.as_ref()) } else { mapped.clone() };
         let correction = source.as_ref().and_then(|_| registry::metadata_correction(provider, &id));
-        if let (Some(m), Some(c)) = (meta.as_mut(), correction) {
-            m.extend(c);
+        if let Some(c) = correction {
+            match meta.as_mut() {
+                Some(m) => m.extend(c),
+                None => meta = Some(c),
+            }
         }
         let mut guess: Option<Obj> = None;
         let relay_guess = if source.as_ref().is_some_and(|s| s.relay) { self.serving_vendor_metadata(&id) } else { None };
@@ -702,7 +709,21 @@ pub fn enrich_model(lookup: &Lookup<'_>, listed: &Value) -> Value {
     if truthy(meta.get("displayName")) && !truthy(listed.get("display")) {
         out.insert("display".into(), meta["displayName"].clone());
     }
-    out.insert("contextWindow".into(), or_null(first_truthy(&[listed.get("contextWindow"), meta.get("contextWindow")])));
+    let mut window = first_truthy(&[listed.get("contextWindow"), meta.get("contextWindow")]).cloned();
+    let mut max_window = first_truthy(&[listed.get("maxContextWindow"), meta.get("maxContextWindow")]).cloned();
+    if let Some(cap) = registry::guess_context_window(id, provider) {
+        window = match window.as_ref().and_then(Value::as_u64) {
+            Some(current) => Some(json!(current.min(cap))),
+            None => Some(json!(cap)),
+        };
+        if let Some(current_max) = max_window.as_ref().and_then(Value::as_u64) {
+            max_window = Some(json!(current_max.min(cap)));
+        }
+    }
+    out.insert("contextWindow".into(), or_null(window.as_ref()));
+    if let Some(max_window) = max_window {
+        out.insert("maxContextWindow".into(), max_window);
+    }
     out.insert("outputTokens".into(), or_null(first_truthy(&[listed.get("outputTokens"), meta.get("outputTokens")])));
     for key in
         ["inputCostPerM", "outputCostPerM", "cacheReadCostPerM", "cacheWriteCostPerM", "pricingTiers", "pricingModel", "pricingProvider", "pricingSource"]

@@ -148,10 +148,12 @@ export function usePanelWidthDrag({
   dockPref,
   setDockPref,
   storageKey,
+  preview,
 }: {
   dockPref: number;
   setDockPref: (width: number) => void;
   storageKey: string;
+  preview?: (width: number | null) => void;
 }) {
   // The stored preference as it stood when a panel resize gesture began: a
   // cancel restores it rather than the constrained rendered width.
@@ -161,10 +163,18 @@ export function usePanelWidthDrag({
     if (phase === 'cancel') {
       const snapshot = panelWidthSnapshot.current;
       panelWidthSnapshot.current = null;
+      preview?.(null);
       if (snapshot !== null) setDockPref(snapshot);
       return;
     }
-    if (phase === 'commit') panelWidthSnapshot.current = null;
+    if (phase === 'preview' && preview) {
+      preview(next);
+      return;
+    }
+    if (phase === 'commit') {
+      panelWidthSnapshot.current = null;
+      preview?.(null);
+    }
     setDockPref(next);
     if (phase === 'commit') commitWidthPref(storageKey, next);
   };
@@ -182,6 +192,7 @@ export function useDiffColumnResize({
   minWidth,
   maxWidth,
   commitWidth,
+  preview,
 }: {
   diffPref: number;
   setDiffPref: (width: number) => void;
@@ -189,6 +200,7 @@ export function useDiffColumnResize({
   minWidth: number;
   maxWidth: number;
   commitWidth: (width: number) => void;
+  preview?: (width: number | null) => void;
 }) {
   const diffResizeStart = useRef<{
     x: number;
@@ -210,9 +222,13 @@ export function useDiffColumnResize({
     // if resolveDockLayout clamps diffWidth to the same value, React skips
     // writing the unchanged style prop, so leaving an imperative preview value
     // on the DOM would keep it permanently out of sync.
-    const currentWidth = getDiffWidth();
-    const restoredWidth = currentWidth > 0 ? currentWidth : start.width;
-    start.container?.style.setProperty('--pane-dock-diff-width', `${restoredWidth}px`);
+    if (preview) {
+      preview(null);
+    } else {
+      const currentWidth = getDiffWidth();
+      const restoredWidth = currentWidth > 0 ? currentWidth : start.width;
+      start.container?.style.setProperty('--pane-dock-diff-width', `${restoredWidth}px`);
+    }
     // Only a width the gesture changed is written: one that never left its
     // starting width, or came back to it, puts back the preference.
     if (pending === null) return;
@@ -259,6 +275,10 @@ export function useDiffColumnResize({
       scheduleLayoutFrame(previewFrameKey.current, () => {
         const width = diffDragPending.current;
         if (width === null) return;
+        if (preview) {
+          preview(width);
+          return;
+        }
         const clamped = Math.max(minWidth, Math.min(start.previewMax, width));
         start.container?.style.setProperty('--pane-dock-diff-width', `${clamped}px`);
       });
@@ -278,13 +298,19 @@ export function useDiffColumnResize({
   };
 }
 
-/** The dock measures its own pane cell while open. The first measure runs in
- *  the layout effect before first paint; subsequent ResizeObserver updates
- *  coalesce onto an animation frame without forcing synchronous React flushes. */
-export function useDockCellWidth(hostRef: RefObject<HTMLDivElement | null>, openNow: boolean): number {
+/** The dock measures its own pane cell while mounted so opening a dock
+ *  resolves exact inline/overlay geometry on the opening commit. The first
+ *  measure runs in the layout effect before first paint; subsequent
+ *  ResizeObserver updates coalesce onto an animation frame without forcing
+ *  synchronous React flushes. */
+export function useDockCellWidth(
+  hostRef: RefObject<HTMLDivElement | null>,
+  active: boolean,
+  measureSignal?: unknown
+): number {
   const [cellWidth, setCellWidth] = useState(0);
   useLayoutEffect(() => {
-    if (!openNow) return undefined;
+    if (!active) return undefined;
     const cell = hostRef.current?.parentElement;
     if (!cell) return undefined;
     const measure = () => setCellWidth((current) => (current === cell.clientWidth ? current : cell.clientWidth));
@@ -320,7 +346,13 @@ export function useDockCellWidth(hostRef: RefObject<HTMLDivElement | null>, open
       observer.disconnect();
       if (frame !== null && cancelRaf) cancelRaf(frame);
     };
-  }, [hostRef, openNow]);
+  }, [hostRef, active]);
+  useLayoutEffect(() => {
+    if (!active) return;
+    const cell = hostRef.current?.parentElement;
+    if (!cell) return;
+    setCellWidth((current) => (current === cell.clientWidth ? current : cell.clientWidth));
+  }, [hostRef, active, measureSignal]);
   return cellWidth;
 }
 
@@ -569,7 +601,14 @@ export function useDockHeightDrag({
 }) {
   const start = useRef<{ y: number; height: number; pref: number } | null>(null);
   const pending = useRef<number | null>(null);
+  const lastPreviewed = useRef<number | null>(null);
+  const frameScheduled = useRef(false);
+  const frameKey = useRef({});
+  useEffect(() => () => cancelLayoutFrame(frameKey.current), []);
   const gesture = useResizeGesture((commit) => {
+    cancelLayoutFrame(frameKey.current);
+    frameScheduled.current = false;
+    lastPreviewed.current = null;
     const current = start.current;
     if (!current) return;
     start.current = null;
@@ -577,12 +616,19 @@ export function useDockHeightDrag({
     pending.current = null;
     // Only a height the gesture changed is written; otherwise the preference is put back.
     if (changed === null) return;
-    if (commit && changed !== current.height) commitWidthPref(storageKey, changed);
-    else setHeightPref(current.pref);
+    if (commit && changed !== current.height) {
+      setHeightPref(changed);
+      commitWidthPref(storageKey, changed);
+    } else {
+      setHeightPref(current.pref);
+    }
   });
   return {
     onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return;
+      cancelLayoutFrame(frameKey.current);
+      frameScheduled.current = false;
+      lastPreviewed.current = null;
       gesture.begin(event);
       start.current = { y: event.clientY, height: renderedHeight, pref: heightPref };
       pending.current = null;
@@ -593,8 +639,21 @@ export function useDockHeightDrag({
       const next = clampPaneDockHeight(current.height + (current.y - event.clientY), room);
       // Movement that leaves the height where it started (sideways) is no resize yet.
       if (pending.current === null && next === current.height) return;
+      if (pending.current === next) return;
       pending.current = next;
-      setHeightPref(next);
+      if (!frameScheduled.current) {
+        frameScheduled.current = true;
+        lastPreviewed.current = next;
+        setHeightPref(next);
+        scheduleLayoutFrame(frameKey.current, () => {
+          frameScheduled.current = false;
+          const latest = pending.current;
+          if (latest !== null && latest !== lastPreviewed.current) {
+            lastPreviewed.current = latest;
+            setHeightPref(latest);
+          }
+        });
+      }
     },
     ...gesture.handlers,
   };

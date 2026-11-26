@@ -992,3 +992,127 @@ test('per-session lifecycle metadata prunes prior turns so knownEnds and shownCh
   assert.equal(stats.activeEnds, 0, 'activeEnds clears once idle');
   assert.equal(stats.shownCheckpoints, 1, 'shownCheckpoints retains only the current turn checkpoint');
 });
+
+test('status/footer slot stays continuous while the closing assistant row drains paced text at turn end', async (t) => {
+  const { root, document } = mount(t);
+  const { preloadSyncMarkdownParser } = await import('./markdown-worker-client');
+  const { MarkdownSessionContext } = await import('./MarkdownLink');
+  const { REVEAL_INTERVAL_MS } = await import('./use-transcript-text-reveal');
+  const originalNow = performance.now.bind(performance);
+  let clock = originalNow();
+  performance.now = () => clock;
+  t.after(() => {
+    performance.now = originalNow;
+    releaseTranscriptRowLifecycle('slot-continuity');
+  });
+  await preloadSyncMarkdownParser();
+
+  const prompt = { kind: 'user', id: 'u1', text: 'Write a long answer' };
+  const mid = `Hi ${'word '.repeat(50)}`;
+  const full = `Hi ${'word '.repeat(100)}`;
+  const done = { kind: 'turndone', id: 'd1', status: 'complete', elapsedMs: 2_000 };
+
+  let currentRows = [];
+  function Harness({ settledItems, liveItem, busy }) {
+    const { transcriptRows } = useTranscriptRows({
+      identity: 'slot-continuity',
+      sessionKey: 'slot-continuity',
+      settledItems,
+      settledRowItems: settledItems,
+      failedTurnKeys: [],
+      precomputedTurnKeys: null,
+      pendingItems: [],
+      liveItem,
+      busy,
+      commandBusy: false,
+      commandActivityVisible: false,
+      optimisticActivityStartedAt: 0,
+    });
+    currentRows = transcriptRows;
+    return React.createElement(
+      MarkdownSessionContext.Provider,
+      { value: 'slot-continuity' },
+      transcriptRows.map((row) =>
+        row._tag === 'AssistantPart'
+          ? React.createElement(TranscriptRow, {
+              key: row.key,
+              item: row.item,
+              completion: row.completion,
+              revealKey: row.key,
+              paced: true,
+            })
+          : row._tag === 'Thinking'
+            ? React.createElement('div', { key: row.key, className: 'live-activity-slot', 'data-busy': 'true' })
+            : null
+      )
+    );
+  }
+
+  // 1. Working with buffered backlog: Thinking slot is mounted, no completed footer yet.
+  await act(async () =>
+    root.render(
+      React.createElement(Harness, {
+        settledItems: [prompt],
+        liveItem: { kind: 'assistant', id: 'a1', text: 'Hi ', streaming: true },
+        busy: true,
+      })
+    )
+  );
+  await act(async () =>
+    root.render(
+      React.createElement(Harness, {
+        settledItems: [prompt],
+        liveItem: { kind: 'assistant', id: 'a1', text: mid, streaming: true },
+        busy: true,
+      })
+    )
+  );
+  await act(async () =>
+    root.render(
+      React.createElement(Harness, {
+        settledItems: [prompt],
+        liveItem: { kind: 'assistant', id: 'a1', text: full, streaming: true },
+        busy: true,
+      })
+    )
+  );
+  const thinkingKey = currentRows.find((row) => row._tag === 'Thinking')?.key;
+  assert.ok(thinkingKey, 'Thinking band mounts while streaming');
+  assert.ok(document.querySelector('.live-activity-slot[data-busy="true"]'));
+  assert.equal(document.querySelector('.response-footer'), null);
+
+  // 2. Turn settles while the closing assistant row is still draining paced text:
+  //    Thinking slot stays mounted with the same key (no 40 -> 0 -> 40 px dip).
+  clock += 80;
+  await act(async () =>
+    root.render(
+      React.createElement(Harness, {
+        settledItems: [prompt, { kind: 'assistant', id: 'a1', text: full, streaming: false }, done],
+        liveItem: null,
+        busy: false,
+      })
+    )
+  );
+  assert.equal(
+    currentRows.find((row) => row._tag === 'Thinking')?.key,
+    thinkingKey,
+    'Thinking band keeps its slot and key while closing row drains paced text'
+  );
+  assert.ok(document.querySelector('.live-activity-slot[data-busy="true"]'));
+  assert.equal(document.querySelector('.response-footer'), null);
+
+  // 3. Drain completes: Thinking band drops and Completed footer mounts in the same flush.
+  for (let i = 0; i < 30 && currentRows.some((row) => row._tag === 'Thinking'); i += 1) {
+    clock += REVEAL_INTERVAL_MS;
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+  }
+  assert.equal(
+    currentRows.some((row) => row._tag === 'Thinking'),
+    false,
+    'Thinking band leaves once drained'
+  );
+  assert.equal(document.querySelector('.live-activity-slot[data-busy="true"]'), null);
+  assert.ok(document.querySelector('.response-footer'), 'Completed footer takes the slot immediately');
+});

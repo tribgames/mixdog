@@ -98,10 +98,14 @@ impl SessionActor {
             return;
         };
         if completions::is_notification(&next.entry) {
+            // A worker's wake is its owner's agent task: that task's turn takes the batch when it starts, so none starts here.
+            if self.cell.wake_handoff.load(SeqCst) != 0 || (super::super::close::is_worker(&self.acked.header) && self.hand_wake()) {
+                return;
+            }
             // A wake drains the queued completions of the selected priority as one batch in one turn (`drain.mjs` `presentBatch`,
             // `dequeueQueueBatch`), so one Stop ends them all.
             let batch = self.next_wake_batch(&next);
-            self.start_completion(batch);
+            self.start_completion(batch, None, None, None);
             return;
         }
         // A user prompt that cannot be delivered is handed back, never recorded as delivered; the next entry is tried.
@@ -212,8 +216,23 @@ impl SessionActor {
         }
     }
 
-    /// The queued completions as one turn's input row, stored as a task notification ([`completions::batch_row`]).
-    fn start_completion(&mut self, batch: Vec<super::super::state::Queued>) {
+    /// Hands this worker's wake to the agent tool, marked out until a turn starts or the hand-off is let go: whether the
+    /// tool took it.
+    fn hand_wake(&mut self) -> bool {
+        self.wake_handoffs += 1;
+        let handoff = super::super::WakeHandoff::mark(self.cell.wake_handoff.clone(), self.wake_handoffs);
+        self.deps.worker_wakes.wake(&self.id, handoff)
+    }
+
+    /// The queued completions as one turn's input row, stored as a task notification ([`completions::batch_row`]); `op_ref`,
+    /// `reply` and `submission` are those of the worker's wake that asked for it.
+    pub(super) fn start_completion(
+        &mut self,
+        batch: Vec<super::super::state::Queued>,
+        op_ref: Option<OpRef>,
+        reply: Option<Effect>,
+        submission: Option<String>,
+    ) {
         let mut paired = false;
         for next in &batch {
             let dequeued = self.accept_record_entry(dequeue(&next.qid), Class::Control, Display::None, Vec::new(), Vec::new());
@@ -232,8 +251,8 @@ impl SessionActor {
         let input = TurnInput { prompt: PromptContent::Text(row["content"].as_str().unwrap_or_default().to_owned()), options: None };
         // The batch is one work: named by its first completion, and recreatable through every original completion queue id.
         let qids: Vec<String> = batch.iter().map(|next| next.qid.clone()).collect();
-        let work = WorkRef { id: qids.first().cloned().unwrap_or_else(new_id), qids, submissions: Vec::new(), handback: None };
-        self.start_run_with(DeferredStart { input, body: row, op_ref: None, reply: None, prompt: None, wake: true, retried: false, work });
+        let work = WorkRef { id: qids.first().cloned().unwrap_or_else(new_id), qids, submissions: submission.into_iter().collect(), handback: None };
+        self.start_run_with(DeferredStart { input, body: row, op_ref, reply, prompt: None, wake: true, retried: false, work });
     }
 
     /// The queued entry as it is delivered: one that waited more than thirty minutes since before this process owned

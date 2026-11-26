@@ -53,7 +53,12 @@ async function mountHeldPane(t) {
   const submits = [];
   const actionCache = new Map();
   const actionFor = (name) => {
-    if (name === 'composerSubmit') return async (content) => (submits.push({ content, sentVia: 'host' }), true);
+    if (name === 'composerSubmit') {
+      return async (content) => {
+        submits.push({ content, sentVia: 'host' });
+        return true;
+      };
+    }
     return name === 'composerInvokeResult' ? (action) => action() : noop;
   };
   const actions = new Proxy(
@@ -237,6 +242,7 @@ test('while a relay surface’s connection line says the link is down the compos
     await show({ held: 'sess_r1', selected: 'sess_r1' });
     await type('when it is back');
     await link('reconnecting');
+    assert.equal(page.document.querySelector('.composer-connection-line'), null, 'no connection card renders');
     assert.equal(input().placeholder, 'You can send once connected');
     assert.equal(page.document.querySelector('.send-button').disabled, true);
     await press();

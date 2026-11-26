@@ -304,9 +304,12 @@ pub(crate) struct ControlCell {
     /// Who observes this session's turns (`observeSessionTurns`), by subscription id; told
     /// when a turn starts and when it settles.
     pub turn_listeners: Mutex<Vec<(u64, Arc<dyn TurnListener>)>>,
-    /// The worker turn the next `turn/start` of this thread runs (set by `SessionTurns` just
-    /// before its start request; the actor takes it when it starts the run).
-    pub agent_start: Mutex<Option<AgentStart>>,
+    /// The worker turns waiting for their `turn/start`, by submission id (set by `SessionTurns` just before its start
+    /// request; the actor takes one when it starts the run of that submission), so two starts never take each other's.
+    pub agent_starts: Mutex<std::collections::HashMap<String, AgentStart>>,
+    /// The agent tool's hand-off of this worker's wake ([`super::WorkerWakes`]): its number, `0` when none is out. The
+    /// drain starts no wake while one is out; any turn's start, or the end of the hand-off's job, takes it back.
+    pub wake_handoff: Arc<std::sync::atomic::AtomicU64>,
     /// Routine turns queued on this thread and not started yet, by submission id.
     pub routine_starts: Mutex<std::collections::HashMap<String, RoutineStart>>,
     /// `session.turnHop` / `session.turnBotChain`: stamped when a turn starts, in memory only.
@@ -347,7 +350,7 @@ pub(crate) struct ControlCell {
     /// submitted meanwhile is Node's ask waiting on the gate, which a stop still hands back to the composer.
     pub gated: std::sync::atomic::AtomicBool,
     /// In-core starts of this thread waiting out the core's hold on turn starts (`SessionHandle::deferring`): the idle clock does not
-    /// unload the thread under them, whose callers left their start on this cell (`agent_start`, `routine_starts`).
+    /// unload the thread under them, whose callers left their start on this cell (`agent_starts`, `routine_starts`).
     pub deferring: std::sync::atomic::AtomicUsize,
     /// What an archive preparation holding this thread checks at its commit: moved by every attach and by every step that moved
     /// what the preparation judged; held while a preparation holds the thread (the idle deadline leaves it loaded).

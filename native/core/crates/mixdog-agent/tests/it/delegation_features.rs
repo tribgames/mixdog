@@ -787,25 +787,43 @@ async fn a_send_to_a_busy_agent_queues_and_to_an_idle_one_runs_a_job() {
     assert!(told(&rig).iter().any(|t| t.contains("followed")));
 }
 
-/// An idle agent is woken to take a completion that arrived for it; a busy one is not (the turn running will take it),
-/// and a closed one is not.
+/// An agent its session woke for a completion runs the wake as a send job of its owner: the owner is told the wake's
+/// answer, and `agent read` by tag returns it. A closed agent is not woken.
 #[tokio::test(start_paused = true)]
-async fn only_an_idle_open_agent_is_woken() {
+async fn a_woken_agent_runs_its_wake_as_a_task_its_owner_hears_and_reads_by_tag() {
     backend();
-    let woken = |scenario: Value| async move {
-        let rig = rig(&scenario, None);
-        let woke = rig.send.wake_idle_worker("sess_w1").await;
-        (rig, woke)
-    };
-    let (rig, woke) = woken(send_scenario("process", false, json!([{ "return": { "content": "woken" } }]))).await;
-    assert!(woke);
+    let rig = rig(&send_scenario("process", false, json!([{ "return": { "content": "the build passed" } }])), None);
+    rig.send.wake_worker("sess_w1", Box::new(())).await.expect("woken");
     settle().await;
     settle().await;
-    assert!(told(&rig).iter().any(|t| t.contains("woken")));
-    assert!(!woken(send_scenario("process", true, json!([]))).await.1);
+    assert!(told(&rig).iter().any(|t| t.contains("the build passed")), "{:?}", told(&rig));
+    let jobs = rig.shared.board.list_jobs(&Scope::default());
+    assert_eq!((jobs.len(), jobs[0].operation.as_str(), jobs[0].status.as_str()), (1, "send", "completed"));
+    assert_eq!(result_json(&jobs[0])["content"], "the build passed");
+    let read = render(&rig.runtime.handle(&json!({ "type": "read", "tag": "scout" }), &caller()).await, "scout");
+    assert!(read.contains("the build passed"), "{read}");
+
     let mut closed = send_scenario("process", false, json!([]));
     closed["session"]["closed"] = json!(true);
-    assert!(!woken(closed).await.1);
+    let rig = self::rig(&closed, None);
+    assert!(rig.send.wake_worker("sess_w1", Box::new(())).await.is_err());
+    assert!(rig.shared.board.list_jobs(&Scope::default()).is_empty());
+}
+
+/// A wake whose completions another turn of the worker took ran nothing: its task leaves the board, its owner is told
+/// nothing, and its hand-off is let go.
+#[tokio::test(start_paused = true)]
+async fn a_wake_whose_completions_another_turn_took_leaves_no_task_and_tells_nobody() {
+    backend();
+    let taken = json!([{ "wakeTaken": "agent session sess_w1 has no completion left for this wake" }]);
+    let rig = rig(&send_scenario("process", false, taken), None);
+    let handoff = Arc::new(());
+    rig.send.wake_worker("sess_w1", Box::new(handoff.clone())).await.expect("woken");
+    settle().await;
+    settle().await;
+    assert!(rig.shared.board.list_jobs(&Scope::default()).is_empty());
+    assert!(told(&rig).is_empty(), "{:?}", told(&rig));
+    assert_eq!(Arc::strong_count(&handoff), 1, "the job let its hand-off go");
 }
 
 /// The agent tool answers a bad request as text: an unknown type and a task that is not there.
@@ -951,6 +969,458 @@ async fn a_send_makes_the_worker_follow_its_agents_configured_route() {
     assert!(route_calls(held, None).await.unwrap().is_empty(), "a held route that already is the agent's route is left");
     let own_preset = route_scenario("process", false, json!({ "presetName": "MY PRESET" }));
     assert!(route_calls(own_preset, None).await.unwrap().is_empty(), "a worker started on a preset of its own keeps it");
+}
+
+/// A follow-up send to a worker currently running on a fallback route keeps that healthy fallback when the agent's
+/// configured workflow assignment has not changed, and only switches when the user actually changed the assignment.
+#[tokio::test(start_paused = true)]
+async fn a_send_keeps_an_active_fallback_when_workflow_assignment_is_unchanged() {
+    let active_fallback = json!({ "provider": "anthropic", "model": "sonnet", "effort": "low", "fast": false });
+    let mut unchanged = route_scenario(
+        "canonical",
+        false,
+        json!({
+            "provider": "anthropic",
+            "model": "sonnet",
+            "effort": "low",
+            "fast": false,
+            "routeFallbackSource": { "agent": "worker" },
+            "routeFallbacks": [active_fallback.clone()],
+            "routeFallbackPrimary": { "provider": "xai", "model": "grok", "effort": "high", "fast": true },
+            "routeFallbackIndex": 1,
+            "routeFallbackFailures": [{ "provider": "xai", "model": "grok", "kind": "provider_unavailable", "error": "down" }],
+        }),
+    );
+    unchanged["config"]["agents"]["worker"]["fallbacks"] = json!([active_fallback.clone()]);
+    assert!(
+        route_calls(unchanged, None).await.unwrap().is_empty(),
+        "an active fallback for the unchanged configured assignment must not bounce back to the broken primary"
+    );
+
+    let mut changed = route_scenario(
+        "canonical",
+        false,
+        json!({
+            "provider": "anthropic",
+            "model": "sonnet",
+            "effort": "low",
+            "fast": false,
+            "routeFallbackSource": { "agent": "worker" },
+            "routeFallbacks": [active_fallback.clone()],
+            "routeFallbackPrimary": { "provider": "openai", "model": "gpt-5", "effort": "medium", "fast": false },
+            "routeFallbackIndex": 1,
+            "routeFallbackFailures": [{ "provider": "openai", "model": "gpt-5", "kind": "provider_unavailable", "error": "down" }],
+        }),
+    );
+    changed["config"]["agents"]["worker"]["fallbacks"] = json!([active_fallback]);
+    let calls = route_calls(changed, None).await.unwrap();
+    assert_eq!(calls.len(), 1, "a changed workflow assignment still updates the worker route");
+    assert_eq!((calls[0][0].clone(), calls[0][1]["provider"].clone(), calls[0][1]["model"].clone()), (json!("setRoute"), json!("xai"), json!("grok")));
+}
+
+/// When a worker is running on active fallback F and the user removes F from the same preset (leaving source and
+/// primary unchanged), the next follow-up send applies the updated route/chain rather than keeping removed F.
+#[tokio::test(start_paused = true)]
+async fn a_send_updates_route_when_active_fallback_is_removed_from_the_same_preset() {
+    let fallback_f = json!({ "provider": "anthropic", "model": "sonnet", "effort": "low", "fast": false });
+    let fallback_g = json!({ "provider": "google", "model": "gemini-pro", "fast": false });
+
+    // Case 1: F is removed from `[F, G]` -> `[G]` on the same preset (`worker-preset`), same primary (`xai/grok`).
+    let mut replaced = route_scenario(
+        "canonical",
+        false,
+        json!({
+            "provider": "anthropic",
+            "model": "sonnet",
+            "effort": "low",
+            "fast": false,
+            "routeFallbackSource": { "preset": "worker-preset" },
+            "routeFallbacks": [fallback_f.clone(), fallback_g.clone()],
+            "routeFallbackPrimary": { "provider": "xai", "model": "grok", "effort": "high", "fast": true },
+            "routeFallbackIndex": 1,
+            "routeFallbackFailures": [{ "provider": "xai", "model": "grok", "kind": "provider_unavailable", "error": "down" }],
+        }),
+    );
+    replaced["config"]["presets"] = json!([{
+        "id": "worker-preset",
+        "name": "WORKER PRESET",
+        "provider": "xai",
+        "model": "grok",
+        "effort": "high",
+        "fast": true,
+        "fallbacks": [fallback_g.clone()],
+    }]);
+    replaced["config"]["agents"]["worker"] = json!("worker-preset");
+    let calls = route_calls(replaced.clone(), None).await.unwrap();
+    assert_eq!(calls.len(), 1, "removing active fallback F from the preset must trigger a route/chain update");
+    assert_eq!((calls[0][0].clone(), calls[0][1]["provider"].clone(), calls[0][1]["model"].clone()), (json!("setRoute"), json!("xai"), json!("grok")));
+    assert_eq!(calls[0][1]["routeFallbackSource"], json!({ "preset": "worker-preset" }));
+    assert_eq!(calls[0][1]["routeFallbacks"], json!([fallback_g]));
+
+    // Case 2: F is removed leaving an empty fallback list `[]`.
+    replaced["config"]["presets"][0]["fallbacks"] = json!([]);
+    let calls = route_calls(replaced, None).await.unwrap();
+    assert_eq!(calls.len(), 1, "clearing fallbacks while on active fallback F must trigger a route/chain update");
+    assert_eq!(calls[0][1]["routeFallbacks"], json!([]));
+}
+
+/// When a runtime hop records `routeFallbackPrimary` with omitted default `contextTokens`:
+/// - an unchanged preset whose `contextTokens` equals the primary's effective/default window keeps the active fallback;
+/// - editing the preset to an explicit reduced cap (e.g. 200k default -> 100k) triggers a route update instead of
+///   wildcard-matching `None`.
+#[tokio::test(start_paused = true)]
+async fn a_send_keeps_an_active_fallback_when_primary_omits_default_context_tokens() {
+    let active_fallback = json!({ "provider": "anthropic", "model": "sonnet", "effort": "low", "fast": false });
+    let mut scenario = route_scenario(
+        "canonical",
+        false,
+        json!({
+            "provider": "anthropic",
+            "model": "sonnet",
+            "effort": "low",
+            "fast": false,
+            "routeFallbackSource": { "agent": "worker" },
+            "routeFallbacks": [active_fallback.clone()],
+            "routeFallbackPrimary": { "provider": "xai", "model": "grok", "effort": "high", "fast": true, "contextPercent": 100 },
+            "routeFallbackIndex": 1,
+            "routeFallbackFailures": [{ "provider": "xai", "model": "grok", "kind": "provider_unavailable", "error": "down" }],
+        }),
+    );
+    scenario["config"]["providers"] = json!({
+        "xai": { "models": [{ "id": "grok", "contextWindow": 200000 }] }
+    });
+    scenario["config"]["agents"]["worker"] = json!({
+        "provider": "xai",
+        "model": "grok",
+        "effort": "high",
+        "fast": true,
+        "contextPercent": 100,
+        "contextTokens": 200000,
+        "fallbacks": [active_fallback.clone()],
+    });
+    assert!(
+        route_calls(scenario.clone(), None).await.unwrap().is_empty(),
+        "omitted default contextTokens on routeFallbackPrimary must match unchanged 200k default window"
+    );
+
+    // Preset carrying only the default `contextTokens` (no `contextPercent`) also matches when default window is 200k.
+    scenario["config"]["agents"]["worker"] = json!({
+        "provider": "xai",
+        "model": "grok",
+        "effort": "high",
+        "fast": true,
+        "contextTokens": 200000,
+        "fallbacks": [active_fallback.clone()],
+    });
+    assert!(
+        route_calls(scenario.clone(), None).await.unwrap().is_empty(),
+        "preset with default contextTokens alone must match when primary's effective window is 200k"
+    );
+
+    // Editing the preset from omitted 200k default -> explicit reduced cap (100k) MUST trigger a route update.
+    scenario["config"]["agents"]["worker"] = json!({
+        "provider": "xai",
+        "model": "grok",
+        "effort": "high",
+        "fast": true,
+        "contextTokens": 100000,
+        "fallbacks": [active_fallback.clone()],
+    });
+    let calls = route_calls(scenario.clone(), None).await.unwrap();
+    assert_eq!(calls.len(), 1, "changing omitted default 200k -> explicit reduced 100k must apply the edit");
+    assert_eq!(calls[0][1]["contextTokens"], json!(100000));
+
+    // Even when primary's model window is unknown (no selectedContextWindow / no provider model meta),
+    // omitted `contextTokens` must NOT wildcard-match an explicit reduced cap.
+    let mut unknown_window = scenario.clone();
+    unknown_window["config"].as_object_mut().unwrap().shift_remove("providers");
+    let calls = route_calls(unknown_window, None).await.unwrap();
+    assert_eq!(calls.len(), 1, "unknown window must not wildcard-match omitted contextTokens to 100k");
+    assert_eq!(calls[0][1]["contextTokens"], json!(100000));
+
+    // When routeFallbackPrimary recorded `selectedContextWindow: 200000` (omitting default `contextTokens`),
+    // 200k matches and 100k triggers an update.
+    let mut with_selected = scenario.clone();
+    with_selected["config"].as_object_mut().unwrap().shift_remove("providers");
+    with_selected["session"]["routeFallbackPrimary"]["selectedContextWindow"] = json!(200000);
+    with_selected["config"]["agents"]["worker"]["contextTokens"] = json!(200000);
+    assert!(route_calls(with_selected.clone(), None).await.unwrap().is_empty(), "selectedContextWindow 200k matches unchanged 200k");
+    with_selected["config"]["agents"]["worker"]["contextTokens"] = json!(100000);
+    let calls = route_calls(with_selected, None).await.unwrap();
+    assert_eq!(calls.len(), 1, "selectedContextWindow 200k must not match reduced 100k");
+    assert_eq!(calls[0][1]["contextTokens"], json!(100000));
+
+    // When routeFallbackPrimary recorded an explicit non-default contextTokens that differs, it is a real change.
+    scenario["session"]["routeFallbackPrimary"]["contextTokens"] = json!(100000);
+    scenario["config"]["agents"]["worker"]["contextTokens"] = json!(200000);
+    let calls = route_calls(scenario, None).await.unwrap();
+    assert_eq!(calls.len(), 1, "different explicit contextTokens on primary must trigger route update");
+    assert_eq!(calls[0][1]["contextTokens"], json!(200000));
+}
+
+/// Clearing an explicit `contextTokens` cap on the agent's assignment (returning to the model's
+/// default window) must be detected symmetrically against both an active fallback's recorded
+/// `routeFallbackPrimary` and a non-hopped session, applying the cleared route.
+#[tokio::test(start_paused = true)]
+async fn a_send_updates_route_when_explicit_context_tokens_cap_is_cleared() {
+    let active_fallback = json!({ "provider": "anthropic", "model": "sonnet", "effort": "low", "fast": false });
+    let mut on_fallback = route_scenario(
+        "canonical",
+        false,
+        json!({
+            "provider": "anthropic",
+            "model": "sonnet",
+            "effort": "low",
+            "fast": false,
+            "routeFallbackSource": { "agent": "worker" },
+            "routeFallbacks": [active_fallback.clone()],
+            "routeFallbackPrimary": {
+                "provider": "xai",
+                "model": "grok",
+                "effort": "high",
+                "fast": true,
+                "contextTokens": 100000,
+                "selectedContextWindow": 100000,
+            },
+            "routeFallbackIndex": 1,
+            "routeFallbackFailures": [{ "provider": "xai", "model": "grok", "kind": "provider_unavailable", "error": "down" }],
+        }),
+    );
+    // Updated assignment clears `contextTokens` back to the model's default window.
+    on_fallback["config"]["agents"]["worker"] = json!({
+        "provider": "xai",
+        "model": "grok",
+        "effort": "high",
+        "fast": true,
+        "fallbacks": [active_fallback.clone()],
+    });
+    let calls = route_calls(on_fallback, None).await.unwrap();
+    assert_eq!(calls.len(), 1, "clearing explicit contextTokens on recorded primary must apply updated route");
+    assert_eq!((calls[0][0].clone(), calls[0][1]["provider"].clone(), calls[0][1]["model"].clone()), (json!("setRoute"), json!("xai"), json!("grok")));
+    assert_eq!(calls[0][1].get("contextTokens"), Some(&Value::Null), "route_to_set must explicitly clear contextTokens");
+
+    // Same symmetry on a non-hopped session carrying an explicit `contextTokens` cap.
+    let mut direct = route_scenario(
+        "canonical",
+        false,
+        json!({
+            "provider": "xai",
+            "model": "grok",
+            "effort": "high",
+            "fast": true,
+            "contextTokens": 100000,
+            "selectedContextWindow": 100000,
+        }),
+    );
+    direct["config"]["agents"]["worker"] = json!({
+        "provider": "xai",
+        "model": "grok",
+        "effort": "high",
+        "fast": true,
+    });
+    let calls = route_calls(direct, None).await.unwrap();
+    assert_eq!(calls.len(), 1, "clearing explicit contextTokens on a non-hopped session must apply updated route");
+    assert_eq!(calls[0][1].get("contextTokens"), Some(&Value::Null), "route_to_set must explicitly clear contextTokens");
+}
+
+/// For a catalog-only 200k default model (not in any hardcoded model-name heuristic and absent from
+/// `config.providers`), follow-up `send` relies on the authoritative `selectedContextWindow` preserved
+/// on `routeFallbackPrimary`: unchanged 200k stays on the active fallback while changing to 100k updates.
+#[tokio::test(start_paused = true)]
+async fn a_send_matches_catalog_only_200k_default_via_authoritative_selected_context_window() {
+    let active_fallback = json!({ "provider": "anthropic", "model": "sonnet", "effort": "low", "fast": false });
+    let mut scenario = route_scenario(
+        "canonical",
+        false,
+        json!({
+            "provider": "anthropic",
+            "model": "sonnet",
+            "effort": "low",
+            "fast": false,
+            "routeFallbackSource": { "agent": "worker" },
+            "routeFallbacks": [active_fallback.clone()],
+            "routeFallbackPrimary": {
+                "provider": "acme-catalog",
+                "model": "acme-reasoner-200k",
+                "effort": "high",
+                "fast": true,
+                "selectedContextWindow": 200000,
+            },
+            "routeFallbackIndex": 1,
+            "routeFallbackFailures": [{ "provider": "acme-catalog", "model": "acme-reasoner-200k", "kind": "provider_unavailable", "error": "down" }],
+        }),
+    );
+    scenario["config"].as_object_mut().unwrap().shift_remove("providers");
+    scenario["config"]["agents"]["worker"] = json!({
+        "provider": "acme-catalog",
+        "model": "acme-reasoner-200k",
+        "effort": "high",
+        "fast": true,
+        "contextTokens": 200000,
+        "fallbacks": [active_fallback.clone()],
+    });
+    assert!(
+        route_calls(scenario.clone(), None).await.unwrap().is_empty(),
+        "catalog-only 200k default model with authoritative selectedContextWindow=200000 must stay on active fallback"
+    );
+
+    // Changing to an explicit reduced cap (100k) must detect the change and update.
+    scenario["config"]["agents"]["worker"]["contextTokens"] = json!(100000);
+    let calls = route_calls(scenario, None).await.unwrap();
+    assert_eq!(calls.len(), 1, "changing catalog-only 200k -> 100k must apply the route update");
+    assert_eq!(
+        (calls[0][0].clone(), calls[0][1]["provider"].clone(), calls[0][1]["model"].clone(), calls[0][1]["contextTokens"].clone()),
+        (json!("setRoute"), json!("acme-catalog"), json!("acme-reasoner-200k"), json!(100000))
+    );
+}
+
+/// Reassigning a workflow agent from preset A to preset B carries B's `routeFallbackSource` and `routeFallbacks`
+/// through follow-up send — both when primaries differ and when A and B share the same primary.
+#[tokio::test(start_paused = true)]
+async fn a_send_carries_new_fallback_source_and_chain_when_workflow_preset_changes() {
+    let presets = json!([
+        {
+            "id": "preset-a",
+            "name": "PRESET A",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fallbacks": [{ "provider": "google", "model": "gemini-pro" }]
+        },
+        {
+            "id": "preset-b",
+            "name": "PRESET B",
+            "provider": "xai",
+            "model": "grok",
+            "effort": "high",
+            "fast": true,
+            "fallbacks": [{ "provider": "anthropic", "model": "claude-sonnet", "effort": "low" }]
+        },
+        {
+            "id": "preset-b-same-primary",
+            "name": "PRESET B SAME PRIMARY",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fallbacks": [{ "provider": "anthropic", "model": "claude-haiku" }]
+        }
+    ]);
+
+    // Case 1: different primary (preset-a -> preset-b).
+    let mut diff_primary = route_scenario(
+        "canonical",
+        false,
+        json!({
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "routeFallbackSource": { "preset": "preset-a" },
+            "routeFallbacks": [{ "provider": "google", "model": "gemini-pro", "fast": false }],
+        }),
+    );
+    diff_primary["config"]["presets"] = presets.clone();
+    diff_primary["config"]["agents"]["worker"] = json!("preset-b");
+    let calls = route_calls(diff_primary, None).await.unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0][1]["provider"], json!("xai"));
+    assert_eq!(calls[0][1]["model"], json!("grok"));
+    assert_eq!(calls[0][1]["routeFallbackSource"], json!({ "preset": "preset-b" }));
+    assert_eq!(calls[0][1]["routeFallbacks"][0]["provider"], json!("anthropic"));
+    assert_eq!(calls[0][1]["routeFallbacks"][0]["model"], json!("claude-sonnet"));
+
+    // Case 2: shared primary (preset-a -> preset-b-same-primary) while worker is on primary or hopped on A's fallback.
+    let mut same_primary = route_scenario(
+        "canonical",
+        false,
+        json!({
+            "provider": "google",
+            "model": "gemini-pro",
+            "fast": false,
+            "routeFallbackSource": { "preset": "preset-a" },
+            "routeFallbacks": [{ "provider": "google", "model": "gemini-pro", "fast": false }],
+            "routeFallbackPrimary": { "provider": "openai", "model": "gpt-5", "effort": "medium", "fast": false },
+            "routeFallbackIndex": 1,
+        }),
+    );
+    same_primary["config"]["presets"] = presets;
+    same_primary["config"]["agents"]["worker"] = json!("preset-b-same-primary");
+    let calls = route_calls(same_primary, None).await.unwrap();
+    assert_eq!(calls.len(), 1, "reassignment to another preset with the same primary must still update fallback source/chain");
+    assert_eq!(calls[0][1]["routeFallbackSource"], json!({ "preset": "preset-b-same-primary" }));
+    assert_eq!(calls[0][1]["routeFallbacks"][0]["provider"], json!("anthropic"));
+    assert_eq!(calls[0][1]["routeFallbacks"][0]["model"], json!("claude-haiku"));
+}
+
+/// A fully pinned spawn (explicit provider + model) registers its job immediately without waiting on a stalled
+/// bot-store route lookup; the lookup runs inside the timed 120s preparation task.
+#[tokio::test(start_paused = true)]
+async fn a_fully_pinned_spawn_registers_immediately_without_waiting_on_store_lookup() {
+    backend();
+    let scenario = spawn_scenario(json!([{ "return": { "content": "ok" } }]));
+    let mut h = host();
+    h["agent"]["stallCandidates"] = json!(true);
+    let rig = rig(&scenario, Some(&h));
+    let pinned = json!({
+        "agent": "worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "prompt": "do it",
+        "tag": "pinned",
+    });
+    let job = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        rig.spawn.start_deferred_spawn_job(&pinned, "/cwd", &lead(), &lead(), mixdog_agent::agent_tool::host::SpawnOptions::default()),
+    )
+    .await
+    .expect("fully pinned spawn must not block job registration on stalled route_candidates")
+    .expect("job registered");
+    let snap = job.snapshot().expect("job on board");
+    assert_eq!((snap.meta.provider.as_deref(), snap.meta.model.as_deref()), (Some("openai"), Some("gpt-5")));
+
+    // Advancing past the 120s preparation deadline times out the stalled lookup inside the background prep task.
+    mixdog_rt::time::sleep(std::time::Duration::from_secs(125)).await;
+    settle().await;
+    let finished = rig.shared.board.get(job.task_id(), &Scope::default()).expect("finished job");
+    assert_eq!(finished.status, "failed");
+    assert_eq!(finished.error.as_deref(), Some("agent spawn prep timed out before session bind"));
+}
+
+/// When session creation binds a fallback route instead of the planned primary, the worker card metadata,
+/// bound tag descriptor, and worker row all reflect the bound executable route.
+#[tokio::test(start_paused = true)]
+async fn a_spawn_worker_card_reflects_the_bound_executable_fallback_route() {
+    let mut scenario = spawn_scenario(json!([{ "terminal": { "content": "done" } }, { "return": { "content": "done" } }]));
+    scenario["session"] = json!({
+        "id": "sess_w1",
+        "cwd": "/work",
+        "parentSessionId": "lead",
+        "ownerSessionId": "lead",
+        "provider": "anthropic",
+        "model": "sonnet-4",
+        "effort": "low",
+        "fast": true,
+        "routeFallbackPrimary": { "provider": "openai", "model": "gpt-5", "effort": "medium", "fast": false },
+        "routeFallbackIndex": 1,
+    });
+    let (rig, row) = spawned(scenario, host(), args("scout"), false).await;
+    assert_eq!(row.status, "completed");
+    assert_eq!(
+        (row.meta.provider.as_deref(), row.meta.model.as_deref(), row.meta.effort.as_deref(), row.meta.fast),
+        (Some("anthropic"), Some("sonnet-4"), Some("low"), Some(true)),
+        "job board metadata must reflect the bound executable fallback route"
+    );
+    let log = lock(&rig.shared.log);
+    let bind = log.iter().find(|e| e[0] == "bindTag").expect("bindTag logged");
+    assert_eq!(
+        (bind[3]["provider"].clone(), bind[3]["model"].clone(), bind[3]["effort"].clone(), bind[3]["fast"].clone()),
+        (json!("anthropic"), json!("sonnet-4"), json!("low"), json!(true))
+    );
+    let upsert = log.iter().find(|e| e[0] == "upsert").expect("upsert logged");
+    assert_eq!(
+        (upsert[3]["provider"].clone(), upsert[3]["model"].clone(), upsert[3]["effort"].clone(), upsert[3]["fast"].clone()),
+        (json!("anthropic"), json!("sonnet-4"), json!("low"), json!(true))
+    );
 }
 
 /// An explicit model on a send goes through the surface that can change a session's route, and fails where it cannot.

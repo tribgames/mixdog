@@ -243,6 +243,7 @@ fn variant_name(event: &p::StreamEvent) -> &'static str {
         E::ProgressDelta(_) => "ProgressDelta",
         E::ReasoningReplay(_) => "ReasoningReplay",
         E::ToolCallStart { .. } => "ToolCallStart",
+        E::ToolCallIdRenamed { .. } => "ToolCallIdRenamed",
         E::ToolCallArgsDelta { .. } => "ToolCallArgsDelta",
         E::ToolCallDone(_) => "ToolCallDone",
         E::Usage(_) => "Usage",
@@ -269,7 +270,7 @@ fn variant_name(event: &p::StreamEvent) -> &'static str {
     }
 }
 
-const STREAM_EVENT_VARIANTS: [&str; 29] = [
+const STREAM_EVENT_VARIANTS: [&str; 30] = [
     "ProgressDelta",
     "AccountRouting",
     "AccountStage",
@@ -281,6 +282,7 @@ const STREAM_EVENT_VARIANTS: [&str; 29] = [
     "ReasoningDelta",
     "ReasoningReplay",
     "ToolCallStart",
+    "ToolCallIdRenamed",
     "ToolCallArgsDelta",
     "ToolCallDone",
     "Usage",
@@ -315,6 +317,7 @@ fn stream_event_samples() -> Vec<p::StreamEvent> {
         p::StreamEvent::ProgressDelta("reading".into()),
         p::StreamEvent::ReasoningReplay(p::ProviderReplay { owner: "openai".into(), items: json!([{ "id": "rs1" }]) }),
         p::StreamEvent::ToolCallStart { id: "c1".into(), name: "read".into() },
+        p::StreamEvent::ToolCallIdRenamed { from: "call_0000000000000001".into(), to: "c1".into() },
         p::StreamEvent::ToolCallArgsDelta { id: "c1".into(), delta: "{\"p".into() },
         p::StreamEvent::ToolCallDone(call("c1")),
         p::StreamEvent::Usage(p::Usage { input_tokens: 3, output_tokens: 1, ..Default::default() }),
@@ -368,6 +371,55 @@ fn every_stream_event_survives_the_wire() {
         };
         assert_eq!(event_in(serde_json::from_str(&text).unwrap()).unwrap(), Incoming::Event(arrives), "{text}");
     }
+}
+
+#[tokio::test(start_paused = true)]
+async fn tool_call_id_renamed_survives_model_proxy_wire_for_interleaved_identical_args() {
+    use mixdog_core_api::domain::provider::ProviderAdapter as _;
+
+    let _tokens = mixdog_rt::testing::tokens();
+    let original = vec![
+        p::StreamEvent::ToolCallStart { id: "call_synth_1".into(), name: "lookup".into() },
+        p::StreamEvent::ToolCallStart { id: "call_synth_0".into(), name: "lookup".into() },
+        p::StreamEvent::ToolCallIdRenamed { from: "call_synth_0".into(), to: "call_real_0".into() },
+        p::StreamEvent::ToolCallIdRenamed { from: "call_synth_1".into(), to: "call_real_1".into() },
+        p::StreamEvent::ToolCallDone(p::ToolCall { id: "call_real_0".into(), name: "lookup".into(), arguments: json!({}), native_type: None }),
+        p::StreamEvent::ToolCallDone(p::ToolCall { id: "call_real_1".into(), name: "lookup".into(), arguments: json!({}), native_type: None }),
+        p::StreamEvent::Completed { stop: Some(p::StopReason::ToolUse), pricing_model: None, request_ms: Some(1) },
+    ];
+
+    let collected = Mutex::new(Vec::new());
+    let (_tx, rx) = std::sync::mpsc::channel();
+    let mut pc_sink = EventSink { events: &Collect(&collected), excluded: rx };
+    for event in &original {
+        pc_sink.event(event.clone());
+    }
+    let mut wire_events: Vec<Value> = collected.into_inner().unwrap().into_iter().map(|ev| serde_json::to_value(ev).unwrap()).collect();
+    wire_events.insert(2, json!({ "type": "futureUnknownEvent", "x": 1 }));
+
+    struct ReplayWire(Vec<Value>);
+    #[async_trait]
+    impl ModelProxyTransport for ReplayWire {
+        async fn execute(&self, _: Value, events: &mut (dyn FnMut(Value) + Send), _: &CancellationToken) -> Result<Value, ProxyError> {
+            for ev in &self.0 {
+                events(ev.clone());
+            }
+            Ok(serde_json::to_value(w::ProxyAnswer::Sent { attempts: 1 }).unwrap())
+        }
+    }
+
+    let adapter = crate::domains::ai_admin::model_proxy_adapter::ProxiedAdapter::new(
+        "mock",
+        w::ProxyTraits::default(),
+        Arc::new(ReplayWire(wire_events)),
+        Arc::new(NoStore),
+    );
+    let mut stream = adapter.attempt(Arc::new(hi())).await.unwrap();
+    let mut decoded = Vec::new();
+    while let Some(item) = stream.next().await {
+        decoded.push(item.unwrap());
+    }
+    assert_eq!(decoded, original);
 }
 
 #[test]

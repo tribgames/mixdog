@@ -27,16 +27,19 @@ type Listener = () => void;
 type RevealListener = (sessionId: string) => void;
 
 const EMPTY: VisualizeSessionState = Object.freeze({ sessionId: '', tabs: [], active: null });
+const EMPTY_VERSIONS: ReadonlyMap<string, number> = new Map();
 
 interface EvictedSessionEntry {
   active: string | null;
-  versions: Map<string, number>;
+  versions: ReadonlyMap<string, number>;
   placeholder: VisualizeSessionState;
+  goneOnly?: true;
   failed: boolean;
   retries: number;
 }
 
 const RECENT_READER_LRU_MAX = 4;
+export const GONE_ONLY_STATE_LRU_MAX = 32;
 const REHYDRATE_RETRY_DELAY_MS = 1_500;
 const REHYDRATE_MAX_RETRIES = 2;
 
@@ -48,13 +51,16 @@ const sessionReaders = new Map<string, number>();
 /** Bounded LRU of sessions recently read by a visible `useVisualizeState` hook;
  *  retained across transient `<Activity mode="hidden">` unmounts to prevent eviction flicker. */
 const recentReaderSessions = new Set<string>();
-/** Sessions dropped from `states` while off screen (budget or idle reclaim), with their last known tab versions. */
+/** Sessions dropped from `states` or `goneOnlyStates` while off screen (budget, idle reclaim, or LRU cap). */
 const evictedSessions = new Map<string, EvictedSessionEntry>();
+/** Zero-tab sessions kept only for their turn-end `goneOpens` records, without tabs, history, or panel availability. */
+let goneOnlyStates = new Map<string, VisualizeSessionState>();
 /** Sessions with missed updates from a reconnect resync, pinned until their deferred reveal runs. */
 const pendingResyncPins = new Map<string, number>();
 const resyncTimers = new Set<ReturnType<typeof setTimeout>>();
 const stateWeights = new WeakMap<VisualizeSessionState, number>();
 let retainedStateChars = 0;
+let retainedGoneOnlyChars = 0;
 let rehydrateInFlight: Promise<void> | null = null;
 let rehydrateRetryTimer: ReturnType<typeof setTimeout> | null = null;
 /** The sessions with a turn whose work main keeps back (`held` events and
@@ -81,6 +87,10 @@ const emptiedListeners = new Set<RevealListener>();
  *  hydrates before its effects run); delivered to the first listener. */
 const pendingReveals = new Set<string>();
 let connected = false;
+let disconnectHost: (() => void) | null = null;
+let startupHydrateRequest: Promise<unknown> | null = null;
+/** Sessions touched by live events or release while the initial `connect()` snapshot is in flight. */
+let bootTouchedSessions: Set<string> | null = null;
 
 const PANEL_MEMORY_KEY = 'mixdog.visualize.panels.v1';
 
@@ -161,7 +171,8 @@ function evictedPlaceholderFor(state: VisualizeSessionState): VisualizeSessionSt
 }
 
 function touchRecentReader(sessionId: string): void {
-  if (!sessionId || (!states.has(sessionId) && !evictedSessions.has(sessionId))) return;
+  const evicted = evictedSessions.get(sessionId);
+  if (!sessionId || (!states.has(sessionId) && (!evicted || evicted.goneOnly))) return;
   recentReaderSessions.delete(sessionId);
   recentReaderSessions.add(sessionId);
   while (recentReaderSessions.size > RECENT_READER_LRU_MAX) {
@@ -209,11 +220,112 @@ function isPinnedSession(sessionId: string): boolean {
   );
 }
 
+function makeEvictedGoneOnlyEntry(): EvictedSessionEntry {
+  return {
+    active: null,
+    versions: EMPTY_VERSIONS,
+    placeholder: EMPTY,
+    goneOnly: true,
+    failed: false,
+    retries: 0,
+  };
+}
+
+function hasAvailableVisuals(): boolean {
+  if (states.size > 0) return true;
+  for (const entry of evictedSessions.values()) {
+    if (!entry.goneOnly) return true;
+  }
+  return false;
+}
+
+function goneOnlyRecord(state: VisualizeSessionState): VisualizeSessionState {
+  return {
+    sessionId: state.sessionId,
+    tabs: [],
+    active: null,
+    goneOpens: state.goneOpens,
+  };
+}
+
+function setGoneOnlyEntry(sessionId: string, state: VisualizeSessionState): void {
+  const prev = goneOnlyStates.get(sessionId);
+  if (prev) {
+    retainedGoneOnlyChars -= stateChars(prev);
+    goneOnlyStates.delete(sessionId);
+  }
+  goneOnlyStates.set(sessionId, state);
+  retainedGoneOnlyChars += stateChars(state);
+}
+
+function deleteGoneOnlyEntry(sessionId: string): boolean {
+  const prev = goneOnlyStates.get(sessionId);
+  if (!prev) return false;
+  goneOnlyStates.delete(sessionId);
+  retainedGoneOnlyChars -= stateChars(prev);
+  return true;
+}
+
+function setGoneOnlyMap(next: Map<string, VisualizeSessionState>): void {
+  goneOnlyStates = next;
+  let total = 0;
+  for (const state of goneOnlyStates.values()) total += stateChars(state);
+  retainedGoneOnlyChars = total;
+}
+
+function touchGoneOnlyState(sessionId: string): void {
+  const current = goneOnlyStates.get(sessionId);
+  if (!current) return;
+  goneOnlyStates.delete(sessionId);
+  goneOnlyStates.set(sessionId, current);
+}
+
+function trimGoneOnlyMap(map: Map<string, VisualizeSessionState>, maxEntries: number): string[] {
+  if (map.size <= maxEntries) return [];
+  const evicted: string[] = [];
+  for (const sessionId of [...map.keys()]) {
+    if (map.size <= maxEntries) break;
+    if (isActiveSession(sessionId)) continue;
+    map.delete(sessionId);
+    evicted.push(sessionId);
+  }
+  return evicted;
+}
+
+function trimGoneOnlyStates(maxEntries: number): boolean {
+  if (goneOnlyStates.size <= maxEntries) return false;
+  let evicted = false;
+  for (const sessionId of [...goneOnlyStates.keys()]) {
+    if (goneOnlyStates.size <= maxEntries) break;
+    if (isActiveSession(sessionId)) continue;
+    deleteGoneOnlyEntry(sessionId);
+    evictedSessions.set(sessionId, makeEvictedGoneOnlyEntry());
+    evicted = true;
+  }
+  return evicted;
+}
+
+function syncGoneOnlyState(state: VisualizeSessionState): boolean {
+  if (state.tabs.length || !state.goneOpens?.length) {
+    return deleteGoneOnlyEntry(state.sessionId);
+  }
+  const prev = goneOnlyStates.get(state.sessionId);
+  const shared = shareSession(prev, goneOnlyRecord(state));
+  if (shared === prev) {
+    touchGoneOnlyState(state.sessionId);
+    return false;
+  }
+  setGoneOnlyEntry(state.sessionId, shared);
+  trimGoneOnlyStates(GONE_ONLY_STATE_LRU_MAX);
+  return true;
+}
+
 function setStatesMap(next: Map<string, VisualizeSessionState>): void {
   states = next;
   let total = 0;
   for (const [id, state] of states) {
     evictedSessions.delete(id);
+    deleteGoneOnlyEntry(id);
     total += stateChars(state);
   }
   retainedStateChars = total;
@@ -231,14 +343,18 @@ function pinnedStateChars(): number {
   for (const [id, state] of states) {
     if (isPinnedSession(id)) total += stateChars(state);
   }
+  for (const [id, state] of goneOnlyStates) {
+    if (isActiveSession(id)) total += stateChars(state);
+  }
   return total;
 }
 
 function evictUnpinnedStates(targetChars: number): void {
-  if (retainedStateChars <= targetChars) return;
+  const totalChars = () => retainedStateChars + retainedGoneOnlyChars;
+  if (totalChars() <= targetChars) return;
   let next: Map<string, VisualizeSessionState> | null = null;
   for (const [sessionId, state] of states) {
-    if (retainedStateChars <= targetChars) break;
+    if (totalChars() <= targetChars) break;
     if (isPinnedSession(sessionId)) continue;
     next ??= new Map(states);
     next.delete(sessionId);
@@ -251,8 +367,18 @@ function evictUnpinnedStates(targetChars: number): void {
     });
     retainedStateChars -= stateChars(state);
   }
-  if (!next) return;
-  states = next;
+  let evictedGone = false;
+  if (totalChars() > targetChars) {
+    for (const sessionId of [...goneOnlyStates.keys()]) {
+      if (totalChars() <= targetChars) break;
+      if (isActiveSession(sessionId)) continue;
+      deleteGoneOnlyEntry(sessionId);
+      evictedSessions.set(sessionId, makeEvictedGoneOnlyEntry());
+      evictedGone = true;
+    }
+  }
+  if (!next && !evictedGone) return;
+  if (next) states = next;
   emit();
 }
 
@@ -334,21 +460,47 @@ function applyRehydratedSnapshot(
   const beforeHolds = holdKey();
   const next = new Map(states);
   let statesChanged = false;
+  let goneChanged = false;
   let clearedEvicted = false;
   const emptied: string[] = [];
   for (const [sessionId, entry] of targets) {
     if (evictedSessions.get(sessionId) !== entry || entry.failed) continue;
     const raw = byId.get(sessionId);
+    if (entry.goneOnly) {
+      if (!raw?.goneOpens?.length) {
+        evictedSessions.delete(sessionId);
+        clearedEvicted = true;
+        goneChanged = deleteGoneOnlyEntry(sessionId) || goneChanged;
+        if (raw && !raw.tabs.length) applyHeldFromRaw(sessionId, raw);
+        else if (!raw) {
+          heldSince.delete(sessionId);
+          heldCalls.delete(sessionId);
+        }
+        continue;
+      }
+      if (!isActiveSession(sessionId)) continue;
+      evictedSessions.delete(sessionId);
+      clearedEvicted = true;
+      const state = raw.tabs.length ? raw : applyHeldFromRaw(sessionId, raw);
+      goneChanged =
+        syncGoneOnlyState({
+          sessionId,
+          tabs: [],
+          active: null,
+          goneOpens: state.goneOpens,
+        }) || goneChanged;
+      continue;
+    }
     if (!raw?.tabs.length) {
       evictedSessions.delete(sessionId);
       clearedEvicted = true;
       pruneSessionPaneState(sessionId, undefined);
       if (entry.versions.size > 0) emptied.push(sessionId);
       if (raw) {
-        const state = applyHeldFromRaw(sessionId, raw);
-        if (state.history?.length) statesChanged = putState(next, state) || statesChanged;
-        else recentReaderSessions.delete(sessionId);
+        goneChanged = syncGoneOnlyState(applyHeldFromRaw(sessionId, raw)) || goneChanged;
+        recentReaderSessions.delete(sessionId);
       } else {
+        goneChanged = deleteGoneOnlyEntry(sessionId) || goneChanged;
         recentReaderSessions.delete(sessionId);
         heldSince.delete(sessionId);
         heldCalls.delete(sessionId);
@@ -366,11 +518,11 @@ function applyRehydratedSnapshot(
   if (statesChanged) {
     setStatesMap(next);
     emit();
-  } else if (holdsChanged || clearedEvicted) {
+  } else if (goneChanged || holdsChanged || clearedEvicted) {
     emit();
   }
   for (const sessionId of emptied) notifyEmptied(sessionId);
-  if (statesChanged) enforceRendererCacheBudget();
+  if (statesChanged || goneChanged) enforceRendererCacheBudget();
   clearRehydrateRetryIfIdle();
   rehydrateIfActiveEvicted();
 }
@@ -389,7 +541,7 @@ function rehydrateEvicted(): void {
       if (evictedSessions.get(sessionId) !== entry) continue;
       evictedSessions.delete(sessionId);
       recentReaderSessions.delete(sessionId);
-      pruneSessionPaneState(sessionId, undefined);
+      if (!entry.goneOnly) pruneSessionPaneState(sessionId, undefined);
       if (entry.versions.size > 0) emptied.push(sessionId);
     }
     if (!evictedSessions.size) clearRehydrateRetryTimer();
@@ -401,7 +553,8 @@ function rehydrateEvicted(): void {
   const request = Promise.resolve()
     .then(() => read())
     .then((snapshot) => {
-      if (rehydrateInFlight === request) rehydrateInFlight = null;
+      if (rehydrateInFlight !== request) return;
+      rehydrateInFlight = null;
       if (!snapshot) {
         failRehydrate(targets);
         return;
@@ -409,7 +562,8 @@ function rehydrateEvicted(): void {
       applyRehydratedSnapshot(targets, snapshot);
     })
     .catch(() => {
-      if (rehydrateInFlight === request) rehydrateInFlight = null;
+      if (rehydrateInFlight !== request) return;
+      rehydrateInFlight = null;
       failRehydrate(targets);
     });
   rehydrateInFlight = request;
@@ -417,7 +571,7 @@ function rehydrateEvicted(): void {
 
 registerBudgetedCache({
   name: 'visualize-states',
-  chars: () => retainedStateChars,
+  chars: () => retainedStateChars + retainedGoneOnlyChars,
   pinned: pinnedStateChars,
   trim: evictUnpinnedStates,
 });
@@ -425,6 +579,10 @@ registerIdleReclaim(() => evictUnpinnedStates(0));
 
 /** Test seam: forget the in-memory panel memory so storage is re-read. */
 export function resetVisualizePanelMemory(): void {
+  disconnectHost?.();
+  startupHydrateRequest = null;
+  bootTouchedSessions?.clear();
+  bootTouchedSessions = null;
   panelMemoryCache = null;
   onScreen.clear();
   recentReaderSessions.clear();
@@ -447,10 +605,12 @@ function emit(): void {
 
 /** A session was deleted: everything the visualize panel holds for it goes. */
 export function releaseVisualizeSession(sessionId: string): void {
+  bootTouchedSessions?.add(sessionId);
   setVisualizePanelOnScreen(sessionId, false);
   recentReaderSessions.delete(sessionId);
   pendingResyncPins.delete(sessionId);
   const hadEvicted = evictedSessions.delete(sessionId);
+  const hadGoneOnly = deleteGoneOnlyEntry(sessionId);
   if (!evictedSessions.size) clearRehydrateRetryTimer();
   userPicks.delete(sessionId);
   userOpens.delete(sessionId);
@@ -468,7 +628,7 @@ export function releaseVisualizeSession(sessionId: string): void {
     const next = new Map(states);
     next.delete(sessionId);
     replaceStates(next);
-  } else if (hadEvicted) {
+  } else if (hadEvicted || hadGoneOnly) {
     emit();
   }
   releaseVisualizeTweaks(sessionId);
@@ -522,17 +682,21 @@ function shareSession(prev: VisualizeSessionState | undefined, state: VisualizeS
   return (same ? prev : shared) as unknown as VisualizeSessionState;
 }
 
-/** Put `state` into `map`; false when it changes nothing. A session with
- *  nothing open keeps its "All visuals" list. */
+/** Put `state` into `map`; false when it changes nothing. A session with no
+ *  open tabs is dropped so closed visuals never linger in the panel, while any
+ *  `goneOpens` record stays available for transcript cards. */
 function putState(map: Map<string, VisualizeSessionState>, state: VisualizeSessionState): boolean {
+  bootTouchedSessions?.add(state.sessionId);
   const prev = map.get(state.sessionId);
-  if (!(state.tabs.length || state.history?.length)) {
+  if (!state.tabs.length) {
     const removedEvicted = evictedSessions.delete(state.sessionId);
-    if (removedEvicted && !evictedSessions.size) clearRehydrateRetryTimer();
+    if (removedEvicted) clearRehydrateRetryIfIdle();
     const removedState = map.delete(state.sessionId);
     if (removedState || removedEvicted) recentReaderSessions.delete(state.sessionId);
-    return removedState || removedEvicted;
+    const changedGoneOnly = syncGoneOnlyState(state);
+    return removedState || removedEvicted || changedGoneOnly;
   }
+  deleteGoneOnlyEntry(state.sessionId);
   const shared = shareSession(prev, state);
   if (shared === prev) return false;
   map.delete(state.sessionId);
@@ -545,7 +709,7 @@ function setState(state: VisualizeSessionState): void {
   const evictedHadTabs = (evictedEntry?.versions.size ?? 0) > 0;
   const next = new Map(states);
   if (!putState(next, state)) return;
-  replaceStates(next, evictedEntry ? [state.sessionId] : undefined);
+  replaceStates(next, evictedEntry && !evictedEntry.goneOnly ? [state.sessionId] : undefined);
   if (evictedHadTabs && !next.get(state.sessionId)?.tabs.length) notifyEmptied(state.sessionId);
   enforceRendererCacheBudget();
 }
@@ -556,7 +720,8 @@ function replaceStates(next: Map<string, VisualizeSessionState>, alsoPrune?: Ite
   const before = states;
   setStatesMap(next);
   for (const sessionId of [...recentReaderSessions]) {
-    if (!next.has(sessionId) && !evictedSessions.has(sessionId)) recentReaderSessions.delete(sessionId);
+    const evicted = evictedSessions.get(sessionId);
+    if (!next.has(sessionId) && (!evicted || evicted.goneOnly)) recentReaderSessions.delete(sessionId);
   }
   const pruned = new Set<string>();
   const pruneOnce = (sessionId: string, state: VisualizeSessionState | undefined) => {
@@ -806,6 +971,8 @@ export function setVisualizePanelOnScreen(sessionId: string, shown: boolean): vo
     onScreen.add(sessionId);
     if (states.has(sessionId)) {
       touchState(sessionId);
+    } else if (goneOnlyStates.has(sessionId)) {
+      touchGoneOnlyState(sessionId);
     } else {
       const evicted = evictedSessions.get(sessionId);
       if (evicted) {
@@ -884,14 +1051,23 @@ function takeSnapshot(
 }
 
 export function hydrateVisualizeStates(snapshot: readonly VisualizeSessionState[] | null | undefined): void {
+  const touched = bootTouchedSessions;
+  bootTouchedSessions = null;
+  startupHydrateRequest = null;
   const reopen: string[] = [];
   const next = new Map(states);
   const { shown, holdsChanged } = takeSnapshot(
     (snapshot ?? []).filter(
-      (state) => state?.sessionId && !states.has(state.sessionId) && !evictedSessions.has(state.sessionId)
+      (state) =>
+        state?.sessionId &&
+        !touched?.has(state.sessionId) &&
+        !states.has(state.sessionId) &&
+        !evictedSessions.has(state.sessionId) &&
+        !goneOnlyStates.has(state.sessionId)
     ),
     false
   );
+  touched?.clear();
   let changed = false;
   for (const state of shown) {
     changed = putState(next, state) || changed;
@@ -924,6 +1100,9 @@ function collectResyncReveals(
 
 export function resyncVisualizeStates(snapshot: readonly VisualizeSessionState[] | null | undefined): void {
   // A complete replacement, holds included (takeSnapshot).
+  startupHydrateRequest = null;
+  bootTouchedSessions?.clear();
+  bootTouchedSessions = null;
   const before = states;
   const beforeEvicted = new Map(evictedSessions);
   evictedSessions.clear();
@@ -931,12 +1110,26 @@ export function resyncVisualizeStates(snapshot: readonly VisualizeSessionState[]
   clearRehydrateRetryTimer();
   const { shown, holdsChanged } = takeSnapshot(snapshot, true);
   const next = new Map<string, VisualizeSessionState>();
+  const nextGoneOnly = new Map<string, VisualizeSessionState>();
   for (const state of shown) {
-    if (state.tabs.length || state.history?.length)
+    if (state.tabs.length) {
+      nextGoneOnly.delete(state.sessionId);
       next.set(
         state.sessionId,
         shareSession(states.get(state.sessionId), keptLocalActive(state, beforeEvicted.get(state.sessionId)?.active))
       );
+    } else if (state.goneOpens?.length) {
+      next.delete(state.sessionId);
+      nextGoneOnly.delete(state.sessionId);
+      nextGoneOnly.set(state.sessionId, shareSession(goneOnlyStates.get(state.sessionId), goneOnlyRecord(state)));
+    } else {
+      next.delete(state.sessionId);
+      nextGoneOnly.delete(state.sessionId);
+    }
+  }
+  const evictedGoneIds = trimGoneOnlyMap(nextGoneOnly, GONE_ONLY_STATE_LRU_MAX);
+  for (const sessionId of evictedGoneIds) {
+    evictedSessions.set(sessionId, makeEvictedGoneOnlyEntry());
   }
   const { missed, reopen } = collectResyncReveals(before, beforeEvicted, next);
   for (const [sessionId] of missed) {
@@ -948,21 +1141,28 @@ export function resyncVisualizeStates(snapshot: readonly VisualizeSessionState[]
     if (!now) recentReaderSessions.delete(sessionId);
     if (!now?.tabs.length && entry.versions.size > 0) emptiedEvicted.push(sessionId);
   }
-  const same = next.size === states.size && [...next].every(([id, state]) => states.get(id) === state);
-  if (!same) replaceStates(next, beforeEvicted.keys());
+  const sameStates = next.size === states.size && [...next].every(([id, state]) => states.get(id) === state);
+  const sameGoneOnly =
+    nextGoneOnly.size === goneOnlyStates.size &&
+    [...nextGoneOnly].every(([id, state]) => goneOnlyStates.get(id) === state);
+  setGoneOnlyMap(nextGoneOnly);
+  if (!sameStates) replaceStates(next, beforeEvicted.keys());
   else {
-    for (const sessionId of beforeEvicted.keys()) pruneSessionPaneState(sessionId, next.get(sessionId));
-    if (holdsChanged || beforeEvicted.size > 0) emit();
+    for (const [sessionId, entry] of beforeEvicted) {
+      if (!entry.goneOnly) pruneSessionPaneState(sessionId, next.get(sessionId));
+    }
+    if (holdsChanged || beforeEvicted.size > 0 || !sameGoneOnly || evictedGoneIds.length > 0) emit();
   }
   for (const sessionId of emptiedEvicted) notifyEmptied(sessionId);
-  if (!same) enforceRendererCacheBudget();
+  if (!sameStates || !sameGoneOnly) enforceRendererCacheBudget();
   if (!missed.length && !reopen.length) return;
   const timer = setTimeout(() => {
     resyncTimers.delete(timer);
     try {
       for (const [sessionId, tabId] of missed) showUpdatedTab(sessionId, tabId);
       for (const sessionId of reopen) {
-        if (states.has(sessionId) || evictedSessions.has(sessionId)) requestReveal(sessionId);
+        const evicted = evictedSessions.get(sessionId);
+        if (states.has(sessionId) || (evicted && !evicted.goneOnly)) requestReveal(sessionId);
       }
     } finally {
       for (const [sessionId] of missed) releaseResyncPin(sessionId);
@@ -979,11 +1179,28 @@ function connect(): void {
   const api = typeof window === 'undefined' ? undefined : window.mixdogDesktop;
   if (!api?.onVisualizeChanged) return;
   connected = true;
-  api.onVisualizeChanged(applyVisualizeEvent);
-  void api
-    .visualizeState?.()
-    .then(hydrateVisualizeStates)
-    .catch(() => {});
+  const targetWindow = window;
+  bootTouchedSessions = new Set();
+  const stopChanged = api.onVisualizeChanged(applyVisualizeEvent);
+  const initialRead = api.visualizeState?.();
+  if (initialRead) {
+    const request = Promise.resolve(initialRead)
+      .then((snapshot) => {
+        if (startupHydrateRequest !== request) return;
+        startupHydrateRequest = null;
+        hydrateVisualizeStates(snapshot);
+      })
+      .catch(() => {
+        if (startupHydrateRequest !== request) return;
+        startupHydrateRequest = null;
+        bootTouchedSessions?.clear();
+        bootTouchedSessions = null;
+      });
+    startupHydrateRequest = request;
+  } else {
+    bootTouchedSessions.clear();
+    bootTouchedSessions = null;
+  }
   // Remote clients only (the desktop never fires these): re-read after a
   // reconnect or a state gap.
   const resync = () => {
@@ -1000,11 +1217,22 @@ function connect(): void {
         if (shouldRetry) scheduleRehydrateRetry();
       });
   };
-  window.addEventListener('mixdog:remote-reconnected', resync);
-  window.addEventListener('mixdog:remote-state-gap', resync);
+  targetWindow.addEventListener?.('mixdog:remote-reconnected', resync);
+  targetWindow.addEventListener?.('mixdog:remote-state-gap', resync);
   // The phone's visualize adapter asks for the same read when it knows events may have been missed (a dropped part sequence, a core
   // it follows through its section).
-  window.addEventListener('mixdog:visualize-resync', resync);
+  targetWindow.addEventListener?.('mixdog:visualize-resync', resync);
+  disconnectHost = () => {
+    connected = false;
+    disconnectHost = null;
+    startupHydrateRequest = null;
+    bootTouchedSessions?.clear();
+    bootTouchedSessions = null;
+    if (typeof stopChanged === 'function') stopChanged();
+    targetWindow.removeEventListener?.('mixdog:remote-reconnected', resync);
+    targetWindow.removeEventListener?.('mixdog:remote-state-gap', resync);
+    targetWindow.removeEventListener?.('mixdog:visualize-resync', resync);
+  };
 }
 
 /** Subscribe to store changes (exported for tests). */
@@ -1017,7 +1245,7 @@ export function subscribe(listener: Listener): () => void {
 }
 
 export function visualizeStateFor(sessionId: string): VisualizeSessionState {
-  return states.get(sessionId) ?? evictedSessions.get(sessionId)?.placeholder ?? EMPTY;
+  return states.get(sessionId) ?? evictedSessions.get(sessionId)?.placeholder ?? goneOnlyStates.get(sessionId) ?? EMPTY;
 }
 
 /** Whether `sessionId`'s visualize state was evicted and is waiting on rehydration from main. */
@@ -1040,13 +1268,22 @@ export function useVisualizeState(sessionId: string): VisualizeSessionState {
     (listener: Listener) => {
       const unsubscribe = subscribe(listener);
       if (!sessionId || !surfaceActive) return unsubscribe;
-      sessionReaders.set(sessionId, (sessionReaders.get(sessionId) ?? 0) + 1);
+      const prevReaders = sessionReaders.get(sessionId) ?? 0;
+      sessionReaders.set(sessionId, prevReaders + 1);
       touchRecentReader(sessionId);
       if (states.has(sessionId)) {
         touchState(sessionId);
+      } else if (goneOnlyStates.has(sessionId)) {
+        touchGoneOnlyState(sessionId);
       } else {
         const evicted = evictedSessions.get(sessionId);
-        if (evicted && !evicted.failed) rehydrateEvicted();
+        if (evicted) {
+          if (evicted.goneOnly && evicted.failed && evicted.retries > REHYDRATE_MAX_RETRIES && prevReaders === 0) {
+            evicted.failed = false;
+            evicted.retries = 0;
+          }
+          if (!evicted.failed) rehydrateEvicted();
+        }
       }
       return () => {
         unsubscribe();
@@ -1098,11 +1335,7 @@ export function useVisualizeHeldCalls(sessionId: string): ReadonlySet<string> | 
 
 /** True once any session has visualize tabs: the dock toggle appears then. */
 export function useVisualizeAvailable(): boolean {
-  return useSyncExternalStore(
-    subscribe,
-    () => states.size > 0 || evictedSessions.size > 0,
-    () => false
-  );
+  return useSyncExternalStore(subscribe, hasAvailableVisuals, () => false);
 }
 
 /** The app shell reveals a session's visualize panel through this. */
@@ -1152,7 +1385,7 @@ export function markVisualizePanelHidden(sessionId: string): void {
 }
 
 /** Below this body width, 2-3 panes stack instead of sharing the width. */
-const VISUALIZE_SIDE_BY_SIDE_MIN_WIDTH = 2 * 360;
+export const VISUALIZE_SIDE_BY_SIDE_MIN_WIDTH = 2 * 360;
 
 export function visualizePanesStacked(bodyWidth: number, paneCount: number): boolean {
   return paneCount > 1 && bodyWidth > 0 && bodyWidth < VISUALIZE_SIDE_BY_SIDE_MIN_WIDTH;
@@ -1189,7 +1422,7 @@ export function activateVisualizeTab(sessionId: string, tabId: string): void {
   if (state && state.active !== tabId) setState({ ...state, active: tabId });
   else {
     const evicted = evictedSessions.get(sessionId);
-    if (evicted) evicted.active = tabId;
+    if (evicted && !evicted.goneOnly) evicted.active = tabId;
   }
   sendActivate(sessionId, tabId);
 }

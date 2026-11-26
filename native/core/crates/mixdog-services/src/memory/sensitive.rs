@@ -1,6 +1,6 @@
 //! The live transcript the provider sees is left as sent: its prefix must not change.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use mixdog_js::{js_trim_start, json_stringify, number_to_string, value_to_string};
@@ -23,19 +23,20 @@ const MEDIA_TYPES: [&str; 9] = ["image", "image_url", "input_image", "file", "in
 #[derive(Default)]
 struct Known {
     version: u64,
-    values: BTreeSet<String>,
+    values: BTreeMap<String, u64>,
     /// Longest first.
     spellings: Vec<String>,
 }
 
 impl Known {
-    fn gain(&mut self, values: &[String]) -> Option<u64> {
+    fn gain(&mut self, values: &[String]) -> (bool, u64) {
+        let next_version = self.version + 1;
         let mut changed = false;
         for value in values {
-            if self.values.contains(value) {
+            if self.values.contains_key(value) {
                 continue;
             }
-            self.values.insert(value.clone());
+            self.values.insert(value.clone(), next_version);
             changed = true;
             // An echo may keep the value as JSON string text.
             let quoted = json_stringify(&Value::String(value.clone()));
@@ -46,12 +47,13 @@ impl Known {
             }
         }
         if !changed {
-            return None;
+            let covered = values.iter().filter_map(|v| self.values.get(v).copied()).max().unwrap_or(0);
+            return (false, covered);
         }
         // Longest first; equal lengths keep the order they were first seen in.
         self.spellings.sort_by_key(|s| std::cmp::Reverse(s.encode_utf16().count()));
-        self.version += 1;
-        Some(self.version)
+        self.version = next_version;
+        (true, self.version)
     }
 }
 
@@ -410,16 +412,44 @@ impl SensitiveStore {
         if from.is_empty() || to.is_empty() || from == to {
             return;
         }
-        let (fresh, values) = {
+        let gained = {
             let mut inner = self.lock();
             let fresh = inner.carries.entry(from.to_owned()).or_default().insert(to.to_owned());
-            (fresh, inner.by_session.get(from).map(|known| known.values.iter().cloned().collect::<Vec<String>>()).unwrap_or_default())
+            if fresh && let Some(journal) = self.journal.get() {
+                journal.carried(from, to);
+            }
+            let values: Vec<String> = inner.by_session.get(from).map(|known| known.values.keys().cloned().collect()).unwrap_or_default();
+            if values.is_empty() { Vec::new() } else { self.spread_locked(&mut inner, from, &[to.to_owned()], values) }
         };
-        if let (true, Some(journal)) = (fresh, self.journal.get()) {
-            journal.carried(from, to);
+        self.notify_gained(from, &gained);
+    }
+
+    /// Drops all in-memory state for a purged `session` (`by_session`, `listeners`, and `carries`), collapsing
+    /// transitive carry edges (`A -> session -> C` becomes `A -> C`) so later carries neither traverse the purged
+    /// session nor lose downstream reachability.
+    pub fn forget_session(&self, session: &str) {
+        if session.is_empty() {
+            return;
         }
-        if !values.is_empty() {
-            self.spread(from, &[to.to_owned()], values);
+        let mut inner = self.lock();
+        inner.by_session.remove(session);
+        inner.listeners.remove(session);
+        let outgoing = inner.carries.remove(session).unwrap_or_default();
+        let mut empty_sources = Vec::new();
+        for (from, targets) in &mut inner.carries {
+            if targets.remove(session) {
+                for to in &outgoing {
+                    if to != from && to != session {
+                        targets.insert(to.clone());
+                    }
+                }
+            }
+            if targets.is_empty() {
+                empty_sources.push(from.clone());
+            }
+        }
+        for from in empty_sources {
+            inner.carries.remove(&from);
         }
     }
 
@@ -471,33 +501,55 @@ impl SensitiveStore {
 
     /// `values` marked for `session`, then carried along its carries. True when `session` gained one.
     fn gain(&self, session: &str, values: Vec<String>) -> bool {
-        self.spread(session, &[session.to_owned()], values)
+        let gained = {
+            let mut inner = self.lock();
+            self.spread_locked(&mut inner, session, &[session.to_owned()], values)
+        };
+        self.notify_gained(session, &gained);
+        !gained.is_empty()
     }
 
-    fn spread(&self, origin: &str, targets: &[String], values: Vec<String>) -> bool {
+    /// Traverses the carry graph from `targets` and publishes `journal.marked` under one `self.lock()` so
+    /// `forget_session` cannot interleave mid-BFS or before journaling completes.
+    fn spread_locked(&self, inner: &mut Inner, origin: &str, targets: &[String], values: Vec<String>) -> Vec<(String, u64, Vec<Listener>)> {
+        if values.is_empty() {
+            return Vec::new();
+        }
+        let is_origin_mark = targets.len() == 1 && targets[0] == origin;
         let mut seen: BTreeSet<String> = BTreeSet::new();
         if !targets.iter().any(|t| t == origin) {
             seen.insert(origin.to_owned());
         }
         let mut queue: Vec<String> = targets.to_vec();
         let mut gained: Vec<(String, u64, Vec<Listener>)> = Vec::new();
+        let mut reached: Vec<(String, u64)> = Vec::new();
         while let Some(session) = queue.pop() {
             if !seen.insert(session.clone()) {
                 continue;
             }
-            if let Some((version, listeners, next)) = self.add(&session, &values) {
-                queue.extend(next);
+            let (changed, version) = inner.by_session.entry(session.clone()).or_default().gain(&values);
+            if let Some(next) = inner.carries.get(&session) {
+                queue.extend(next.iter().cloned());
+            }
+            if version > 0 {
+                reached.push((session.clone(), version));
+            }
+            if changed {
+                let listeners: Vec<Listener> = inner.listeners.get(&session).map(|l| l.iter().map(|(_, f)| f.clone()).collect()).unwrap_or_default();
                 gained.push((session, version, listeners));
             }
         }
-        if gained.is_empty() {
-            return false;
+        if gained.is_empty() && (is_origin_mark || reached.is_empty()) {
+            return Vec::new();
         }
         if let Some(journal) = self.journal.get() {
-            let sessions: Vec<(String, u64)> = gained.iter().map(|(session, version, _)| (session.clone(), *version)).collect();
-            journal.marked(origin, &values, &sessions);
+            journal.marked(origin, &values, &reached);
         }
-        for (session, version, listeners) in &gained {
+        gained
+    }
+
+    fn notify_gained(&self, origin: &str, gained: &[(String, u64, Vec<Listener>)]) {
+        for (session, version, listeners) in gained {
             for listener in listeners {
                 listener(*version);
             }
@@ -507,21 +559,6 @@ impl SensitiveStore {
                 listener(session);
             }
         }
-        true
-    }
-
-    /// Adds `values` to `session` and returns its new version, its listeners and the sessions it carries to; `None`
-    /// when it gained nothing.
-    #[allow(clippy::type_complexity)]
-    fn add(&self, session: &str, values: &[String]) -> Option<(u64, Vec<Listener>, Vec<String>)> {
-        let (version, listeners, carries) = {
-            let mut inner = self.lock();
-            let version = inner.by_session.entry(session.to_owned()).or_default().gain(values)?;
-            let listeners: Vec<Listener> = inner.listeners.get(session).map(|l| l.iter().map(|(_, f)| f.clone()).collect()).unwrap_or_default();
-            let carries: Vec<String> = inner.carries.get(session).map(|to| to.iter().cloned().collect()).unwrap_or_default();
-            (version, listeners, carries)
-        };
-        Some((version, listeners, carries))
     }
 
     /// Calls `listener` whenever `session` gains a sensitive value, until the
@@ -716,5 +753,214 @@ mod window_tests {
         // What a later `[redacted]` would join, with the tail that starts one still open.
         let out = format!("{}[red", "\u{5bc6}".repeat(6));
         assert_eq!(settled_end(&out, &spellings), 0);
+    }
+
+    #[test]
+    fn carry_reports_covered_version_for_already_holding_sessions_without_refiring_listeners() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        #[derive(Default)]
+        struct RecordingJournal {
+            marked: Mutex<Vec<(String, Vec<String>, Vec<(String, u64)>)>>,
+        }
+
+        impl MarkJournal for RecordingJournal {
+            fn carried(&self, _from: &str, _to: &str) {}
+            fn marked(&self, origin: &str, values: &[String], sessions: &[(String, u64)]) {
+                self.marked.lock().unwrap_or_else(PoisonError::into_inner).push((origin.to_owned(), values.to_vec(), sessions.to_vec()));
+            }
+        }
+
+        let fill = |secret: &str| serde_json::json!({ "name": "browser", "arguments": { "action": "fill", "sensitive": true, "text": secret } });
+        let store = Arc::new(SensitiveStore::default());
+        let journal = Arc::new(RecordingJournal::default());
+        assert!(store.journal_with(journal.clone()));
+
+        let b_marks = Arc::new(AtomicUsize::new(0));
+        let b_marks_cb = b_marks.clone();
+        let _sub_b = store.on_marked("s-b", move |_| {
+            b_marks_cb.fetch_add(1, Ordering::SeqCst);
+        });
+        let carried_hits = Arc::new(Mutex::new(Vec::<String>::new()));
+        let carried_hits_cb = carried_hits.clone();
+        assert!(store.on_carried(move |session| {
+            carried_hits_cb.lock().unwrap_or_else(PoisonError::into_inner).push(session.to_owned());
+        }));
+
+        // B gains secret-1 at version 1, then secret-2 at version 2.
+        assert!(store.remember("s-b", &[fill("secret-1")]));
+        assert!(store.remember("s-b", &[fill("secret-2")]));
+        assert_eq!(b_marks.load(Ordering::SeqCst), 2);
+        // Set up downstream edge B -> C (C does not hold secret-1 yet).
+        store.carry("s-b", "s-c");
+        // Now A gains only secret-1 and carries to B (which already holds secret-1 at version 1, NOT version 2).
+        assert!(store.remember("s-a", &[fill("secret-1")]));
+        let before_carry_calls = journal.marked.lock().unwrap_or_else(PoisonError::into_inner).len();
+        let before_b_marks = b_marks.load(Ordering::SeqCst);
+        carried_hits.lock().unwrap_or_else(PoisonError::into_inner).clear();
+
+        store.carry("s-a", "s-b");
+
+        assert_eq!(b_marks.load(Ordering::SeqCst), before_b_marks, "B already held secret-1 and must not re-fire listener");
+        assert!(carried_hits.lock().unwrap_or_else(PoisonError::into_inner).is_empty(), "C already gained secret-1 via B -> C");
+        let calls = journal.marked.lock().unwrap_or_else(PoisonError::into_inner);
+        assert_eq!(calls.len(), before_carry_calls + 1, "carry must report reached already-holding sessions to journal");
+        let (origin, values, sessions) = calls.last().unwrap();
+        assert_eq!(origin, "s-a");
+        assert_eq!(values, &vec!["secret-1".to_owned()]);
+        assert!(sessions.contains(&("s-b".to_owned(), 1)), "B must report version 1 covering secret-1: {sessions:?}");
+        assert!(sessions.contains(&("s-c".to_owned(), 1)), "C must be reached through B at version 1: {sessions:?}");
+    }
+
+    #[test]
+    fn forget_session_drops_state_and_collapses_carries_without_revisiting_forgotten_session() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        #[derive(Default)]
+        struct RecordingJournal {
+            marked: Mutex<Vec<(String, Vec<String>, Vec<(String, u64)>)>>,
+        }
+
+        impl MarkJournal for RecordingJournal {
+            fn carried(&self, _from: &str, _to: &str) {}
+            fn marked(&self, origin: &str, values: &[String], sessions: &[(String, u64)]) {
+                self.marked.lock().unwrap_or_else(PoisonError::into_inner).push((origin.to_owned(), values.to_vec(), sessions.to_vec()));
+            }
+        }
+
+        let fill = |secret: &str| serde_json::json!({ "name": "browser", "arguments": { "action": "fill", "sensitive": true, "text": secret } });
+        let store = Arc::new(SensitiveStore::default());
+        let journal = Arc::new(RecordingJournal::default());
+        assert!(store.journal_with(journal.clone()));
+
+        let b_hits = Arc::new(AtomicUsize::new(0));
+        let b_hits_cb = b_hits.clone();
+        let _sub_b = store.on_marked("s-b", move |_| {
+            b_hits_cb.fetch_add(1, Ordering::SeqCst);
+        });
+
+        assert!(store.remember("s-b", &[fill("secret-b")]));
+        store.carry("s-a", "s-b");
+        store.carry("s-b", "s-c");
+        assert_eq!(b_hits.load(Ordering::SeqCst), 1);
+
+        store.forget_session("s-b");
+
+        assert_eq!(store.version("s-b"), 0);
+        assert!(!store.contains("s-b", "secret-b"));
+
+        let before = journal.marked.lock().unwrap_or_else(PoisonError::into_inner).len();
+        assert!(store.remember("s-a", &[fill("secret-after-forget")]));
+
+        assert_eq!(b_hits.load(Ordering::SeqCst), 1, "forgotten session's listener must not fire");
+        assert_eq!(store.version("s-b"), 0, "forgotten session must not be traversed by later carries");
+        assert!(store.contains("s-c", "secret-after-forget"), "collapsed transitive carry A -> C must still deliver to C");
+
+        let calls = journal.marked.lock().unwrap_or_else(PoisonError::into_inner);
+        assert_eq!(calls.len(), before + 1);
+        let (_, _, sessions) = calls.last().unwrap();
+        assert!(!sessions.iter().any(|(s, _)| s == "s-b"), "journal must not receive forgotten s-b: {sessions:?}");
+        assert!(sessions.iter().any(|(s, _)| s == "s-c"), "journal must receive surviving downstream s-c: {sessions:?}");
+    }
+
+    #[test]
+    fn spread_holds_store_lock_across_bfs_and_journal_marked_and_releases_before_listeners() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::mpsc;
+
+        struct LockingSpyJournal {
+            store: Arc<SensitiveStore>,
+            carried_locked: AtomicBool,
+            marked_locked: AtomicBool,
+            armed_forget: AtomicBool,
+            forget_done: Arc<AtomicBool>,
+            reached: Mutex<Vec<String>>,
+            forget_handle: Mutex<Option<std::thread::JoinHandle<()>>>,
+        }
+
+        impl MarkJournal for LockingSpyJournal {
+            fn carried(&self, _from: &str, _to: &str) {
+                if self.store.inner.try_lock().is_err() {
+                    self.carried_locked.store(true, Ordering::SeqCst);
+                }
+            }
+
+            fn marked(&self, _origin: &str, _values: &[String], sessions: &[(String, u64)]) {
+                assert!(self.store.inner.try_lock().is_err(), "SensitiveStore::lock() must be held during journal.marked");
+                self.marked_locked.store(true, Ordering::SeqCst);
+                *self.reached.lock().unwrap_or_else(PoisonError::into_inner) = sessions.iter().map(|(s, _)| s.clone()).collect();
+                if self.armed_forget.swap(false, Ordering::SeqCst) {
+                    let store = self.store.clone();
+                    let done = self.forget_done.clone();
+                    let (tx, rx) = mpsc::channel();
+                    let handle = std::thread::spawn(move || {
+                        let _ = tx.send(());
+                        store.forget_session("s-b");
+                        done.store(true, Ordering::SeqCst);
+                    });
+                    rx.recv().unwrap();
+                    // Give the spawned thread a chance to hit SensitiveStore::lock() while journal.marked is active.
+                    std::thread::yield_now();
+                    assert!(!self.forget_done.load(Ordering::SeqCst), "forget_session(s-b) must block until spread + journal.marked completes");
+                    *self.forget_handle.lock().unwrap_or_else(PoisonError::into_inner) = Some(handle);
+                }
+            }
+        }
+
+        let store = Arc::new(SensitiveStore::default());
+        let forget_done = Arc::new(AtomicBool::new(false));
+        let journal = Arc::new(LockingSpyJournal {
+            store: store.clone(),
+            carried_locked: AtomicBool::new(false),
+            marked_locked: AtomicBool::new(false),
+            armed_forget: AtomicBool::new(false),
+            forget_done: forget_done.clone(),
+            reached: Mutex::default(),
+            forget_handle: Mutex::default(),
+        });
+        assert!(store.journal_with(journal.clone()));
+
+        let listener_unlocked = Arc::new(AtomicBool::new(false));
+        let listener_unlocked_cb = listener_unlocked.clone();
+        let store_for_listener = store.clone();
+        let _sub_a = store.on_marked("s-a", move |_| {
+            // Re-acquiring `SensitiveStore::lock()` on the same thread proves the lock was dropped before firing listeners.
+            assert!(store_for_listener.version("s-a") > 0);
+            listener_unlocked_cb.store(true, Ordering::SeqCst);
+        });
+        let carried_unlocked = Arc::new(AtomicBool::new(false));
+        let carried_unlocked_cb = carried_unlocked.clone();
+        let store_for_carried = store.clone();
+        assert!(store.on_carried(move |_| {
+            assert!(store_for_carried.version("s-c") > 0);
+            carried_unlocked_cb.store(true, Ordering::SeqCst);
+        }));
+
+        store.carry("s-a", "s-b");
+        store.carry("s-b", "s-c");
+        assert!(journal.carried_locked.load(Ordering::SeqCst));
+
+        journal.armed_forget.store(true, Ordering::SeqCst);
+        let fill = |secret: &str| serde_json::json!({ "name": "browser", "arguments": { "action": "fill", "sensitive": true, "text": secret } });
+        assert!(store.remember("s-a", &[fill("secret-atomic")]));
+
+        if let Some(handle) = journal.forget_handle.lock().unwrap_or_else(PoisonError::into_inner).take() {
+            handle.join().unwrap();
+        }
+
+        assert!(journal.marked_locked.load(Ordering::SeqCst));
+        assert!(forget_done.load(Ordering::SeqCst));
+        assert!(listener_unlocked.load(Ordering::SeqCst));
+        assert!(carried_unlocked.load(Ordering::SeqCst));
+
+        let reached = journal.reached.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        assert_eq!(reached.into_iter().collect::<BTreeSet<_>>(), BTreeSet::from(["s-a".to_owned(), "s-b".to_owned(), "s-c".to_owned()]));
+        assert_eq!(store.version("s-b"), 0, "forget_session(s-b) ran after journal.marked and s-b was not recreated");
+        assert!(store.contains("s-c", "secret-atomic"), "downstream s-c received the value");
+
+        // Subsequent mark on s-a must traverse collapsed A -> C directly without recreating s-b.
+        assert!(store.remember("s-a", &[fill("secret-after")]));
+        assert_eq!(store.version("s-b"), 0);
+        assert!(store.contains("s-c", "secret-after"));
     }
 }

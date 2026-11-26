@@ -32,11 +32,11 @@ function workedMs(agent: DesktopAgentPoolRow): number {
 /** One agent in an agents list (the island's Agents tab, the session panel's
  *  Agents section), built as a to-do row: one line under its kind's group
  *  (level 2 of the tree, whatever its depth in the pool), its step ring where
- *  a to-do's state circle stands, its own name, then its step figure and its
- *  state in two right-aligned columns. An agent at work is marked data-working;
- *  its name stays a row name. Its tooltip and description say the rest: the
- *  model, the step in hand, a finished agent's worked time and the ledger
- *  total. */
+ *  a to-do's state circle stands, its own name, then a single right-aligned
+ *  trailing meta cluster combining its step figure (when present) and state.
+ *  An agent at work is marked data-working; its name stays a row name. Its
+ *  tooltip and description say the rest: the model, the step in hand, a
+ *  finished agent's worked time and the ledger total. */
 export function AgentIslandRow({
   node,
   state,
@@ -97,19 +97,23 @@ export function AgentIslandRow({
       <span className="schedules-row-copy agent-pool-heading">
         <b className="agent-pool-name">{agentOwnName(agent, node.sessionId === ownerSessionId)}</b>
       </span>
-      {agent.todo ? (
-        <span
-          className="agent-row-steps"
-          role="img"
-          aria-label={agentTodoLabel(agent.todo)}
-          title={agentTodoLabel(agent.todo)}
-        >
-          {agentTodoFigure(agent.todo)}
-        </span>
-      ) : (
-        <span className="agent-row-steps" />
-      )}
       <span className="agent-activity-status" id={statusId}>
+        {agent.todo && (
+          <>
+            <span
+              className="agent-row-steps"
+              data-active={!finished ? 'true' : undefined}
+              role="img"
+              aria-label={agentTodoLabel(agent.todo)}
+              title={agentTodoLabel(agent.todo)}
+            >
+              {agentTodoFigure(agent.todo)}
+            </span>
+            <span className="agent-row-meta-sep" aria-hidden="true">
+              ·
+            </span>
+          </>
+        )}
         <AgentRowElapsed state={state} agent={agent} clock={clock} format={formatWorkClock} />
       </span>
       {detail && (

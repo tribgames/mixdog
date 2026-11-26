@@ -11,6 +11,8 @@ use crate::cancel::Cancel;
 /// Where a worker's turn stands before it runs, in the order it passes them.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum TurnStage {
+    /// Another turn of the worker runs under its own job: this one starts once that one ended.
+    Waiting,
     /// The session's message count is being read before anything else of it is asked: where the turn's rows begin for
     /// the job's own accounting.
     CountingBeforeOpen,
@@ -29,6 +31,7 @@ pub enum TurnStage {
 impl TurnStage {
     pub fn word(self) -> &'static str {
         match self {
+            Self::Waiting => "waiting-for-turn",
             Self::Admitted => "admitted",
             Self::Opening => "opening",
             Self::CountingBeforeOpen => "counting-before-open",
@@ -41,6 +44,7 @@ impl TurnStage {
     /// What the job's card says the turn is doing.
     pub fn describe(self) -> &'static str {
         match self {
+            Self::Waiting => "waiting for the worker's turn before it to end",
             Self::Admitted => "admitted; preparing the worker's turn",
             Self::Opening => "opening the worker session",
             Self::CountingBeforeOpen => "reading the worker session's message count before its open",

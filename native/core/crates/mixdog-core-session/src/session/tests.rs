@@ -552,6 +552,9 @@ impl mixdog_core_api::turn_review::TurnReviewApi for SealWatch {
     async fn begin_turn(&self, a: &str, b: &str, c: mixdog_core_api::turn_review::TurnOpen) -> Option<mixdog_core_api::turn_review::TurnToken> {
         self.inner.begin_turn(a, b, c).await
     }
+    fn close_turn(&self, a: &str, b: &str) {
+        self.inner.close_turn(a, b);
+    }
     async fn complete_turn(&self, a: &str, b: Option<&mixdog_core_api::turn_review::TurnToken>) -> bool {
         let done = self.inner.complete_turn(a, b).await;
         self.sealed.notify_one();
@@ -668,26 +671,138 @@ async fn a_turn_that_edits_a_file_records_its_change_once_its_seal_returns() {
     assert!(text.contains("a.txt") && text.contains("+two"), "{text}");
 }
 
-/// A completion wake submits no row and continues the review of the turn before it: its end names that turn's checkpoint,
-/// the one a client reads the wake's changes by (else its card reads a checkpoint the review never kept).
+/// Every `turndone` independently seals and fixes its own checkpoint: a completion wake opens a
+/// fresh turn review under its own distinct `checkpointId`, leaving the prior turn's sealed
+/// change record intact while recording only subsequent changes under the wake's checkpoint.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup: a git workspace and file edits")]
+async fn a_completion_wake_seals_its_own_distinct_checkpoint_without_mutating_prior_turn() {
+    use mixdog_core_api::turn_review::{CallChange, ChangesRead, ReviewContent, TurnReviewApi};
+    use mixdog_tools::exec::TaskNotifier;
+    let rig = Rig::new();
+    let ws = tempfile::tempdir().unwrap();
+    let root = ws.path().canonicalize().unwrap().to_string_lossy().trim_start_matches(r"\\?\").to_owned();
+    assert!(std::process::Command::new("git").args(["init", "-q"]).current_dir(&root).status().unwrap().success());
+    std::fs::write(ws.path().join("a.txt"), "one\n").unwrap();
+    let cwd = root.clone();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    let review = Arc::new(SealWatch { inner: deps.turn_review.clone(), sealed: tokio::sync::Notify::new() });
+    deps.turn_review = review.clone();
+    let deps = Arc::new(deps);
+    let tool = review.clone();
+    let turn_index = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    rig.set_script(Arc::new(move |run| {
+        let (cwd, tool, turn_index) = (cwd.clone(), tool.clone(), turn_index.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            run.review.start(&cwd);
+            assert!(run.review.ready().await.is_some(), "a review");
+            let idx = turn_index.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if idx == 0 {
+                let file = std::path::Path::new(&cwd).join("a.txt");
+                std::fs::write(&file, "two\n").unwrap();
+                let change = CallChange {
+                    path: file.to_string_lossy().into_owned(),
+                    new_path: None,
+                    before: ReviewContent::Bytes(b"one\n".to_vec().into()),
+                    after: ReviewContent::Bytes(b"two\n".to_vec().into()),
+                };
+                tool.record_call("call-1", run.thread.as_str(), &cwd, vec![change]).await;
+            } else {
+                let file = std::path::Path::new(&cwd).join("b.txt");
+                std::fs::write(&file, "second\n").unwrap();
+                let change = CallChange {
+                    path: file.to_string_lossy().into_owned(),
+                    new_path: None,
+                    before: ReviewContent::Absent,
+                    after: ReviewContent::Bytes(b"second\n".to_vec().into()),
+                };
+                tool.record_call("call-2", run.thread.as_str(), &cwd, vec![change]).await;
+            }
+            let mut result = mixdog_agent::agent_tool::flow::seams::TurnResult::default();
+            result.content = if idx == 0 { "done" } else { "wake done" }.into();
+            RunOutcome::Completed(Box::new(result))
+        })
+    }));
+    let directory = SessionDirectory::new(deps);
+    let handle = start_thread(&directory).await;
+    let input = json!({ "prompt": "start", "options": { "clientSubmissionId": "desktop-submit-1" } });
+    handle.request(request("turn/start", json!({ "threadId": handle.id, "opId": "op-1", "input": input }), "op-1")).await.expect("turn/start");
+    let ends = || -> Vec<Value> {
+        rig.store
+            .records(&handle.id)
+            .into_iter()
+            .filter_map(|(_, record)| match record {
+                mixdog_store::schema::record::Record::Item(row) => match row.body {
+                    mixdog_store::schema::blob::Slot::Inline(body) if body["kind"] == "turndone" => Some(body),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect()
+    };
+    review.sealed.notified().await;
+    let first_ends = eventually_on!(&[&rig.store.committed, &handle.cell.stepped], || { (ends().len() == 1 && idle(&handle)).then(ends) }).await;
+    assert_eq!(first_ends[0]["checkpointId"], json!("desktop-submit-1"), "{first_ends:?}");
+    let cp1_initial = review
+        .turn_changes(handle.id.as_str(), ChangesRead { checkpoint_id: "desktop-submit-1".into(), patch: true, file: None })
+        .await
+        .expect("turn 1 change record");
+    let cp1_initial_text = Value::Object(cp1_initial).to_string();
+    assert!(cp1_initial_text.contains("a.txt") && cp1_initial_text.contains("+two"), "{cp1_initial_text}");
+
+    directory.finished(&handle.id, "shell", "job-1", "completed", "Async shell task job-1 finished.".into()).await;
+    review.sealed.notified().await;
+    let all_ends = eventually_on!(&[&rig.store.committed, &handle.cell.stepped], || { (ends().len() == 2 && idle(&handle)).then(ends) }).await;
+    assert_eq!(all_ends[0]["checkpointId"], json!("desktop-submit-1"), "{all_ends:?}");
+    let cp2 = all_ends[1]["checkpointId"].as_str().expect("wake turndone checkpointId");
+    assert!(!cp2.is_empty() && cp2 != "desktop-submit-1", "wake turndone must have its own distinct checkpointId: {all_ends:?}");
+
+    let cp2_changes =
+        review.turn_changes(handle.id.as_str(), ChangesRead { checkpoint_id: cp2.to_owned(), patch: true, file: None }).await.expect("wake turn change record");
+    let cp2_files: Vec<&str> = cp2_changes["files"].as_array().unwrap().iter().filter_map(|f| f["path"].as_str()).collect();
+    assert_eq!(cp2_files, vec!["b.txt"], "{cp2_changes:?}");
+    let cp2_text = Value::Object(cp2_changes).to_string();
+    assert!(cp2_text.contains("+second") && !cp2_text.contains("a.txt"), "{cp2_text}");
+
+    // Turn 1's sealed change record remains unchanged with only a.txt.
+    let cp1_after = review
+        .turn_changes(handle.id.as_str(), ChangesRead { checkpoint_id: "desktop-submit-1".into(), patch: true, file: None })
+        .await
+        .expect("turn 1 change record after wake");
+    let cp1_files: Vec<&str> = cp1_after["files"].as_array().unwrap().iter().filter_map(|f| f["path"].as_str()).collect();
+    assert_eq!(cp1_files, vec!["a.txt"], "{cp1_after:?}");
+    let cp1_after_text = Value::Object(cp1_after).to_string();
+    assert!(cp1_after_text.contains("+two") && !cp1_after_text.contains("b.txt"), "{cp1_after_text}");
+}
+
+/// A completion wake that fails before `review.start` (e.g., blocked by a prompt hook) never opens
+/// a turn review and must store no orphan `checkpointId` on its failed `turndone` row or input row.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup: a git workspace")]
-async fn a_completion_wakes_end_names_the_checkpoint_its_review_continues() {
+async fn a_completion_wake_that_fails_before_review_start_stores_no_orphan_checkpoint_id() {
     use mixdog_tools::exec::TaskNotifier;
     let rig = Rig::new();
     let ws = tempfile::tempdir().unwrap();
     let root = ws.path().canonicalize().unwrap().to_string_lossy().trim_start_matches(r"\\?\").to_owned();
     assert!(std::process::Command::new("git").args(["init", "-q"]).current_dir(&root).status().unwrap().success());
     let cwd = root.clone();
+    let turn_index = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     rig.set_script(Arc::new(move |run| {
-        let cwd = cwd.clone();
+        let (cwd, turn_index) = (cwd.clone(), turn_index.clone());
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
-            run.review.start(&cwd);
-            assert!(run.review.ready().await.is_some(), "a review");
-            let mut result = mixdog_agent::agent_tool::flow::seams::TurnResult::default();
-            result.content = "done".into();
-            RunOutcome::Completed(Box::new(result))
+            let idx = turn_index.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if idx == 0 {
+                run.review.start(&cwd);
+                assert!(run.review.ready().await.is_some(), "turn 1 review");
+                let mut result = mixdog_agent::agent_tool::flow::seams::TurnResult::default();
+                result.content = "done".into();
+                RunOutcome::Completed(Box::new(result))
+            } else {
+                // Fail before `run.review.start` is ever called (e.g., prompt hook block).
+                RunOutcome::Failed(mixdog_protocol::TurnError { message: "prompt hook blocked wake".into(), data: json!({}), provider_error: None })
+            }
         })
     }));
     let directory = SessionDirectory::new(rig.deps());
@@ -708,10 +823,12 @@ async fn a_completion_wakes_end_names_the_checkpoint_its_review_continues() {
             .collect()
     };
     eventually_on!(&[&rig.store.committed, &handle.cell.stepped], || (ends().len() == 1 && idle(&handle)).then_some(())).await;
+
     directory.finished(&handle.id, "shell", "job-1", "completed", "Async shell task job-1 finished.".into()).await;
-    let ends = eventually_on!(&[&rig.store.committed], || Some(ends()).filter(|ends| ends.len() == 2)).await;
-    // The wake's end: the prompt's own end names its checkpoint only as the prompt row's transcript meta does.
-    assert_eq!(ends[1]["checkpointId"], json!("desktop-submit-1"), "{ends:?}");
+    let all_ends = eventually_on!(&[&rig.store.committed, &handle.cell.stepped], || { (ends().len() == 2 && idle(&handle)).then(ends) }).await;
+    assert_eq!(all_ends[0]["checkpointId"], json!("desktop-submit-1"), "{all_ends:?}");
+    assert_eq!(all_ends[1]["status"], json!("failed"), "{all_ends:?}");
+    assert!(all_ends[1].get("checkpointId").is_none(), "hook-blocked wake must not stamp an orphan checkpointId: {all_ends:?}");
 }
 
 fn drain(stage: DrainStage) -> DrainRequest {

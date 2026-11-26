@@ -378,7 +378,7 @@ fn a_client_mode_server_runs_its_turns_on_the_pc_and_fails_them_without_one() {
                     log: crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new()),
                     stop: mixdog_rt::CancellationToken::new(),
                     catalog_http: crate::compose_test_support::offline_http(),
-                    agent_presets: crate::acp_tools::builtin_presets(),
+                    agent_presets: Vec::new(),
                     acp_data_dir: None,
                     pg_install: None,
                 },

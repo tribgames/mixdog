@@ -114,3 +114,44 @@ fn enrichment_adds_the_catalogs_facts_to_a_listed_row_and_keeps_the_rows_own_lim
     let nameless = json!({ "provider": "openai" });
     assert_eq!(enrich_model(&lookup, &nameless), nameless);
 }
+
+#[test]
+fn antigravity_and_gemini_4_context_windows_are_capped_accurately() {
+    let tables = Tables::new(json!({}), json!({}), Vec::new());
+    let lookup = tables.lookup();
+    for model in ["gemini-4-neon", "gemini-4-neon-high", "gemini-4-argon", "gemini-4-hydrogen", "claude-opus-5.5"] {
+        let meta = lookup.lookup(model, "acp-antigravity", None).expect("known Antigravity ACP cap");
+        assert_eq!(meta["contextWindow"], json!(256_000), "{model}");
+        let enriched = enrich_model(&lookup, &json!({ "id": model, "provider": "acp-antigravity", "contextWindow": 1_048_576, "maxContextWindow": 1_048_576 }));
+        assert_eq!(enriched["contextWindow"], json!(256_000), "enriched {model} capped below 1M");
+        assert_eq!(enriched["maxContextWindow"], json!(256_000), "enriched {model} maxContextWindow capped consistently");
+    }
+    let oss = lookup.lookup("gpt-oss-120b-medium", "acp-antigravity-cli", None).expect("known gpt-oss cap");
+    assert_eq!(oss["contextWindow"], json!(128_000));
+    assert_eq!(super::guess_context_window("gemini-4-neon", "gemini"), Some(256_000));
+    assert_eq!(super::guess_context_window("gpt-oss-120b-medium", "acp-antigravity-cli"), Some(128_000));
+}
+
+#[test]
+fn capability_only_override_keeps_litellm_rates_and_capped_limits() {
+    let litellm = json!({
+        "gemini/gemini-4-neon": {
+            "litellm_provider": "gemini",
+            "mode": "chat",
+            "max_input_tokens": 1_048_576,
+            "input_cost_per_token": 0.000003,
+            "output_cost_per_token": 0.000015,
+            "cache_read_input_token_cost": 0.0000003
+        }
+    });
+    let tables = Tables::new(litellm, json!({}), Vec::new());
+    let lookup = tables.lookup();
+    for provider in ["gemini", "antigravity-oauth", "acp-antigravity"] {
+        let meta = lookup.lookup("gemini-4-neon", provider, None).expect("priced neon");
+        assert_eq!(meta["contextWindow"], json!(256_000), "{provider}");
+        assert!(close(&meta["inputCostPerM"], 3.0), "{provider}: {meta:?}");
+        assert!(close(&meta["outputCostPerM"], 15.0), "{provider}: {meta:?}");
+        assert!(close(&meta["cacheReadCostPerM"], 0.3), "{provider}: {meta:?}");
+        assert_eq!(meta["pricingSource"], json!("litellm"), "{provider}");
+    }
+}

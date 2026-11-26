@@ -111,6 +111,7 @@ impl SessionActor {
                 }
             }
         }
+        self.withdraw_live_tool_calls(&turn);
         if let Some(reclaim) = &reclaimed {
             let (sid, row) = (slot.stop.clone(), slot.input_item.clone());
             self.apply_reclaim(reclaim, sid.as_deref(), &row);
@@ -204,7 +205,8 @@ impl SessionActor {
         // The next turn waits for the settlement, as Node's queue drains after `runTurn` returns.
         self.settling = true;
         self.settling_wake = slot.wake;
-        // A completion wake submits no row: its end names the checkpoint its review continued, the one its changes are read by.
+        // Stamp the turn's review checkpoint when its input row did not pre-stamp one (notably a
+        // completion wake, which only receives a `checkpointId` once `review.start` actually ran).
         if slot.transcript.get("checkpointId").is_none()
             && let Some(checkpoint) = slot.review.checkpoint()
         {

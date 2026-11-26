@@ -10,6 +10,7 @@ import { persistAgentChatRoute } from './agent-chat-route';
 import { errorMessageText } from './ErrorNotice';
 import { showDesktopToast } from './notifications';
 import { DictationButton, SendButton } from './composer-surfaces';
+import { ReadoutLayoutContext } from './composer-usage-readout';
 import { useConnectionLink } from './connection-link-store';
 import { t } from './i18n';
 import type { useComposerDictation } from './use-composer-dictation';
@@ -140,11 +141,18 @@ export const ComposerModelLine = memo(function ComposerModelLine({
   const style = useComposerStyle();
   const route = useRouteLabelParts(controlProps.sessionChoices);
   const lead = pickers ?? (style === 'simple' ? null : usageReadout);
-  if (room) return lead ? <div className="composer-model-line">{lead}</div> : null;
+  const readoutLayoutKey = `${card ? style : 'line'}:${route ? 1 : 0}:${room ? 1 : 0}`;
+  if (room) {
+    return lead ? (
+      <div className="composer-model-line">
+        <ReadoutLayoutContext.Provider value={readoutLayoutKey}>{lead}</ReadoutLayoutContext.Provider>
+      </div>
+    ) : null;
+  }
   if (card && !lead && style === 'simple') return null;
   return (
     <div className="composer-model-line" data-card={card ? style : undefined}>
-      {lead}
+      <ReadoutLayoutContext.Provider value={readoutLayoutKey}>{lead}</ReadoutLayoutContext.Provider>
       {card && route && <ComposerRouteLabel parts={route} choices={controlProps.sessionChoices} />}
       {/* At the line's right end the pill grows leftwards: its sheet shares its right edge. */}
       {!card && <ComposerModelControls {...controlProps} routeLabel={route} sheetAlign="end" />}

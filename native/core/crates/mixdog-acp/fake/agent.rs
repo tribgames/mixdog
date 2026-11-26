@@ -307,7 +307,9 @@ impl Agent {
             "nontext" => {
                 self.update(json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "audio", "mimeType": "audio/wav", "data": "UklG" } }));
                 self.update(json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "resource", "resource": { "uri": "file:///w/doc.txt", "text": "inline resource" } } }));
-                self.update(json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "resource_link", "name": "link.md", "uri": "file:///w/link.md" } }));
+                self.update(
+                    json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "resource_link", "name": "link.md", "uri": "file:///w/link.md" } }),
+                );
                 self.update(json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "image", "mimeType": "image/png", "data": "iVBORw==" } }));
                 self.update(json!({
                     "sessionUpdate": "tool_call", "toolCallId": "g1", "title": "Run generate_image?", "kind": "other", "status": "pending",
@@ -368,7 +370,10 @@ impl Agent {
             "costusage" => {
                 self.say("costed");
                 self.update(json!({ "sessionUpdate": "usage_update", "used": 500, "size": 10000, "cost": { "amount": 0.042, "currency": "USD" } }));
-                answer(&id, json!({ "stopReason": "end_turn", "usage": { "inputTokens": 200, "outputTokens": 100, "cachedReadTokens": 800, "cachedWriteTokens": 300, "thoughtTokens": 50, "totalTokens": 1450 } }));
+                answer(
+                    &id,
+                    json!({ "stopReason": "end_turn", "usage": { "inputTokens": 200, "outputTokens": 100, "cachedReadTokens": 800, "cachedWriteTokens": 300, "thoughtTokens": 50, "totalTokens": 1450 } }),
+                );
             }
             // Completed turn with no usage_update (must not re-report an earlier turn's context).
             "plainusage" => {
@@ -429,15 +434,31 @@ impl Agent {
                 let ready = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ready listener");
                 let port = ready.local_addr().expect("ready addr").port();
                 let first_handle = std::thread::spawn(move || {
-                    mcp(&server, &json!({ "jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": { "name": first, "arguments": { "readyPort": port } } }))
+                    mcp(
+                        &server,
+                        &json!({ "jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": { "name": first, "arguments": { "readyPort": port } } }),
+                    )
                 });
                 let _ = ready.accept().expect("first tool ready");
-                let second_answer = mcp(&self.held().servers[0], &json!({ "jsonrpc": "2.0", "id": 11, "method": "tools/call", "params": { "name": second, "arguments": {} } }));
-                let second_text = second_answer["result"]["content"][0]["text"].as_str().unwrap_or_default().to_owned();
+                let all_text = |answer: &Value| {
+                    answer["result"]["content"].as_array().into_iter().flatten().filter_map(|block| block["text"].as_str()).collect::<Vec<_>>().join("\n")
+                };
+                let second_answer =
+                    mcp(&self.held().servers[0], &json!({ "jsonrpc": "2.0", "id": 11, "method": "tools/call", "params": { "name": second, "arguments": {} } }));
+                let second_text = all_text(&second_answer);
                 self.say(&format!("second={second_text}"));
                 let first_answer = first_handle.join().unwrap();
-                let first_text = first_answer["result"]["content"][0]["text"].as_str().unwrap_or_default().to_owned();
+                let first_text = all_text(&first_answer);
                 self.say(&format!(" first={first_text}"));
+                self.end(&id);
+            }
+            // Emits a usage_update with caller-specified `<used> <size>` to test real preset caps and compaction cliff.
+            "cliff" => {
+                let mut parts = rest.split_whitespace();
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(196_000);
+                let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
+                self.say("working");
+                self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
                 self.end(&id);
             }
             // A question that offers no answer for one call.
@@ -565,7 +586,9 @@ impl Agent {
                 self.session().model = level.map_or_else(|| model.to_owned(), |level| format!("{model}-{level}"));
                 let mut options = vec![json!({ "id": "model", "category": "model", "type": "select", "currentValue": model, "options": [{ "value": model }] })];
                 if let Some(level) = level {
-                    options.push(json!({ "id": "thought_level", "category": "thought_level", "type": "select", "currentValue": level, "options": [{ "value": level }] }));
+                    options.push(
+                        json!({ "id": "thought_level", "category": "thought_level", "type": "select", "currentValue": level, "options": [{ "value": level }] }),
+                    );
                 }
                 self.update(json!({ "sessionUpdate": "config_option_update", "configOptions": options }));
                 self.say("switched");

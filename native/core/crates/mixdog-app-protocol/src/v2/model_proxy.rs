@@ -712,6 +712,13 @@ pub enum ProxyEvent {
         id: String,
         name: String,
     },
+    /// A compat indexed tool call that started under a synthesized id received its provider id on a later chunk
+    /// (`StreamEvent::ToolCallIdRenamed`).
+    #[serde(rename_all = "camelCase")]
+    ToolCallIdRenamed {
+        from: String,
+        to: String,
+    },
     #[serde(rename_all = "camelCase")]
     ToolCallArgsDelta {
         id: String,

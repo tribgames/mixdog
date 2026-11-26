@@ -104,7 +104,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let ws = super::super::tests::plain(&dir.path().canonicalize().unwrap());
         let review: Arc<dyn TurnReviewApi> = Arc::new(super::super::testing::review_at(&dir.path().join("data")));
-        let owner_turn = review.begin_turn(&ws, "lead", TurnOpen { checkpoint_id: "cp1".into(), continue_turn: false }).await;
+        let owner_turn = review.begin_turn(&ws, "lead", TurnOpen { checkpoint_id: "cp1".into() }).await;
         assert!(owner_turn.is_some());
 
         let recorder = ToolReviewRecorder::new(review.clone(), Arc::new(Cwd(ws.clone())));

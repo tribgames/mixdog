@@ -3,17 +3,183 @@
 //! handed over where the loop would be entered: the agent gets the input as it is sent, the session's port, and the
 //! session's tools as calls of the loop's own execution path.
 
+use std::collections::HashSet;
+use std::path::Path;
+
+use mixdog_agent::env::DrainRequest;
+use mixdog_agent::env::DrainStage;
+use mixdog_agent::env::ModelVision;
+use mixdog_agent::env::Priority;
+use mixdog_agent::env::StopVerdict;
+use mixdog_agent::env::Tone;
 use mixdog_agent::handed::HandedCalls;
 use mixdog_agent::handed::HandedParts;
+use mixdog_agent::limits::TurnLimits;
+use mixdog_agent::message::Source;
 use mixdog_core_run::run_host::progress::RunProgress;
 use mixdog_core_session::session::goal_reminder::GoalReminder;
 use mixdog_core_session::session::prompt_notice::CarriedNotice;
 use mixdog_core_session::session::run::Compaction;
+use mixdog_core_session::session::run::SteerInput;
 use mixdog_core_session::session::transcript_writer::TurnTranscript;
 use mixdog_core_session::session::turn_snapshot::TurnSnapshot;
+use mixdog_mcp::skill_select::SkillNames;
 use mixdog_store::schema::record::Header;
 
+use super::super::mcp_seams::ExplicitSkillSelector;
+use super::super::reactions::LoopReactions;
+use super::super::reactions::ReactionScope;
+use super::super::reactions::ReactionTargets;
 use super::*;
+
+/// Maximum Stop-hook continuations within a single turn, matching `mixdog-agent/src/no_tool.rs`.
+const STOP_CONTINUATION_LIMIT: u32 = 8;
+/// Matches `HEARTBEAT_MAX_TOOL_CALLS` and `HEARTBEAT_WRAP_UP_MS` in `run_host/settings.rs`.
+const HEARTBEAT_MAX_TOOL_CALLS: u64 = 8;
+const HEARTBEAT_WRAP_UP_MS: i64 = 60_000;
+
+/// Available skill names extracted from the session header's `<available_skills>` prompt block and optional
+/// `availableSkills` list, allowing `ExplicitSkillSelector` to resolve `$name` / `Skill: "name"` without extra seams.
+struct HeaderSkillNames {
+    names: HashSet<String>,
+}
+
+impl HeaderSkillNames {
+    fn from_header(header: &Header) -> Self {
+        Self { names: super::super::assemble::header_skill_names(header) }
+    }
+}
+
+#[async_trait]
+impl SkillNames for HeaderSkillNames {
+    async fn names(&self, _cwd: &Path) -> Result<HashSet<String>, String> {
+        Ok(self.names.clone())
+    }
+}
+
+/// Vision capability bound to the outside turn's active provider and model rather than `HandedCalls`' synthetic
+/// `"outside"` adapter id.
+struct BoundVision {
+    inner: Arc<dyn ModelVision>,
+    provider: String,
+    model: String,
+}
+
+impl ModelVision for BoundVision {
+    fn sees_images(&self, _provider: &str, _model: &str) -> bool {
+        self.inner.sees_images(&self.provider, &self.model)
+    }
+}
+
+/// Vision capability for an outside-agent turn, bound to the turn's active provider and model rather than
+/// `HandedCalls`' synthetic `"outside"` adapter id.
+struct OutsideVision {
+    provider: String,
+    model: String,
+    header_override: Option<bool>,
+}
+
+impl OutsideVision {
+    fn from_header(header: &Header) -> Self {
+        let provider = header.get("provider").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let model = header.get("model").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let header_override = header.get("supportsVision").and_then(Value::as_bool);
+        Self { provider, model, header_override }
+    }
+}
+
+impl ModelVision for OutsideVision {
+    fn sees_images(&self, _provider: &str, _model: &str) -> bool {
+        if !super::super::model_proxy_pc::takes_images(&self.provider) {
+            return false;
+        }
+        if let Some(vision) = self.header_override {
+            return vision;
+        }
+        !self.model.to_ascii_lowercase().starts_with("gpt-oss")
+    }
+}
+
+fn limits_from_header(header: &Header, now_ms: i64) -> Option<TurnLimits> {
+    let obj = header.get("turnLimits").and_then(Value::as_object);
+    let max_tool_calls = obj.and_then(|o| o.get("maxToolCalls")).or_else(|| header.get("maxToolCalls")).and_then(Value::as_u64).filter(|n| *n > 0);
+    let max_tool_rounds = obj.and_then(|o| o.get("maxToolRounds")).or_else(|| header.get("maxToolRounds")).and_then(Value::as_u64).filter(|n| *n > 0);
+    let wrap_up_at_ms = obj.and_then(|o| o.get("wrapUpAtMs")).or_else(|| header.get("wrapUpAtMs")).and_then(Value::as_i64);
+    if max_tool_calls.is_some() || max_tool_rounds.is_some() || wrap_up_at_ms.is_some() {
+        return Some(TurnLimits { max_tool_calls, wrap_up_at_ms, max_tool_rounds });
+    }
+    let is_heartbeat = header.get("heartbeat") == Some(&Value::Bool(true))
+        || header.get("isHeartbeat") == Some(&Value::Bool(true))
+        || header.get("routineKind").and_then(Value::as_str) == Some("heartbeat");
+    is_heartbeat.then_some(TurnLimits {
+        max_tool_calls: Some(HEARTBEAT_MAX_TOOL_CALLS),
+        wrap_up_at_ms: Some(now_ms + HEARTBEAT_WRAP_UP_MS),
+        max_tool_rounds: None,
+    })
+}
+
+fn append_text_to_input(input: &Value, extra: &str) -> Value {
+    if extra.trim().is_empty() {
+        return input.clone();
+    }
+    let mut out = input.clone();
+    match out.get_mut("content") {
+        Some(Value::String(text)) => {
+            if text.is_empty() {
+                text.push_str(extra);
+            } else {
+                text.push_str("\n\n");
+                text.push_str(extra);
+            }
+        }
+        Some(Value::Array(parts)) => {
+            parts.push(json!({ "type": "text", "text": extra }));
+        }
+        _ => {
+            out["content"] = Value::String(extra.to_owned());
+        }
+    }
+    out
+}
+
+fn input_from_steers(steers: &[SteerInput], extras: &[String]) -> Value {
+    let mut parts: Vec<Value> = Vec::new();
+    let mut all_text = true;
+    for steer in steers {
+        match &steer.content {
+            Value::String(text) => {
+                if !text.is_empty() {
+                    parts.push(json!({ "type": "text", "text": text }));
+                }
+            }
+            Value::Array(items) => {
+                all_text = false;
+                parts.extend(items.iter().cloned());
+            }
+            _ => {}
+        }
+    }
+    for extra in extras {
+        if !extra.trim().is_empty() {
+            parts.push(json!({ "type": "text", "text": extra }));
+        }
+    }
+    if all_text {
+        let joined = parts.iter().filter_map(|p| p.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n\n");
+        json!({ "role": "user", "content": joined })
+    } else {
+        json!({ "role": "user", "content": parts })
+    }
+}
+
+async fn commit_hidden_message(port: &RunPort, rows: &StoredRows, message: &AgentMessage) -> Result<(ItemId, Value), RunError> {
+    let iid = new_item_id();
+    let body = row_of(message);
+    let role = body.get("role").and_then(Value::as_str).unwrap_or("user").to_owned();
+    rows.record(message, body.clone());
+    port.commit_item(ItemCommit { iid: iid.clone(), role: Some(role), model: true, visible: false, body: body.clone(), prompt: None }).await?;
+    Ok((iid, body))
+}
 
 /// The agents that run turns outside Mixdog's loop.
 #[async_trait]
@@ -98,6 +264,13 @@ pub struct OutsideAssembled {
     /// The session's reading of its context: what the agent last reported it holds. `None` with no reading, or one
     /// a compaction left behind.
     pub context_tokens: Option<u64>,
+    pub limits: Option<TurnLimits>,
+    pub skills: Option<SkillsBuilder>,
+    pub reaction_targets: Option<Arc<ReactionTargets>>,
+    pub vision: Option<Arc<dyn ModelVision>>,
+    pub tail: Option<Arc<dyn mixdog_agent::env::TailReminder>>,
+    pub route: Option<Arc<mixdog_core_run::run_host::route_fallback::RouteHop>>,
+    pub switch_bus: Option<Arc<RouteSwitchBus>>,
 }
 
 /// One turn, begun, as its agent takes it.
@@ -129,6 +302,18 @@ pub struct OutsideReport {
     /// The usage the agent reported for the turn, and whether its input leaves its cache reads out: what the ask of a
     /// finished turn is settled with.
     pub usage: Mutex<Option<(mixdog_core_api::domain::provider::Usage, bool)>>,
+    /// Set once the outside agent emits any visible output (text, reasoning, tool call, image card, or visible row).
+    pub output_produced: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl OutsideReport {
+    pub fn mark_output(&self) {
+        self.output_produced.store(true, Ordering::SeqCst);
+    }
+
+    pub fn output_produced(&self) -> bool {
+        self.output_produced.load(Ordering::SeqCst)
+    }
 }
 
 /// A job's hook for the tool results its turn gains.
@@ -139,6 +324,9 @@ pub struct History {
     port: RunPort,
     rows: Vec<(ItemId, Value)>,
     input: (ItemId, Value),
+    /// Hidden rows committed right after `input` before handoff (e.g. sourced preloaded skill bodies) that must be
+    /// preserved in a fresh-session compaction replacement for replay and future skill-update detection.
+    after_input: Vec<(ItemId, Value)>,
     /// The model context as a run of the loop left it when a route hop handed the turn to the agent, the turn's input in
     /// its place: what the loop did of the turn, which the agent is told with the rest. Empty for a turn the agent runs
     /// from its start, or one the loop added nothing to.
@@ -345,9 +533,7 @@ impl History {
                 let after_input = self
                     .taken_over
                     .iter()
-                    .position(|(item, row)| {
-                        item == &self.input.0 || input_id.as_deref().is_some_and(|id| message_id(row).as_deref() == Some(id))
-                    })
+                    .position(|(item, row)| item == &self.input.0 || input_id.as_deref().is_some_and(|id| message_id(row).as_deref() == Some(id)))
                     .map(|pos| &self.taken_over[pos + 1..])
                     .unwrap_or(&[]);
                 let after_ids: std::collections::HashSet<String> = after_input.iter().filter_map(|(_, row)| message_id(row)).collect();
@@ -358,9 +544,9 @@ impl History {
                     .collect();
                 let split = non_system.iter().position(|row| {
                     message_id(row).is_some_and(|id| after_ids.contains(&id))
-                        || message_of(row)
-                            .ok()
-                            .is_some_and(|m| m.tool_calls().iter().any(|c| after_calls.contains(&c.id)) || m.tool_call_id().is_some_and(|id| after_calls.contains(id)))
+                        || message_of(row).ok().is_some_and(|m| {
+                            m.tool_calls().iter().any(|c| after_calls.contains(&c.id)) || m.tool_call_id().is_some_and(|id| after_calls.contains(id))
+                        })
                 });
                 match split {
                     Some(pos) => (non_system[..pos].to_vec(), non_system[pos..].to_vec()),
@@ -369,7 +555,7 @@ impl History {
             }
         };
         let text = Self::told(before.iter().chain(after.iter()))?;
-        let mut replacement = Vec::with_capacity(before.len() + 1 + after.len());
+        let mut replacement = Vec::with_capacity(before.len() + 1 + after.len() + self.after_input.len());
         let item_of: HashMap<String, ItemId> = told.iter().filter_map(|(item, row)| Some((message_id(row)?, item.clone()))).collect();
         let push_rows = |out: &mut Vec<(ItemId, Value)>, slice: &[Value]| {
             for row in slice {
@@ -383,6 +569,7 @@ impl History {
         self.port.calls_left(self.port.call_epoch() + 1);
         replacement.push(self.input.clone());
         push_rows(&mut replacement, &after);
+        replacement.extend(self.after_input.iter().cloned());
         let kept_count = if self.taken_over.is_empty() { before.len() + after.len() } else { replacement.len() };
         let compaction = Compaction { replacement, at: self.clock.now_ms(), dropped_count: rows.len().saturating_sub(kept_count) as u64, dropped: None };
         self.port.compacted(compaction).await.map_err(|error| format!("the summary could not be stored: {error:?}"))?;
@@ -447,9 +634,81 @@ pub(super) struct Outside {
     pub(super) loop_produced: bool,
     /// The turn's already-started guards from the loop half of the turn, preserved across mid-turn hand-over.
     pub(super) guards: Option<Arc<dyn TurnGuards>>,
+    /// The trusted text a routine's skill is selected from (`AgentTurn.skill_selection`).
+    pub(super) skill_selection: Option<String>,
+    /// Hidden rows already committed right after `input_body` in an earlier phase of this turn.
+    pub(super) committed_after_input: Vec<(ItemId, Value)>,
+    /// Reminders and prompt carry already ran for this turn on an earlier route phase.
+    pub(super) already_carried: bool,
 }
 
-pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
+pub(super) struct OutsideHandover {
+    pub(super) old_header: Header,
+    pub(super) input_body: Value,
+    pub(super) stored_ids: Vec<ItemId>,
+    pub(super) prior: Vec<Value>,
+    pub(super) committed_after_input: Vec<(ItemId, Value)>,
+    pub(super) goal_reminder: Option<GoalReminder>,
+    pub(super) notice: CarriedNotice,
+    pub(super) guards: Arc<dyn TurnGuards>,
+}
+
+pub(super) enum OutsideOutcome {
+    Done(RunOutcome),
+    SwitchLoop { preflight: Box<PreflightLoop>, notice: Option<String>, state: Box<OutsideHandover> },
+    SwitchOutside { header: Header, notice: Option<String>, switch_bus: Option<Arc<RouteSwitchBus>>, state: Box<OutsideHandover> },
+}
+
+fn acp_failover_error(error: &TurnError, agents: &dyn OutsideAgents, header: &Header) -> Option<mixdog_core_api::domain::provider::ProviderError> {
+    use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, ProviderError};
+    let code = error.data.get("code").and_then(Value::as_i64);
+    if code == Some(-32002) {
+        return None;
+    }
+    let reason = error.data.get("reason").and_then(Value::as_str);
+    let mut kind = if reason == Some("acpAgentAccount") || code == Some(-32000) {
+        Some(ErrorKind::Auth)
+    } else if let Some(detail) = &error.provider_error {
+        match detail.kind.as_str() {
+            "auth" => Some(ErrorKind::Auth),
+            "quota_exhausted" => Some(ErrorKind::QuotaExhausted),
+            "billing" => Some(ErrorKind::Billing),
+            "entitlement" => Some(ErrorKind::Entitlement),
+            "permission" => Some(ErrorKind::Permission),
+            "rate_limited" => Some(ErrorKind::RateLimited),
+            "overloaded" => Some(ErrorKind::Overloaded),
+            "service_tier_unavailable" => Some(ErrorKind::ServiceTierUnavailable),
+            "transient" => Some(ErrorKind::Transient),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let mut status = error.provider_error.as_ref().and_then(|detail| detail.status);
+    if kind.is_none() && (error.data.get("prePromptRefusal") == Some(&Value::Bool(true)) || agents.refusal(header).is_some()) {
+        if agents.signed_out(header) {
+            kind = Some(ErrorKind::Auth);
+        } else {
+            kind = Some(ErrorKind::Transient);
+            status = status.or(Some(503));
+        }
+    }
+    let kind = kind?;
+    if kind == ErrorKind::Transient {
+        status = status.or(Some(503));
+    }
+    let mut out = ProviderError::new(kind, DeliveryState::NotSent);
+    out.message.clone_from(&error.message);
+    out.status = status;
+    out.code = code.map(|c| c.to_string());
+    Some(out)
+}
+
+fn route_moved(before: &mixdog_store::schema::record::Header, after: &mixdog_store::schema::record::Header) -> bool {
+    ["owner", "provider", "model", "effort", "fast", "routeFallbackIndex"].into_iter().any(|key| before.get(key) != after.get(key))
+}
+
+pub(super) async fn drive_outside(outside: Outside) -> OutsideOutcome {
     let Outside {
         parts,
         agents,
@@ -487,6 +746,9 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
         taken_over,
         loop_produced,
         guards,
+        skill_selection,
+        committed_after_input,
+        already_carried,
     } = outside;
     let surface_now = surface.borrow().clone();
     let assembled = parts
@@ -498,7 +760,7 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
             port: &port,
             surface_rx: surface.clone(),
             slot: None,
-            skill_selection: None,
+            skill_selection: skill_selection.clone(),
             prior: &prior,
             generation,
             request: &request,
@@ -531,15 +793,23 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
         handoff_budget_tokens,
         compact,
         context_tokens,
+        limits,
+        skills,
+        reaction_targets,
+        vision,
+        tail,
+        route,
+        switch_bus,
     } = match assembled {
         Ok(assembled) => assembled,
-        Err(error) => return RunOutcome::Failed(error),
+        Err(error) => return OutsideOutcome::Done(RunOutcome::Failed(error)),
     };
     // The turn's tools publish each edit's card diff to the turn's review, and the agent edits with tools of its own:
     // the baseline is taken over the turn's workspace before either runs.
     tool_env.review = Some(review.api());
     review.start(&worktree);
-    let input_body = if taken_over.is_none() && agents.prompts(&input_body) {
+    let prompts_turn = agents.prompts(&input_body);
+    let (input_body, retried) = if !already_carried && taken_over.is_none() && prompts_turn {
         let carried = carry_turn(Carry {
             parts: &parts,
             thread: &thread,
@@ -563,11 +833,11 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
         })
         .await;
         match carried {
-            Ok((input_body, _)) => input_body,
-            Err(outcome) => return outcome,
+            Ok((input_body, retried)) => (input_body, retried),
+            Err(outcome) => return OutsideOutcome::Done(outcome),
         }
     } else {
-        input_body
+        (input_body, false)
     };
     let redactor = context.clone();
     let turn_id = turn.clone();
@@ -578,11 +848,114 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
         gate(GateContext { observer: observer.clone(), cancel: cancel.clone(), guards: guards.clone(), approvals: asks.clone() }),
     ));
     let failures = failures.map(|inner| Arc::new(SensitiveFailures { inner, context }) as Arc<dyn mixdog_agent::env::ToolFailureLog>);
+    let stored_rows = Arc::new(StoredRows::new());
+    let prior_messages: Vec<AgentMessage> = prior.iter().filter_map(|row| message_of(row).ok()).collect();
+    for msg in &prior_messages {
+        stored_rows.record_stored(msg);
+    }
+    if let Ok(input_msg) = message_of(&input_body) {
+        stored_rows.record(&input_msg, input_body.clone());
+    }
+    let reaction_targets = reaction_targets.unwrap_or_else(|| Arc::new(ReactionTargets::new()));
+    let _reaction_scope = ReactionScope::new(reaction_targets.clone(), thread.as_str());
+    let reactions: Arc<dyn Reactions> =
+        Arc::new(LoopReactions::new(thread.as_str(), reaction_targets, stored_rows.clone(), mixdog_protocol::text_class::is_internal_transcript_display_text));
+    let skill_selector: Option<Arc<dyn SkillSelector>> =
+        skills.map(|build| build(SkillContext { gate: gate.clone(), env: tool_env.clone(), cancel: cancel.clone() })).or_else(|| {
+            tools.get("Skill").map(|skill_tool| {
+                let names = Arc::new(HeaderSkillNames::from_header(&header));
+                let trusted_selection = skill_selection
+                    .clone()
+                    .or_else(|| header.get("skillSelection").or_else(|| input_body.pointer("/meta/skillSelection")).and_then(Value::as_str).map(str::to_owned));
+                Arc::new(
+                    ExplicitSkillSelector::new(names, skill_tool.clone(), gate.clone(), tool_env.clone(), cancel.clone())
+                        .with_selection(trusted_selection)
+                        .with_deliveries(None),
+                ) as Arc<dyn SkillSelector>
+            })
+        });
+    let mut initial_outgoing_input = input_body.clone();
+    let mut committed_after_input = committed_after_input;
+    if already_carried {
+        for (_, body) in &committed_after_input {
+            if let Ok(msg) = message_of(body) {
+                stored_rows.record(&msg, body.clone());
+                let text = msg.text();
+                if !text.trim().is_empty() {
+                    initial_outgoing_input = append_text_to_input(&initial_outgoing_input, &text);
+                }
+            }
+        }
+    } else if taken_over.is_none()
+        && prompts_turn
+        && !cancel.is_cancelled()
+        && let Some(selector) = &skill_selector
+    {
+        let mut extras: Vec<String> = Vec::new();
+        let update_notices = selector.update_notices(&prior_messages).await;
+        for notice_msg in &update_notices {
+            let text = notice_msg.text();
+            if !text.trim().is_empty() {
+                extras.push(text);
+            }
+        }
+        let mut selected_rows: Vec<AgentMessage> = Vec::new();
+        let applied = if !injected
+            && !retried
+            && let Ok(input_msg) = message_of(&input_body)
+        {
+            selector.select(&input_msg.message.content, true, &mut selected_rows).await
+        } else {
+            Vec::new()
+        };
+        if !applied.is_empty()
+            && let Err(error) = port.applied_skills(applied).await
+        {
+            return OutsideOutcome::Done(match error {
+                RunError::Cancelled => RunOutcome::Interrupted,
+                RunError::Closed | RunError::NotApplied => failed("the applied skills could not be stored", Value::Null),
+            });
+        }
+        for notice_msg in &update_notices {
+            match commit_hidden_message(&port, &stored_rows, notice_msg).await {
+                Ok(committed) => committed_after_input.push(committed),
+                Err(RunError::Cancelled) => return OutsideOutcome::Done(RunOutcome::Interrupted),
+                Err(RunError::Closed | RunError::NotApplied) => {
+                    return OutsideOutcome::Done(failed("the skill update notice could not be stored", Value::Null));
+                }
+            }
+        }
+        for skill_msg in &selected_rows {
+            let text = skill_msg.text();
+            if !text.trim().is_empty() {
+                extras.push(text);
+            }
+            match commit_hidden_message(&port, &stored_rows, skill_msg).await {
+                Ok(committed) => committed_after_input.push(committed),
+                Err(RunError::Cancelled) => return OutsideOutcome::Done(RunOutcome::Interrupted),
+                Err(RunError::Closed | RunError::NotApplied) => {
+                    return OutsideOutcome::Done(failed("the skill context could not be stored", Value::Null));
+                }
+            }
+        }
+        for extra in extras {
+            initial_outgoing_input = append_text_to_input(&initial_outgoing_input, &extra);
+        }
+    }
+    let limits = limits.or_else(|| limits_from_header(&header, clock.now_ms()));
+    let vision: Arc<dyn ModelVision> = match vision {
+        Some(inner) => Arc::new(BoundVision {
+            inner,
+            provider: header.get("provider").and_then(Value::as_str).unwrap_or_default().to_owned(),
+            model: header.get("model").and_then(Value::as_str).unwrap_or_default().to_owned(),
+        }),
+        None => Arc::new(OutsideVision::from_header(&header)),
+    };
     let calls = Arc::new(HandedCalls::new(HandedParts {
         tools,
         tool_env,
         gate,
-        hooks,
+        hooks: hooks.clone(),
         guards: guards.clone(),
         reuse,
         clock: clock.clone(),
@@ -596,10 +969,15 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
         cancel: cancel.clone(),
         slot,
         asks: Some(asks),
+        limits,
+        hidden_agent,
+        vision: Some(vision),
+        reactions: Some(reactions),
     }));
     let held = Arc::new(std::sync::atomic::AtomicUsize::new(stored_ids.len()));
     let (stopped_item, ended_input) = (input_item.clone(), input_body.clone());
     let model = header.get("model").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let tail_reminder = tail.unwrap_or_else(|| super::super::tail::session_tail_reminder(super::super::tail::tail_context(&header, || None)));
     let system = system_messages(&header);
     let asked_at = clock.now_ms();
     // An unattended turn's watchdog judges the agent's work as it judges the loop's, on the progress the agent's turn marks
@@ -613,61 +991,392 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
         None
     };
     let stalled_thread = thread.clone();
-    let history = History {
-        port: port.clone(),
-        rows: stored_ids.into_iter().zip(prior).collect(),
-        input: (input_item, input_body.clone()),
-        taken_over: taken_over.unwrap_or_default(),
-        held: held.clone(),
-        budget_tokens: handoff_budget_tokens,
-        clock,
-        due: due(compact.as_ref(), context_tokens),
-    };
     // From here the turn's stop is the agent's turn's to close, as the loop closes its own.
     asked.store(true, Ordering::SeqCst);
     handover.reached.store(true, Ordering::SeqCst);
     // What the turn leaves is saved whenever its token fires, before or after the agent's turn ends.
     let end_port = port.closing();
     let report = Arc::new(OutsideReport::default());
-    let begun = OutsideTurn {
-        thread,
-        turn,
-        header,
-        input: input_body,
-        port,
-        cancel: cancel.clone(),
-        progress,
-        transcript,
-        calls: calls.clone(),
-        history,
-        on_tool_result,
-        report: report.clone(),
+    let preloaded_ids: std::collections::HashSet<ItemId> = committed_after_input.iter().map(|(iid, _)| iid.clone()).collect();
+    let mut initial_history = Some(History {
+        port: port.clone(),
+        rows: stored_ids.into_iter().zip(prior).collect(),
+        input: (input_item, input_body),
+        after_input: committed_after_input,
+        taken_over: taken_over.unwrap_or_default(),
+        held: held.clone(),
+        budget_tokens: handoff_budget_tokens,
+        clock: clock.clone(),
+        due: due(compact.as_ref(), context_tokens),
+    });
+    let mut round_header = header.clone();
+    let mut current_input = initial_outgoing_input;
+    let mut stop_continuations: u32 = 0;
+    let mut total_tool_calls: u64 = 0;
+    let mut total_iterations: u32 = 0;
+    let mut completed_rounds: u32 = 0;
+    let outcome = 'outer: loop {
+        if completed_rounds > 0 {
+            match refresh_continuation_header(parts.as_ref(), &thread, &round_header, &cancel).await {
+                Ok(refreshed) => round_header = refreshed,
+                Err(outcome) => break 'outer outcome,
+            }
+        }
+        let history = match initial_history.take() {
+            Some(history) => history,
+            None => History {
+                port: port.clone(),
+                rows: conversation_after(&redactor).await.unwrap_or_default(),
+                input: (new_item_id(), current_input.clone()),
+                after_input: Vec::new(),
+                taken_over: Vec::new(),
+                held: held.clone(),
+                budget_tokens: handoff_budget_tokens,
+                clock: clock.clone(),
+                due: None,
+            },
+        };
+        let prompt_input = match tail_reminder.text(&model).filter(|_| prompts_turn) {
+            Some(tail) => append_text_to_input(&current_input, &tail),
+            None => current_input.clone(),
+        };
+        let pre_progress = progress.borrow().snapshot(clock.now_ms());
+        let begun = OutsideTurn {
+            thread: thread.clone(),
+            turn: turn.clone(),
+            header: round_header.clone(),
+            input: prompt_input,
+            port: port.clone(),
+            cancel: cancel.clone(),
+            progress: progress.clone(),
+            transcript: transcript.clone(),
+            calls: calls.clone(),
+            history,
+            on_tool_result: on_tool_result.clone(),
+            report: report.clone(),
+        };
+        if cancel.is_cancelled() || signal.is_aborted() {
+            break RunOutcome::Interrupted;
+        }
+        let round_outcome = agents.run(begun).await;
+        if !prompts_turn {
+            break round_outcome;
+        }
+        match round_outcome {
+            RunOutcome::Completed(mut result) => {
+                completed_rounds += 1;
+                total_tool_calls += result.tool_calls_total;
+                total_iterations += result.iterations.max(1);
+                if cancel.is_cancelled() || result.termination.is_some() {
+                    result.tool_calls_total = total_tool_calls;
+                    result.iterations = total_iterations;
+                    break RunOutcome::Completed(result);
+                }
+                // 1. Drain queued Terminal/Next steering input before completion checks and Stop hooks.
+                let drain_req = DrainRequest { stage: DrainStage::Terminal, max_priority: Priority::Next };
+                let peeked = tokio::select! {
+                    biased;
+                    () = cancel.cancelled() => Err(RunError::Cancelled),
+                    res = port.peek_steers(drain_req) => res,
+                };
+                if let Ok(ready) = peeked
+                    && !ready.is_empty()
+                {
+                    let qids: Vec<_> = ready.iter().flat_map(|s| s.queued_ids.iter().cloned()).collect();
+                    let claimed = port.consume_steers(drain_req, qids, clock.now_ms()).await;
+                    if let Ok(claimed) = claimed
+                        && !claimed.is_empty()
+                    {
+                        let mut extras: Vec<String> = Vec::new();
+                        for steer in &claimed {
+                            if steer.mode == mixdog_agent::env::SteerMode::Prompt {
+                                if let Some(transcript) = &transcript {
+                                    transcript.user(&steer.content);
+                                }
+                                if let Some(selector) = &skill_selector
+                                    && let Ok(msg) = message_of(&json!({ "role": "user", "content": steer.content }))
+                                {
+                                    let mut skill_rows = Vec::new();
+                                    let _ = selector.select(&msg.message.content, false, &mut skill_rows).await;
+                                    for skill_msg in &skill_rows {
+                                        let text = skill_msg.text();
+                                        if !text.trim().is_empty() {
+                                            extras.push(text);
+                                        }
+                                        match commit_hidden_message(&port, &stored_rows, skill_msg).await {
+                                            Ok(_) => {}
+                                            Err(RunError::Cancelled) => break 'outer RunOutcome::Interrupted,
+                                            Err(RunError::Closed | RunError::NotApplied) => {
+                                                break 'outer failed("the skill context could not be stored", Value::Null);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        current_input = input_from_steers(&claimed, &extras);
+                        continue;
+                    }
+                }
+                if cancel.is_cancelled() {
+                    result.tool_calls_total = total_tool_calls;
+                    result.iterations = total_iterations;
+                    break RunOutcome::Completed(result);
+                }
+                // 2. Turn-completion Todo and Goal reminder audit.
+                if !hidden_agent {
+                    let completion = tokio::select! {
+                        biased;
+                        () = cancel.cancelled() => None,
+                        reminder = guards.completion_reminder(calls.turn_limit_noticed()) => reminder,
+                    };
+                    if let Some(reminder) = completion {
+                        let msg = AgentMessage::user(reminder.clone());
+                        match commit_hidden_message(&port, &stored_rows, &msg).await {
+                            Ok(_) => {}
+                            Err(RunError::Cancelled) => break 'outer RunOutcome::Interrupted,
+                            Err(RunError::Closed | RunError::NotApplied) => {
+                                break 'outer failed("the completion reminder could not be stored", Value::Null);
+                            }
+                        }
+                        current_input = json!({ "role": "user", "content": reminder });
+                        continue;
+                    }
+                }
+                if cancel.is_cancelled() {
+                    result.tool_calls_total = total_tool_calls;
+                    result.iterations = total_iterations;
+                    break RunOutcome::Completed(result);
+                }
+                // 3. Stop / SubagentStop hook enforcement.
+                if let Some(hooks) = &hooks {
+                    let active = stop_continuations > 0;
+                    let verdict = tokio::select! {
+                        biased;
+                        () = cancel.cancelled() => None,
+                        verdict = hooks.on_stop(active) => Some(verdict),
+                    };
+                    let Some(verdict) = verdict else {
+                        break RunOutcome::Interrupted;
+                    };
+                    let continued = matches!(verdict, StopVerdict::Continue(_)) && stop_continuations < STOP_CONTINUATION_LIMIT;
+                    hooks.stop_settled(continued);
+                    match verdict {
+                        StopVerdict::Proceed => {}
+                        StopVerdict::Ignored(warning) => {
+                            let _ = port.notice(warning, Tone::Warn).await;
+                        }
+                        StopVerdict::Continue(_) if stop_continuations >= STOP_CONTINUATION_LIMIT => {
+                            let _ = port
+                                .notice(
+                                    format!("A Stop hook blocked the stop again after {STOP_CONTINUATION_LIMIT} continuations in this turn; the turn ends."),
+                                    Tone::Warn,
+                                )
+                                .await;
+                        }
+                        StopVerdict::Continue(reason) => {
+                            stop_continuations += 1;
+                            let text = format!("<system-reminder>\nStop hook: {reason}\n</system-reminder>");
+                            let msg = AgentMessage::sourced(Source::Hook, text.clone());
+                            match commit_hidden_message(&port, &stored_rows, &msg).await {
+                                Ok(_) => {}
+                                Err(RunError::Cancelled) => break 'outer RunOutcome::Interrupted,
+                                Err(RunError::Closed | RunError::NotApplied) => {
+                                    break 'outer failed("the stop hook continuation could not be stored", Value::Null);
+                                }
+                            }
+                            current_input = json!({ "role": "user", "content": text });
+                            continue;
+                        }
+                    }
+                }
+                result.tool_calls_total = total_tool_calls;
+                result.iterations = total_iterations;
+                break RunOutcome::Completed(result);
+            }
+            RunOutcome::Failed(mut error) => {
+                if completed_rounds == 0
+                    && !loop_produced
+                    && !cancel.is_cancelled()
+                    && !signal.is_aborted()
+                    && let Some(route_hop) = route.as_ref()
+                    && let Some(provider_error) = acp_failover_error(&error, agents.as_ref(), &round_header)
+                {
+                    let after_progress = progress.borrow().snapshot(clock.now_ms());
+                    let streamed_output = match (&pre_progress, &after_progress) {
+                        (Some(before), Some(after)) => {
+                            after.last_visible_text_at != before.last_visible_text_at
+                                || after.tool_started_at != before.tool_started_at
+                                || (after.has_first_semantic && (!before.has_first_semantic || after.last_stream_delta_at != before.last_stream_delta_at))
+                        }
+                        (None, Some(after)) => after.last_visible_text_at > 0 || after.tool_started_at > 0 || after.has_first_semantic,
+                        _ => false,
+                    };
+                    let visible_output = report.output_produced() || streamed_output;
+                    let after_rows = if !visible_output { conversation_after(&redactor).await } else { None };
+                    if !visible_output
+                        && let Some(mut after_rows) = after_rows
+                        && {
+                            let at = held.load(Ordering::SeqCst).min(after_rows.len());
+                            !after_rows[at..].iter().any(|(iid, _)| !preloaded_ids.contains(iid))
+                        }
+                    {
+                        let leave_header = parts.live_header(&thread).unwrap_or_else(|| round_header.clone());
+                        if cancel.is_cancelled() || signal.is_aborted() {
+                            super::drive::flush_buffered_switches(switch_bus.as_ref(), &port).await;
+                            break RunOutcome::Interrupted;
+                        }
+                        let decision = tokio::select! {
+                            biased;
+                            () = cancel.cancelled() => {
+                                if parts.live_header(&thread).is_some_and(|live| route_moved(&leave_header, &live)) {
+                                    let _ = super::drive::leave_agent(agents.as_ref(), &thread, &leave_header, &end_port, &handover).await;
+                                }
+                                super::drive::flush_buffered_switches(switch_bus.as_ref(), &port).await;
+                                break RunOutcome::Interrupted;
+                            }
+                            decision = route_hop.decide(provider_error, None) => decision,
+                        };
+                        if cancel.is_cancelled() || signal.is_aborted() {
+                            let switched = matches!(decision, mixdog_agent::env::RouteDecision::Switch(_) | mixdog_agent::env::RouteDecision::Outside(_));
+                            if switched || parts.live_header(&thread).is_some_and(|live| route_moved(&leave_header, &live)) {
+                                let _ = super::drive::leave_agent(agents.as_ref(), &thread, &leave_header, &end_port, &handover).await;
+                            }
+                            super::drive::flush_buffered_switches(switch_bus.as_ref(), &port).await;
+                            break RunOutcome::Interrupted;
+                        }
+                        match decision {
+                            mixdog_agent::env::RouteDecision::Switch(switch) => {
+                                drop(watchdog);
+                                hints.finish().await;
+                                progress.send_modify(|p| p.evict_terminal());
+                                asked.store(false, Ordering::SeqCst);
+                                let at = held.load(Ordering::SeqCst).min(after_rows.len());
+                                let committed_after_input = after_rows.split_off(at);
+                                let (stored_ids, prior) = after_rows.into_iter().unzip();
+                                return OutsideOutcome::SwitchLoop {
+                                    preflight: Box::new(PreflightLoop {
+                                        header: switch.request.header,
+                                        provider: switch.provider,
+                                        route: route_hop.clone(),
+                                        switch_bus: switch_bus.clone().unwrap_or_default(),
+                                        landed: true,
+                                        leave_old_agent: true,
+                                    }),
+                                    notice: (!switch.notice.is_empty()).then_some(switch.notice),
+                                    state: Box::new(OutsideHandover {
+                                        old_header: leave_header,
+                                        input_body: ended_input,
+                                        stored_ids,
+                                        prior,
+                                        committed_after_input,
+                                        goal_reminder,
+                                        notice,
+                                        guards,
+                                    }),
+                                };
+                            }
+                            mixdog_agent::env::RouteDecision::Outside(moved) => {
+                                drop(watchdog);
+                                hints.finish().await;
+                                progress.send_modify(|p| p.evict_terminal());
+                                let at = held.load(Ordering::SeqCst).min(after_rows.len());
+                                let committed_after_input = after_rows.split_off(at);
+                                let (stored_ids, prior) = after_rows.into_iter().unzip();
+                                return OutsideOutcome::SwitchOutside {
+                                    header: moved.header,
+                                    notice: (!moved.notice.is_empty()).then_some(moved.notice),
+                                    switch_bus: switch_bus.clone(),
+                                    state: Box::new(OutsideHandover {
+                                        old_header: leave_header,
+                                        input_body: ended_input,
+                                        stored_ids,
+                                        prior,
+                                        committed_after_input,
+                                        goal_reminder,
+                                        notice,
+                                        guards,
+                                    }),
+                                };
+                            }
+                            mixdog_agent::env::RouteDecision::Surface(surface) => {
+                                if !surface.error.message.is_empty() {
+                                    error.message.clone_from(&surface.error.message);
+                                }
+                            }
+                            mixdog_agent::env::RouteDecision::Fail(message) => {
+                                error = TurnError { message, data: Value::Null, provider_error: None };
+                            }
+                        }
+                    }
+                }
+                if let Some(hooks) = &hooks
+                    && !cancel.is_cancelled()
+                    && !signal.is_aborted()
+                {
+                    let verdict = hooks.on_stop(stop_continuations > 0).await;
+                    hooks.stop_settled(false);
+                    match verdict {
+                        StopVerdict::Proceed => {}
+                        StopVerdict::Ignored(warning) => {
+                            let _ = port.notice(warning, Tone::Warn).await;
+                        }
+                        StopVerdict::Continue(reason) => {
+                            let _ = port.notice(format!("A Stop hook blocked the stop of a turn that cannot go on; it is ignored: {reason}"), Tone::Warn).await;
+                        }
+                    }
+                }
+                break RunOutcome::Failed(error);
+            }
+            RunOutcome::Interrupted => break RunOutcome::Interrupted,
+        }
     };
-    let outcome = agents.run(begun).await;
     drop(watchdog);
-    finish_outside_turn(
-        OutsideCompletion {
-            parts,
-            stalled_thread,
-            turn_id,
-            model,
-            system,
-            asked_at,
-            held,
-            stopped_item,
-            ended_input,
-            redactor,
-            calls,
-            guards,
-            hints,
-            signal,
-            cancel,
-            end_port,
-            report,
-        },
-        outcome,
+    OutsideOutcome::Done(
+        finish_outside_turn(
+            OutsideCompletion {
+                parts,
+                stalled_thread,
+                turn_id,
+                model,
+                system,
+                asked_at,
+                held,
+                stopped_item,
+                ended_input,
+                redactor,
+                calls,
+                guards,
+                hints,
+                signal,
+                cancel,
+                end_port,
+                report,
+                preloaded_ids,
+                loop_produced: loop_produced || completed_rounds > 0,
+            },
+            outcome,
+        )
+        .await,
     )
-    .await
+}
+
+/// Refreshes the persisted session header before a continuation round so the newly persisted ACP session id is
+/// preserved; any reconcile error fails the continuation rather than falling back to a stale header.
+pub(super) async fn refresh_continuation_header(
+    parts: &dyn RunParts,
+    thread: &ThreadId,
+    current: &mixdog_store::schema::record::Header,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<mixdog_store::schema::record::Header, RunOutcome> {
+    let mut probe = current.clone();
+    probe.shift_remove("pendingRoute");
+    let refreshed = tokio::select! {
+        biased;
+        () = cancel.cancelled() => return Err(RunOutcome::Interrupted),
+        res = parts.reconcile_turn(thread, probe, true) => res,
+    };
+    refreshed.map_err(RunOutcome::Failed)
 }
 
 struct OutsideCompletion {
@@ -688,6 +1397,8 @@ struct OutsideCompletion {
     cancel: tokio_util::sync::CancellationToken,
     end_port: RunPort,
     report: Arc<OutsideReport>,
+    preloaded_ids: std::collections::HashSet<ItemId>,
+    loop_produced: bool,
 }
 
 async fn finish_outside_turn(completion: OutsideCompletion, outcome: RunOutcome) -> RunOutcome {
@@ -709,6 +1420,8 @@ async fn finish_outside_turn(completion: OutsideCompletion, outcome: RunOutcome)
         cancel,
         end_port,
         report,
+        preloaded_ids,
+        loop_produced,
     } = completion;
     // The watchdog's stop is a stalled failure, as the loop's is: its sentence is the error, and the shells the turn
     // registered while it unwound are swept.
@@ -758,8 +1471,13 @@ async fn finish_outside_turn(completion: OutsideCompletion, outcome: RunOutcome)
         }
         // A stopped turn closes as the loop closes one that produced nothing (its prompt handed back on a user's stop) when
         // neither the loop half nor the agent added work after the prompt: no reply text, call or result.
-        RunOutcome::Interrupted if cancel.is_cancelled() => {
-            let produced = loop_produced || conversation_after(&redactor).await.is_none_or(|rows| rows.len() > held.load(Ordering::SeqCst));
+        RunOutcome::Interrupted if cancel.is_cancelled() || signal.is_aborted() => {
+            let produced = loop_produced
+                || report.output_produced()
+                || conversation_after(&redactor).await.is_none_or(|rows| {
+                    let at = held.load(Ordering::SeqCst).min(rows.len());
+                    rows[at..].iter().any(|(iid, _)| !preloaded_ids.contains(iid))
+                });
             if !produced {
                 close_stopped_prompt(&end_port, &stopped_item, &ended_input, signal.close_reason()).await;
             }

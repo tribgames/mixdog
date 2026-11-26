@@ -14,7 +14,7 @@ import { roomIdOfSession } from '../shared/core-src/runtime/agent/orchestrator/s
 import { ServerAccountBadge, useAgentChatRouteApplied } from './ComposerFooter';
 import { ComposerRouteChoices } from './composer-route-choices';
 import { ComposerRoutineReadout } from './composer-routine-readout';
-import { compactTokens, contextMix, isAgentSession } from './ContextBody';
+import { compactTokens, contextMix, isAgentSession, rankContextCategories } from './ContextBody';
 import { projectContextChoice } from './composer-support';
 import { FittedReadout, usageWithCostVariants } from './composer-usage-readout';
 import type { Snapshot } from './desktop-types';
@@ -504,14 +504,9 @@ export function ContextSection({
   const estimate = usage.used === null && mix ? mix.held : null;
   const used = usage.used ?? estimate;
   const percent = usage.percent ?? (estimate === null ? null : (estimate / usage.limit) * 100);
-  const held = mix ? mix.categories : [];
-  const segments = held.filter((category) => category.tokens > 0);
-  // Keep every canonical row mounted once estimates exist so token ticks never
-  // churn the row count or reorder rows.
-  const parts =
-    mix && (mix.categorized > 0 || mix.held === 0)
-      ? [...held, { key: 'free', label: t('Free space'), tokens: mix.free }]
-      : [];
+  const held = mix ? rankContextCategories(mix.categories) : [];
+  const segments = held;
+  const parts = mix && (mix.categorized > 0 || mix.held === 0) ? held : [];
   const share = (tokens: number) => (mix && mix.windowTokens > 0 ? (tokens / mix.windowTokens) * 100 : 0);
   const usedPrefix = estimate === null ? '' : '~';
   const usedLabel = used === null ? '—' : `${usedPrefix}${compactTokens(used)}`;

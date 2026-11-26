@@ -2,7 +2,13 @@ import type { ReactNode } from 'react';
 import { nonNegativeNumber, resolveContextDisplayUsage } from './context-usage';
 import { t } from './i18n';
 import { record } from './record-utils';
-import { ContextInspector, type ContextInspection, type ContextRequest } from './ContextInspector';
+import {
+  ContextInspector,
+  rankContextCategories,
+  type ContextInspection,
+  type ContextRequest,
+} from './ContextInspector';
+export { rankContextCategories } from './ContextInspector';
 import {
   floorFigure,
   floorNote,
@@ -200,21 +206,23 @@ function reconcileAgentInspection(rawInspection: ContextInspection, used: number
     overheadCountByCategory.set(entry.category, (overheadCountByCategory.get(entry.category) ?? 0) + 1);
     return false;
   });
-  const categories = rawInspection.categories.map((category) => {
-    const dropTokens = overheadTokensByCategory.get(category.key) ?? 0;
-    const dropEstimated = overheadEstimatedByCategory.get(category.key) ?? 0;
-    const dropCount = overheadCountByCategory.get(category.key) ?? 0;
-    if (!dropTokens && !dropEstimated && !dropCount) return category;
-    const nextTokens = Math.max(0, category.tokens - dropTokens);
-    const nextEstimated =
-      category.estimatedTokens !== undefined ? Math.max(0, category.estimatedTokens - dropEstimated) : undefined;
-    return {
-      ...category,
-      tokens: nextTokens,
-      ...(nextEstimated !== undefined ? { estimatedTokens: nextEstimated } : {}),
-      count: Math.max(0, category.count - dropCount),
-    };
-  });
+  const categories = rawInspection.categories
+    .filter((category) => category.key !== 'host')
+    .map((category) => {
+      const dropTokens = overheadTokensByCategory.get(category.key) ?? 0;
+      const dropEstimated = overheadEstimatedByCategory.get(category.key) ?? 0;
+      const dropCount = overheadCountByCategory.get(category.key) ?? 0;
+      if (!dropTokens && !dropEstimated && !dropCount) return category;
+      const nextTokens = Math.max(0, category.tokens - dropTokens);
+      const nextEstimated =
+        category.estimatedTokens !== undefined ? Math.max(0, category.estimatedTokens - dropEstimated) : undefined;
+      return {
+        ...category,
+        tokens: nextTokens,
+        ...(nextEstimated !== undefined ? { estimatedTokens: nextEstimated } : {}),
+        count: Math.max(0, category.count - dropCount),
+      };
+    });
   const categoryTotal = categories.reduce((sum, category) => sum + nonNegativeNumber(category.tokens), 0);
   const baseEstimatedTokens =
     categories.length > 0
@@ -230,21 +238,7 @@ function reconcileAgentInspection(rawInspection: ContextInspection, used: number
   }
   const targetUsed = Math.max(0, Math.round(used));
   const gap = targetUsed - Math.round(baseEstimatedTokens);
-  if (gap > 0) {
-    const hasHost = categories.some((category) => category.key === 'host');
-    const nextCategories = hasHost
-      ? categories.map((category) =>
-          category.key === 'host' ? { ...category, tokens: category.tokens + gap } : category
-        )
-      : [...categories, { key: 'host', label: 'Other', tokens: gap, count: 0 }];
-    return {
-      ...rawInspection,
-      categories: nextCategories,
-      entries: keptEntries,
-      estimatedTokens: targetUsed,
-    };
-  }
-  if (gap === 0) {
+  if (gap === 0 || (gap > 0 && categoryTotal <= 0)) {
     return {
       ...rawInspection,
       categories,
@@ -252,32 +246,36 @@ function reconcileAgentInspection(rawInspection: ContextInspection, used: number
       estimatedTokens: targetUsed,
     };
   }
-  const standing = categories.filter((category) => STANDING_AGENT_KEYS.has(category.key));
-  const conversation = categories.filter(
-    (category) => !STANDING_AGENT_KEYS.has(category.key) && category.key !== 'host'
-  );
-  const standingTotal = standing.reduce((sum, category) => sum + nonNegativeNumber(category.tokens), 0);
-  const conversationTotal = conversation.reduce((sum, category) => sum + nonNegativeNumber(category.tokens), 0);
   const nextTokensByCategory = new Map<string, number>();
-  if (standingTotal <= targetUsed) {
-    for (const category of standing) nextTokensByCategory.set(category.key, nonNegativeNumber(category.tokens));
-    const conversationBudget = targetUsed - standingTotal;
-    if (conversationTotal > 0 && conversationBudget > 0) {
-      for (const category of dividedAmong(conversation, conversationBudget, conversationTotal)) {
-        nextTokensByCategory.set(category.key, category.tokens);
-      }
-    } else {
-      for (const category of conversation) nextTokensByCategory.set(category.key, 0);
+  if (gap > 0) {
+    for (const category of dividedAmong(categories, targetUsed, categoryTotal)) {
+      nextTokensByCategory.set(category.key, category.tokens);
     }
   } else {
-    if (standingTotal > 0 && targetUsed > 0) {
-      for (const category of dividedAmong(standing, targetUsed, standingTotal)) {
-        nextTokensByCategory.set(category.key, category.tokens);
+    const standing = categories.filter((category) => STANDING_AGENT_KEYS.has(category.key));
+    const conversation = categories.filter((category) => !STANDING_AGENT_KEYS.has(category.key));
+    const standingTotal = standing.reduce((sum, category) => sum + nonNegativeNumber(category.tokens), 0);
+    const conversationTotal = conversation.reduce((sum, category) => sum + nonNegativeNumber(category.tokens), 0);
+    if (standingTotal <= targetUsed) {
+      for (const category of standing) nextTokensByCategory.set(category.key, nonNegativeNumber(category.tokens));
+      const conversationBudget = targetUsed - standingTotal;
+      if (conversationTotal > 0 && conversationBudget > 0) {
+        for (const category of dividedAmong(conversation, conversationBudget, conversationTotal)) {
+          nextTokensByCategory.set(category.key, category.tokens);
+        }
+      } else {
+        for (const category of conversation) nextTokensByCategory.set(category.key, 0);
       }
     } else {
-      for (const category of standing) nextTokensByCategory.set(category.key, 0);
+      if (standingTotal > 0 && targetUsed > 0) {
+        for (const category of dividedAmong(standing, targetUsed, standingTotal)) {
+          nextTokensByCategory.set(category.key, category.tokens);
+        }
+      } else {
+        for (const category of standing) nextTokensByCategory.set(category.key, 0);
+      }
+      for (const category of conversation) nextTokensByCategory.set(category.key, 0);
     }
-    for (const category of conversation) nextTokensByCategory.set(category.key, 0);
   }
   const scaledCategories = categories.map((category) => {
     const nextTokens = nextTokensByCategory.get(category.key) ?? 0;
@@ -337,15 +335,11 @@ function reconcileAgentInspection(rawInspection: ContextInspection, used: number
  *  their sum, the free space left in a window of `windowTokens`, and the
  *  window the shares are of (never less than what is held). With the
  *  window's measured total (`used`) the estimates say only how the
- *  measurement divides: each category takes its estimated share of it, so
- *  the parts add up to the reading beside them, and the free space is what
- *  the measurement leaves. An external agent's session (`agent`) uses the same
- *  category breakdown as a provider session, keeping Mixdog's own parts as
- *  they are and showing what the agent reports beyond them as one row for what
- *  it holds that Mixdog cannot see. When the external agent compacts its own
- *  history while Mixdog's local transcript stays uncompacted (`estimate > used`),
- *  standing inputs keep their sizes while the remaining count divides across
- *  local conversation rows. */
+ *  measurement divides: both normal and external agent sessions use the exact
+ *  same category set. When an external agent compacts its own history while
+ *  Mixdog's local transcript stays uncompacted (`estimate > used`), standing
+ *  inputs keep their sizes while the remaining count divides across local
+ *  conversation rows. */
 export function contextMix(status: unknown, windowTokens: number, used: number | null = null, agent = false) {
   const context = record(status);
   const request = record(context.request);
@@ -355,37 +349,28 @@ export function contextMix(status: unknown, windowTokens: number, used: number |
     request,
     agent
   );
-  if (agent) {
-    const estimate = estimated.reduce((sum, category) => sum + category.tokens, 0);
-    let parts = estimated;
-    if (used !== null && estimate > used) {
+  const categorized = estimated.reduce((sum, category) => sum + category.tokens, 0);
+  const held = used ?? categorized;
+  let categories = estimated;
+  if (used !== null && categorized > 0) {
+    if (agent && categorized > used) {
       const standing = estimated.filter((category) => STANDING_AGENT_KEYS.has(category.key));
       const conversation = estimated.filter((category) => !STANDING_AGENT_KEYS.has(category.key));
       const standingTotal = standing.reduce((sum, category) => sum + category.tokens, 0);
       if (standingTotal <= used) {
         const conversationTotal = conversation.reduce((sum, category) => sum + category.tokens, 0);
         const scaledConversation = dividedAmong(conversation, used - standingTotal, conversationTotal);
-        parts = [...standing, ...scaledConversation];
+        categories = [...standing, ...scaledConversation];
       } else {
         const scaledStanding = dividedAmong(standing, used, standingTotal);
-        parts = [...scaledStanding, ...conversation.map((category) => ({ ...category, tokens: 0 }))];
+        categories = [...scaledStanding, ...conversation.map((category) => ({ ...category, tokens: 0 }))];
       }
+    } else {
+      categories = dividedAmong(estimated, used, categorized);
     }
-    const shown = parts.reduce((sum, category) => sum + category.tokens, 0);
-    const host = used === null ? 0 : Math.max(0, used - shown);
-    const held = shown + host;
-    return {
-      categories: [...parts, { key: 'host', label: t('Other'), tokens: host }],
-      categorized: held,
-      held,
-      free: Math.max(0, windowTokens - held),
-      windowTokens: Math.max(windowTokens, held),
-    };
   }
-  const categorized = estimated.reduce((sum, category) => sum + category.tokens, 0);
-  const held = used ?? categorized;
   return {
-    categories: used !== null && categorized > 0 ? dividedAmong(estimated, used, categorized) : estimated,
+    categories,
     categorized,
     held,
     free: Math.max(0, windowTokens - held),
@@ -394,22 +379,21 @@ export function contextMix(status: unknown, windowTokens: number, used: number |
 }
 
 function EstimatedMix({ categories, windowTokens }: { categories: EstimatedCategory[]; windowTokens: number }) {
+  const visible = rankContextCategories(categories);
   return (
     <section className="context-mix" aria-labelledby="context-mix-title">
       <h3 id="context-mix-title">{t('Estimated usage by category')}</h3>
       <div className="context-stack-bar" role="img" aria-label={t('Context composition')}>
-        {categories
-          .filter((category) => category.tokens > 0)
-          .map((category) => (
-            <b
-              key={category.key}
-              data-context-key={category.key}
-              style={{ width: `${Math.max(0.75, contextPercent(category.tokens, windowTokens) || 0)}%` }}
-            />
-          ))}
+        {visible.map((category) => (
+          <b
+            key={category.key}
+            data-context-key={category.key}
+            style={{ width: `${Math.max(0.75, contextPercent(category.tokens, windowTokens) || 0)}%` }}
+          />
+        ))}
       </div>
       <div className="context-mix-grid">
-        {categories.map((category) => (
+        {visible.map((category) => (
           <div className="context-mix-row" key={category.key} data-context-key={category.key}>
             <i aria-hidden="true" />
             <span>{category.label}</span>
@@ -451,18 +435,20 @@ export function ContextBody({
   const windowTokens = usage.limit;
   const usedPercent = contextPercent(used, windowTokens) || 0;
   const label = readingLabel(usage.source, agent);
-  const mix = contextMix(status, windowTokens, agent ? used : null, agent);
+  const mix = contextMix(status, windowTokens, used, agent);
   const { categories, categorized: categorizedTokens } = mix;
-  const measuredCategories = (inspection?.categories ?? categories).filter((category) => category.tokens > 0);
+  const rankedCategories = rankContextCategories(categories);
+  const measuredCategories = rankContextCategories(
+    (inspection?.categories ?? categories).filter((category) => category.key !== 'host')
+  );
   const measuredCategoryTotal = measuredCategories.reduce((sum, category) => sum + category.tokens, 0);
   const measuredBarDescription =
     used != null && measuredCategoryTotal > 0
       ? t('Measured total; category colors show estimated proportions.')
       : label;
   const categoryWindowTokens = mix.windowTokens;
-  categories.push({ key: 'free', label: t('Free space'), tokens: mix.free });
-  // Without a reading, every category is 0 and the window reads as free space.
-  // Say the breakdown is still being measured instead of showing that as fact.
+  // Without a reading, every category is 0. Say the breakdown is still being
+  // measured instead of showing an empty estimate list as fact.
   const measuring = loading && !inspection && categorizedTokens <= 0;
 
   let breakdown: ReactNode;
@@ -478,7 +464,7 @@ export function ContextBody({
       </section>
     );
   } else {
-    breakdown = <EstimatedMix categories={categories} windowTokens={categoryWindowTokens} />;
+    breakdown = <EstimatedMix categories={rankedCategories} windowTokens={categoryWindowTokens} />;
   }
 
   return (

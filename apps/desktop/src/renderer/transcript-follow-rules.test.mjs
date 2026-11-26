@@ -99,33 +99,60 @@ test("an upward move leaves only with the reader's upward input behind it; anyth
   // A clamp to a shrunken extent, a layout pass, a zoom's rounding, the timeline's own write: no input of the reader.
   assert.equal(judge({}), 'restore');
   assert.equal(judge({ atWrittenTop: true }), 'restore');
-  assert.equal(judge({ inFlight: true }), 'restore', 'a resting finger or a press that moved nothing vouches for nothing');
+  assert.equal(
+    judge({ inFlight: true }),
+    'restore',
+    'a resting finger or a press that moved nothing vouches for nothing'
+  );
 });
 
-test('a clamp or move within two pixels of the end is never a leave; an unpinned viewport has none to make', () => {
+test('a clamp or move within two pixels of the end is never a leave; slow upward drag releases and 3-4px non-upward drift restores', () => {
   assert.equal(judge({ upward: true, distance: 2 }), 'none');
   assert.equal(judge({ upward: true, distance: 3 }), 'unpin');
+  assert.equal(
+    judge({ upward: true, previousTop: 2_000, top: 1_999, distance: 3 }),
+    'unpin',
+    'genuine slow upward drag stepping 1px past end tolerance releases cleanly'
+  );
+  assert.equal(
+    judge({ upward: false, previousTop: 2_000, top: 1_999, distance: 3 }),
+    'restore',
+    '3px non-upward drift restores the pin'
+  );
+  assert.equal(
+    judge({ upward: false, previousTop: 2_000, top: 1_999, distance: 4 }),
+    'restore',
+    '4px non-upward drift restores the pin'
+  );
   assert.equal(judge({ distance: 2 }), 'none', 'nothing to put back');
   assert.equal(judge({ upward: true, pinned: false }), 'none');
   assert.equal(judge({ top: 2_050, previousTop: 2_000, arrived: true }), 'none', 'downward');
 });
 
-test('arriving where the jump control would not show re-engages follow at once, unless input or a write is behind it', () => {
+test('arriving at the bottom re-engages follow at once, never 200px above it, unless input or a write is behind it', () => {
   const arrive = { pinned: false, previousTop: 1_900, top: 2_000, distance: 1, arrived: true };
   assert.equal(judge(arrive), 'pin');
-  assert.equal(judge({ ...arrive, distance: 200 }), 'pin', '200px short: the jump control would not show');
-  assert.equal(judge({ ...arrive, distance: 201 }), 'none', 'the jump control would show');
-  assert.equal(judge({ ...arrive, arrived: false }), 'none', 'the last move did not bring the reader near the end');
+  assert.equal(judge({ ...arrive, distance: 2 }), 'pin', 'within 2px bottom tolerance re-engages follow');
+  assert.equal(judge({ ...arrive, distance: 3 }), 'none', '3px above the bottom does not snap follow back');
+  assert.equal(judge({ ...arrive, distance: 150 }), 'none', '150px above the bottom stays unpinned');
+  assert.equal(
+    judge({ ...arrive, distance: 120, heldArrival: true }),
+    'pin',
+    'held bottom arrival still pins on release even if streaming grew height before release'
+  );
+  assert.equal(judge({ ...arrive, distance: 200 }), 'none', '200px above the bottom stays unpinned');
+  assert.equal(judge({ ...arrive, arrived: false }), 'none', 'the last move did not bring the reader to the end');
   assert.equal(judge({ ...arrive, inFlight: true }), 'none', 'a finger or a thumb is still down');
   assert.equal(judge({ ...arrive, upward: true }), 'none', 'an upward input is still in its window');
   assert.equal(judge({ ...arrive, atWrittenTop: true }), 'none', 'exactly the written offset');
 });
 
-test('only a downward move off any written offset, ending within 200px of the end, is the reader coming back', () => {
-  const move = { previousTop: 1_700, top: 1_850, distance: 150, written: false };
+test('only a downward move off any written offset, ending at the bottom, is the reader coming back', () => {
+  const move = { previousTop: 1_900, top: 2_000, distance: 0, written: false };
   assert.equal(moveArrivesNearEnd(move), true);
-  assert.equal(moveArrivesNearEnd({ ...move, distance: 200 }), true);
-  assert.equal(moveArrivesNearEnd({ ...move, distance: 201 }), false, 'it ended where the band begins');
+  assert.equal(moveArrivesNearEnd({ ...move, distance: 2 }), true);
+  assert.equal(moveArrivesNearEnd({ ...move, distance: 3 }), false, 'short of the bottom tolerance');
+  assert.equal(moveArrivesNearEnd({ ...move, top: 1_850, distance: 150 }), false, '150px above bottom does not snap');
   assert.equal(moveArrivesNearEnd({ ...move, top: 1_600 }), false, 'upward');
   assert.equal(moveArrivesNearEnd({ ...move, written: true }), false, 'the timeline wrote it');
 });

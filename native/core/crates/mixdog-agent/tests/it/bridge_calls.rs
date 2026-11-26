@@ -951,7 +951,7 @@ fn uncompared(event: &RunEvent) -> bool {
             | RunEvent::ItemStart(_)
             | RunEvent::Boundary { .. }
             | RunEvent::SubmissionStarted { .. }
-            | RunEvent::ToolCallObserved(_)
+            | RunEvent::ToolCallObserved { .. }
             | RunEvent::ExecutionCalls(_)
             | RunEvent::TurnEffort(None)
     )

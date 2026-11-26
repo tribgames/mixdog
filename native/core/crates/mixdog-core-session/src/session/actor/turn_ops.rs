@@ -293,7 +293,7 @@ impl SessionActor {
         }
         if !wake {
             let submission = options.and_then(|options| options.client_submission_id.as_deref()).unwrap_or_default();
-            let worker = self.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner()).is_some();
+            let worker = self.cell.agent_starts.lock().unwrap_or_else(|p| p.into_inner()).contains_key(submission);
             let routine = !submission.is_empty() && self.cell.routine_starts.lock().unwrap_or_else(|p| p.into_inner()).contains_key(submission);
             if worker || routine {
                 return None;
@@ -356,8 +356,8 @@ impl SessionActor {
         });
     }
 
-    /// The idle auto-clear's compaction ended or was given up: a skipped clear says why (`auto-clear skipped: ...`), and the
-    /// turn that waited goes on once what was asked meanwhile ran.
+    /// The idle auto-clear's compaction ended or was given up: a skipped clear is logged only (never emitted as a
+    /// transcript notice), and the turn that waited goes on once what was asked meanwhile ran.
     pub(super) fn idle_clear_ended(&mut self, skipped: Option<String>) {
         self.idle_cleared = true;
         // Still running, its wait gave up: it holds nothing back from here, though a Stop, a close or a delete still reaches it.
@@ -368,10 +368,7 @@ impl SessionActor {
         // slow compaction runs on), and the command's status ends with it.
         self.end_command_status();
         if let Some(reason) = skipped {
-            let text = super::super::live_rows::polish_notice_text(&format!("auto-clear skipped: {reason}"));
-            if !text.is_empty() {
-                self.notice(None, &text, "error");
-            }
+            tracing::warn!(session = self.id.as_str(), reason = %reason, "auto-clear skipped");
         }
         self.scheduled_compaction_ended();
     }

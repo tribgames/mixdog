@@ -22,6 +22,7 @@ import {
   resolveLocalCore,
 } from './local-core.ts';
 import { BootReports } from '../core-port/boot-progress.ts';
+import { createDesktopQuitSequence } from '../quit-sequence.ts';
 import { createCoreLaunchLock } from '../updater-core.ts';
 
 test('a packaged app tells the core where its unpacked resources and its profile are; a development run leaves the environment alone', () => {
@@ -465,20 +466,99 @@ test('a core that ends abnormally before serving fails the start at once with it
   });
   assert.deepEqual(otherCore.value, serving(88));
 });
-test('a core left running at quit is ended with its process tree on Windows, and a gone core is left alone', () => {
+test('a core left running at quit is ended with its process tree on Windows, awaited hidden, and a gone core is left alone', async () => {
   const calls = [];
-  const spawnImpl = (bin, args) => {
-    calls.push([bin, ...args]);
+  const children = [];
+  const spawnImpl = (bin, args, opts) => {
+    calls.push({ cmd: [bin, ...args], opts });
     const child = new EventEmitter();
-    child.unref = () => {};
+    child.killed = false;
+    child.unreffed = false;
+    child.kill = () => {
+      child.killed = true;
+    };
+    child.unref = () => {
+      child.unreffed = true;
+    };
+    children.push(child);
     return child;
   };
   const running = { pid: 4321, exitCode: null, signalCode: null, once() {} };
-  assert.equal(forceEndCore(running, { platform: 'win32', spawnImpl }), true);
-  assert.deepEqual(calls, [['taskkill', '/PID', '4321', '/T', '/F']]);
-  assert.equal(forceEndCore({ ...running, exitCode: 0 }, { platform: 'win32', spawnImpl }), false);
-  assert.equal(forceEndCore(null, { platform: 'win32', spawnImpl }), false);
-  assert.equal(calls.length, 1);
+
+  let settled = false;
+  const pending = forceEndCore(running, { platform: 'win32', spawnImpl }).then((value) => {
+    settled = true;
+    return value;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false, 'forceEndCore waits for taskkill to finish before quit exits');
+  assert.deepEqual(calls, [
+    { cmd: ['taskkill', '/PID', '4321', '/T', '/F'], opts: { stdio: 'ignore', windowsHide: true } },
+  ]);
+  children[0].emit('exit', 0);
+  assert.equal(await pending, true);
+
+  // Bounded wait: a stuck taskkill cannot stall quit indefinitely.
+  const timedOut = await forceEndCore(running, { platform: 'win32', spawnImpl, timeoutMs: 20 });
+  assert.equal(timedOut, true);
+  assert.equal(children[1].killed, true);
+  assert.equal(children[1].unreffed, true);
+
+  // Spawn error reports false.
+  const errored = forceEndCore(running, { platform: 'win32', spawnImpl });
+  children[2].emit('error', new Error('ENOENT'));
+  assert.equal(await errored, false);
+
+  assert.equal(await forceEndCore({ ...running, exitCode: 0 }, { platform: 'win32', spawnImpl }), false);
+  assert.equal(await forceEndCore(null, { platform: 'win32', spawnImpl }), false);
+  assert.equal(calls.length, 3);
+});
+
+test('a teardown timeout firing after the root core exits still awaits the in-flight taskkill before quit exits', async () => {
+  const events = [];
+  const kills = [];
+  const spawnImpl = (bin, args) => {
+    events.push(`spawn:${bin}:${args.join(' ')}`);
+    const child = new EventEmitter();
+    child.kill = () => {};
+    child.unref = () => {};
+    kills.push(child);
+    return child;
+  };
+  const core = { pid: 4321, exitCode: null, signalCode: null, once() {} };
+  const sequence = createDesktopQuitSequence({
+    windows: () => [],
+    teardown: async () => {
+      events.push('teardown:forceEnd');
+      await forceEndCore(core, { platform: 'win32', spawnImpl, timeoutMs: 2_000 });
+      events.push('teardown:done');
+    },
+    teardownTimeoutMs: 30,
+    onTeardownTimeout: async () => {
+      events.push('timeout:forceEnd');
+      await forceEndCore(core, { platform: 'win32', spawnImpl, timeoutMs: 2_000 });
+      events.push('timeout:done');
+    },
+    exit: () => events.push('exit'),
+    relaunch: () => {},
+  });
+
+  const quit = sequence.begin();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(kills.length, 1, 'teardown spawned the first taskkill');
+
+  // Root PID exits while taskkill is still walking/terminating descendants; then teardownTimeoutMs fires.
+  core.exitCode = 1;
+  await new Promise((resolve) => setTimeout(resolve, 60));
+
+  assert.equal(kills.length, 1, 'onTeardownTimeout reuses the in-flight taskkill instead of spawning a second one');
+  assert.deepEqual(events, ['teardown:forceEnd', 'spawn:taskkill:/PID 4321 /T /F', 'timeout:forceEnd']);
+
+  kills[0].emit('exit', 0);
+  await quit;
+  assert.equal(events.at(-1), 'exit');
+  assert.ok(events.includes('timeout:done'));
+  assert.equal(await forceEndCore(core, { platform: 'win32', spawnImpl }), false, 'cleared after completion');
 });
 
 const booting = (rebuild) => ({ state: 'booting', rpcPort: null, blocked: null, rebuild });
@@ -1017,7 +1097,13 @@ test("the earlier version's daemon is asked once to step aside: one that agrees 
   const blockedOn41 = {
     state: 'blocked',
     rpcPort: null,
-    blocked: { kind: 'waitExit', pid: 41, image: 'C:\\old\\node.exe', commandLine: 'node daemon.mjs', releasable: false },
+    blocked: {
+      kind: 'waitExit',
+      pid: 41,
+      image: 'C:\\old\\node.exe',
+      commandLine: 'node daemon.mjs',
+      releasable: false,
+    },
     pid: 42,
     controlPort: 7070,
     token: 'core-token',
@@ -1089,7 +1175,12 @@ test('the action past a block releases an owner the core could not prove through
   const answering =
     (routes) =>
     async (url, init = {}) => {
-      requests.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null, headers: init.headers });
+      requests.push({
+        url,
+        method: init.method ?? 'GET',
+        body: init.body ? JSON.parse(init.body) : null,
+        headers: init.headers,
+      });
       const [status, body] = routes[new URL(url).pathname] ?? [404, {}];
       return new Response(JSON.stringify(body), { status });
     };
@@ -1098,7 +1189,15 @@ test('the action past a block releases an owner the core could not prove through
     ended.push(pid);
     return true;
   };
-  const owner = { pid: 41, kind: 'undecidable', image: null, commandLine: null, releasable: true, legacy: false, retire: null };
+  const owner = {
+    pid: 41,
+    kind: 'undecidable',
+    image: null,
+    commandLine: null,
+    releasable: true,
+    legacy: false,
+    retire: null,
+  };
   await resolveCoreBlock(
     owner,
     { core: { controlPort: 7070, token: 'core-token' }, legacy: null },
@@ -1130,10 +1229,17 @@ test('the action past a block releases an owner the core could not prove through
   );
   assert.equal(requests[0].headers['X-Mixdog-Daemon-Token'], 'legacy-token');
   assert.deepEqual(ended, [], 'it stops itself');
-  await resolveCoreBlock(daemon, reachable, { fetchImpl: answering({ '/stop': [401, { error: 'unauthorized' }] }), endProcess });
+  await resolveCoreBlock(daemon, reachable, {
+    fetchImpl: answering({ '/stop': [401, { error: 'unauthorized' }] }),
+    endProcess,
+  });
   assert.deepEqual(ended, [41], 'one that refuses its own stop is ended with its process tree');
   await assert.rejects(
-    resolveCoreBlock({ ...daemon, pid: 43 }, { core: null, legacy: null }, { fetchImpl: answering({}), endProcess: () => false }),
+    resolveCoreBlock(
+      { ...daemon, pid: 43 },
+      { core: null, legacy: null },
+      { fetchImpl: answering({}), endProcess: () => false }
+    ),
     /Process 43 could not be ended/
   );
 });
@@ -1178,7 +1284,11 @@ test('a blocked start is a card naming the process, never a credential; its acti
     resolving: false,
     resolveError: null,
   });
-  assert.doesNotMatch(JSON.stringify(reports.current()), /legacy-token/, 'what the windows are told holds no credential');
+  assert.doesNotMatch(
+    JSON.stringify(reports.current()),
+    /legacy-token/,
+    'what the windows are told holds no credential'
+  );
   assert.equal(reports.blockedPid(), 41);
   reports.retry();
   reports.retry();
@@ -1258,7 +1368,7 @@ test('no core is started while an update holds launches shut: the refusal is no 
   assert.equal(reports.current().updating, false, 'the install did not go ahead: the wait is the core’s again');
 });
 
-test("a core seen serving restarts what gave up on it before it served: every serving listener is told, by an attempt or the recovery watch", () => {
+test('a core seen serving restarts what gave up on it before it served: every serving listener is told, by an attempt or the recovery watch', () => {
   const reports = new BootReports();
   let told = 0;
   const stop = reports.onServing(() => {
@@ -1410,18 +1520,34 @@ test("every attempt shares what the earlier daemon answered: it is asked once, a
   const refused = await run(false);
   assert.deepEqual(refused.asked, [41]);
   for (const outcome of refused.outcomes)
-    assert.deepEqual(outcome.coreBlockedAccess?.legacy, { port: 4242, token: 'legacy-token' }, 'each stops it through its own endpoint');
+    assert.deepEqual(
+      outcome.coreBlockedAccess?.legacy,
+      { port: 4242, token: 'legacy-token' },
+      'each stops it through its own endpoint'
+    );
   assert.equal(refused.reports.current().failure.blocked.legacy, true);
 });
 
 test('the release asks the blocked core with the limit its other asks have, and releases nothing on a status it did not answer', async () => {
   const asked = [];
-  const answering = (status) => async (url, init = {}) => {
-    const path = new URL(url).pathname;
-    asked.push([path, init.signal instanceof AbortSignal]);
-    return new Response(JSON.stringify(path === '/mgmt/status' ? { blocked: { pid: 41, confirmToken: 'ct' } } : {}), { status });
+  const answering =
+    (status) =>
+    async (url, init = {}) => {
+      const path = new URL(url).pathname;
+      asked.push([path, init.signal instanceof AbortSignal]);
+      return new Response(JSON.stringify(path === '/mgmt/status' ? { blocked: { pid: 41, confirmToken: 'ct' } } : {}), {
+        status,
+      });
+    };
+  const owner = {
+    pid: 41,
+    kind: 'undecidable',
+    image: null,
+    commandLine: null,
+    releasable: true,
+    legacy: false,
+    retire: null,
   };
-  const owner = { pid: 41, kind: 'undecidable', image: null, commandLine: null, releasable: true, legacy: false, retire: null };
   const access = { core: { controlPort: 7070, token: 'core-token' }, legacy: null };
   const never = () => assert.fail('an owner the core could not prove is never ended');
   await assert.rejects(

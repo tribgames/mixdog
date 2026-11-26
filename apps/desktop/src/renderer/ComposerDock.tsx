@@ -18,7 +18,6 @@ import {
   rememberedSlotHeight,
 } from './ComposerIsland';
 import { ComposerQuotaCard, type ComposerQuotaCardModel } from './ComposerQuotaCard';
-import { ComposerConnectionLine } from './RemoteConnectionBanner';
 import type { DesktopSessionWorkspace } from '../shared/contract';
 import type { TranscriptItem } from './desktop-types';
 import { BranchIslandSegment } from './WorktreeIslandSegment';
@@ -258,7 +257,10 @@ export function ComposerDock({
     [sessionId, workspace, reviewCwd, openChanges, onBranchFlash]
   );
   const gitCwd = workspace?.cwd || reviewCwd;
-  const git = useMemo(() => <IslandGitSegment sessionId={sessionId} cwd={gitCwd} />, [sessionId, gitCwd]);
+  const git = useMemo(
+    () => <IslandGitSegment sessionId={sessionId} cwd={gitCwd} onViewChanges={openChanges} />,
+    [sessionId, gitCwd, openChanges]
+  );
 
   // The route names a session whose first lane snapshot has not arrived
   // (a reload, a session opening): no island yet, so it mounts once, whole
@@ -327,7 +329,6 @@ export function ComposerDock({
         />
       )}
       {!showProjectSelector && quotaCard ? <ComposerQuotaCard card={quotaCard} /> : null}
-      <ComposerConnectionLine />
       {children}
     </div>
   );

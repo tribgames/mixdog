@@ -97,6 +97,7 @@ pub struct SessionRouteAdapter {
     gauge: Arc<dyn ContextStatusCache>,
     config: Arc<dyn RouteConfig>,
     clock: Arc<dyn Clock>,
+    hop_rollback_keys: Arc<std::sync::Mutex<std::collections::HashMap<(ThreadId, Option<u64>), Vec<(String, Option<Value>)>>>>,
 }
 
 impl SessionRouteAdapter {
@@ -109,7 +110,16 @@ impl SessionRouteAdapter {
         config: Arc<dyn RouteConfig>,
         clock: Arc<dyn Clock>,
     ) -> Self {
-        Self { directory, threads, change, statusline, gauge, config, clock }
+        Self {
+            directory,
+            threads,
+            change,
+            statusline,
+            gauge,
+            config,
+            clock,
+            hop_rollback_keys: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        }
     }
 }
 
@@ -306,6 +316,27 @@ impl HopSession for SessionHop {
     async fn rebuild_tool_surface(&self, provider: &str) -> Result<(), PortError> {
         RouteSession::rebuild_tool_surface(&*self.adapter, &self.handle.id, provider).await
     }
+
+    async fn restore_header(&self, previous: Header) -> Result<(), PortError> {
+        self.adapter.restore_header(&self.handle.id, previous).await
+    }
+
+    async fn write_hop_with_token(
+        &self,
+        token: u64,
+        route: mixdog_core_ports::ports::domain_sessions::Obj,
+        write: &mixdog_core_run::run_host::route_fallback::HopWrite,
+    ) -> Result<Option<Header>, PortError> {
+        self.adapter.write_hop_with_token(&self.handle.id, token, route, write).await
+    }
+
+    fn commit_hop(&self, token: u64) {
+        self.adapter.commit_hop(&self.handle.id, token);
+    }
+
+    async fn restore_hop(&self, token: u64, previous: Header) -> Result<(), PortError> {
+        self.adapter.restore_hop(&self.handle.id, token, previous).await
+    }
 }
 
 #[cfg(test)]
@@ -407,6 +438,85 @@ mod tests {
         assert_eq!(codex.set["codexWireSessionId"], "0190f0a0-1c2d-7e3f-8a4b-5c6d7e8f9a0d");
         let minted = route_fields(&obj(json!({ "codexWireSessionId": "nope" })), &obj(json!({ "provider": "openai-oauth" })));
         assert!(is_uuid_v7(minted.set["codexWireSessionId"].as_str().unwrap()));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn route_fallback_source_is_persisted_and_cleared_on_null() {
+        use crate::session::thread_state::SessionThreads;
+
+        let header = obj(json!({ "provider": "openai", "model": "gpt-a" }));
+        let set_change = route_fields(
+            &header,
+            &obj(json!({
+                "provider": "anthropic",
+                "model": "claude-x",
+                "routeFallbacks": [{ "provider": "openai", "model": "gpt-b" }],
+                "routeFallbackSource": { "preset": "preset-a" },
+            })),
+        );
+        assert_eq!(set_change.set.get("routeFallbackSource"), Some(&json!({ "preset": "preset-a" })));
+        assert!(!set_change.unset.iter().any(|k| k == "routeFallbackSource"));
+
+        let clear_change = route_fields(
+            &applied(&header, &set_change),
+            &obj(json!({
+                "provider": "openai",
+                "model": "gpt-b",
+                "routeFallbacks": [],
+                "routeFallbackSource": null,
+            })),
+        );
+        assert!(!clear_change.set.contains_key("routeFallbackSource"));
+        assert!(clear_change.unset.iter().any(|k| k == "routeFallbackSource"));
+
+        let rig = crate::session::testing::Rig::new();
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let thread = ThreadId::from("sess_fallback_source");
+        directory
+            .create_with_id(
+                thread.clone(),
+                obj(json!({
+                    "provider": "openai",
+                    "model": "gpt-a",
+                    "routeFallbacks": [{ "provider": "anthropic", "model": "claude-a" }],
+                    "routeFallbackSource": { "preset": "preset-a" },
+                })),
+                json!({}),
+            )
+            .await
+            .expect("create");
+        let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
+        let adapter = SessionRouteAdapter::new(
+            directory.clone(),
+            threads.clone(),
+            Arc::new(Change(Mutex::default())),
+            Arc::new(Quiet),
+            Arc::new(Quiet),
+            Arc::new(Quiet),
+            rig.clock.clone(),
+        );
+
+        let reassign_b = obj(json!({
+            "provider": "anthropic",
+            "model": "claude-b",
+            "routeFallbacks": [{ "provider": "openai", "model": "gpt-b" }],
+            "routeFallbackSource": { "preset": "preset-b" },
+        }));
+        assert!(adapter.update_route(&thread, reassign_b, true).await.expect("reassign B"));
+        let stored_b = threads.header(&thread).await.expect("header B");
+        assert_eq!(stored_b.get("routeFallbacks"), Some(&json!([{ "provider": "openai", "model": "gpt-b" }])));
+        assert_eq!(stored_b.get("routeFallbackSource"), Some(&json!({ "preset": "preset-b" })));
+
+        let clear = obj(json!({
+            "provider": "openai",
+            "model": "gpt-c",
+            "routeFallbacks": [],
+            "routeFallbackSource": null,
+        }));
+        assert!(adapter.update_route(&thread, clear, true).await.expect("clear source"));
+        let stored_cleared = threads.header(&thread).await.expect("header cleared");
+        assert!(!stored_cleared.contains_key("routeFallbacks"));
+        assert!(!stored_cleared.contains_key("routeFallbackSource"));
     }
 
     /// `updateSessionRoute`: the route fields and the route change land as one header change.
@@ -563,6 +673,246 @@ mod tests {
         assert_eq!(items.len(), 3, "the switch row follows the reply");
         assert!(items[2].id().as_str().starts_with(&format!("{}:model:", items[1].id().as_str())));
     }
+
+    #[tokio::test(start_paused = true)]
+    async fn restore_header_atomically_undoes_aborted_hop_fields() {
+        use crate::session::tests::start_thread;
+        use crate::session::thread_state::SessionThreads;
+
+        let rig = crate::session::testing::Rig::new();
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let handle = start_thread(&directory).await;
+        let threads = Arc::new(SessionThreads::new(directory.clone()));
+        threads
+            .patch_header(
+                &handle.id,
+                obj(json!({
+                    "provider": "openai",
+                    "model": "gpt-4o",
+                    "wireRoute": { "provider": "openai", "model": "gpt-4o", "wire": "responses" },
+                })),
+                Vec::new(),
+            )
+            .await
+            .expect("seed header");
+        let before = threads.header(&handle.id).await.expect("before");
+        let adapter = SessionRouteAdapter::new(
+            directory.clone(),
+            threads.clone(),
+            Arc::new(Change(Mutex::default())),
+            Arc::new(Quiet),
+            Arc::new(Quiet),
+            Arc::new(Quiet),
+            rig.clock.clone(),
+        );
+        let hop = mixdog_core_run::run_host::route_fallback::HopWrite {
+            chain: vec![json!({ "provider": "anthropic", "model": "claude-x" })],
+            primary: Some(json!({ "provider": "openai", "model": "gpt-4o" })),
+            index: 1,
+            failures: vec![json!({ "provider": "openai", "model": "gpt-4o", "kind": "transient", "error": "503" })],
+            checkpoint_route_changed: false,
+        };
+        adapter.write_hop(&handle.id, obj(json!({ "provider": "anthropic", "model": "claude-x" })), &hop).await.expect("write_hop").expect("open");
+        let mid = threads.header(&handle.id).await.expect("mid");
+        assert_eq!((mid["provider"].as_str(), mid["model"].as_str()), (Some("anthropic"), Some("claude-x")));
+        assert!(mid.contains_key("routeFallbackPrimary"));
+
+        adapter.restore_header(&handle.id, before.clone()).await.expect("restore_header");
+        let after = threads.header(&handle.id).await.expect("after");
+        assert_eq!((after["provider"].as_str(), after["model"].as_str()), (Some("openai"), Some("gpt-4o")));
+        assert_eq!(after.get("wireRoute"), before.get("wireRoute"));
+        assert!(!after.contains_key("routeFallbackPrimary"));
+        assert!(!after.contains_key("routeFallbackFailures"));
+        assert!(!after.contains_key("routeFallbackIndex"));
+        assert!(!after.contains_key("routeFallbacks"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn restore_header_preserves_concurrent_unrelated_updates() {
+        use crate::session::tests::start_thread;
+        use crate::session::thread_state::SessionThreads;
+
+        let rig = crate::session::testing::Rig::new();
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let handle = start_thread(&directory).await;
+        let threads = Arc::new(SessionThreads::new(directory.clone()));
+        threads
+            .patch_header(
+                &handle.id,
+                obj(json!({
+                    "provider": "openai",
+                    "model": "gpt-4o",
+                    "title": "Initial title",
+                    "wireRoute": { "provider": "openai", "model": "gpt-4o", "wire": "responses" },
+                })),
+                Vec::new(),
+            )
+            .await
+            .expect("seed header");
+        let before = threads.header(&handle.id).await.expect("before");
+        let adapter = SessionRouteAdapter::new(
+            directory.clone(),
+            threads.clone(),
+            Arc::new(Change(Mutex::default())),
+            Arc::new(Quiet),
+            Arc::new(Quiet),
+            Arc::new(Quiet),
+            rig.clock.clone(),
+        );
+        let hop = mixdog_core_run::run_host::route_fallback::HopWrite {
+            chain: vec![json!({ "provider": "anthropic", "model": "claude-x" })],
+            primary: Some(json!({ "provider": "openai", "model": "gpt-4o" })),
+            index: 1,
+            failures: vec![json!({ "provider": "openai", "model": "gpt-4o", "kind": "transient", "error": "503" })],
+            checkpoint_route_changed: false,
+        };
+        adapter.write_hop(&handle.id, obj(json!({ "provider": "anthropic", "model": "claude-x" })), &hop).await.expect("write_hop").expect("open");
+
+        // Concurrent unrelated header updates committed between write_hop and rollback.
+        let pending = json!({ "provider": "gemini", "model": "gemini-2.5-pro" });
+        threads
+            .patch_header(
+                &handle.id,
+                obj(json!({
+                    "title": "User renamed thread",
+                    "pendingRoute": pending,
+                })),
+                Vec::new(),
+            )
+            .await
+            .expect("concurrent patch");
+
+        adapter.restore_header(&handle.id, before.clone()).await.expect("restore_header");
+        let after = threads.header(&handle.id).await.expect("after");
+        assert_eq!((after["provider"].as_str(), after["model"].as_str()), (Some("openai"), Some("gpt-4o")));
+        assert_eq!(after.get("wireRoute"), before.get("wireRoute"));
+        assert!(!after.contains_key("routeFallbackPrimary"));
+        assert!(!after.contains_key("routeFallbackFailures"));
+        assert!(!after.contains_key("routeFallbackIndex"));
+        assert!(!after.contains_key("routeFallbacks"));
+        assert_eq!(after.get("title").and_then(Value::as_str), Some("User renamed thread"), "concurrent title update must survive rollback");
+        assert_eq!(after.get("pendingRoute"), Some(&pending), "concurrent pendingRoute update must survive rollback");
+    }
+
+    #[tokio::test]
+    async fn restore_header_sequential_hop_cancelled_mid_write_never_reverts_prior_hop() {
+        use crate::session::tests::start_thread;
+        use crate::session::thread_state::SessionThreads;
+
+        struct GatedChange {
+            gate_provider: &'static str,
+            entered: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+            release: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+        }
+
+        #[async_trait]
+        impl RouteChange for GatedChange {
+            async fn lookups(&self, _: &Header, route: &Route) -> RouteLookups {
+                if route.get("provider").and_then(Value::as_str) == Some(self.gate_provider) {
+                    if let Some(tx) = self.entered.lock().unwrap().take() {
+                        let _ = tx.send(());
+                    }
+                    let rx = self.release.lock().unwrap().take();
+                    if let Some(rx) = rx {
+                        let _ = rx.await;
+                    }
+                }
+                Box::new(())
+            }
+            fn route_change(&self, _: &Header, _: &Route, _: &Route, _: bool, _: &RouteLookups) -> HeaderChange {
+                HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() }
+            }
+            fn environment_reset(&self, _: &Header) -> HeaderChange {
+                HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() }
+            }
+        }
+
+        let rig = crate::session::testing::Rig::new();
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let handle = start_thread(&directory).await;
+        let threads = Arc::new(SessionThreads::new(directory.clone()));
+        threads
+            .patch_header(
+                &handle.id,
+                obj(json!({
+                    "provider": "openai",
+                    "model": "gpt-a",
+                    "title": "Keep title",
+                    "wireRoute": { "provider": "openai", "model": "gpt-a", "wire": "responses" },
+                })),
+                Vec::new(),
+            )
+            .await
+            .expect("seed header A");
+
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let adapter = SessionRouteAdapter::new(
+            directory.clone(),
+            threads.clone(),
+            Arc::new(GatedChange { gate_provider: "gemini", entered: Mutex::new(Some(entered_tx)), release: Mutex::new(Some(release_rx)) }),
+            Arc::new(Quiet),
+            Arc::new(Quiet),
+            Arc::new(Quiet),
+            rig.clock.clone(),
+        );
+
+        // Hop 1: A -> B succeeds and commits (discarding token 1's rollback snapshot).
+        let hop_ab = mixdog_core_run::run_host::route_fallback::HopWrite {
+            chain: vec![json!({ "provider": "anthropic", "model": "claude-b" }), json!({ "provider": "gemini", "model": "gem-c" })],
+            primary: Some(json!({ "provider": "openai", "model": "gpt-a" })),
+            index: 1,
+            failures: vec![json!({ "provider": "openai", "model": "gpt-a", "kind": "transient", "error": "503" })],
+            checkpoint_route_changed: false,
+        };
+        let header_b = adapter
+            .write_hop_with_token(&handle.id, 1, obj(json!({ "provider": "anthropic", "model": "claude-b" })), &hop_ab)
+            .await
+            .expect("write_hop A->B")
+            .expect("open");
+        adapter.commit_hop(&handle.id, 1);
+        assert_eq!((header_b["provider"].as_str(), header_b["model"].as_str()), (Some("anthropic"), Some("claude-b")));
+
+        // Hop 2: B -> C starts with token 2 and is cancelled mid-write_hop while lookups is paused on the actor.
+        let hop_bc = mixdog_core_run::run_host::route_fallback::HopWrite {
+            chain: vec![json!({ "provider": "anthropic", "model": "claude-b" }), json!({ "provider": "gemini", "model": "gem-c" })],
+            primary: Some(json!({ "provider": "openai", "model": "gpt-a" })),
+            index: 2,
+            failures: vec![
+                json!({ "provider": "openai", "model": "gpt-a", "kind": "transient", "error": "503" }),
+                json!({ "provider": "anthropic", "model": "claude-b", "kind": "transient", "error": "503" }),
+            ],
+            checkpoint_route_changed: false,
+        };
+        let cancelled = tokio::select! {
+            _ = adapter.write_hop_with_token(&handle.id, 2, obj(json!({ "provider": "gemini", "model": "gem-c" })), &hop_bc) => false,
+            _ = entered_rx => true,
+        };
+        assert!(cancelled, "B->C write_hop must be cancelled mid-flight");
+
+        // Release the in-flight actor lookup and run token 2's rollback (simulating HopRollbackGuard::drop).
+        let _ = release_tx.send(());
+        adapter.restore_hop(&handle.id, 2, header_b.clone()).await.expect("restore_hop token 2");
+
+        let after_bc = threads.header(&handle.id).await.expect("after B->C rollback");
+        assert_eq!(
+            (after_bc["provider"].as_str(), after_bc["model"].as_str()),
+            (Some("anthropic"), Some("claude-b")),
+            "cancelling B->C mid-write_hop must restore B, never revert to A"
+        );
+        assert_eq!(after_bc.get("routeFallbackIndex"), Some(&json!(1)));
+        assert_eq!(after_bc.get("title").and_then(Value::as_str), Some("Keep title"));
+
+        // A stray restore_hop for a token whose write_hop never reached the actor must be a strict no-op.
+        let header_a = obj(json!({ "provider": "openai", "model": "gpt-a" }));
+        adapter.restore_hop(&handle.id, 99, header_a).await.expect("restore_hop unexecuted token");
+        let after_noop = threads.header(&handle.id).await.expect("after noop");
+        assert_eq!(
+            (after_noop["provider"].as_str(), after_noop["model"].as_str()),
+            (Some("anthropic"), Some("claude-b")),
+            "unexecuted hop token restore must never clobber live route B"
+        );
+    }
 }
 
 /// `applyRouteFields(session, route)`: the route's own fields onto the session.
@@ -597,6 +947,13 @@ fn route_fields(header: &Header, route: &Route) -> HeaderChange {
             unset(&mut change, key);
         }
     }
+    if let Some(source) = route.get("routeFallbackSource") {
+        if truthy(Some(source)) {
+            set(&mut change, "routeFallbackSource", source.clone());
+        } else {
+            unset(&mut change, "routeFallbackSource");
+        }
+    }
     // `ensureCodexWireSessionId`: an `openai-oauth` session carries a UUIDv7 wire id.
     let provider = change.set.get("provider").or_else(|| header.get("provider"));
     if provider.and_then(Value::as_str) == Some("openai-oauth") {
@@ -626,6 +983,29 @@ fn route_fields(header: &Header, route: &Route) -> HeaderChange {
 
 impl SessionRouteAdapter {
     /// `advanceAgentRoute`'s one write: `updateSessionRoute(id, route, { crossProvider: true })`
+    const HOP_OWNED_KEYS: &[&str] = &[
+        "provider",
+        "model",
+        "fast",
+        "autoEffort",
+        "effort",
+        "effectiveEffort",
+        "wireRoute",
+        "codexWireSessionId",
+        "modelParameters",
+        "contextPercent",
+        "contextTokens",
+        "selectedContextWindow",
+        "contextWindow",
+        "contextUsageSnapshot",
+        "routeFallbacks",
+        "routeFallbackPrimary",
+        "routeFallbackIndex",
+        "routeFallbackFailures",
+        "activeTurnCheckpoint",
+        "updatedAt",
+    ];
+
     /// followed by the hop's fields, in the one header change. The route change leaves
     /// `wireRoute` null. The updated header; `None` when the session is closed or gone.
     pub(crate) async fn write_hop(
@@ -634,7 +1014,33 @@ impl SessionRouteAdapter {
         route: Route,
         hop: &mixdog_core_run::run_host::route_fallback::HopWrite,
     ) -> Result<Option<Header>, PortError> {
+        self.write_hop_inner(thread, None, route, hop).await
+    }
+
+    pub(crate) async fn write_hop_with_token(
+        &self,
+        thread: &ThreadId,
+        token: u64,
+        route: Route,
+        hop: &mixdog_core_run::run_host::route_fallback::HopWrite,
+    ) -> Result<Option<Header>, PortError> {
+        self.write_hop_inner(thread, Some(token), route, hop).await
+    }
+
+    pub(crate) fn commit_hop(&self, thread: &ThreadId, token: u64) {
+        self.hop_rollback_keys.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&(thread.clone(), Some(token)));
+    }
+
+    async fn write_hop_inner(
+        &self,
+        thread: &ThreadId,
+        token: Option<u64>,
+        route: Route,
+        hop: &mixdog_core_run::run_host::route_fallback::HopWrite,
+    ) -> Result<Option<Header>, PortError> {
         let hop = hop.clone();
+        let rollback_keys = self.hop_rollback_keys.clone();
+        let key = (thread.clone(), token);
         let hop_fields = move |header: &Header, change: &mut HeaderChange| {
             unset(change, "effectiveEffort");
             set(change, "routeFallbacks", Value::Array(hop.chain.clone()));
@@ -650,11 +1056,86 @@ impl SessionRouteAdapter {
                 checkpoint.insert("routeChanged".into(), Value::Bool(true));
                 set(change, "activeTurnCheckpoint", Value::Object(checkpoint));
             }
+            let mut seen = std::collections::HashSet::<String>::new();
+            let mut snapshot = Vec::new();
+            for key_name in change.set.keys().map(String::as_str).chain(change.unset.iter().map(String::as_str)).chain(std::iter::once("wireRoute")) {
+                if seen.insert(key_name.to_owned()) {
+                    snapshot.push((key_name.to_owned(), header.get(key_name).cloned()));
+                }
+            }
+            rollback_keys.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(key, snapshot);
         };
         if !self.write_route(thread, &route, true, hop_fields).await? {
+            if let Some(token) = token {
+                self.commit_hop(thread, token);
+            }
             return Ok(None);
         }
         self.threads.header(thread).await.map(Some)
+    }
+
+    /// Atomically restores only the exact hop-owned header keys modified by [`Self::write_hop`] (or the hop-owned
+    /// allowlist if called without a prior hop record), preserving concurrent unrelated updates such as `title` or
+    /// `pendingRoute`.
+    pub(crate) async fn restore_header(&self, thread: &ThreadId, previous: Header) -> Result<(), PortError> {
+        self.restore_header_inner(thread, None, previous).await
+    }
+
+    /// Atomically restores only the exact hop-owned header keys modified by [`Self::write_hop_with_token`] for `token`.
+    /// When `token` never committed on the actor (or was already committed/restored), performs a strict no-op so a
+    /// cancelled hop can never consume an earlier hop's snapshot or clobber a newer route.
+    pub(crate) async fn restore_hop(&self, thread: &ThreadId, token: u64, previous: Header) -> Result<(), PortError> {
+        self.restore_header_inner(thread, Some(token), previous).await
+    }
+
+    async fn restore_header_inner(&self, thread: &ThreadId, token: Option<u64>, previous: Header) -> Result<(), PortError> {
+        let rollback_keys = self.hop_rollback_keys.clone();
+        let key = (thread.clone(), token);
+        let update: super::actor::AwaitingHeaderUpdate = Box::new(move |current| {
+            Box::pin(async move {
+                let recorded = rollback_keys.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&key);
+                if current.get("closed") == Some(&Value::Bool(true)) {
+                    return HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() };
+                }
+                let mut change = HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() };
+                if let Some(entries) = recorded {
+                    for (key, old_value) in entries {
+                        match old_value {
+                            Some(value) => {
+                                if current.get(&key) != Some(&value) {
+                                    set(&mut change, &key, value);
+                                }
+                            }
+                            None => {
+                                if current.contains_key(&key) {
+                                    unset(&mut change, &key);
+                                }
+                            }
+                        }
+                    }
+                } else if token.is_none() {
+                    for &key in Self::HOP_OWNED_KEYS {
+                        match previous.get(key) {
+                            Some(value) => {
+                                if current.get(key) != Some(value) {
+                                    set(&mut change, key, value.clone());
+                                }
+                            }
+                            None => {
+                                if current.contains_key(key) {
+                                    unset(&mut change, key);
+                                }
+                            }
+                        }
+                    }
+                }
+                change
+            })
+        });
+        match self.directory.update_header_awaiting(thread, update).await {
+            Ok(()) | Err(mixdog_core_api::CoreError::ThreadNotFound { .. }) => Ok(()),
+            Err(error) => Err(mixdog_core_ports::ports::threads::port_error(error)),
+        }
     }
 
     /// `updateSessionRoute` as one read-modify-write on the session's actor, the header's only writer: Node reads

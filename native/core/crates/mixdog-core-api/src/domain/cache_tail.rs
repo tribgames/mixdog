@@ -100,9 +100,8 @@ pub struct Admission<'a> {
     pub unreduced: Option<Unreduced>,
 }
 
-/// The leave a failed rewrite hands back to the caller that owned it (and told the user): the one request it was decided
-/// for goes out on its unchanged history. The owner keeps nothing of it, so no other caller can spend it and it cannot
-/// outlive that request.
+/// The leave a failed rewrite hands back to the caller that owned it: the one request it was decided for goes out on its
+/// unchanged history. The owner keeps nothing of it, so no other caller can spend it and it cannot outlive that request.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Unreduced {
     /// The tail of the history the rewrite was decided for.
@@ -147,7 +146,7 @@ pub struct ColdRequest {
 /// A refused attempt, carried on the error the adapter returns instead of sending.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TailRefusal {
-    /// Compact (or explain) first, then rebuild and admit the attempt again. The rewrite is offered, not held: the caller
+    /// Compact first, then rebuild and admit the attempt again. The rewrite is offered, not held: the caller
     /// takes it with [`TailGateHandle::claim`].
     Rebuild(ColdRequest),
     /// The attempt is optional (a warm, a summary fork) or is not the rewrite's owner (a side question): it is not sent.
@@ -175,8 +174,8 @@ pub enum Resolution {
     Irreducible,
     /// The session knows no context window to size a compaction by: resent unchanged.
     NoSizing,
-    /// The compaction failed and the user was told: the request it was decided for goes out unchanged under the
-    /// [`Unreduced`] leave its caller is handed. It decides nothing about the history.
+    /// The compaction failed: the request it was decided for goes out unchanged under the [`Unreduced`] leave its caller
+    /// is handed. It decides nothing about the history.
     Failed,
     /// Nothing was decided (cancelled, or a failure the run surfaces): the history stays undecided.
     Abandoned,

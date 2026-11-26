@@ -45,6 +45,7 @@ import {
   useVisualizeState,
   visualizeTabTooltip,
   releaseVisualizeSession,
+  GONE_ONLY_STATE_LRU_MAX,
 } from './visualize-store.ts';
 import { setVisualizeTweakDefs, visualizePaneTweaks, resetVisualizeTweakStore } from './visualize-tweaks-store.ts';
 import {
@@ -516,15 +517,449 @@ test('a link the user clicks in a pane opens like a chat web link; a script-post
   assert.deepEqual(external, ['https://example.net/', 'https://example.org/']);
 });
 
-test('a session with nothing open keeps its "All visuals" list; a bare empty state drops', () => {
+test('a session with no open tabs drops even when history entries exist', () => {
   const history = [{ id: 'h1', label: 'Flow', kind: 'mermaid', versions: 2, at: 1, open: false }];
   applyVisualizeEvent({ sessionId: 'h-1', state: { sessionId: 'h-1', tabs: [], active: null, history } });
-  assert.deepEqual(visualizeStateFor('h-1').history, history);
-  applyVisualizeEvent({ sessionId: 'h-1', state: { sessionId: 'h-1', tabs: [], active: null } });
   assert.deepEqual(visualizeStateFor('h-1').tabs, []);
   assert.equal(visualizeStateFor('h-1').history, undefined);
   resyncVisualizeStates([{ sessionId: 'h-2', tabs: [], active: null, history }]);
-  assert.equal(visualizeStateFor('h-2').history.length, 1);
+  assert.deepEqual(visualizeStateFor('h-2').tabs, []);
+  assert.equal(visualizeStateFor('h-2').history, undefined);
+});
+
+test('a session with no open tabs keeps goneOpens while dropping history', () => {
+  const history = [{ id: 'h1', label: 'Flow', kind: 'mermaid', versions: 2, at: 1, open: false }];
+  const goneOpens = [{ tab: 'v1', call: 'c1' }];
+  try {
+    applyVisualizeEvent({
+      sessionId: 'g-only-1',
+      state: { sessionId: 'g-only-1', tabs: [], active: null, history, goneOpens },
+    });
+    assert.deepEqual(visualizeStateFor('g-only-1').tabs, []);
+    assert.equal(visualizeStateFor('g-only-1').history, undefined);
+    assert.deepEqual(visualizeStateFor('g-only-1').goneOpens, goneOpens);
+
+    hydrateVisualizeStates([{ sessionId: 'g-only-2', tabs: [], active: null, history, goneOpens }]);
+    assert.equal(visualizeStateFor('g-only-2').history, undefined);
+    assert.deepEqual(visualizeStateFor('g-only-2').goneOpens, goneOpens);
+
+    resyncVisualizeStates([{ sessionId: 'g-only-3', tabs: [], active: null, history, goneOpens }]);
+    assert.equal(visualizeStateFor('g-only-1').goneOpens, undefined);
+    assert.equal(visualizeStateFor('g-only-3').history, undefined);
+    assert.deepEqual(visualizeStateFor('g-only-3').goneOpens, goneOpens);
+
+    releaseVisualizeSession('g-only-3');
+    assert.equal(visualizeStateFor('g-only-3').goneOpens, undefined);
+  } finally {
+    resyncVisualizeStates([]);
+    resetVisualizePanelMemory();
+  }
+});
+
+test('unread goneOnlyStates are evicted on idle reclaim and LRU cap, keep active readers, and rehydrate on revisit', async (t) => {
+  const React = await import('react');
+  const { act } = React;
+  const { installTestDom } = await import('./test-support/test-dom.mjs');
+  const { SurfaceActiveContext } = await import('./surface-activity.ts');
+  const { dom, root } = installTestDom(t, { rootId: 'root' });
+  const gone = (n) => [{ tab: `v${n}`, call: `c${n}` }];
+  const hostSnapshot = [
+    { sessionId: 'gone-active', tabs: [], active: null, goneOpens: gone('active') },
+    { sessionId: 'gone-revisit', tabs: [], active: null, goneOpens: gone('revisit') },
+  ];
+  let reads = 0;
+  dom.window.mixdogDesktop = {
+    visualizeState: async () => {
+      reads += 1;
+      return hostSnapshot;
+    },
+  };
+  resyncVisualizeStates([]);
+  resetVisualizePanelMemory();
+  let available = null;
+  function SessionReader({ id }) {
+    useVisualizeState(id);
+    return null;
+  }
+  function Reader({ sessionIds }) {
+    available = useVisualizeAvailable();
+    return sessionIds.map((id) => React.createElement(SessionReader, { key: id, id }));
+  }
+  const renderReaders = (sessionIds, active = true) =>
+    act(async () =>
+      root.render(
+        React.createElement(
+          SurfaceActiveContext.Provider,
+          { value: active },
+          React.createElement(Reader, { sessionIds })
+        )
+      )
+    );
+  try {
+    // Active reader stays pinned across idle reclaim; unread entry is evicted.
+    applyVisualizeEvent({ sessionId: 'gone-active', state: hostSnapshot[0] });
+    applyVisualizeEvent({ sessionId: 'gone-revisit', state: hostSnapshot[1] });
+    await renderReaders(['gone-active', 'gone-revisit']);
+    assert.equal(available, false, 'zero-tab goneOnly sessions never mark visualize available');
+
+    // Switch away from gone-revisit so only gone-active has an active reader.
+    await renderReaders(['gone-active']);
+    _runIdleReclaimForTest();
+    assert.deepEqual(visualizeStateFor('gone-active').goneOpens, gone('active'), 'active reader stays pinned');
+    assert.equal(visualizeStateFor('gone-revisit').goneOpens, undefined, 'unread goneOnly entry evicted on idle');
+
+    // Exceeding the bounded LRU cap evicts oldest unread entries without evicting the active reader.
+    const capOverflow = GONE_ONLY_STATE_LRU_MAX + 5;
+    for (let i = 0; i < capOverflow; i += 1) {
+      applyVisualizeEvent({
+        sessionId: `gone-cap-${i}`,
+        state: { sessionId: `gone-cap-${i}`, tabs: [], active: null, goneOpens: gone(i) },
+      });
+    }
+    assert.deepEqual(visualizeStateFor('gone-active').goneOpens, gone('active'), 'active reader survives LRU cap');
+    assert.equal(visualizeStateFor('gone-cap-0').goneOpens, undefined, 'oldest unread entry evicted by LRU cap');
+    assert.deepEqual(
+      visualizeStateFor(`gone-cap-${capOverflow - 1}`).goneOpens,
+      gone(capOverflow - 1),
+      'newest unread entry retained'
+    );
+
+    // Budget trim also evicts unread goneOnly entries while keeping active readers pinned.
+    enforceRendererCacheBudget(0);
+    assert.deepEqual(visualizeStateFor('gone-active').goneOpens, gone('active'), 'active reader survives budget trim');
+    assert.equal(
+      visualizeStateFor(`gone-cap-${capOverflow - 1}`).goneOpens,
+      undefined,
+      'unread goneOnly entry evicted on budget trim'
+    );
+
+    // Revisiting an evicted goneOnly session rehydrates its goneOpens from main without marking panel available.
+    reads = 0;
+    await renderReaders(['gone-active', 'gone-revisit']);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    assert.equal(reads, 1, 'revisiting evicted goneOnly session fetches snapshot once');
+    assert.deepEqual(visualizeStateFor('gone-revisit').goneOpens, gone('revisit'), 'rehydrated goneOpens restored');
+    assert.equal(isVisualizeStateRehydrating('gone-revisit'), false);
+    assert.equal(available, false);
+  } finally {
+    await act(async () => root.unmount());
+    resyncVisualizeStates([]);
+    resetVisualizePanelMemory();
+  }
+});
+
+test('late gone-only rehydration reply after live event or release never overwrites newer state or resurrects tabs', async (t) => {
+  const React = await import('react');
+  const { act } = React;
+  const { installTestDom } = await import('./test-support/test-dom.mjs');
+  const { SurfaceActiveContext } = await import('./surface-activity.ts');
+  const { dom, root } = installTestDom(t, { rootId: 'root' });
+  const staleTab = { id: 'v-stale', label: 'stale.html', revision: 1, panes: [] };
+  const oldGone = [{ tab: 'v1', call: 'c-old' }];
+  const newGone = [{ tab: 'v1', call: 'c-new' }];
+  const resolvers = [];
+  dom.window.mixdogDesktop = {
+    visualizeState: () =>
+      new Promise((resolve) => {
+        resolvers.push(resolve);
+      }),
+  };
+  resyncVisualizeStates([]);
+  resetVisualizePanelMemory();
+  let available = null;
+  function Reader({ sessionId }) {
+    available = useVisualizeAvailable();
+    useVisualizeState(sessionId);
+    return null;
+  }
+  const mountReader = (sessionId) =>
+    act(async () =>
+      root.render(
+        sessionId
+          ? React.createElement(
+              SurfaceActiveContext.Provider,
+              { value: true },
+              React.createElement(Reader, { sessionId })
+            )
+          : null
+      )
+    );
+  try {
+    // Subcase A: live event arrives while rehydration IPC is in flight.
+    applyVisualizeEvent({
+      sessionId: 'late-live',
+      state: { sessionId: 'late-live', tabs: [], active: null, goneOpens: oldGone },
+    });
+    _runIdleReclaimForTest();
+    assert.equal(isVisualizeStateRehydrating('late-live'), true);
+
+    await mountReader('late-live');
+    assert.equal(resolvers.length, 1);
+
+    await act(async () => {
+      applyVisualizeEvent({
+        sessionId: 'late-live',
+        state: { sessionId: 'late-live', tabs: [], active: null, goneOpens: newGone },
+      });
+    });
+    assert.deepEqual(visualizeStateFor('late-live').goneOpens, newGone);
+
+    await act(async () => {
+      resolvers.shift()([{ sessionId: 'late-live', tabs: [staleTab], active: 'v-stale', goneOpens: oldGone }]);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    assert.deepEqual(
+      visualizeStateFor('late-live').goneOpens,
+      newGone,
+      'stale reply must not overwrite newer goneOpens'
+    );
+    assert.deepEqual(visualizeStateFor('late-live').tabs, [], 'stale reply must not resurrect closed tabs');
+    assert.equal(available, false, 'stale reply must not toggle useVisualizeAvailable on');
+
+    // Subcase B: releaseVisualizeSession runs while rehydration IPC is in flight.
+    await mountReader(null);
+    applyVisualizeEvent({
+      sessionId: 'late-release',
+      state: { sessionId: 'late-release', tabs: [], active: null, goneOpens: oldGone },
+    });
+    _runIdleReclaimForTest();
+    await mountReader('late-release');
+    assert.equal(resolvers.length, 1);
+
+    await act(async () => {
+      releaseVisualizeSession('late-release');
+    });
+    await act(async () => {
+      resolvers.shift()([{ sessionId: 'late-release', tabs: [staleTab], active: 'v-stale', goneOpens: oldGone }]);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    assert.equal(visualizeStateFor('late-release').goneOpens, undefined, 'released session stays cleared');
+    assert.deepEqual(visualizeStateFor('late-release').tabs, [], 'released session tabs stay absent');
+    assert.equal(available, false, 'released session does not toggle useVisualizeAvailable on');
+  } finally {
+    await act(async () => root.unmount());
+    resyncVisualizeStates([]);
+    resetVisualizePanelMemory();
+  }
+});
+
+test('older gone-only rehydration reply for session A does not prevent session B evicted mid-flight from rehydrating', async (t) => {
+  const React = await import('react');
+  const { act } = React;
+  const { installTestDom } = await import('./test-support/test-dom.mjs');
+  const { SurfaceActiveContext } = await import('./surface-activity.ts');
+  const { dom, root } = installTestDom(t, { rootId: 'root' });
+  const goneA = [{ tab: 'va', call: 'ca' }];
+  const goneB = [{ tab: 'vb', call: 'cb' }];
+  const stateA = { sessionId: 'gone-a', tabs: [], active: null, goneOpens: goneA };
+  const stateB = { sessionId: 'gone-b', tabs: [], active: null, goneOpens: goneB };
+  const resolvers = [];
+  dom.window.mixdogDesktop = {
+    visualizeState: () =>
+      new Promise((resolve) => {
+        resolvers.push(resolve);
+      }),
+  };
+  resyncVisualizeStates([]);
+  resetVisualizePanelMemory();
+  function Reader({ sessionId }) {
+    useVisualizeState(sessionId);
+    return null;
+  }
+  const mountReader = (sessionId) =>
+    act(async () =>
+      root.render(
+        React.createElement(SurfaceActiveContext.Provider, { value: true }, React.createElement(Reader, { sessionId }))
+      )
+    );
+  try {
+    applyVisualizeEvent({ sessionId: 'gone-a', state: stateA });
+    _runIdleReclaimForTest();
+    await mountReader('gone-a');
+    assert.equal(resolvers.length, 1, 'revisiting A starts snapshot read #1');
+
+    // B is created and evicted while A's older snapshot read is still in flight.
+    applyVisualizeEvent({ sessionId: 'gone-b', state: stateB });
+    _runIdleReclaimForTest();
+    assert.equal(visualizeStateFor('gone-b').goneOpens, undefined);
+    assert.equal(isVisualizeStateRehydrating('gone-b'), true);
+
+    // Resolve A's older snapshot (which predates B and omits B).
+    await act(async () => {
+      resolvers.shift()([stateA]);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    assert.deepEqual(visualizeStateFor('gone-a').goneOpens, goneA, 'A rehydrates from read #1');
+    assert.equal(isVisualizeStateRehydrating('gone-b'), true, 'B remains marked evicted after A settles');
+
+    // Revisiting B triggers snapshot read #2 and restores B cleanly.
+    await mountReader('gone-b');
+    assert.equal(resolvers.length, 1, 'revisiting B starts snapshot read #2');
+    await act(async () => {
+      resolvers.shift()([stateA, stateB]);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    assert.deepEqual(visualizeStateFor('gone-b').goneOpens, goneB, 'B rehydrates cleanly on revisit');
+    assert.equal(isVisualizeStateRehydrating('gone-b'), false);
+  } finally {
+    await act(async () => root.unmount());
+    resyncVisualizeStates([]);
+    resetVisualizePanelMemory();
+  }
+});
+
+test('transient read failure recovers goneOpens for a currently mounted reader without unmount/remount', async (t) => {
+  const React = await import('react');
+  const { act } = React;
+  const { installTestDom } = await import('./test-support/test-dom.mjs');
+  const { SurfaceActiveContext } = await import('./surface-activity.ts');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const flushMicrotasks = async () => {
+    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+  };
+  const { dom, root } = installTestDom(t, { rootId: 'root' });
+  const goneS = [{ tab: 'v1', call: 'c1' }];
+  const stateS = { sessionId: 'gone-retry', tabs: [], active: null, goneOpens: goneS };
+  let calls = 0;
+  let shouldFail = true;
+  dom.window.mixdogDesktop = {
+    visualizeState: () => {
+      calls += 1;
+      if (shouldFail) return Promise.reject(new Error(`transient gone-only failure ${calls}`));
+      return Promise.resolve([stateS]);
+    },
+  };
+  resyncVisualizeStates([]);
+  resetVisualizePanelMemory();
+  let observedGoneOpens;
+  function MountedReader() {
+    observedGoneOpens = useVisualizeState('gone-retry').goneOpens;
+    return null;
+  }
+  try {
+    applyVisualizeEvent({ sessionId: 'gone-retry', state: stateS });
+    _runIdleReclaimForTest();
+    assert.equal(isVisualizeStateRehydrating('gone-retry'), true);
+
+    await act(async () => {
+      root.render(
+        React.createElement(SurfaceActiveContext.Provider, { value: true }, React.createElement(MountedReader))
+      );
+      await flushMicrotasks();
+    });
+    assert.equal(calls, 1);
+    assert.equal(observedGoneOpens, undefined, 'initial failed attempt leaves goneOpens empty');
+
+    // Stay mounted: scheduled retry recovers goneOpens automatically.
+    shouldFail = false;
+    await act(async () => {
+      t.mock.timers.tick(1_500);
+      await flushMicrotasks();
+    });
+    assert.equal(calls, 2, 'scheduled retry fires for the mounted reader');
+    assert.deepEqual(observedGoneOpens, goneS, 'mounted reader receives recovered goneOpens without remount');
+    assert.equal(isVisualizeStateRehydrating('gone-retry'), false);
+  } finally {
+    await act(async () => root.unmount());
+    resyncVisualizeStates([]);
+    resetVisualizePanelMemory();
+  }
+});
+
+test('gone-only reconnect resync enforces the renderer cache budget even when tabbed states are unchanged', () => {
+  resyncVisualizeStates([]);
+  resetVisualizePanelMemory();
+  // Saturate the 24M budget + 6M trimmable reserve so any unpinned gone-only entry triggers trimming.
+  const unregisterPressure = registerBudgetedCache({
+    name: 'test-gone-resync-pressure',
+    chars: () => 30 * 1024 * 1024,
+    pinned: () => 24 * 1024 * 1024,
+    trim: () => {},
+  });
+  try {
+    resyncVisualizeStates([
+      { sessionId: 'resync-gone-budget', tabs: [], active: null, goneOpens: [{ tab: 'v1', call: 'c1' }] },
+    ]);
+    assert.equal(
+      visualizeStateFor('resync-gone-budget').goneOpens,
+      undefined,
+      'budget enforcement evicts unread gone-only entry installed by resync'
+    );
+    assert.equal(
+      isVisualizeStateRehydrating('resync-gone-budget'),
+      true,
+      'evicted gone-only entry remains rehydratable on revisit'
+    );
+  } finally {
+    unregisterPressure();
+    resyncVisualizeStates([]);
+    resetVisualizePanelMemory();
+  }
+});
+
+test('startup hydration does not resurrect a tab closed by a live event while the initial snapshot is in flight', async (t) => {
+  const React = await import('react');
+  const { act } = React;
+  const { installTestDom } = await import('./test-support/test-dom.mjs');
+  const { dom, root } = installTestDom(t, { rootId: 'root' });
+  resyncVisualizeStates([]);
+  resetVisualizePanelMemory();
+  let pushEvent;
+  let resolveStartup;
+  dom.window.mixdogDesktop = {
+    onVisualizeChanged: (listener) => {
+      pushEvent = listener;
+      return () => {
+        pushEvent = undefined;
+      };
+    },
+    visualizeState: () =>
+      new Promise((resolve) => {
+        resolveStartup = resolve;
+      }),
+  };
+  let available = null;
+  function AvailabilityProbe() {
+    available = useVisualizeAvailable();
+    return null;
+  }
+  try {
+    await act(async () => root.render(React.createElement(AvailabilityProbe)));
+    assert.equal(typeof pushEvent, 'function', 'connect subscribed to live events');
+    assert.equal(typeof resolveStartup, 'function', 'startup snapshot read is pending');
+    assert.equal(available, false);
+
+    // Live close arrives with no goneOpens while the startup snapshot is still in flight.
+    await act(async () => {
+      pushEvent({
+        sessionId: 'boot-close-race',
+        state: { sessionId: 'boot-close-race', tabs: [], active: null },
+      });
+    });
+    assert.deepEqual(
+      visualizeStateFor('boot-close-race').tabs.map((item) => item.id),
+      []
+    );
+    assert.equal(available, false);
+
+    // Older startup snapshot resolves carrying the now-closed tab: must not resurrect it.
+    await act(async () => {
+      resolveStartup([{ sessionId: 'boot-close-race', tabs: [tab], active: 'v1' }]);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    assert.deepEqual(
+      visualizeStateFor('boot-close-race').tabs.map((item) => item.id),
+      [],
+      'closed tab is not resurrected by older startup snapshot'
+    );
+    assert.equal(available, false, 'useVisualizeAvailable stays false');
+  } finally {
+    await act(async () => root.unmount());
+    resyncVisualizeStates([]);
+    resetVisualizePanelMemory();
+  }
 });
 
 test('picking a list entry is a plain panel command that lifts the closed rule', async () => {
@@ -2126,7 +2561,7 @@ test('rehydration reply with zero tabs and retained history cleans up evicted st
       assert.deepEqual(visualizePaneTweaks(sessionId, 'v1', 0), [], 'tweaks released');
       assert.equal(visualizeChoiceProposal(visualizeProposalKey(sessionId, 'v1', 0)), null, 'proposals released');
       assert.deepEqual(visualizeStateFor(sessionId).tabs, []);
-      assert.deepEqual(visualizeStateFor(sessionId).history, history, 'retained history is preserved');
+      assert.equal(visualizeStateFor(sessionId).history, undefined, 'stale history is not retained after tabs close');
     } finally {
       stopEmptied();
       releaseVisualizeSession(sessionId);

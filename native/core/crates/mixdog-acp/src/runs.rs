@@ -226,10 +226,7 @@ impl LeftOut {
 
 /// The name a file part is shown under.
 fn file_name(part: &Value) -> &str {
-    ["filename", "name"]
-        .iter()
-        .find_map(|key| part.get(*key).and_then(Value::as_str).filter(|name| !name.is_empty()))
-        .unwrap_or("attachment")
+    ["filename", "name"].iter().find_map(|key| part.get(*key).and_then(Value::as_str).filter(|name| !name.is_empty())).unwrap_or("attachment")
 }
 
 /// The text of a file that goes into the prompt itself; a longer one is read by the agent from where it is stored.
@@ -360,6 +357,107 @@ pub(crate) async fn prompt_blocks(input: &Value, (images, embedded): (bool, bool
 /// session opened and recorded, its model chosen, and the input sent as a prompt, or, for the wake an agent's own
 /// reply asked for, that reply shown. Every wait in it ends with the turn's cancel or the agent's exit.
 pub async fn serve(agents: &Arc<Agents>, preset: &AgentPreset, request: TurnRequest, surface: Arc<dyn TurnSurface>, context: TurnContext) -> TurnEnd {
+    serve_with_refusal(agents, preset, request, surface, context).await.0
+}
+
+/// Wraps a [`TurnSurface`] to record whether the turn emitted any visible output.
+/// Pre-prompt stages, compaction events, notices, header saves, and hidden commits do not flip the flag.
+#[derive(Clone)]
+struct TrackedSurface {
+    inner: Arc<dyn TurnSurface>,
+    output_produced: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl TrackedSurface {
+    fn mark_output(&self) {
+        self.output_produced.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+#[async_trait]
+impl TurnSurface for TrackedSurface {
+    async fn item_started(&self, item: mixdog_protocol::ThreadItem) -> Result<(), mixdog_core_session::session::run::RunError> {
+        self.mark_output();
+        self.inner.item_started(item).await
+    }
+    async fn delta(&self, item: mixdog_protocol::ItemId, text: String) -> Result<(), mixdog_core_session::session::run::RunError> {
+        self.mark_output();
+        self.inner.delta(item, text).await
+    }
+    async fn text_settled(&self, item: mixdog_protocol::ItemId) -> Result<(), mixdog_core_session::session::run::RunError> {
+        self.inner.text_settled(item).await
+    }
+    async fn reasoning_delta(&self, item: mixdog_protocol::ItemId, text: String) -> Result<(), mixdog_core_session::session::run::RunError> {
+        self.mark_output();
+        self.inner.reasoning_delta(item, text).await
+    }
+    async fn reasoning_completed(&self, item: mixdog_protocol::ItemId, text: String) -> Result<(), mixdog_core_session::session::run::RunError> {
+        self.mark_output();
+        self.inner.reasoning_completed(item, text).await
+    }
+    async fn commit(&self, item: mixdog_core_session::session::ItemCommit) -> Result<(), mixdog_core_session::session::run::RunError> {
+        if item.visible {
+            self.mark_output();
+        }
+        self.inner.commit(item).await
+    }
+    async fn notice(&self, text: String, warn: bool) -> Result<(), mixdog_core_session::session::run::RunError> {
+        self.inner.notice(text, warn).await
+    }
+    async fn context_update(&self, usage: crate::surface::TurnUsage) -> Result<(), mixdog_core_session::session::run::RunError> {
+        self.inner.context_update(usage).await
+    }
+    async fn usage(&self, usage: crate::surface::TurnUsage) -> Result<(), mixdog_core_session::session::run::RunError> {
+        self.inner.usage(usage).await
+    }
+    async fn draft(&self, body: Value) -> Result<(), mixdog_core_session::session::run::RunError> {
+        self.inner.draft(body).await
+    }
+    async fn save_header(&self, change: HeaderChange) -> Result<(), mixdog_core_session::session::run::RunError> {
+        self.inner.save_header(change).await
+    }
+    async fn approve(&self, ask: mixdog_core_api::domain::approval::ApprovalAsk) -> mixdog_protocol::ApprovalResolution {
+        self.inner.approve(ask).await
+    }
+    async fn stage(&self, stage: &str) -> Result<(), mixdog_core_session::session::run::RunError> {
+        self.inner.stage(stage).await
+    }
+    async fn compact_event(&self, event: crate::surface::CompactEvent) -> Result<(), mixdog_core_session::session::run::RunError> {
+        self.inner.compact_event(event).await
+    }
+    async fn call_mark(&self, mark: crate::surface::CallMark) -> Result<(), mixdog_core_session::session::run::RunError> {
+        self.inner.call_mark(mark).await
+    }
+    fn call_epoch(&self) -> u64 {
+        self.inner.call_epoch()
+    }
+    async fn peek_steers(&self) -> Result<Vec<crate::surface::SteerDelivery>, mixdog_core_session::session::run::RunError> {
+        self.inner.peek_steers().await
+    }
+    async fn commit_steers(
+        &self,
+        queued_ids: Vec<mixdog_core_api::ids::QueuedId>,
+        now_ms: i64,
+        cancel: CancellationToken,
+    ) -> Result<Vec<crate::surface::SteerDelivery>, mixdog_core_session::session::run::RunError> {
+        self.inner.commit_steers(queued_ids, now_ms, cancel).await
+    }
+    fn closing(&self) -> Arc<dyn TurnSurface> {
+        Arc::new(Self { inner: self.inner.closing(), output_produced: self.output_produced.clone() })
+    }
+}
+
+async fn serve_with_refusal(
+    agents: &Arc<Agents>,
+    preset: &AgentPreset,
+    request: TurnRequest,
+    surface: Arc<dyn TurnSurface>,
+    context: TurnContext,
+) -> (TurnEnd, bool) {
+    let surface: Arc<dyn TurnSurface> = match &context.output_produced {
+        Some(output_produced) => Arc::new(TrackedSurface { inner: surface, output_produced: output_produced.clone() }),
+        None => surface,
+    };
     let thread = request.thread.clone();
     let mut context = context;
     if context.attachments.is_none() {
@@ -371,9 +469,9 @@ pub async fn serve(agents: &Arc<Agents>, preset: &AgentPreset, request: TurnRequ
         // then has nothing to show, and is never a prompt.
         let session = agents.running(&thread).filter(|running| running.preset.id == preset.id && running.woken() && !running.gone().is_cancelled());
         let Some(session) = session else {
-            return TurnEnd::Completed { text: String::new(), stop_reason: None, tool_calls: 0 };
+            return (TurnEnd::Completed { text: String::new(), stop_reason: None, tool_calls: 0 }, false);
         };
-        return crate::turn::run(&session, surface, Ask::Reply, context).await;
+        return (crate::turn::run(&session, surface, Ask::Reply, context).await, false);
     }
     let (session, prompt) = match begin(agents, preset, request, &surface, &context).await {
         Ok((session, prompt, record)) => {
@@ -382,20 +480,22 @@ pub async fn serve(agents: &Arc<Agents>, preset: &AgentPreset, request: TurnRequ
         }
         // The turn ended before the agent was asked anything: what the agent queued for it is answered here, whatever
         // step of the start it ended at.
-        Err(end) => {
+        Err((end, pre_prompt_refusal)) => {
+            account_learned(agents, preset, &end).await;
             let why = match &end {
                 TurnEnd::Failed { message, .. } => message.as_str(),
                 _ => "the turn was stopped before it started",
             };
             agents.unrun(&thread, why).await;
-            return end;
+            return (end, pre_prompt_refusal);
         }
     };
     let (model, reports) = (context.model.clone(), session.reported_context_reports());
     let end = crate::turn::run(&session, surface.clone(), Ask::Prompt(prompt), context).await;
     // Only a window the agent reported in this turn is the turn's model's.
     if let Some(reported) = session.context_use().filter(|_| session.reported_context_reports() > reports) {
-        agents.window_reported(preset, &model, reported.size).await;
+        let capped = preset.quirks.effective_context_window_for(&model, session.models().current.as_deref(), reported.size);
+        agents.window_reported(preset, &model, capped).await;
     }
     // The agent connects to the session's tool server while it opens the session, or after it when that attempt took
     // too long: one that has not by the end of a turn it answered works with its own tools only.
@@ -414,7 +514,7 @@ pub async fn serve(agents: &Arc<Agents>, preset: &AgentPreset, request: TurnRequ
         agents.end_process(&thread);
         let _ = surface.save_header(unset_session_change()).await;
     }
-    end
+    (end, false)
 }
 
 /// What a turn of `preset`'s agent, a session's or a one-off question's, learned of the account is the agent's state
@@ -464,19 +564,22 @@ async fn begin(
     request: TurnRequest,
     surface: &Arc<dyn TurnSurface>,
     context: &TurnContext,
-) -> Result<(Arc<crate::session::AgentSession>, Vec<Value>, Option<HeaderChange>), TurnEnd> {
+) -> Result<(Arc<crate::session::AgentSession>, Vec<Value>, Option<HeaderChange>), (TurnEnd, bool)> {
     let TurnRequest { thread, cwd, stored, rules, input, conversation, attachments } = request;
-    let refused = |refusal: Refusal| TurnEnd::Failed { message: refusal.message(preset), code: refusal.signed_out().then_some(AUTH_REQUIRED), reported: false };
+    let refused = |refusal: Refusal| {
+        let eligible = !matches!(refusal, Refusal::Closed);
+        (TurnEnd::Failed { message: refusal.message(preset), code: refusal.signed_out().then_some(AUTH_REQUIRED), reported: false }, eligible)
+    };
     // A model of another preset of the agent is never asked of this one: the route goes nowhere until it names that preset.
     if let Some(why) = agents.refuses_model(preset, &context.model) {
-        return Err(TurnEnd::Failed { message: why, code: None, reported: false });
+        return Err((TurnEnd::Failed { message: why, code: None, reported: false }, true));
     }
     // Reject prompts with no sendable candidate parts before compaction, opening a new session, or running handover.
     let known_images = agents.running(&thread).filter(|running| running.preset.id == preset.id).map_or(true, |running| running.images);
     if !has_candidate_parts(&input, known_images) {
         let (_, left_out, _) = prompt_blocks(&input, (known_images, false), attachments.as_ref()).await;
         left_out.notify(surface.as_ref(), &preset.label, known_images).await;
-        return Err(TurnEnd::Failed { message: format!("Nothing of this message could be sent to {}.", preset.label), code: None, reported: false });
+        return Err((TurnEnd::Failed { message: format!("Nothing of this message could be sent to {}.", preset.label), code: None, reported: false }, false));
     }
     // The session compacts where a provider's does: before the request is sent, once the context the last turn left
     // has reached the session's trigger. The agent owns the context, so the compaction is the one a manual Compact
@@ -498,7 +601,7 @@ async fn begin(
             // is not to be continued past a compaction that may have been stored.
             () = context.cancel.cancelled() => {
                 agents.end_process(&thread);
-                return Err(TurnEnd::Interrupted);
+                return Err((TurnEnd::Interrupted, false));
             }
             made = conversation.compact() => made,
         };
@@ -545,9 +648,9 @@ async fn begin(
             } else if preset.scope == ProcessScope::Shared && stored.as_ref().is_some_and(|stored| agents.is_abandoned(preset, &stored.session_id)) {
                 unset_session(surface).await;
             }
-            return Err(TurnEnd::Interrupted);
+            return Err((TurnEnd::Interrupted, false));
         }
-        resolved = agents.resolve_running(&thread, preset, &cwd, stored.clone()) => match resolved {
+        resolved = agents.resolve_running(&thread, preset, &cwd, stored.clone(), rules.as_deref()) => match resolved {
             Ok(resolved) => resolved,
             Err(refusal) => return Err(refused(refusal)),
         },
@@ -562,7 +665,7 @@ async fn begin(
             }
             let session = tokio::select! {
                 biased;
-                () = context.cancel.cancelled() => return Err(TurnEnd::Interrupted),
+                () = context.cancel.cancelled() => return Err((TurnEnd::Interrupted, false)),
                 opened = agents.open_session(&thread, preset, cwd, open_stored, rules, abandoned) => match opened {
                     Ok(session) => session,
                     Err(refusal) => return Err(refused(refusal)),
@@ -582,7 +685,7 @@ async fn begin(
             session.close().await;
             agents.end_process(&thread);
         }
-        return Err(TurnEnd::Failed { message: format!("Nothing of this message could be sent to {}.", preset.label), code: None, reported: false });
+        return Err((TurnEnd::Failed { message: format!("Nothing of this message could be sent to {}.", preset.label), code: None, reported: false }, false));
     }
     // What rides the prompt ahead of the user's own blocks.
     let mut lead: Vec<String> = Vec::new();
@@ -608,7 +711,7 @@ async fn begin(
                     biased;
                     () = context.cancel.cancelled() => {
                         cancel_started_session(agents, preset, &thread, &session.session_id, stored.as_ref(), surface).await;
-                        return Err(TurnEnd::Interrupted);
+                        return Err((TurnEnd::Interrupted, false));
                     }
                     handed = conversation.hand_over() => handed,
                 };
@@ -633,11 +736,10 @@ async fn begin(
             Ok(None) => {}
             Err(why) => {
                 agents.end_process(&thread);
-                return Err(TurnEnd::Failed {
-                    message: format!("The conversation could not be summarized for {}: {why}", preset.label),
-                    code: None,
-                    reported: false,
-                });
+                return Err((
+                    TurnEnd::Failed { message: format!("The conversation could not be summarized for {}: {why}", preset.label), code: None, reported: false },
+                    false,
+                ));
             }
         }
     }
@@ -655,7 +757,7 @@ async fn begin(
             // A request the agent never answers leaves its process in a state nobody knows: it is not kept.
             () = context.cancel.cancelled() => {
                 cancel_started_session(agents, preset, &thread, &session.session_id, stored.as_ref(), surface).await;
-                return Err(TurnEnd::Interrupted);
+                return Err((TurnEnd::Interrupted, false));
             }
             selected = session.select_model(&model) => selected,
         };
@@ -693,6 +795,8 @@ pub struct AgentTurn {
     pub attachments: Arc<dyn Attachments>,
     /// The hook of the job that owns a sub-agent's turn: told each tool result the turn gains.
     pub on_tool_result: Option<crate::turn::ToolResultHook>,
+    /// Set once the turn emits any visible output (text, reasoning, tool call, image card, or visible row).
+    pub output_produced: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
 
 /// The folders the agent writes what it makes in: the home Mixdog keeps for an agent it installs, and the agent/user
@@ -712,7 +816,22 @@ fn agent_homes(agents: &Agents, preset: &AgentPreset) -> Vec<AbsPath> {
 
 /// Runs `turn` on `preset`'s agent to the run's outcome.
 pub async fn drive(agents: &Arc<Agents>, preset: &AgentPreset, now_ms: Arc<dyn Fn() -> i64 + Send + Sync>, turn: AgentTurn) -> RunOutcome {
-    let AgentTurn { thread, turn, header, input, rules, surface, cancel, progress, transcript, calls, conversation, attachments, on_tool_result } = turn;
+    let AgentTurn {
+        thread,
+        turn,
+        header,
+        input,
+        rules,
+        surface,
+        cancel,
+        progress,
+        transcript,
+        calls,
+        conversation,
+        attachments,
+        on_tool_result,
+        output_produced,
+    } = turn;
     let Some(cwd) = header.get("cwd").and_then(Value::as_str).and_then(AbsPath::new) else {
         return failed("The session has no working folder to start the agent in.".to_owned(), "acpAgent");
     };
@@ -736,10 +855,12 @@ pub async fn drive(agents: &Arc<Agents>, preset: &AgentPreset, now_ms: Arc<dyn F
         selected_window,
         attachments: Some(attachments),
         pictures: Some(pictures),
+        transcript: transcript.clone(),
+        output_produced,
     };
     let stop = context.cancel.clone();
-    match serve(agents, preset, request, surface, context).await {
-        TurnEnd::Failed { message, code, reported } => {
+    match serve_with_refusal(agents, preset, request, surface, context).await {
+        (TurnEnd::Failed { message, code, reported }, pre_prompt_refusal) => {
             // Only what the agent itself reported for the prompt is the account's quota speaking; a lost session is not.
             let current = agents.running(&thread_id).and_then(|session| session.models().current);
             let now_ms = clock();
@@ -749,9 +870,14 @@ pub async fn drive(agents: &Arc<Agents>, preset: &AgentPreset, now_ms: Arc<dyn F
                 now_ms,
                 stop: &stop,
             });
-            RunOutcome::Failed(agents.failure(preset, message, code, json!({ "reason": "acpAgent", "code": code }), check).await)
+            let data = if pre_prompt_refusal {
+                json!({ "reason": "acpAgent", "code": code, "prePromptRefusal": true })
+            } else {
+                json!({ "reason": "acpAgent", "code": code })
+            };
+            RunOutcome::Failed(agents.failure(preset, message, code, data, check).await)
         }
-        end => outcome(end, transcript.as_ref()),
+        (end, _) => outcome(&preset.provider, end, transcript.as_ref()),
     }
 }
 
@@ -928,6 +1054,8 @@ pub async fn ask_once<'a>(
             selected_window: None,
             attachments: None,
             pictures: None,
+            transcript: None,
+            output_produced: None,
         };
         let end = crate::turn::run(&session, Arc::new(surface.clone()), Ask::Prompt(blocks), context).await;
         account_learned(agents, preset, &end).await;
@@ -954,7 +1082,7 @@ pub async fn ask_once<'a>(
     answered
 }
 
-fn outcome(end: TurnEnd, transcript: Option<&TurnTranscript>) -> RunOutcome {
+fn outcome(provider: &str, end: TurnEnd, transcript: Option<&TurnTranscript>) -> RunOutcome {
     match end {
         TurnEnd::Completed { text, stop_reason, tool_calls } => {
             if let Some(transcript) = transcript {
@@ -978,7 +1106,9 @@ fn outcome(end: TurnEnd, transcript: Option<&TurnTranscript>) -> RunOutcome {
         TurnEnd::Failed { message, code, .. } => {
             RunOutcome::Failed(TurnError { message, data: json!({ "reason": "acpAgent", "code": code }), provider_error: None })
         }
-        TurnEnd::Refused { message } => RunOutcome::Failed(TurnError { message, data: json!({ "reason": "acpAgentAccount" }), provider_error: None }),
+        TurnEnd::Refused { message } => {
+            RunOutcome::Failed(mixdog_core_session::session::failure_record::auth_turn_error(message, provider, json!({ "reason": "acpAgentAccount" })))
+        }
     }
 }
 
@@ -988,4 +1118,73 @@ fn outcome(end: TurnEnd, transcript: Option<&TurnTranscript>) -> RunOutcome {
 pub fn loop_turn(agents: &Agents, thread: &ThreadId, header: &Header) -> Option<HeaderChange> {
     agents.end_process(thread);
     header.contains_key(SESSION_KEY).then(unset_session_change)
+}
+
+#[cfg(test)]
+mod output_tracking_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[tokio::test]
+    async fn tracked_surface_marks_visible_output_and_ignores_compaction_and_hidden_commits() {
+        let produced = Arc::new(AtomicBool::new(false));
+        let surface = TrackedSurface { inner: Arc::new(Unshown::default()), output_produced: produced.clone() };
+
+        surface.stage("compacting").await.unwrap();
+        surface.compact_event(pass(Due { used: 10_000, trigger: 8_000 }, 12, CompactStatus::Compacted)).await.unwrap();
+        surface.notice("info".into(), false).await.unwrap();
+        surface.save_header(unset_session_change()).await.unwrap();
+        surface
+            .commit(mixdog_core_session::session::ItemCommit {
+                iid: mixdog_protocol::ItemId::from("hidden-1"),
+                role: Some("user".into()),
+                model: true,
+                visible: false,
+                body: json!({ "role": "user", "content": "<skill>hidden</skill>" }),
+                prompt: None,
+            })
+            .await
+            .unwrap();
+        surface.call_mark(crate::surface::CallMark::ToolPhaseCompleted).await.unwrap();
+        assert!(!produced.load(Ordering::SeqCst), "pre-prompt compaction, notices, header saves, and hidden rows must not mark output");
+
+        // Visible commit (such as an image card from `show_picture`) flips output_produced.
+        surface
+            .commit(mixdog_core_session::session::ItemCommit {
+                iid: mixdog_protocol::ItemId::from("card-1"),
+                role: Some("assistant".into()),
+                model: true,
+                visible: true,
+                body: json!({ "role": "assistant", "content": "", "tool_calls": [{ "id": "c1", "name": "media", "arguments": {} }] }),
+                prompt: None,
+            })
+            .await
+            .unwrap();
+        assert!(produced.load(Ordering::SeqCst), "visible commit must mark output_produced");
+
+        // Text delta, reasoning delta, reasoning completed, and closing visible commit each mark output_produced.
+        for kind in ["delta", "reasoning_delta", "reasoning_completed", "closing_commit"] {
+            let flag = Arc::new(AtomicBool::new(false));
+            let s = TrackedSurface { inner: Arc::new(Unshown::default()), output_produced: flag.clone() };
+            match kind {
+                "delta" => s.delta(mixdog_protocol::ItemId::from("i1"), "hi".into()).await.unwrap(),
+                "reasoning_delta" => s.reasoning_delta(mixdog_protocol::ItemId::from("i1"), "think".into()).await.unwrap(),
+                "reasoning_completed" => s.reasoning_completed(mixdog_protocol::ItemId::from("i1"), "done".into()).await.unwrap(),
+                "closing_commit" => s
+                    .closing()
+                    .commit(mixdog_core_session::session::ItemCommit {
+                        iid: mixdog_protocol::ItemId::from("i2"),
+                        role: Some("tool".into()),
+                        model: true,
+                        visible: true,
+                        body: json!({ "role": "tool", "content": "ok" }),
+                        prompt: None,
+                    })
+                    .await
+                    .unwrap(),
+                _ => unreachable!(),
+            }
+            assert!(flag.load(Ordering::SeqCst), "{kind} must mark output_produced");
+        }
+    }
 }

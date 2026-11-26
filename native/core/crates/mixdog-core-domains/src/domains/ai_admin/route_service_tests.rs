@@ -303,3 +303,69 @@ async fn a_control_session_starts_on_a_lead_route_that_cannot_be_readied() {
     assert_eq!(log.lock().unwrap().refreshes.len(), 1, "the route was offered to be readied");
     assert_eq!(writer.route(&thread), obj(&case["live"]), "the route stands as it is");
 }
+
+#[tokio::test]
+async fn session_only_route_resolution_preserves_route_fallbacks_and_source_including_clears() {
+    let thread = ThreadId::from("t");
+    let case = json!({
+        "config": {},
+        "live": { "provider": "openai", "model": "gpt-5" },
+        "meta": { "id": "gpt-5", "provider": "openai", "contextWindow": 200000 }
+    });
+    let (service, writer, _log, _dir) = rig(&case).await;
+    let options = super::route_service::SetRouteOptions { session_only: true, ..Default::default() };
+
+    let next = obj(&json!({
+        "provider": "openai",
+        "model": "gpt-5",
+        "routeFallbacks": [{ "provider": "anthropic", "model": "claude-sonnet" }],
+        "routeFallbackSource": { "preset": "worker" }
+    }));
+    service.set_route(&thread, &next, &options).await.expect("session-only route set");
+    let route = writer.route(&thread);
+    assert_eq!(route.get("routeFallbacks"), Some(&json!([{ "provider": "anthropic", "model": "claude-sonnet" }])));
+    assert_eq!(route.get("routeFallbackSource"), Some(&json!({ "preset": "worker" })));
+
+    let clear = obj(&json!({
+        "provider": "openai",
+        "model": "gpt-5",
+        "routeFallbacks": [],
+        "routeFallbackSource": null
+    }));
+    service.set_route(&thread, &clear, &options).await.expect("session-only fallback clear");
+    let cleared = writer.route(&thread);
+    assert_eq!(cleared.get("routeFallbacks"), Some(&json!([])));
+    assert_eq!(cleared.get("routeFallbackSource"), Some(&Value::Null));
+}
+
+#[tokio::test]
+async fn session_only_explicit_null_context_tokens_does_not_restore_model_settings() {
+    let thread = ThreadId::from("t");
+    for meta in [json!({ "id": "gpt-5", "provider": "openai", "contextWindow": 200000 }), json!({ "id": "gpt-5", "provider": "openai" })] {
+        let case = json!({
+            "config": {
+                "modelSettings": {
+                    "openai/gpt-5": { "contextTokens": 100000 }
+                }
+            },
+            "live": { "provider": "openai", "model": "gpt-5", "contextTokens": 100000 },
+            "meta": meta
+        });
+        let (service, writer, _log, _dir) = rig(&case).await;
+        let options = super::route_service::SetRouteOptions { session_only: true, ..Default::default() };
+        let next = obj(&json!({
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": null
+        }));
+        service.set_route(&thread, &next, &options).await.expect("explicit clear succeeds");
+        let route = writer.route(&thread);
+        assert_eq!(route.get("contextTokens"), Some(&Value::Null), "explicit null clear must survive two-pass resolution without restoring modelSettings");
+        assert!(route.get("contextPercent").is_none(), "no saved percent should be restored");
+        assert_eq!(
+            service.config.agent()["modelSettings"]["openai/gpt-5"]["contextTokens"],
+            json!(100000),
+            "session-only clear must leave shared modelSettings untouched"
+        );
+    }
+}

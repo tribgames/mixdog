@@ -40,7 +40,7 @@ use crate::session::AgentSession;
 use crate::session::Program;
 use crate::session::Routed;
 use crate::session::close_session;
-use crate::session::initialize;
+use crate::session::initialize_with;
 use crate::session::launch;
 use crate::session::not_offered;
 use crate::session::unheld;
@@ -232,7 +232,7 @@ impl SharedServer {
                 return Ok(None);
             }
             () = cancel.cancelled() => return Err(abort_init(connection)),
-            capabilities = initialize(&connection) => match capabilities {
+            capabilities = initialize_with(&connection, preset.quirks.fs_read_text_file) => match capabilities {
                 Ok(capabilities) => capabilities,
                 Err(fault) => {
                     agents.kill_and_track("acp.shared.init_fail", connection);
@@ -402,6 +402,40 @@ impl SharedServer {
         }
     }
 
+    /// Closes a freshly created remote session that finished `session/new` on this shared server after the
+    /// caller timed out or cancelled before consuming it.
+    pub(crate) fn close_unregistered(self: &Arc<Self>, session_id: String, closes: bool) {
+        if !closes {
+            return;
+        }
+        let skip = {
+            let state = lock(&self.state);
+            state.retired || open_in(&state, &session_id).is_some()
+        };
+        let stopping = skip
+            || self.retiring.is_cancelled()
+            || self.connection.exited().is_cancelled()
+            || self.agents.upgrade().is_some_and(|agents| agents.stopping.load(Ordering::SeqCst));
+        if stopping || tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        let server = self.clone();
+        drop(mixdog_rt::spawn("acp.shared.close_unregistered", TaskClass::Work, async move {
+            let skip = {
+                let state = lock(&server.state);
+                state.retired || open_in(&state, &session_id).is_some()
+            };
+            if skip || server.retiring.is_cancelled() || server.connection.exited().is_cancelled() {
+                return;
+            }
+            tokio::select! {
+                biased;
+                () = server.retiring.cancelled() => {}
+                () = close_session(&server.connection, &session_id) => {}
+            }
+        }));
+    }
+
     /// A server that serves no session and is opening none is retired: it is closed, and the next session starts a new
     /// one. It holds a process of the agent's for each session it opened, until it exits.
     fn settle(self: &Arc<Self>) {
@@ -467,9 +501,13 @@ impl SharedServer {
 
     /// Hands `message` to `session`, the open session it is of: a read is answered from that session's folder alone, in a
     /// task of its own so the other sessions' messages do not wait for the file; the rest the session takes.
-    fn hand(&self, session: &AgentSession, message: Incoming) -> Option<Routed> {
+    fn hand(self: &Arc<Self>, session: &AgentSession, message: Incoming) -> Option<Routed> {
         match message {
             Incoming::Request { id, method, params } if method == "fs/read_text_file" => {
+                if !session.preset.quirks.fs_read_text_file {
+                    self.answer(id, Err(not_offered(&method)), "shared unsupported fs/read_text_file refusal timed out on stalled stdin");
+                    return None;
+                }
                 let (connection, files, cwd) = (self.connection.clone(), self.files.clone(), session.cwd.clone());
                 let allowed = session.attached_files();
                 drop(mixdog_rt::spawn("acp.shared.read", TaskClass::Work, async move {
@@ -544,6 +582,20 @@ impl SharedServer {
         for session in sessions {
             session.gone.cancel();
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_server_for(connection: Arc<Connection>, files: Arc<dyn TextFiles>, preset: &str) -> Arc<Self> {
+        Arc::new(Self {
+            connection,
+            capabilities: json!({}),
+            preset: preset.to_owned(),
+            epoch: 0,
+            agents: std::sync::Weak::new(),
+            files,
+            retiring: CancellationToken::new(),
+            state: Mutex::default(),
+        })
     }
 }
 
@@ -862,9 +914,11 @@ impl Agents {
     }
 
     /// The daemon's start: clears away what earlier runs left behind and nothing uses now (the temporary folders of servers
-    /// of daemons gone since, builds that are not the installed one, the staging homes of sign-ins that did not end).
+    /// of daemons gone since, stale per-search sandbox folders, builds that are not the installed one, the staging homes of
+    /// sign-ins that did not end).
     pub async fn sweep_leftovers(&self) {
         self.sweep_temps().await;
+        self.sweep_search_sandboxes().await;
         self.sweep_builds().await;
     }
 
@@ -1334,5 +1388,86 @@ mod tests {
         assert!(killed.load(Ordering::SeqCst), "stalled Routed::Refuse must break/kill the wedged shared server");
         assert!(sibling.gone().is_cancelled(), "retiring wedged shared server ends sessions on it so siblings fail fast");
         assert!(lock(&agents.shared).get("antigravity").is_none(), "wedged shared server must be evicted from active slot");
+    }
+
+    #[tokio::test]
+    async fn shared_router_rejects_fs_read_text_file_when_quirk_disabled() {
+        struct SecretFiles(Arc<std::sync::atomic::AtomicBool>);
+
+        #[async_trait::async_trait]
+        impl TextFiles for SecretFiles {
+            async fn read(&self, _: AbsPath) -> Result<String, String> {
+                self.0.store(true, Ordering::SeqCst);
+                Ok("TOP_SECRET".into())
+            }
+            async fn resolved(&self, path: AbsPath) -> Result<AbsPath, String> {
+                Ok(path)
+            }
+            async fn create(&self, _: AbsPath, _: String) -> Result<(), String> {
+                Ok(())
+            }
+        }
+
+        let _ = mixdog_rt::testing::tokens();
+        let killed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let delivered = Arc::new(Mutex::new(Vec::new()));
+        let delivered_notify = Arc::new(tokio::sync::Notify::new());
+        let processes: Arc<dyn mixdog_core_api::domain::process::ProcessManager> = Arc::new(SharedTestProcesses {
+            killed: killed.clone(),
+            gate_prompts: false,
+            prompt_started: Arc::new(tokio::sync::Notify::new()),
+            drain_gate: Arc::new(tokio::sync::Notify::new()),
+            delivered: delivered.clone(),
+            delivered_notify: delivered_notify.clone(),
+        });
+        let cwd = AbsPath::new(std::env::current_dir().expect("cwd")).expect("abs cwd");
+        let (connection, _rx) = Connection::start(
+            processes.clone(),
+            crate::connection::Launch { program: "fake".into(), args: Vec::new(), env: Vec::new(), env_remove: Vec::new(), cwd: cwd.clone() },
+        )
+        .await
+        .expect("connection");
+        let agents = test_agents(processes);
+        let read_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let server = Arc::new(SharedServer {
+            connection,
+            capabilities: json!({}),
+            preset: "antigravity".into(),
+            epoch: 0,
+            agents: Arc::downgrade(&agents),
+            files: Arc::new(SecretFiles(read_called.clone())),
+            retiring: CancellationToken::new(),
+            state: Mutex::default(),
+        });
+        let session = AgentSession::test_shared_session_for(server.clone(), "sess-search");
+        assert!(!session.preset.quirks.fs_read_text_file);
+        server.register(&session);
+
+        let target_path = cwd.as_path().join("secret.txt").to_string_lossy().into_owned();
+        server
+            .deliver(Incoming::Request {
+                id: json!(55),
+                method: "fs/read_text_file".into(),
+                params: json!({ "sessionId": "sess-search", "path": target_path }),
+            })
+            .await;
+
+        let reply: Value = mixdog_rt::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let wait = delivered_notify.notified();
+                tokio::pin!(wait);
+                wait.as_mut().enable();
+                if let Some(line) = delivered.lock().unwrap().iter().find(|line| line.contains("\"id\":55")).cloned() {
+                    return serde_json::from_str(line.trim()).expect("json-rpc reply");
+                }
+                wait.await;
+            }
+        })
+        .await
+        .expect("shared router must respond to disallowed fs/read_text_file");
+        assert_eq!(reply["id"], 55);
+        assert_eq!(reply["error"]["code"], -32601, "shared router must reject fs/read_text_file as not offered: {reply}");
+        assert!(!read_called.load(Ordering::SeqCst), "shared server must not read files when session disables fs_read_text_file");
+        assert!(!killed.load(Ordering::SeqCst), "refusing fs/read_text_file must keep shared server alive");
     }
 }

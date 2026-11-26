@@ -817,13 +817,13 @@ async fn a_request_every_account_refuses_hands_the_turn_to_the_routes_agent_fall
     let (world, id, handle) =
         falling_back_to_the_agent(&agent, OutFrom::new(Vec::new(), 0), json!({ "provider": "primary", "model": "m1", "agent": "lead" })).await;
 
-    start_turn(&id, &handle, "review the change").await;
+    start_turn(&id, &handle, "review the change today").await;
     until(&world, &handle, "the agent's turn", || !lock(&agent.turns).is_empty()).await;
 
     let (header, input) = lock(&agent.turns)[0].clone();
     assert_eq!((provider_of(&header), header["model"].as_str()), (AGENT_ROUTE, Some("gem")));
     let sent = prompt_text(&input);
-    assert!(sent.starts_with("review the change"), "{sent}");
+    assert!(sent.starts_with("review the change today"), "{sent}");
     assert_eq!(sent.matches("# Current Time").count(), 1, "the input carries the turn's reminders once: {sent}");
     let header = handle.live_header().header();
     assert_eq!(provider_of(&header), AGENT_ROUTE);
@@ -929,10 +929,8 @@ async fn mid_turn_tool_only_hand_over_uses_real_compactor_and_keeps_input_before
         })
         .expect("compacted record stored");
     let user_pos = replacement.iter().position(|entry| prompt_text(&entry.body).starts_with("review the change")).expect("turn input kept");
-    let call_pos = replacement
-        .iter()
-        .position(|entry| entry.body["role"] == "assistant" && entry.body.to_string().contains("\"list\""))
-        .expect("loop tool-call row kept");
+    let call_pos =
+        replacement.iter().position(|entry| entry.body["role"] == "assistant" && entry.body.to_string().contains("\"list\"")).expect("loop tool-call row kept");
     let tool_pos = replacement.iter().position(|entry| entry.body["role"] == "tool").expect("loop tool-result row kept");
     assert!(user_pos < call_pos && call_pos < tool_pos, "input must precede loop tool rows: {replacement:?}");
 }
@@ -945,10 +943,8 @@ async fn chained_fallback_on_fresh_session_treats_turn_as_having_no_prior_conver
     OUTSIDE.with(|slot| *slot.borrow_mut() = Some(agent.clone()));
     let primary = OutFrom::named("primary", Vec::new(), 0);
     let secondary = OutFrom::named("secondary", Vec::new(), 0);
-    let providers = GatedProviders::new(vec![
-        ("primary", primary.clone() as Arc<dyn ProviderAdapter>),
-        ("secondary", secondary.clone() as Arc<dyn ProviderAdapter>),
-    ]);
+    let providers =
+        GatedProviders::new(vec![("primary", primary.clone() as Arc<dyn ProviderAdapter>), ("secondary", secondary.clone() as Arc<dyn ProviderAdapter>)]);
     let config = json!({
         "default": "lead-route",
         "presets": [{
@@ -984,8 +980,12 @@ async fn chained_fallback_on_fresh_session_treats_turn_as_having_no_prior_conver
     until(&world, &handle, "the agent's turn", || !lock(&agent.turns).is_empty()).await;
 
     assert_eq!(*lock(&agent.hands_over_results), [Ok(None)], "fresh session has no prior conversation to summarize");
+    assert!(lock(&world.rig.compaction.heir_seen).is_empty(), "fresh session must not invoke compactor");
     let records = world.rig.store.records(&id);
-    assert!(!records.iter().any(|(_, record)| matches!(record, Record::Compacted(_))), "no spurious compaction record: {records:?}");
+    assert!(
+        !records.iter().any(|(_, record)| matches!(record, Record::Compacted(c) if c.silent != Some(true) || c.dropped_count != Some(0))),
+        "no spurious compaction record: {records:?}"
+    );
 }
 
 /// Stopping an ACP fallback turn after an earlier hop already completed tool work does not rewind the turn's prompt.
@@ -999,10 +999,8 @@ async fn stopping_acp_fallback_after_earlier_hop_and_tool_round_does_not_rewind_
     ];
     let primary = OutFrom::named("primary", Vec::new(), 0);
     let secondary = OutFrom::named("secondary", vec![round], 1);
-    let providers = GatedProviders::new(vec![
-        ("primary", primary.clone() as Arc<dyn ProviderAdapter>),
-        ("secondary", secondary.clone() as Arc<dyn ProviderAdapter>),
-    ]);
+    let providers =
+        GatedProviders::new(vec![("primary", primary.clone() as Arc<dyn ProviderAdapter>), ("secondary", secondary.clone() as Arc<dyn ProviderAdapter>)]);
     let config = json!({
         "default": "lead-route",
         "presets": [{
@@ -1082,7 +1080,7 @@ async fn mid_turn_hand_over_preserves_todo_guards_and_finished_todo_list() {
         None,
         Some(vec![named("list"), named("edit")]),
         Arc::new(MockFileService::default()),
-        false,
+        true,
         Arc::new(Fixed),
         Arc::new(Config),
         false,
@@ -1090,20 +1088,21 @@ async fn mid_turn_hand_over_preserves_todo_guards_and_finished_todo_list() {
         Some(routed(providers, config.clone())),
     )
     .await;
-    let (id, handle) = started_thread(&world, json!({ "provider": "primary", "model": "m1", "agent": "lead" })).await;
+    let (id, handle) =
+        started_thread(&world, json!({ "provider": "primary", "model": "m1", "agent": "lead", "tools": [{ "name": "list" }, { "name": "edit" }] })).await;
     start_turn(&id, &handle, "edit then hand over").await;
     until(&world, &handle, "the agent's turn", || !lock(&agent.turns).is_empty()).await;
     assert_eq!(handle.live_header().header()["todoCheck"]["staleMutations"], json!(1), "{:?}", handle.live_header().header()["todoCheck"]);
 
     // Part 2: a todo list finished during the loop half is not cleared by a second `start_turn(true)` on hand-over.
-    struct FinishTodo(ToolSpec, Arc<std::sync::OnceLock<(ThreadId, Arc<dyn TodoStore>)>>);
+    struct FinishTodo(ToolSpec, Arc<std::sync::OnceLock<Arc<mixdog_core_session::session::testing::TestTodos>>>);
     #[async_trait]
     impl Tool for FinishTodo {
         fn spec(&self) -> &ToolSpec {
             &self.0
         }
         async fn call(&self, _: &ToolContext, _: JsonValue) -> ToolOutcome {
-            let (thread, store) = self.1.get().expect("todo store wired");
+            let todos = self.1.get().expect("todo store wired");
             let done = TodoList {
                 phases: vec![TodoPhase {
                     name: "Work".to_owned(),
@@ -1111,7 +1110,7 @@ async fn mid_turn_hand_over_preserves_todo_guards_and_finished_todo_list() {
                 }],
                 updated_at_ms: 1,
             };
-            store.update(thread, &mut |_| Ok(done.clone())).await.expect("update todos");
+            *lock(&todos.0) = done;
             Ok(ToolOutput { parts: vec![ToolPart::Text("finished".into())], ..ToolOutput::default() })
         }
     }
@@ -1147,7 +1146,7 @@ async fn mid_turn_hand_over_preserves_todo_guards_and_finished_todo_list() {
         None,
         Some(vec![named("list"), finish_tool]),
         Arc::new(MockFileService::default()),
-        false,
+        true,
         Arc::new(Fixed),
         Arc::new(Config),
         false,
@@ -1155,10 +1154,202 @@ async fn mid_turn_hand_over_preserves_todo_guards_and_finished_todo_list() {
         Some(routed(providers, config)),
     )
     .await;
-    let (id, handle) = started_thread(&world, json!({ "provider": "primary", "model": "m1", "agent": "lead" })).await;
-    let _ = finish_slot.set((id.clone(), world.rig.todos.clone() as Arc<dyn TodoStore>));
+    let (id, handle) =
+        started_thread(&world, json!({ "provider": "primary", "model": "m1", "agent": "lead", "tools": [{ "name": "list" }, { "name": "finish_todo" }] }))
+            .await;
+    let _ = finish_slot.set(world.rig.todos.clone());
     start_turn(&id, &handle, "finish todos then hand over").await;
     until(&world, &handle, "the agent's turn", || !lock(&agent.turns).is_empty()).await;
     let remaining = world.rig.todos.read(&id).await;
     assert_eq!(remaining.phases.len(), 1, "finished todo list must not be cleared on mid-turn hand-over: {remaining:?}");
+}
+
+/// Outside-agent turns preload explicit skills (`$demo-skill`), record `appliedSkills` on the input row, commit the
+/// hidden skill context/body rows, and include the loaded `<skill>` body in the prompt handed to the agent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn outside_turn_preloads_explicit_skills_records_applied_and_places_body() {
+    struct MockSkillTool(ToolSpec);
+    #[async_trait]
+    impl Tool for MockSkillTool {
+        fn spec(&self) -> &ToolSpec {
+            &self.0
+        }
+        async fn call(&self, _: &ToolContext, args: JsonValue) -> ToolOutcome {
+            let name = args["name"].as_str().unwrap_or_default();
+            Ok(ToolOutput {
+                parts: vec![ToolPart::Text(format!("Loaded skill: {name}"))],
+                follow_up_messages: vec![mixdog_core_api::domain::tool::FollowUpMessage {
+                    text: format!("<skill>\n<name>{name}</name>\nFollow demo-skill rules.\n</skill>"),
+                    meta: None,
+                }],
+                ..ToolOutput::default()
+            })
+        }
+    }
+    let skill_tool: Arc<dyn Tool> = Arc::new(MockSkillTool(ToolSpec {
+        name: "Skill".into(),
+        title: None,
+        trigger: None,
+        public: true,
+        aliases: Vec::new(),
+        description: "Skill".into(),
+        input_schema: json!({ "type": "object" }),
+        annotations: ToolAnnotations::default(),
+        parallel_safe: true,
+        exclusive_with: Vec::new(),
+    }));
+    let agent = Arc::new(Agent::default());
+    OUTSIDE.with(|slot| *slot.borrow_mut() = Some(agent.clone()));
+    let world =
+        turn_world_full(scripted(&[]), Arc::new(NoMcp), Vec::new(), false, None, Some(vec![skill_tool]), Arc::new(MockFileService::default()), true).await;
+    let header = json!({
+        "provider": "outside",
+        "model": "default",
+        "tools": [{ "name": "Skill" }],
+        "availableSkills": ["demo-skill"],
+    });
+    let (id, handle) = started_thread(&world, header).await;
+
+    start_turn(&id, &handle, "please use $demo-skill here").await;
+    until(&world, &handle, "the agent's turn with preloaded skill", || !lock(&agent.turns).is_empty()).await;
+
+    let sent = prompt_text(&lock(&agent.turns)[0].1);
+    assert!(sent.contains("<skill>\n<name>demo-skill</name>\nFollow demo-skill rules.\n</skill>"), "{sent}");
+    let records = world.rig.store.records(&id);
+    let has_skill_row = records.iter().any(|(_, record)| {
+        matches!(
+            record,
+            Record::Item(item)
+                if matches!(
+                    &item.body,
+                    Slot::Inline(body)
+                        if body.get("meta").and_then(Value::as_str) == Some("skill")
+                            || body.pointer("/meta/source").and_then(Value::as_str) == Some("skill")
+                )
+        )
+    });
+    assert!(has_skill_row, "loaded skill body must be persisted as a sourced skill row: {records:?}");
+    let has_applied = records.iter().any(|(_, record)| {
+        matches!(
+            record,
+            Record::Amend(amend)
+                if matches!(&amend.body, Slot::Inline(body) if body.pointer("/meta/transcript/appliedSkills") == Some(&json!(["demo-skill"])))
+        )
+    });
+    assert!(has_applied, "input row must record appliedSkills: {records:?}");
+}
+
+/// Outside-agent turns run the Todo completion audit (`guards.completion_reminder`) when unfinished todos remain at
+/// turn completion, injecting a continuation round until the agent finishes or the guard stops reminding.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn outside_turn_runs_completion_reminder_on_incomplete_todos() {
+    use mixdog_tools::state::todo::{TodoList, TodoPhase, TodoStatus, TodoTask};
+
+    let agent = Arc::new(Agent::default());
+    let (world, id, handle) = on_agents_route(&agent, &[], json!({ "provider": "outside", "model": "default" })).await;
+    let pending = TodoList {
+        phases: vec![TodoPhase {
+            name: "Work".to_owned(),
+            tasks: vec![TodoTask { content: "finish migration".to_owned(), status: TodoStatus::Pending, note: None }],
+        }],
+        updated_at_ms: 1,
+    };
+    *lock(&world.rig.todos.0) = pending;
+
+    start_turn(&id, &handle, "do the work").await;
+    until(&world, &handle, "completion reminder continuation", || lock(&agent.turns).len() >= 2).await;
+
+    let second_prompt = prompt_text(&lock(&agent.turns)[1].1);
+    assert!(second_prompt.contains("finish migration") || second_prompt.contains("todo"), "expected todo completion reminder: {second_prompt}");
+}
+
+/// Outside-agent turns attach matching `TailReminder` rules (such as `claude-opus-5-5` with non-English language) ONLY
+/// to the outgoing prompt handed to the agent and never persist the tail reminder onto the stored user row.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn outside_turn_appends_tail_reminder_only_to_outgoing_prompt() {
+    let agent = Arc::new(Agent::default());
+    let header = json!({
+        "provider": "outside",
+        "model": "claude-opus-5-5",
+        "responseLanguage": { "id": "ko", "name": "Korean" },
+    });
+    let (world, id, handle) = on_agents_route(&agent, &[], header).await;
+
+    start_turn(&id, &handle, "analyze this").await;
+    until(&world, &handle, "tail reminder turn", || !lock(&agent.turns).is_empty()).await;
+
+    let sent = prompt_text(&lock(&agent.turns)[0].1);
+    assert!(sent.contains("Write all user-facing text in Korean"), "tail reminder must be attached to outgoing prompt: {sent}");
+    let stored_has_tail = world.rig.store.records(&id).iter().any(|(_, record)| match record {
+        Record::Item(item) => matches!(&item.body, Slot::Inline(body) if body.to_string().contains("Write all user-facing text in Korean")),
+        Record::Amend(amend) => matches!(&amend.body, Slot::Inline(body) if body.to_string().contains("Write all user-facing text in Korean")),
+        _ => false,
+    });
+    assert!(!stored_has_tail, "tail reminder must never be persisted into stored transcript rows");
+}
+
+/// A failed `reconcile_turn` during continuation header refresh must fail/stop the continuation instead of
+/// falling back to the stale pre-session header (which would otherwise cause `runs.rs` to kill the live ACP process).
+#[tokio::test]
+async fn outside_turn_continuation_header_refresh_failure_propagates_error_without_stale_fallback() {
+    struct RefreshParts {
+        result: Mutex<Option<Result<mixdog_store::schema::record::Header, TurnError>>>,
+        seen_probe: Mutex<Option<mixdog_store::schema::record::Header>>,
+    }
+
+    #[async_trait]
+    impl RunParts for RefreshParts {
+        async fn assemble(&self, _: AssembleInput<'_>) -> Result<Assembled, TurnError> {
+            unreachable!("not used in refresh_continuation_header test")
+        }
+
+        async fn reconcile_turn(
+            &self,
+            _: &ThreadId,
+            header: mixdog_store::schema::record::Header,
+            _: bool,
+        ) -> Result<mixdog_store::schema::record::Header, TurnError> {
+            *lock(&self.seen_probe) = Some(header);
+            lock(&self.result).take().expect("configured result")
+        }
+    }
+
+    let mut stale = mixdog_store::schema::record::Header::new();
+    stale.insert("provider".into(), json!("outside"));
+    stale.insert("pendingRoute".into(), json!({ "provider": "outside", "model": "default" }));
+
+    // 1. Reconcile error must propagate as RunOutcome::Failed and never return the stale header.
+    let failing = RefreshParts {
+        result: Mutex::new(Some(Err(TurnError {
+            message: "failed to read persisted session header".into(),
+            data: json!({ "reason": "store_unavailable" }),
+            provider_error: None,
+        }))),
+        seen_probe: Mutex::new(None),
+    };
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let outcome = super::super::outside::refresh_continuation_header(&failing, &ThreadId::from("thr_refresh"), &stale, &cancel).await;
+    match outcome {
+        Err(RunOutcome::Failed(err)) => {
+            assert_eq!(err.message, "failed to read persisted session header");
+            assert_eq!(err.data, json!({ "reason": "store_unavailable" }));
+        }
+        other => panic!("expected RunOutcome::Failed on reconcile error, got {other:?}"),
+    }
+    let probe = lock(&failing.seen_probe).clone().expect("probe passed to reconcile_turn");
+    assert!(!probe.contains_key("pendingRoute"), "pendingRoute must be stripped before reconciling continuation");
+
+    // 2. Successful reconcile returns the refreshed header containing the persisted agentSession.
+    let mut refreshed = stale.clone();
+    refreshed.shift_remove("pendingRoute");
+    refreshed.insert(AGENT_SESSION.into(), json!({ "agent": "antigravity", "sessionId": "sess-live" }));
+    let succeeding = RefreshParts { result: Mutex::new(Some(Ok(refreshed))), seen_probe: Mutex::new(None) };
+    let ok = super::super::outside::refresh_continuation_header(&succeeding, &ThreadId::from("thr_refresh"), &stale, &cancel).await.expect("refreshed header");
+    assert_eq!(ok.get(AGENT_SESSION).and_then(|v| v.get("sessionId")), Some(&json!("sess-live")));
+
+    // 3. Cancellation interrupts cleanly instead of returning a stale header.
+    cancel.cancel();
+    let cancelled = RefreshParts { result: Mutex::new(None), seen_probe: Mutex::new(None) };
+    let interrupted = super::super::outside::refresh_continuation_header(&cancelled, &ThreadId::from("thr_refresh"), &stale, &cancel).await;
+    assert!(matches!(interrupted, Err(RunOutcome::Interrupted)), "expected Interrupted, got {interrupted:?}");
 }

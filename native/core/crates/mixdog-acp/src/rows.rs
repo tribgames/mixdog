@@ -2,6 +2,7 @@
 //! tool call and the call itself, a tool row its result and its diff.
 
 use mixdog_agent::message::AgentMessage;
+use mixdog_agent::message::Source;
 use mixdog_agent::message::ToolKind;
 use mixdog_agent::message_row::row_of;
 use mixdog_core_api::domain::approval::ActionKind;
@@ -153,13 +154,7 @@ impl AgentTool {
         let mut found: Vec<Picture> = self
             .content
             .iter()
-            .filter_map(|block| {
-                if block.get("type").and_then(Value::as_str) == Some("content") {
-                    picture(block.get("content")?)
-                } else {
-                    picture(block)
-                }
-            })
+            .filter_map(|block| if block.get("type").and_then(Value::as_str) == Some("content") { picture(block.get("content")?) } else { picture(block) })
             .collect();
         if found.is_empty() {
             let (before, after) = SAVED_PICTURE;
@@ -230,8 +225,13 @@ pub fn picture_card(kept: &KeptImage, prompt: &str, aspect: Option<&str>, (lane,
     ("media".to_owned(), arguments, picture_result(kept, prompt, (lane, model)))
 }
 
-impl AgentTool {
+/// Input object keys recognized by ACP as local shell command lines.
+pub(crate) const COMMAND_INPUT_KEYS: &[&str] = &["command", "CommandLine", "cmd"];
 
+/// Input object keys recognized by ACP as local file paths.
+pub(crate) const FILE_INPUT_KEYS: &[&str] = &["file_path", "path", "Path", "AbsolutePath", "TargetFile"];
+
+impl AgentTool {
     /// The call as calls of the Mixdog tool that does the same kind of work (`read`, `edit`, `shell`), for the session's
     /// permissions to judge: that tool's name, and its arguments for each file the call touches or for the command
     /// line it runs. `None` for a kind Mixdog has no such tool for, and for a call that names no file or no command
@@ -241,7 +241,7 @@ impl AgentTool {
         match self.kind.as_str() {
             "read" => Some(("read", files()?)),
             "edit" => Some(("edit", files()?)),
-            "execute" => Some(("shell", vec![json!({ "command": self.input_text(&["command", "CommandLine", "cmd"])? })])),
+            "execute" => Some(("shell", vec![json!({ "command": self.input_text(COMMAND_INPUT_KEYS)? })])),
             _ => None,
         }
     }
@@ -254,7 +254,7 @@ impl AgentTool {
     /// names.
     fn files(&self) -> Vec<(String, Option<u64>)> {
         let mut files = self.locations.clone();
-        if let Some(file) = self.input_text(&["file_path", "path", "Path", "AbsolutePath", "TargetFile"])
+        if let Some(file) = self.input_text(FILE_INPUT_KEYS)
             && !files.iter().any(|(listed, _)| *listed == file)
         {
             files.push((file, None));
@@ -288,7 +288,7 @@ impl AgentTool {
                     json!({ "file_path": files.iter().map(|file| if file.1.is_some_and(|line| line > 0) { read(file) } else { json!(file.0) }).collect::<Vec<_>>() }),
                 )),
             },
-            "execute" => self.input_text(&["command", "CommandLine", "cmd"]).map(|command| ("shell", json!({ "command": command }))),
+            "execute" => self.input_text(COMMAND_INPUT_KEYS).map(|command| ("shell", json!({ "command": command }))),
             "search" => self.input_text(&["pattern", "Pattern", "query", "Query", "regex"]).map(|pattern| {
                 let mut arguments = json!({ "pattern": pattern });
                 if let Some((path, _)) = self.files().into_iter().next() {
@@ -418,6 +418,12 @@ pub fn tool_result(iid: ItemId, call: &str, text: String, failed: bool, diff: Op
 /// The tool row of a call Mixdog's own pipeline ran: the loop's tool message as it is, with its card diff and timing.
 pub fn tool_message(iid: ItemId, message: &AgentMessage) -> ItemCommit {
     commit(iid, "tool", row_of(message))
+}
+
+/// A loaded skill body row (`Source::Skill`), stored in model context and hidden from chat display.
+pub fn skill_body(iid: ItemId, text: String) -> ItemCommit {
+    let body = row_of(&AgentMessage::sourced(Source::Skill, text));
+    ItemCommit { iid, role: Some("user".to_owned()), model: true, visible: false, body, prompt: None }
 }
 
 /// The agent's plan as Mixdog's own step list: the arguments of a `todo` call and the text of its result.

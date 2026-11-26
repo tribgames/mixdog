@@ -1799,6 +1799,33 @@ impl super::key_pool::AccountEngines for OAuthEngines {
     }
 }
 
+impl DefaultProviderBuilder {
+    async fn probe_oauth_credential_state(&self, name: &str) -> CredentialState {
+        let current = self.env.accounts.current_slot(name).await;
+        let mut state = self.env.accounts.credential_state(name, &current).await.unwrap_or(CredentialState::Unreadable);
+        if state == CredentialState::Present || crate::accounts::has_explicit_provider_auth_binding(name) {
+            return state;
+        }
+        let Ok(pool) = self.env.accounts.pool(name).await else {
+            return state;
+        };
+        if pool.policy() == crate::accounts::Policy::Manual || pool.selected_id.as_deref().unwrap_or("default") != current {
+            return state;
+        }
+        for row in &pool.accounts {
+            if row.id == current {
+                continue;
+            }
+            match self.env.accounts.credential_state(name, &row.id).await {
+                Ok(CredentialState::Present) => return CredentialState::Present,
+                Ok(CredentialState::Unreadable) => state = CredentialState::Unreadable,
+                Ok(CredentialState::Absent) | Err(_) => {}
+            }
+        }
+        state
+    }
+}
+
 #[async_trait]
 impl ProviderBuilder for DefaultProviderBuilder {
     /// The adapter, and for a dialect that gates on a client version, a wrapper that warms the
@@ -1854,10 +1881,7 @@ impl ProviderBuilder for DefaultProviderBuilder {
         // is never a logout, so a credential read that never ran (`Probe::Unreadable`) already reads as present here
         // and cannot be missing.
         Ok(OAUTH_PROVIDER_NAMES.contains(&name)
-            && matches!(
-                self.env.accounts.credential_state(name, &self.env.accounts.current_slot(name).await).await,
-                Ok(CredentialState::Present | CredentialState::Unreadable)
-            ))
+            && matches!(self.probe_oauth_credential_state(name).await, CredentialState::Present | CredentialState::Unreadable))
     }
 
     async fn oauth_credential_state(&self, name: &str) -> Result<CredentialState, String> {
@@ -1866,7 +1890,7 @@ impl ProviderBuilder for DefaultProviderBuilder {
             return Ok(CredentialState::Absent);
         }
         // A read that never ran is a momentary failure (Node's catch), not a logout.
-        Ok(self.env.accounts.credential_state(name, &self.env.accounts.current_slot(name).await).await.unwrap_or(CredentialState::Unreadable))
+        Ok(self.probe_oauth_credential_state(name).await)
     }
 
     async fn oauth_credential_expiry(&self, name: &str) -> Option<f64> {
@@ -2011,5 +2035,43 @@ mod credential_probe_tests {
         assert!(with_token.oauth_credentials_usable("cursor-oauth").await.unwrap());
         let without = builder_in(&dir, Arc::new(FixedEnv("OTHER", "x")));
         assert!(!without.oauth_credentials_usable("cursor-oauth").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn automatic_pool_is_usable_when_selected_account_is_expired_and_sibling_is_signed_in() {
+        const ID_A: &str = "11111111-1111-4111-8111-111111111111";
+        const ID_B: &str = "22222222-2222-4222-8222-222222222222";
+        let dir = tempfile::tempdir().unwrap();
+        let b = builder(&dir);
+        b.env.accounts.register("cursor-oauth", ID_A, "A", false).await.unwrap();
+        b.env.accounts.register("cursor-oauth", ID_B, "B", false).await.unwrap();
+        let path_a = b.env.accounts.account_path("cursor-oauth", ID_A).unwrap().unwrap();
+        let path_b = b.env.accounts.account_path("cursor-oauth", ID_B).unwrap().unwrap();
+        std::fs::create_dir_all(path_a.parent().unwrap()).unwrap();
+        std::fs::write(&path_a, r#"{"access_token":"a","refresh_token":"r","reauth_required":true}"#).unwrap();
+        std::fs::write(&path_b, r#"{"access_token":"b","refresh_token":"r2"}"#).unwrap();
+
+        // Automatic pool (Limit): healthy sibling B keeps the provider usable even though selected A needs reauth.
+        assert!(b.oauth_credentials_usable("cursor-oauth").await.unwrap());
+        assert_eq!(b.oauth_credential_state("cursor-oauth").await.unwrap(), CredentialState::Present);
+
+        // Manual policy: strictly pinned to selected A, so sibling B does NOT make the provider usable.
+        b.env
+            .accounts
+            .change("cursor-oauth", crate::accounts::AccountChange { policy: Some(crate::accounts::Policy::Manual), ..Default::default() })
+            .await
+            .unwrap();
+        assert!(!b.oauth_credentials_usable("cursor-oauth").await.unwrap());
+        assert_eq!(b.oauth_credential_state("cursor-oauth").await.unwrap(), CredentialState::Absent);
+
+        // Automatic pool when every account is expired/absent: unusable.
+        b.env
+            .accounts
+            .change("cursor-oauth", crate::accounts::AccountChange { policy: Some(crate::accounts::Policy::Headroom), ..Default::default() })
+            .await
+            .unwrap();
+        std::fs::write(&path_b, r#"{"access_token":"b","refresh_token":"r2","reauth_required":true}"#).unwrap();
+        assert!(!b.oauth_credentials_usable("cursor-oauth").await.unwrap());
+        assert_eq!(b.oauth_credential_state("cursor-oauth").await.unwrap(), CredentialState::Absent);
     }
 }

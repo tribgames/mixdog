@@ -3,24 +3,39 @@ import type { desktopToolActivityItemPresentation } from './transcript-tool-mode
 
 export type ToolActivityPresentation = ReturnType<typeof desktopToolActivityItemPresentation>;
 
-const TOOL_ACTIVITY_MARKDOWN_HINT = /(?:^|\n)\s{0,3}(?:#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```)|\n\s*\|[^\n]*\|\s*(?:\n|$)/;
+const TOOL_ACTIVITY_MARKDOWN_HINT = /(?:^|\n)\s{0,3}(?:#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```)|\n\s*\|[^\n]*\|\s*\n/;
 const TOOL_ACTIVITY_MARKDOWN_MAX = 20_000;
 
 export function toolActivityLooksMarkdown(text: string): boolean {
-  return text.length <= TOOL_ACTIVITY_MARKDOWN_MAX && TOOL_ACTIVITY_MARKDOWN_HINT.test(text);
+  if (!text) return false;
+  const sample = text.length > TOOL_ACTIVITY_MARKDOWN_MAX ? text.slice(0, TOOL_ACTIVITY_MARKDOWN_MAX) : text;
+  return TOOL_ACTIVITY_MARKDOWN_HINT.test(sample);
 }
 
 const PREVIEW_OUTPUT_LINES = 5;
 
 export type ToolActivityPreviewMode = 'lines' | 'height';
 
-/** A preview cuts a command run or plain text output by lines; anything else
- *  (files, code, diffs, rendered answers) by height. */
-export function toolActivityPreviewMode(presentation: ToolActivityPresentation): ToolActivityPreviewMode {
-  const plainOutput =
-    !presentation.entries.length &&
+export interface ToolActivityPreviewState {
+  mode: ToolActivityPreviewMode | null;
+  richOutput: boolean;
+}
+
+/** Derives preview clamp mode and rich-output rendering deterministically from
+ *  the current presentation so clamp and body stay aligned across streaming
+ *  updates and virtual-row remounts. */
+export function resolveToolActivityPreviewState(
+  presentation: ToolActivityPresentation,
+  previewing: boolean
+): ToolActivityPreviewState {
+  const richOutput =
+    !presentation.outputLiteral &&
+    !presentation.command &&
+    presentation.entries.length === 0 &&
     !presentation.outputLanguage &&
-    (presentation.outputLiteral || !toolActivityLooksMarkdown(presentation.outputText));
+    presentation.sections.length === 0 &&
+    toolActivityLooksMarkdown(presentation.outputText);
+  const plainOutput = !presentation.entries.length && !presentation.outputLanguage && !richOutput;
   const onlyText =
     !presentation.diffPatch &&
     !presentation.sections.length &&
@@ -30,11 +45,16 @@ export function toolActivityPreviewMode(presentation: ToolActivityPresentation):
     !presentation.afterText &&
     !presentation.targets.length &&
     (presentation.fieldsInline || !presentation.fields.length);
-  return onlyText && (presentation.command || plainOutput) ? 'lines' : 'height';
+  let mode: ToolActivityPreviewMode | null = null;
+  if (previewing) {
+    mode = onlyText && (presentation.command || plainOutput) ? 'lines' : 'height';
+  }
+  return { mode, richOutput };
 }
 
-/** The first lines of an output and how many it hides. A single hidden line
- *  is shown instead of being counted. */
+/** The first lines of an output and how many it hides. Clamps cleanly at
+ *  PREVIEW_OUTPUT_LINES so crossing from line 5 to 6 never overshoots and
+ *  shrinks back to 5 + button on line 7. */
 export function previewOutputLines(text: string): { text: string; hidden: number } {
   // Scanned, not split: an expanded card re-renders with the whole output, and splitting a large one built an array of
   // every line each render only to keep the first few.
@@ -43,10 +63,12 @@ export function previewOutputLines(text: string): { text: string; hidden: number
     end = text.indexOf('\n', end + 1);
     if (end < 0) return { text, hidden: 0 };
   }
-  let total = PREVIEW_OUTPUT_LINES + 1;
-  for (let at = text.indexOf('\n', end + 1); at >= 0; at = text.indexOf('\n', at + 1)) total += 1;
-  if (total <= PREVIEW_OUTPUT_LINES + 1) return { text, hidden: 0 };
-  return { text: text.slice(0, end), hidden: total - PREVIEW_OUTPUT_LINES };
+  if (end === text.length - 1) return { text, hidden: 0 };
+  let hidden = 1;
+  for (let at = text.indexOf('\n', end + 1); at >= 0; at = text.indexOf('\n', at + 1)) {
+    if (at < text.length - 1) hidden += 1;
+  }
+  return { text: text.slice(0, end), hidden };
 }
 
 // The height clamp shows about six lines (6 × line + 16px); twice that always

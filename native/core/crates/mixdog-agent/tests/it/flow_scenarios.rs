@@ -123,6 +123,8 @@ pub(crate) struct Shared {
     stopped: Mutex<Option<StoppedShellJobs>>,
     /// Per turn, the skill selection it was handed: `{ "skillSelection": text }`, or `{}` for none.
     pub(crate) selections: Mutex<Vec<Value>>,
+    /// Per turn, its kind.
+    pub(crate) kinds: Mutex<Vec<TurnKind>>,
     /// The agents below the worker as `(session, parent)`, in the order Node linked them.
     children: Vec<(String, String)>,
     /// The sessions whose close does not land (`tree.failClose`).
@@ -157,6 +159,7 @@ impl TurnSessions for Sess {
         use std::sync::atomic::Ordering::SeqCst;
         log(&self.0.log, json!(["ask", handoff_content(&request.prompt, &request.attachments), request.cwd]));
         lock(&self.0.selections).push(request.skill_selection.as_ref().map_or_else(|| json!({}), |text| json!({ "skillSelection": text })));
+        lock(&self.0.kinds).push(request.kind);
         let n = self.0.asks.fetch_add(1, SeqCst) + 1;
         self.0.in_flight.fetch_add(1, SeqCst);
         if self.0.hold_ask.contains(&n) {
@@ -186,6 +189,9 @@ impl Sess {
                 return Ok(turn_result(result));
             } else if let Some(error) = step.get("throw") {
                 return Err(TurnError::new(s(error, "message")));
+            } else if let Some(message) = step.get("wakeTaken").and_then(Value::as_str) {
+                // The session refused a wake: another turn of the worker took its completions.
+                return Err(TurnError { message: message.to_owned(), wake_taken: true, ..TurnError::default() });
             } else if let Some(text) = step.get("say").and_then(Value::as_str) {
                 lock(&self.0.messages).push(Some(text.to_owned()));
             } else if let Some(reason) = step.get("cancelTask").and_then(Value::as_str) {
@@ -493,6 +499,9 @@ impl SpawnWorld for SpawnHost {
         Some(self.shared.config.clone())
     }
     async fn route_candidates(&self, _: &Obj, _: &str) -> Result<Vec<Value>, String> {
+        if self.host["agent"]["stallCandidates"] == true {
+            std::future::pending::<()>().await;
+        }
         Ok(self.host["agent"]["candidates"].as_array().cloned().unwrap_or_default())
     }
     async fn agent_defined(&self, _: &str) -> Result<bool, String> {
@@ -706,6 +715,7 @@ pub(crate) fn rig(scenario: &Value, host: Option<&Value>) -> Rig {
         messages: Mutex::new(vec![None]),
         stopped: Mutex::new(stopped_shells(host)),
         selections: Mutex::default(),
+        kinds: Mutex::default(),
         children: scenario["tree"]["children"].as_array().map(|rows| rows.iter().map(|c| (s(c, "id"), s(c, "parent"))).collect()).unwrap_or_default(),
         fail_close: scenario["tree"]["failClose"].as_array().map(|ids| ids.iter().map(|id| id.as_str().unwrap().to_owned()).collect()).unwrap_or_default(),
         tree_cancel: Mutex::new(Value::Null),
@@ -1300,17 +1310,52 @@ async fn a_send_to_an_idle_worker_runs_its_turn_as_a_job_and_tells_the_caller() 
 }
 
 #[tokio::test(start_paused = true)]
-async fn waking_an_idle_worker_reveals_its_session_and_runs_a_turn_with_an_empty_prompt() {
+async fn waking_an_idle_worker_reveals_its_session_and_runs_its_wake_turn_with_an_empty_prompt() {
     backend();
     let mut scenario = send_world("wake", "woken");
     scenario["steps"] = json!([{ "return": { "content": "woken" } }]);
     let rig = rig(&scenario, None);
-    assert!(rig.send.wake_idle_worker("sess_w1").await);
+    rig.send.wake_worker("sess_w1", Box::new(())).await.expect("woken");
     settle().await;
     settle().await;
     assert_eq!(*lock(&rig.shared.revealed), [json!("sess_w1")]);
     assert_eq!(asked(&rig), "");
-    assert!(!rig.send.wake_idle_worker("").await, "no session, no wake");
+    assert_eq!(*lock(&rig.shared.kinds), [TurnKind::Wake], "the turn takes the queued completions as its input");
+    assert!(rig.send.wake_worker("", Box::new(())).await.is_err(), "no session, no wake");
+}
+
+/// A send and a wake of the same worker, both jobs of its owner, run their own turns one after the other: the wake's
+/// job waits while the send's turn runs, then asks its own turn.
+#[tokio::test(start_paused = true)]
+async fn a_send_and_a_wake_of_one_worker_run_their_own_turns_one_after_the_other() {
+    backend();
+    let mut scenario = send_world("dispatch", "answered");
+    scenario["holdAsk"] = json!([1]);
+    let rig = rig(&scenario, None);
+    let session = lock(&rig.shared.session).clone();
+    let prepared = Prepared {
+        args: scenario["args"].clone(),
+        session: SessionFacts { id: "sess_w1".into(), agent: s(&session, "agent"), cwd: s(&session, "cwd"), ..SessionFacts::default() },
+        session_id: "sess_w1".into(),
+        prompt: Some("follow up".into()),
+        route: None,
+    };
+    rig.send.dispatch_to_existing_session(&prepared, &caller_context(), DispatchOptions::default()).await.expect("dispatched");
+    settle().await;
+    rig.send.wake_worker("sess_w1", Box::new(())).await.expect("woken");
+    settle().await;
+    assert_eq!(*lock(&rig.shared.kinds), [TurnKind::Send], "the wake waits for the send's turn to end");
+    let jobs = rig.shared.board.list_jobs(&Scope::default());
+    assert_eq!(jobs.len(), 2);
+    assert_eq!(jobs[1].turn_stage.map(|(stage, _)| stage), Some(mixdog_agent::agent_tool::flow::stages::TurnStage::Waiting));
+    rig.shared.hold(1).notify_one();
+    settle().await;
+    settle().await;
+    assert_eq!(*lock(&rig.shared.kinds), [TurnKind::Send, TurnKind::Wake]);
+    let asks: Vec<Value> = lock(&rig.shared.log).iter().filter(|entry| entry[0] == "ask").map(|entry| entry[1].clone()).collect();
+    assert_eq!(asks, [json!("follow up"), json!("")], "each turn is asked its own prompt");
+    let jobs = rig.shared.board.list_jobs(&Scope::default());
+    assert!(jobs.iter().all(|job| job.operation == "send" && job.status == "completed"), "{jobs:?}");
 }
 
 #[tokio::test(start_paused = true)]

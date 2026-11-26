@@ -32,7 +32,7 @@ use serde_json::{Map, Value, json};
 
 use super::agent_dispatch::PrepareSpec;
 use super::agent_world::{RouteWindows, resolve_runtime_spec};
-use super::dispatch_sessions::{AgentRoutes, admit_route, stamped_header};
+use super::dispatch_sessions::{AdmittedHeader, AgentRoutes, admit_stamped_header_with_windows, rebind_fallback_context};
 use super::unattended::UnattendedRunRegistry;
 
 /// `runOfSession(creator)` (`human-gate/delegation.mjs:96`): the schedule or webhook run a
@@ -140,66 +140,97 @@ impl DirectorySpawnWorld {
     /// (`agentTag`, `agent-only` visibility, the host pid, route fallbacks) and the delegation and
     /// run its creator gives it (`session-record.mjs:112-118`).
     async fn child_header(&self, spec: &Obj, parent: &str, owner: &str, tag: &str) -> Result<Header, String> {
-        let preset = spec.get("preset").filter(|p| p.is_object()).cloned().unwrap_or_else(|| json!({}));
-        let (provider, model) = (text(preset.get("provider")).to_owned(), text(preset.get("model")));
-        let provider = if provider.is_empty() { text(spec.get("provider")) } else { provider };
-        let model = if model.is_empty() { text(spec.get("model")) } else { model };
-        if provider.is_empty() || model.is_empty() {
-            return Err("agent child route is incomplete".into());
-        }
-        let mut routed = preset.clone();
-        routed["provider"] = json!(provider);
-        routed["model"] = json!(model);
-        let context: Map<String, Value> = ["contextPercent", "contextTokens", "selectedContextWindow"]
-            .iter()
-            .filter_map(|key| spec.get(*key).map(|v| ((*key).to_owned(), v.clone())))
-            .collect();
-        let agent = nonempty(text(spec.get("agent"))).unwrap_or_else(|| "worker".into());
-        let prepare = PrepareSpec {
-            agent: agent.clone(),
-            preset_name: text(spec.get("presetName")),
-            preset: routed,
-            runtime_spec: spec.get("runtimeSpec").cloned().unwrap_or_else(|| json!({})),
-            context,
-            // `prepareAgentSession`: `resolveAgentSessionPermission(agent, permission)`
-            // (`session-builder.mjs:93`).
-            permission: resolve_agent_session_permission(&agent, spec.get("permission").and_then(Value::as_str)),
-            cwd: nonempty(text(spec.get("cwd"))),
-            source_type: Some(nonempty(text(spec.get("sourceType"))).unwrap_or_else(|| "agent".into())),
-            source_name: Some(nonempty(text(spec.get("sourceName"))).unwrap_or_else(|| agent.clone())),
-            task_type: nonempty(text(spec.get("taskType"))),
-            parent_session_id: Some(parent.to_owned()),
-            owner_session_id: Some(owner.to_owned()),
-            skip_role_reminder: false,
-            schema_allowed_tools: spec
-                .get("schemaAllowedTools")
-                .and_then(Value::as_array)
-                .map(|tools| tools.iter().filter_map(Value::as_str).map(str::to_owned).collect()),
-        };
-        let mut header = stamped_header(&prepare, |name| admit_route(&self.providers, self.agents.as_deref(), name).map(|_| ()))?;
-        header.insert("visibility".into(), json!("agent-only"));
-        super::session_cache_opts::stamp_cache_opts(&mut header, &self.config.agent().get("autoClear").cloned().unwrap_or(Value::Null));
-        let tag = nonempty(text(spec.get("agentTag"))).or_else(|| nonempty(tag.to_owned()));
-        header.insert("agentTag".into(), tag.map_or(Value::Null, Value::String));
-        header.insert("clientHostPid".into(), spec.get("clientHostPid").filter(|pid| pid.as_u64().is_some_and(|p| p > 0)).cloned().unwrap_or(Value::Null));
-        // The scope of the runtime that spawns it (`spawn-plan.mjs:108`, `rt.mcpScopeId`): the child shares
-        // its creator's servers, and the creator's close releases them.
-        let creator_scope = self.directory.stored_header(&ThreadId::from(parent)).await.and_then(|creator| creator.get("mcpScopeId").cloned());
-        header.insert("mcpScopeId".into(), creator_scope.filter(Value::is_string).unwrap_or(Value::Null));
-        if let Some(mode) = nonempty(text(spec.get("permissionMode"))) {
-            header.insert("permissionMode".into(), json!(mode));
-        }
-        if let Some(source) = preset.get("fallbackSource").filter(|s| mixdog_ai::service::admin_route::truthy(Some(s))) {
-            header.insert("routeFallbackSource".into(), source.clone());
-        }
-        if let Some(delegation) = delegation_for_new_session(&header, "", &*self.directory).await {
-            header.insert("delegation".into(), delegation);
-        }
-        if let Some(run) = self.runs.run_of(parent).await {
-            header.insert("run".into(), run);
-        }
-        Ok(header)
+        build_child_header(
+            &self.config,
+            &self.providers,
+            self.agents.as_deref(),
+            self.windows.as_ref(),
+            &self.directory,
+            self.runs.as_ref(),
+            spec,
+            parent,
+            owner,
+            tag,
+        )
+        .await
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn build_child_header(
+    config_store: &Config,
+    providers: &ProviderRegistry,
+    agents: Option<&dyn AgentRoutes>,
+    windows: &dyn RouteWindows,
+    directory: &SessionDirectory,
+    runs: &dyn SessionRuns,
+    spec: &Obj,
+    parent: &str,
+    owner: &str,
+    tag: &str,
+) -> Result<Header, String> {
+    let preset = spec.get("preset").filter(|p| p.is_object()).cloned().unwrap_or_else(|| json!({}));
+    let (provider, model) = (text(preset.get("provider")).to_owned(), text(preset.get("model")));
+    let provider = if provider.is_empty() { text(spec.get("provider")) } else { provider };
+    let model = if model.is_empty() { text(spec.get("model")) } else { model };
+    if provider.is_empty() || model.is_empty() {
+        return Err("agent child route is incomplete".into());
+    }
+    let mut routed = preset.clone();
+    routed["provider"] = json!(provider);
+    routed["model"] = json!(model);
+    let context: Map<String, Value> =
+        ["contextPercent", "contextTokens", "selectedContextWindow"].iter().filter_map(|key| spec.get(*key).map(|v| ((*key).to_owned(), v.clone()))).collect();
+    let agent = nonempty(text(spec.get("agent"))).unwrap_or_else(|| "worker".into());
+    let prepare = PrepareSpec {
+        agent: agent.clone(),
+        preset_name: text(spec.get("presetName")),
+        preset: routed,
+        runtime_spec: spec.get("runtimeSpec").cloned().unwrap_or_else(|| json!({})),
+        context,
+        // `prepareAgentSession`: `resolveAgentSessionPermission(agent, permission)`
+        // (`session-builder.mjs:93`).
+        permission: resolve_agent_session_permission(&agent, spec.get("permission").and_then(Value::as_str)),
+        cwd: nonempty(text(spec.get("cwd"))),
+        source_type: Some(nonempty(text(spec.get("sourceType"))).unwrap_or_else(|| "agent".into())),
+        source_name: Some(nonempty(text(spec.get("sourceName"))).unwrap_or_else(|| agent.clone())),
+        task_type: nonempty(text(spec.get("taskType"))),
+        parent_session_id: Some(parent.to_owned()),
+        owner_session_id: Some(owner.to_owned()),
+        skip_role_reminder: false,
+        schema_allowed_tools: spec
+            .get("schemaAllowedTools")
+            .and_then(Value::as_array)
+            .map(|tools| tools.iter().filter_map(Value::as_str).map(str::to_owned).collect()),
+    };
+    let config = config_store.agent();
+    let tag_for_runtime = nonempty(text(spec.get("agentTag"))).or_else(|| nonempty(tag.to_owned())).unwrap_or_else(|| agent.clone());
+    let AdmittedHeader { mut header, .. } = admit_stamped_header_with_windows(&prepare, providers, agents, &config, windows, |bound_preset, _| {
+        (rebind_fallback_context(bound_preset, windows), resolve_runtime_spec(bound_preset, &tag_for_runtime))
+    })
+    .await?;
+    header.insert("visibility".into(), json!("agent-only"));
+    super::session_cache_opts::stamp_cache_opts(&mut header, &config.get("autoClear").cloned().unwrap_or(Value::Null));
+    let tag = nonempty(text(spec.get("agentTag"))).or_else(|| nonempty(tag.to_owned()));
+    header.insert("agentTag".into(), tag.map_or(Value::Null, Value::String));
+    header.insert("clientHostPid".into(), spec.get("clientHostPid").filter(|pid| pid.as_u64().is_some_and(|p| p > 0)).cloned().unwrap_or(Value::Null));
+    // The scope of the runtime that spawns it (`spawn-plan.mjs:108`, `rt.mcpScopeId`): the child shares
+    // its creator's servers, and the creator's close releases them.
+    let creator_scope = directory.stored_header(&ThreadId::from(parent)).await.and_then(|creator| creator.get("mcpScopeId").cloned());
+    header.insert("mcpScopeId".into(), creator_scope.filter(Value::is_string).unwrap_or(Value::Null));
+    if let Some(mode) = nonempty(text(spec.get("permissionMode"))) {
+        header.insert("permissionMode".into(), json!(mode));
+    }
+    if let Some(source) = preset.get("fallbackSource").filter(|s| mixdog_ai::service::admin_route::truthy(Some(s))) {
+        header.insert("routeFallbackSource".into(), source.clone());
+    }
+    if let Some(delegation) = delegation_for_new_session(&header, "", directory).await {
+        header.insert("delegation".into(), delegation);
+    }
+    if let Some(run) = runs.run_of(parent).await {
+        header.insert("run".into(), run);
+    }
+    Ok(header)
 }
 
 #[async_trait]
@@ -393,5 +424,81 @@ mod tests {
         );
         assert!(statusline_route(&json!({ "provider": "p" })).is_none());
         assert!(!statusline_route(&json!({ "provider": "p", "model": "m", "fast": "yes" })).unwrap().contains_key("fast"));
+    }
+
+    struct StubProviderHost;
+    #[async_trait]
+    impl mixdog_ai::registry::providers::ProviderBuilder for StubProviderHost {
+        async fn build(&self, _: &str, _: &Value) -> Result<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, String> {
+            Ok(Arc::new(mixdog_core_api::domain::mock::MockProvider::new([])))
+        }
+        async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, _: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
+            Ok(false)
+        }
+    }
+
+    struct CatalogPrimaryWindows;
+    impl RouteWindows for CatalogPrimaryWindows {
+        fn window_meta(&self, provider: &str, model: &str) -> Option<Value> {
+            match (provider, model) {
+                ("acme-catalog", "acme-reasoner-200k") => Some(json!({ "contextWindow": 200_000, "maxContextWindow": 200_000 })),
+                ("anthropic", "sonnet-4") => Some(json!({ "contextWindow": 150_000, "maxContextWindow": 150_000 })),
+                _ => None,
+            }
+        }
+    }
+
+    struct NoRuns;
+    #[async_trait]
+    impl SessionRuns for NoRuns {
+        async fn run_of(&self, _: &str) -> Option<Value> {
+            None
+        }
+    }
+
+    #[tokio::test]
+    async fn child_header_resolves_catalog_only_primary_default_window_when_spec_context_is_empty() {
+        let rig = mixdog_core_session::session::testing::Rig::new();
+        let directory = SessionDirectory::new(rig.deps());
+        let providers = ProviderRegistry::new(Arc::new(StubProviderHost));
+        let stored = json!({ "anthropic": { "enabled": true } }).as_object().unwrap().clone();
+        providers.init_providers(&stored).await.unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let (config, _) =
+            Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.unwrap();
+
+        let spec = json!({
+            "agent": "worker",
+            "preset": {
+                "provider": "acme-catalog",
+                "model": "acme-reasoner-200k",
+                "effort": "high",
+                "fallbacks": [{ "provider": "anthropic", "model": "sonnet-4" }]
+            }
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        let header = build_child_header(&config, &providers, None, &CatalogPrimaryWindows, &directory, &NoRuns, &spec, "parent-1", "owner-1", "worker-1")
+            .await
+            .expect("child header should fall back to anthropic");
+        assert_eq!(header["provider"], json!("anthropic"));
+        assert_eq!(header["model"], json!("sonnet-4"));
+        assert_eq!(header["routeFallbackPrimary"]["provider"], json!("acme-catalog"));
+        assert_eq!(header["routeFallbackPrimary"]["model"], json!("acme-reasoner-200k"));
+        assert_eq!(
+            header["routeFallbackPrimary"]["selectedContextWindow"],
+            json!(200_000),
+            "catalog-only primary default window must be resolved via RouteWindows when spec.context is empty"
+        );
     }
 }

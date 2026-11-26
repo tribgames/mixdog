@@ -196,6 +196,7 @@ impl RouteService {
         let tokens: Option<Value> =
             if state.context_default_percent.is_none() { selected.get("contextTokens").cloned() } else { state.context_tokens.map(jnum) };
         let requested_tokens = selected.get("contextTokens").cloned();
+        let explicit_clear_tokens = requested_tokens.as_ref().is_some_and(Value::is_null);
         let mut fields = selected;
         fields.shift_remove("contextTokens");
         // Tokens that land on the default window select the default, whatever percent travelled
@@ -212,6 +213,8 @@ impl RouteService {
         }
         if let Some(tokens) = tokens.filter(|t| truthy(Some(t))) {
             fields.insert("contextTokens".into(), tokens);
+        } else if explicit_clear_tokens && !at_default && !fields.contains_key("contextPercent") {
+            fields.insert("contextTokens".into(), Value::Null);
         }
         Ok((fields, fast_capable, meta))
     }

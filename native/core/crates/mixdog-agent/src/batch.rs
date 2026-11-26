@@ -389,7 +389,7 @@ impl Run {
         }
         let earlier = if changes { self.unrecorded(step, decided, k, cwd.as_path()) } else { Vec::new() };
         let (sig, shape_sig) = guard_keys(call, cwd.as_path());
-        if self.carry.repeat.could_answer(&earlier, &sig, &shape_sig) {
+        if self.with_repeat_ref(|repeat| repeat.could_answer(&earlier, &sig, &shape_sig)) {
             return None;
         }
         let dedup = self.tools.dedup_eligible(name) && (step.bridged[k] || self.tools.get(name).is_some());
@@ -567,7 +567,7 @@ impl Run {
         if let Some(decision) = self.prejudge(step, j) {
             return decision;
         }
-        match self.carry.repeat.skip(&call.name, sig, shape_sig) {
+        match self.with_repeat(|repeat| repeat.skip(&call.name, sig, shape_sig)) {
             Some(text) => Decision::Skip(AgentMessage::tool_text(&call.id, text, ToolKind::Error)),
             None => Decision::Run,
         }
@@ -643,7 +643,7 @@ impl Run {
     /// Returns whether the body is a cache candidate (stored after the batch's
     /// budgets, so cache and transcript receive the same body).
     fn record_executed(&mut self, executed: &Executed, sigs: (String, String), later_mutation: bool) -> bool {
-        self.carry.repeat.record(executed.failed, sigs.0, sigs.1, executed.arg_failure);
+        self.with_repeat(|repeat| repeat.record(executed.failed, sigs.0, sigs.1, executed.arg_failure));
         // A body that predates a later mutation of the batch is not cached.
         executed.reuse_write.is_some()
             && !executed.failed
@@ -729,7 +729,7 @@ impl Run {
                 let (sig, shape_sig) = guard_keys(call, &cwd);
                 // Earlier outcomes not recorded yet could change this decision.
                 let unrecorded = j - recorded;
-                if unrecorded > 0 && self.carry.repeat.could_fire(unrecorded) {
+                if unrecorded > 0 && self.with_repeat_ref(|repeat| repeat.could_fire(unrecorded)) {
                     break;
                 }
                 evaluated[j] = true;

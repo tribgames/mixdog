@@ -62,7 +62,10 @@ export function createTranscriptEndPin({
     const instance = getVirtualizer();
     // Follow may have been released after the request but before this
     // write, even without a continuing native gesture.
-    if (instance.options.anchorTo !== 'end' && !instance.options.followOnAppend) return;
+    if (instance.options.anchorTo !== 'end' && !instance.options.followOnAppend) {
+      lastTarget = null;
+      return;
+    }
     // Defer only while the reader is actively gesturing away from the bottom;
     // passive pointer or at-bottom wheel activity must not stall end-pinning.
     const previousTarget = getMaxScrollTop();

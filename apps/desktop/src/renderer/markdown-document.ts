@@ -9,7 +9,6 @@ import {
   SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS,
   syncMarkdownParser,
 } from './markdown-worker-client';
-import { containsFencedCodeMarkdown } from './MarkdownSourceFallback';
 import {
   createStreamingMarkdownCache,
   healStreamingMarkdownTail,
@@ -30,6 +29,9 @@ export interface MarkdownUnit {
   /** Its role and where it starts in the reply; a child without a place in
    *  the text (one a plugin made) is keyed after the last one that has one. */
   readonly key: string;
+  /** Role-independent source-position key so waiting text and its replacement
+   *  AST share one mounted React unit container. */
+  readonly slotKey?: string;
   /** null: the parse of `text` is still to land. */
   readonly node: MarkdownAstChild | null;
   /** Where the offsets in `node` count from in the reply. */
@@ -107,29 +109,85 @@ export function unitsOf(root: MarkdownAstRoot, base: number, from: number, end: 
   }
   const units: MarkdownUnit[] = [];
   let anchor = `^${from}`;
+  let slotAnchor = `@${from}`;
   let seen = new Map<string, number>();
+  let seenSlot = 0;
+  const usedSlots = new Map<string, number>();
   let start = from;
   children.forEach((node, index) => {
     const role = roleOf(node);
     let key: string;
+    let slotKey: string;
     if (node.offset === undefined) {
       const occurrence = seen.get(role) ?? 0;
       seen.set(role, occurrence + 1);
       key = `${anchor}+${role}#${occurrence}`;
+      slotKey = `${slotAnchor}+#${seenSlot}`;
+      seenSlot += 1;
     } else {
-      anchor = `${role}@${base + node.offset}`;
+      const pos = base + node.offset;
+      anchor = `${role}@${pos}`;
       key = anchor;
       seen = new Map();
+      const posKey = `@${pos}`;
+      const posOcc = usedSlots.get(posKey) ?? 0;
+      usedSlots.set(posKey, posOcc + 1);
+      slotAnchor = posOcc === 0 ? posKey : `${posKey}#${posOcc}`;
+      slotKey = slotAnchor;
+      seenSlot = 0;
     }
     const stop = Math.max(start, next[index + 1]);
-    units.push({ key, node, base, from: start, end: stop, held: false });
+    units.push({ key, slotKey, node, base, from: start, end: stop, held: false });
     start = stop;
   });
   return units;
 }
 
-function waitingUnit(from: number, text: string, pending: boolean): MarkdownUnit {
-  return { key: `wait@${from}`, node: null, base: from, from, end: from + text.length, held: false, text, pending };
+/** Offset within `text` where remark-parse starts the first block: blank lines
+ *  are skipped, 0–3 spaces are stripped, and 4+ spaces or a tab start an
+ *  indented code block at the beginning of that line. */
+function waitingBlockOffset(text: string): number {
+  let lineStart = 0;
+  let i = 0;
+  while (i < text.length) {
+    const ch = text.charCodeAt(i);
+    if (ch === 32 || ch === 9) {
+      i += 1;
+      continue;
+    }
+    if (ch === 10) {
+      i += 1;
+      lineStart = i;
+      continue;
+    }
+    if (ch === 13) {
+      i += text.charCodeAt(i + 1) === 10 ? 2 : 1;
+      lineStart = i;
+      continue;
+    }
+    let col = 0;
+    for (let j = lineStart; j < i; j += 1) {
+      col = text.charCodeAt(j) === 9 ? col + (4 - (col % 4)) : col + 1;
+      if (col >= 4) return lineStart;
+    }
+    return i;
+  }
+  return 0;
+}
+
+function waitingUnit(from: number, text: string, pending: boolean, slotKey?: string): MarkdownUnit {
+  const slotOffset = from + waitingBlockOffset(text);
+  return {
+    key: `wait@${from}`,
+    slotKey: slotKey ?? `@${slotOffset}`,
+    node: null,
+    base: from,
+    from,
+    end: from + text.length,
+    held: false,
+    text,
+    pending,
+  };
 }
 
 /** The pages of a finished reply, parsed whole as `root` from text of
@@ -141,10 +199,14 @@ export function finishDocument(shown: MarkdownPage | null, root: MarkdownAstRoot
   const units = unitsOf(root, 0, 0, length);
   if (!shown || shown.items.length === 0) return markdownPagesOf(units);
   const leafOf = new Map<string, number>();
+  const leafOfSlot = new Map<string, number>();
   let leaves = 0;
   const index = (page: MarkdownPage, level: number) => {
     if (level === 1) {
-      for (const item of page.items) leafOf.set(item.key, leaves);
+      for (const item of page.items) {
+        leafOf.set(item.key, leaves);
+        if (!isMarkdownPage(item) && item.slotKey) leafOfSlot.set(item.slotKey, leaves);
+      }
       leaves += 1;
       return;
     }
@@ -154,7 +216,7 @@ export function finishDocument(shown: MarkdownPage | null, root: MarkdownAstRoot
   const placed: MarkdownUnit[][] = Array.from({ length: leaves }, () => []);
   let leaf = 0;
   for (const unit of units) {
-    const at = leafOf.get(unit.key);
+    const at = leafOf.get(unit.key) ?? (unit.slotKey ? leafOfSlot.get(unit.slotKey) : undefined);
     if (at !== undefined && at >= leaf) leaf = at;
     placed[leaf].push(unit);
   }
@@ -204,6 +266,9 @@ export class LiveMarkdownDocument {
    *  until one lands for it where it starts now, what showed of it before. */
   private tailUnits: MarkdownUnit[] = [];
   private tailShown = false;
+  /** Whether a nonempty tail AST was previously shown before the 64 KiB cap
+   *  disabled live parsing for the current open block. */
+  private tailCapped = false;
   /** The healed text `tailUnits` were parsed from (null: an earlier open block). */
   private tailShownText: string | null = null;
   private tailShownLength = 0;
@@ -267,7 +332,7 @@ export class LiveMarkdownDocument {
     const sourceLength = this.tailText.length;
     const requestedAt = performance.now();
     this.tailQueue.request(parseText, (root, parsedText) => {
-      if (this.retired || this.generation !== generation || this.tailStart !== start) return;
+      if (this.retired || this.generation !== generation || this.tailStart !== start || !this.tailParse) return;
       noteStreamWorkerParse(requestedAt);
       // An older parse than the one showing is dropped.
       if (sourceLength < this.tailShownLength) return;
@@ -298,6 +363,7 @@ export class LiveMarkdownDocument {
       this.waiting = [];
       this.tailStart = -1;
       this.tailUnits = [];
+      this.tailCapped = false;
     }
     for (const { start, text: blockText } of parts.added) {
       const root = this.parseNow(blockText, false);
@@ -319,6 +385,7 @@ export class LiveMarkdownDocument {
       this.tailStart = parts.unstableStart;
       this.tailUnits = this.tailUnits.filter((unit) => unit.node && unit.from >= this.tailStart);
       this.tailShown = this.tailUnits.length > 0;
+      this.tailCapped = false;
       this.tailShownText = null;
       this.tailShownLength = 0;
       this.tailRequested = null;
@@ -327,6 +394,14 @@ export class LiveMarkdownDocument {
     this.tailText = parts.unstableText;
     this.tailParse = parts.parseUnstable;
     this.tailParseText = parts.parseUnstable ? healStreamingMarkdownTail(parts.unstableText) : '';
+    if (!this.tailParse) {
+      if (this.tailShown && this.tailUnits.length > 0) this.tailCapped = true;
+      this.tailUnits = [];
+      this.tailShown = false;
+      this.tailShownText = null;
+      this.tailShownLength = 0;
+      this.tailRequested = null;
+    }
     if (this.wantsTailParse()) {
       const root = this.parseNow(this.tailParseText, true);
       if (root) this.showTail(root, this.tailParseText, this.tailText.length);
@@ -357,6 +432,7 @@ export class LiveMarkdownDocument {
   private showTail(root: MarkdownAstRoot, parsedText: string, sourceLength: number): void {
     this.tailUnits = unitsOf(root, this.tailStart, this.tailStart, this.tailStart + sourceLength);
     this.tailShown = true;
+    this.tailCapped = false;
     this.tailShownText = parsedText;
     this.tailShownLength = sourceLength;
   }
@@ -385,10 +461,16 @@ export class LiveMarkdownDocument {
 
   private tailRows(): readonly MarkdownUnit[] {
     if (!this.tailText) return [];
-    if (this.tailShown) return this.tailUnits;
-    return this.tailParse || containsFencedCodeMarkdown(this.tailText)
-      ? [waitingUnit(this.tailStart, this.tailText, this.tailParse)]
-      : [];
+    if (!this.tailParse) {
+      // The 64 KiB cap stops live parse work (`tailParse === false`), never
+      // visible presentation: show the current tail text instead of freezing
+      // on a stale partial AST until final parse.
+      return [waitingUnit(this.tailStart, this.tailText, false, this.tailCapped ? `cap@${this.tailStart}` : undefined)];
+    }
+    if (this.tailShown && (this.tailUnits.length > 0 || this.tailParseText === this.tailShownText)) {
+      return this.tailUnits;
+    }
+    return [waitingUnit(this.tailStart, this.tailText, this.tailParse)];
   }
 
   private publish(): MarkdownPage {

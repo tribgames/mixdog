@@ -353,7 +353,7 @@ mod tests {
             log,
             stop,
             catalog_http: crate::compose_test_support::offline_http(),
-            agent_presets: crate::acp_tools::builtin_presets(),
+            agent_presets: Vec::new(),
             acp_data_dir: None,
             #[cfg(test)]
             pg_install: None,

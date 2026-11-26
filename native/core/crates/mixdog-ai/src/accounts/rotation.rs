@@ -1,13 +1,14 @@
 //! The pool's send (`account-pool.mjs` `poolSend`): walks the eligible
 //! accounts until one answers, blocking the ones whose quota window is spent
-//! on the way. It is provider-neutral: the caller supplies an
-//! [`AccountSender`] that performs one account-bound attempt (scoped session
-//! id, replay filtering, the adapter itself) and a [`UsageProbe`] that
-//! re-measures an account's plan usage into the store. Only usage moves a send
-//! to another account: a quota refusal, a rate limit the provider's policy
-//! rotates on, or a 429 the account's own meters show spent. An expired
-//! sign-in, an account block and a server-side failure end the send on the
-//! account they hit.
+//! or whose auth/entitlement failed on the way. It is provider-neutral: the
+//! caller supplies an [`AccountSender`] that performs one account-bound attempt
+//! (scoped session id, replay filtering, the adapter itself) and a [`UsageProbe`]
+//! that re-measures an account's plan usage into the store. Quota refusals,
+//! rate limits the provider's policy rotates on, 429s the account's own meters
+//! show spent, and (in automatic pool policy only) account-scoped 401/403
+//! auth/entitlement failures move a send to the next eligible account before
+//! visible output is emitted. Manual account policy stays strictly pinned, and
+//! server-side failures end the send on the account they hit.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -18,6 +19,7 @@ use std::time::Duration;
 use std::time::UNIX_EPOCH;
 
 use async_trait::async_trait;
+use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ProviderError;
 use tokio_util::sync::CancellationToken;
@@ -39,6 +41,8 @@ pub(crate) fn uses_bound_plan_evidence(provider: &str) -> bool {
 
 /// The cooldown an account's provider asks for when the server named none.
 const INFERRED_COOLDOWN_MS: i64 = 5 * 60_000;
+/// Cooldown applied to an account row that failed auth/entitlement in automatic pool mode.
+const AUTH_COOLDOWN_MS: i64 = 5 * 60_000;
 /// Pacing of the re-measure of refused accounts.
 const PROBE_INTERVAL_MS: i64 = 5 * 60_000;
 /// How old a reading may be when the pool picks an account other than the one the send prefers. An older one is
@@ -226,9 +230,18 @@ struct Ledger {
     waited_ms: i64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AuthFailureScope {
+    /// Whole account cannot authenticate or serve any model.
+    Account,
+    /// Account is signed in, but lacks entitlement/access for the requested model.
+    Model,
+}
+
 #[derive(Clone, Debug)]
 struct Verdict {
     exhausted: bool,
+    auth: Option<AuthFailureScope>,
     evidence: bool,
     credit_measured: bool,
     until: i64,
@@ -238,7 +251,7 @@ struct Verdict {
 
 impl Verdict {
     fn not_exhausted() -> Self {
-        Self { exhausted: false, evidence: false, credit_measured: false, until: 0, server_scheduled: false, reset: false }
+        Self { exhausted: false, auth: None, evidence: false, credit_measured: false, until: 0, server_scheduled: false, reset: false }
     }
 }
 
@@ -250,8 +263,84 @@ fn is_server_side(kind: ErrorKind) -> bool {
     matches!(kind, ErrorKind::Overloaded | ErrorKind::Transient | ErrorKind::ServiceTierUnavailable)
 }
 
+fn normalized_error_code(error: &ProviderError) -> Option<String> {
+    let raw = error.code.as_deref()?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let lower = raw.to_ascii_lowercase();
+    Some(lower.strip_prefix("error_").unwrap_or(&lower).to_owned())
+}
+
+fn is_account_wide_block_code(code: &str) -> bool {
+    matches!(
+        code,
+        "api_key_service_blocked"
+            | "service_disabled"
+            | "validation_required"
+            | "suspicious_usage_blocked"
+            | "account_closed"
+            | "account_blocked"
+            | "account_disabled"
+            | "account_suspended"
+            | "organization_disabled"
+            | "workspace_disabled"
+            | "subscription_required"
+            | "subscription_inactive"
+            | "billing_disabled"
+            | "billing_not_active"
+    )
+}
+
+fn is_model_entitlement_code(code: &str) -> bool {
+    matches!(
+        code,
+        "not_high_enough_permissions"
+            | "pro_user_only"
+            | "model_blocked"
+            | "usage_not_included"
+            | "model_access_denied"
+            | "model_not_allowed"
+            | "plan_required"
+            | "tier_required"
+            | "entitlement_required"
+            | "insufficient_tier"
+    )
+}
+
+fn auth_failure_scope(error: &ProviderError) -> Option<AuthFailureScope> {
+    if is_server_side(error.kind) {
+        return None;
+    }
+    if error.reauth_required || error.account_blocked || error.verification_url.is_some() || error.kind == ErrorKind::Auth {
+        return Some(AuthFailureScope::Account);
+    }
+    let code = normalized_error_code(error);
+    if error.status == Some(401) && (error.kind.is_quota() || error.kind == ErrorKind::Unknown) {
+        return Some(AuthFailureScope::Account);
+    }
+    if error.status == Some(403) && error.kind == ErrorKind::Billing {
+        return Some(AuthFailureScope::Account);
+    }
+    if let Some(code) = code.as_deref()
+        && is_account_wide_block_code(code)
+        && (error.kind == ErrorKind::Permission || matches!(error.status, Some(401 | 403)))
+    {
+        return Some(AuthFailureScope::Account);
+    }
+    if error.status == Some(403) && matches!(error.kind, ErrorKind::Entitlement | ErrorKind::QuotaExhausted) {
+        return Some(AuthFailureScope::Model);
+    }
+    if (error.kind == ErrorKind::Permission && matches!(error.status, None | Some(401 | 403)))
+        || (error.status == Some(403) && error.kind == ErrorKind::Unknown)
+    {
+        return code.as_deref().filter(|c| is_model_entitlement_code(c)).map(|_| AuthFailureScope::Model);
+    }
+    None
+}
+
 fn cooling_until(row: &Account, model: &str) -> i64 {
-    policy::account_blocked_until(row, model).unwrap_or(0)
+    policy::account_blocked_until(&row.with_blocks(|b| !policy::is_auth_block(b)), model).unwrap_or(0)
 }
 
 fn earliest_cooldown_ms(rows: &[Account], now: i64, model: &str) -> Option<i64> {
@@ -392,6 +481,7 @@ impl AccountRotation {
         policy: Option<&CooldownPolicy>,
         plan_meters_apply: bool,
         uses_credits: bool,
+        pool_policy: Policy,
     ) -> Result<Verdict, AccountError> {
         let error = &failed.error;
         let now = self.now();
@@ -415,7 +505,7 @@ impl AccountRotation {
         };
         let blocked = |evidence: bool, reason: &str, with_reset: bool| {
             let (until, server_scheduled, reset) = until_for(with_reset, reason);
-            Verdict { exhausted: true, evidence, credit_measured: false, until, server_scheduled, reset }
+            Verdict { exhausted: true, auth: None, evidence, credit_measured: false, until, server_scheduled, reset }
         };
         if is_server_side(error.kind) {
             return Ok(Verdict::not_exhausted());
@@ -433,6 +523,19 @@ impl AccountRotation {
                 }
             }
             return Ok(Verdict { credit_measured, ..blocked(true, "quota", true) });
+        }
+        if pool_policy != Policy::Manual
+            && let Some(scope) = auth_failure_scope(error)
+        {
+            return Ok(Verdict {
+                exhausted: true,
+                auth: Some(scope),
+                evidence: false,
+                credit_measured: false,
+                until: now + AUTH_COOLDOWN_MS,
+                server_scheduled: false,
+                reset: false,
+            });
         }
         if policy.is_some_and(|p| p.rotate_on_rate_limit) && error.kind == ErrorKind::RateLimited && error.status == Some(429) {
             if plan_meters_apply {
@@ -462,19 +565,18 @@ impl AccountRotation {
     }
 
     async fn record_block(&self, provider: &str, id: &str, model: &str, failed: &Failed, v: &Verdict) -> Result<(), AccountError> {
+        let (block_model, limit) = match v.auth {
+            Some(AuthFailureScope::Account) => ("", policy::AUTH_BLOCK_LIMIT.to_owned()),
+            Some(AuthFailureScope::Model) => (model, policy::AUTH_BLOCK_LIMIT.to_owned()),
+            None => (model, failed.quota_limit.clone()),
+        };
         self.store
             .block(
                 provider,
                 id,
                 v.until,
-                model,
-                BlockOptions {
-                    server_scheduled: v.server_scheduled,
-                    quota: v.evidence,
-                    credit_measured: v.credit_measured,
-                    limit: failed.quota_limit.clone(),
-                    reset: v.reset,
-                },
+                block_model,
+                BlockOptions { server_scheduled: v.server_scheduled, quota: v.evidence, credit_measured: v.credit_measured, limit, reset: v.reset },
             )
             .await?;
         Ok(())
@@ -496,7 +598,7 @@ impl AccountRotation {
         let Some(row) = pool.account(account_id) else {
             return Ok(false);
         };
-        let verdict = self.judge(provider, row, model, failed, cooldown, plan_meters_apply, pool.uses_credits()).await?;
+        let verdict = self.judge(provider, row, model, failed, cooldown, plan_meters_apply, pool.uses_credits(), pool.policy()).await?;
         if !verdict.exhausted {
             return Ok(false);
         }
@@ -608,7 +710,44 @@ impl AccountRotation {
                 }),
             };
         }
-        PoolError::of(error.unwrap_or(Cause::CoolingDown { retry_after_ms: earliest_cooldown_ms(&rows, now, model) }))
+        let all_wide_auth = !rows.is_empty() && rows.iter().all(|r| policy::account_wide_auth_blocked(r, now));
+        if let Some(mut cause) = error {
+            if let Cause::Provider(err) = &mut cause
+                && pool.policy() != Policy::Manual
+            {
+                err.reauth_required = all_wide_auth;
+            }
+            return PoolError::of(cause);
+        }
+        let wait = earliest_cooldown_ms(&rows, now, model);
+        if wait.is_none() && !rows.is_empty() && rows.iter().any(|r| policy::account_auth_blocked(r, now, model)) {
+            if all_wide_auth {
+                let mut auth = ProviderError::new(ErrorKind::Auth, DeliveryState::NotSent);
+                auth.reauth_required = true;
+                auth.message = "All connected accounts failed authentication or authorization. Sign in again or switch accounts.".into();
+                return PoolError::of(Cause::Provider(auth));
+            }
+            if rows.iter().all(|r| policy::account_auth_blocked(r, now, model)) {
+                let mut perm = ProviderError::new(ErrorKind::Permission, DeliveryState::NotSent);
+                perm.message = "No connected account is authorized to use this model.".into();
+                return PoolError::of(Cause::Provider(perm));
+            }
+            let non_auth_quota_exhausted = rows.iter().filter(|r| !policy::account_auth_blocked(r, now, model)).all(|r| {
+                let quota_only = r.with_blocks(|b| b.blocked_quota == Some(true));
+                policy::account_exhausted(&quota_only, now, model, credits)
+            });
+            if non_auth_quota_exhausted {
+                return PoolError {
+                    cause: Cause::AccountsExhausted { use_credits: credits },
+                    quota_exhausted: Some(QuotaExhausted {
+                        provider: provider.to_owned(),
+                        model: model.to_owned(),
+                        reset_at: policy::accounts_reset_at(&rows, now, model, credits),
+                    }),
+                };
+            }
+        }
+        PoolError::of(Cause::CoolingDown { retry_after_ms: wait })
     }
 
     /// Before the pool gives up, re-measures EVERY account it is about to
@@ -622,6 +761,7 @@ impl AccountRotation {
                 .iter()
                 .filter(|r| !excluded.contains(&r.id))
                 .filter(|r| policy::account_exhausted(r, now, model, pool.uses_credits()))
+                .filter(|r| !policy::account_auth_blocked(r, now, model))
                 .filter(|r| now - state.last_probe.get(&format!("{provider}:{}", r.id)).copied().unwrap_or(0) >= PROBE_INTERVAL_MS)
                 .collect()
         };
@@ -878,13 +1018,13 @@ impl AccountRotation {
                 return Err(PoolError::of(Cause::Provider(failed.error)));
             }
             let cooldown = sender.cooldown_policy(&row.id);
-            let verdict = self.judge(provider, &row, model, &failed, cooldown.as_ref(), ctx.plan_meters_apply, pool.uses_credits()).await?;
+            let verdict = self.judge(provider, &row, model, &failed, cooldown.as_ref(), ctx.plan_meters_apply, pool.uses_credits(), policy_now).await?;
             if !verdict.exhausted {
                 return Err(PoolError::of(Cause::Provider(failed.error)));
             }
             if verdict.evidence {
                 ledger.evidenced.insert(row.id.clone());
-            } else {
+            } else if verdict.auth.is_none() {
                 ledger.cooled.insert(row.id.clone());
             }
             self.record_block(provider, &row.id, model, &failed, &verdict).await?;
@@ -896,10 +1036,20 @@ impl AccountRotation {
                 last_error = Some(failed.error);
                 continue;
             }
+            if verdict.auth.is_some() && ledger.cooled.is_empty() && pool.accounts.iter().all(|r| ledger.attempted.contains(&r.id)) {
+                let latest_pool = unless_cancelled(ctx, self.pool_for_service(provider, ctx.plan_meters_apply)).await??;
+                return Err(self.exhausted_send_error(provider, &latest_pool, model, &ledger.evidenced, Some(Cause::Provider(failed.error)), None));
+            }
             last_error = Some(failed.error);
             switched = true;
             refusal_scoped = unless_cancelled(ctx, self.exhausted_for_model_only(provider, Some(&row.id), model, ctx.plan_meters_apply)).await??;
-            let reason = if verdict.evidence { "Quota exhausted" } else { "Rate limited (cooldown)" };
+            let reason = if verdict.auth.is_some() {
+                "Authentication failed"
+            } else if verdict.evidence {
+                "Quota exhausted"
+            } else {
+                "Rate limited (cooldown)"
+            };
             sender.notify(Stage::Reconnecting { message: format!("{reason} — switching to the next account"), wait_ms: None, retry_at: None });
         }
         let pool = unless_cancelled(ctx, self.pool_for_service(provider, ctx.plan_meters_apply)).await??;

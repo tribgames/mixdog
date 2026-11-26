@@ -88,6 +88,9 @@ export const PANE_SIDE_DOCK_DEFAULT_WIDTH = 500;
 /** Every side-dock surface floors at the same width (Claude stops at ~282px);
  *  anything narrower is the overlay/takeover ladder's job. */
 export const PANE_SIDE_DOCK_MIN_WIDTH = 280;
+/** Agent session side panel holds a full conversation, so it shares the main
+ *  workspace pane's minimum horizontal width. */
+export const PANE_SIDE_DOCK_AGENT_SESSION_MIN_WIDTH = DESKTOP_WORKSPACE_MIN_WIDTH;
 /** Every side-dock surface (panel, diff, browser/file, terminal) caps at the
  *  same width; resolveDockLayout still reserves the conversation's floor. */
 export const PANE_SIDE_DOCK_MAX_WIDTH = 1160;

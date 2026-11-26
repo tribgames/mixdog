@@ -12,27 +12,33 @@ import {
   moveTranscriptWindow,
   releaseTranscriptWindow,
   windowWant,
+  type WindowWant,
   WINDOW_PAGE_ROWS,
   WINDOW_TAIL_MAX_ROWS,
   WINDOW_VIEW_MAX_ROWS,
 } from '../src/transcript-window.ts';
 
-type O = Record<string, any>;
+type Obj = Record<string, unknown>;
+type Unit = { position: string; items: Obj[]; ordinal?: number };
+type ShownState = {
+  transcriptViewItems: readonly Obj[] | null;
+  transcriptViews: readonly { items: readonly Obj[]; before: boolean; after: boolean }[];
+};
 
-const reply = (id: string, text = id) => ({
+const reply = (id: string, text = id): Obj => ({
   type: 'agentMessage',
   id,
   text,
   meta: { ext: { historyPosition: pos(id) } },
 });
-const call = (id: string, more: O = {}) => ({
+const call = (id: string, more: Obj = {}): Obj => ({
   type: 'toolCall',
   id,
   name: 'read',
   input: { path: id },
   meta: { ...more },
 });
-const turnEnd = (of: string) => ({
+const turnEnd = (of: string): Obj => ({
   type: 'turnEnd',
   id: `${of}:2`,
   status: 'done',
@@ -40,19 +46,19 @@ const turnEnd = (of: string) => ({
   finalAssistantId: of,
   meta: {},
 });
-const unit = (id: string, ordinal?: number, ...more: O[]) => ({
+const unit = (id: string, ordinal?: number, ...more: Obj[]): Unit => ({
   position: pos(id),
   items: [reply(id), ...more],
   ...(ordinal === undefined ? {} : { ordinal }),
 });
-const ids = (rows: readonly O[]) => rows.map((row) => row.id);
-const state = (s: SessionFold) => desktopSessionState(s, []) as O;
-const insert = (s: SessionFold, u: O, after?: string) =>
+const ids = (rows: readonly { id?: unknown }[]) => rows.map((row) => row.id);
+const state = (s: SessionFold) => desktopSessionState(s, []) as unknown as ShownState;
+const insert = (s: SessionFold, u: Obj, after?: string) =>
   at(s, 'thread/transcript/changed', {
     lineage: 1,
     change: { op: 'insert', ...(after ? { after: pos(after) } : {}), unit: u },
   });
-const changed = (version: number, ranges: O[], added: O[]) => ({
+const changed = (version: number, ranges: Obj[], added: Obj[]) => ({
   subscriptionId: 'sub',
   requestId: `q${version}`,
   windowVersion: version,
@@ -63,9 +69,9 @@ const changed = (version: number, ranges: O[], added: O[]) => ({
   added,
   followTail: true,
 });
-const snapshot = (tail: O[], loose: O[] = [], older = true) => {
+const snapshot = (tail: readonly Unit[], loose: readonly Obj[] = [], older = true) => {
   const firstTail = tail[0];
-  const tailRange: O[] = [];
+  const tailRange: Obj[] = [];
   if (firstTail) tailRange.push({ id: 'tail', older: older ? cont(firstTail.position) : end, newer: end });
   return sessionReducer.initial({
     thread: { id: 't' },
@@ -139,12 +145,12 @@ test('a stretch apart from the tail shows its settled rows, and the rows in prog
   );
   let shown = state(s);
   assert.deepEqual(
-    ids(shown.transcriptViewItems),
+    ids(shown.transcriptViewItems ?? []),
     ['a1', 'a2', 'a2:2', 'live'],
     'a settled end and the row in progress'
   );
   assert.deepEqual(
-    shown.transcriptViews.map((view: O) => [ids(view.items), view.before, view.after]),
+    shown.transcriptViews.map((view) => [ids(view.items), view.before, view.after]),
     [[['a1', 'a2', 'a2:2', 'live'], true, false]]
   );
   // The tail read anew arrives apart from it: the stretch goes on toward newer rows, and the row in progress is the tail's.
@@ -161,7 +167,7 @@ test('a stretch apart from the tail shows its settled rows, and the rows in prog
     )
   );
   shown = state(s);
-  assert.deepEqual(ids(shown.transcriptViewItems), ['a1', 'a2', 'a2:2']);
+  assert.deepEqual(ids(shown.transcriptViewItems ?? []), ['a1', 'a2', 'a2:2']);
   assert.deepEqual(ids(s.items), ['r8', 'r9', 'live']);
   // A row in progress that changes leaves the stretch's rows the array they were.
   const next = at(s, 'item/completed', { turnId: 'x', item: call('live', { status: 'completed' }) });
@@ -190,14 +196,14 @@ test('a record that joins the tail past one the tail does not hold states the ho
 
 /** A client that holds one fold and records the windows asked of it. */
 function fakeClient(fold: SessionFold) {
-  const wants: O[] = [];
-  const listeners = new Set<(change: O) => void>();
+  const wants: WindowWant[] = [];
+  const listeners = new Set<(change: Obj) => void>();
   const client = {
     fold,
     wants,
     store: {
       thread: () => ({ state: client.fold }),
-      subscribe: (listener: (change: O) => void) => {
+      subscribe: (listener: (change: Obj) => void) => {
         listeners.add(listener);
         return () => void listeners.delete(listener);
       },
@@ -205,7 +211,7 @@ function fakeClient(fold: SessionFold) {
     on: () => () => undefined,
     threadSubscription: () => ({ subscriptionId: 'sub' }),
     fail: false,
-    call: async (_method: string, params: O) => {
+    call: async (_method: string, params: { want: WindowWant; requestId: string }) => {
       wants.push(params.want);
       if (client.fail) throw new Error('the read failed');
       return { requestId: params.requestId };
@@ -332,7 +338,7 @@ test('a read of what the window owes that fails is asked again by one rule: anot
   assert.equal(await keepTranscriptWindow(sent, 't'), false);
   // The reads of the tail anew (they retain no tail range); a page a reader asks for is another matter.
   const anew = () =>
-    client.wants.filter((want) => !want.ranges.some((range: O) => range.at === 'retain' && range.id === 'tail'));
+    client.wants.filter((want) => !want.ranges.some((range) => range.at === 'retain' && range.id === 'tail'));
   assert.equal(anew().length, 1);
   // Records keep arriving on the same window: none of them asks again.
   for (let n = 0; n < 5; n += 1) {
@@ -403,8 +409,8 @@ test('each reader holds what is near it: two in one stretch apart, one paging fa
   const STEP = WINDOW_PAGE_ROWS - 1;
   const records = Array.from({ length: PAGES * STEP + 1 }, (_, i) => unit(`a${String(i).padStart(4, '0')}`, i));
   let s = snapshot([unit('r1', 90_000), unit('r2', 90_001)]);
-  const ranges: O[] = [{ id: 'tail', older: cont(pos('r1')), newer: end }];
-  const added: O[] = [];
+  const ranges: Obj[] = [{ id: 'tail', older: cont(pos('r1')), newer: end }];
+  const added: Obj[] = [];
   for (let page = 0; page < PAGES; page += 1) {
     const units = records.slice(page * STEP, page * STEP + WINDOW_PAGE_ROWS);
     ranges.push({
@@ -417,7 +423,7 @@ test('each reader holds what is near it: two in one stretch apart, one paging fa
   s = at(s, 'thread/window/changed', changed(11, ranges, added));
   const held = s.held!;
   assert.equal(held.units.size, records.length + 2);
-  const rowsKept = (want: O | null): number => {
+  const rowsKept = (want: WindowWant | null): number => {
     const kept = new Set<string>();
     for (const range of want?.ranges ?? [])
       if (range.at === 'retain')
@@ -440,7 +446,7 @@ test('each reader holds what is near it: two in one stretch apart, one paging fa
     `two readers: ${rowsKept(both)} rows kept of ${records.length}`
   );
   assert.ok(rowsKept(both) < records.length - 1_000, 'the pages between them are let go');
-  const retained = new Set((both?.ranges ?? []).map((range: O) => range.id));
+  const retained = new Set((both?.ranges ?? []).flatMap((range) => (range.at === 'retain' ? [range.id] : [])));
   assert.ok(
     retained.has('q:0') && retained.has(`q:${PAGES - 1}`) && retained.has('tail'),
     'each keeps the rows it shows'
@@ -448,7 +454,7 @@ test('each reader holds what is near it: two in one stretch apart, one paging fa
   assert.ok(!retained.has(`q:${PAGES / 2}`), 'nobody is near the middle');
   // B's own move, standing still elsewhere, keeps the same: neither reader's want lets go of the other's rows.
   const stands = windowWant(held, { kind: 'at', position: pos('zz'), reader: 'C' }, [a, b]);
-  assert.ok(new Set(stands!.ranges.map((range: O) => range.id)).has('q:0'));
+  assert.ok(new Set(stands!.ranges.flatMap((range) => (range.at === 'retain' ? [range.id] : []))).has('q:0'));
   assert.ok(rowsKept(stands) <= 2 + 2 * WINDOW_VIEW_MAX_ROWS);
 });
 
@@ -489,7 +495,7 @@ test('the rows made for a stretch apart live as long as the stretch is shown: jo
   const vm = await import('node:vm');
   v8.setFlagsFromString('--expose-gc');
   const collect = vm.runInNewContext('gc') as () => void;
-  const apart = (ranges: O[], added: O[], version: number) =>
+  const apart = (ranges: Obj[], added: Obj[], version: number) =>
     changed(version, [{ id: 'tail', older: cont(pos('r8')), newer: end }, ...ranges], added);
   for (const ending of ['joins the tail', 'is left by its reader'] as const) {
     const made = (): { fold: SessionFold; refs: WeakRef<object>[] } => {
@@ -506,7 +512,7 @@ test('the rows made for a stretch apart live as long as the stretch is shown: jo
         )
       );
       const shown = state(s);
-      assert.deepEqual(ids(shown.transcriptViewItems), ['a1', 'a2', 'a3']);
+      assert.deepEqual(ids(shown.transcriptViewItems ?? []), ['a1', 'a2', 'a3']);
       // What the stretch's cache holds: the record map it was made from, and the rows merged for it.
       const refs = [new WeakRef(s.held!.units as object), new WeakRef(shown.transcriptViewItems as object)];
       // A stretch its reader left takes its records with it. (One that joined the tail keeps them, and a record
@@ -583,8 +589,8 @@ test("two readers of one window: one's move never lets go of the stretch the oth
   const held = s.held!;
   const inHit = { kind: 'read', first: 'a1', last: 'a3', reader: 'left' } as const;
   const inTail = { kind: 'read', first: 'g1000', last: 'g1010', reader: 'right' } as const;
-  const retained = (want: O | null) =>
-    want?.ranges.filter((range: O) => range.at === 'retain').map((range: O) => range.id) ?? null;
+  const retained = (want: WindowWant | null) =>
+    want?.ranges.flatMap((range) => (range.at === 'retain' ? [range.id] : [])) ?? null;
   // A reader off the end of a tail past its bound keeps its own rows and the other's stretch.
   const offEnd = windowWant(held, inTail, [inHit]);
   assert.deepEqual(retained(offEnd), ['q:hit']);
@@ -622,7 +628,7 @@ test("two readers of one window: one's move never lets go of the stretch the oth
     )
   );
   assert.deepEqual(
-    state(more).transcriptViews.map((view: O) => ids(view.items)),
+    state(more).transcriptViews.map((view) => ids(view.items)),
     [
       ['a1', 'a2', 'a3'],
       ['z8', 'z9'],
@@ -665,7 +671,7 @@ test('a reader exists as long as its pane shows the thread: withdrawn, what only
   const client = fakeClient(s);
   const sent = client as unknown as ProtocolClient<SessionFold>;
   const rows = () => [...client.fold.held!.units.values()].reduce((count, held) => count + held.rows.length, 0);
-  const retained = (want: O) => want.ranges.filter((range: O) => range.at === 'retain').map((range: O) => range.id);
+  const retained = (want: WindowWant) => want.ranges.flatMap((range) => (range.at === 'retain' ? [range.id] : []));
   // Pane A reads the stretch apart; pane B follows the end. Nothing is asked: the window serves both.
   void moveTranscriptWindow(sent, 't', { kind: 'read', first: 'a2', last: 'a2', reader: 'A' });
   void moveTranscriptWindow(sent, 't', { kind: 'read', first: 'g1840', last: 'g1847', end: true, reader: 'B' });
@@ -776,4 +782,67 @@ test('a waiting move gives way only to a later move of its own reader: a page as
   assert.equal(await page, true);
   assert.equal(await opened, false, 'the record opened is not held: its own answer');
   assert.equal(client.wants.length, 2, "B's three reads were one move, and asked nothing");
+});
+
+test('aborted or withdrawn provisional tool calls are removed on positioned and non-positioned folds without dropping committed ones', () => {
+  // 1. Positioned fold: withdrawn item/completed removes provisional row immediately; turn/completed strips leftovers while keeping committed units.
+  let posFold = snapshot([unit('r1', 10)]);
+  posFold = at(posFold, 'item/started', {
+    turnId: 't1',
+    item: call('call:aborted', { status: 'inProgress', ext: { provisional: true } }),
+  });
+  posFold = at(posFold, 'item/started', {
+    turnId: 't1',
+    item: call('call:leftover', { status: 'inProgress', ext: { provisional: true } }),
+  });
+  posFold = at(posFold, 'item/started', {
+    turnId: 't1',
+    item: call('call:committed', { status: 'inProgress', ext: { provisional: true } }),
+  });
+  assert.deepEqual(ids(posFold.items), ['r1', 'call:aborted', 'call:leftover', 'call:committed']);
+
+  // Commit call:committed as a stored unit; it must survive turn/completed.
+  posFold = insert(
+    posFold,
+    { position: pos('u-commit'), ordinal: 20, items: [call('call:committed', { status: 'completed' })] },
+    'r1'
+  );
+  // Withdraw call:aborted explicitly via item/completed { ext: { withdrawn: true } }.
+  posFold = at(posFold, 'item/completed', {
+    turnId: 't1',
+    item: call('call:aborted', { status: 'interrupted', ext: { withdrawn: true } }),
+  });
+  assert.deepEqual(ids(posFold.items), ['r1', 'call:committed', 'call:leftover']);
+  // turn/completed clears remaining uncommitted provisional call:leftover from loose.
+  posFold = at(posFold, 'turn/completed', { turnId: 't1' });
+  assert.deepEqual(ids(posFold.items), ['r1', 'call:committed']);
+  assert.deepEqual(ids(posFold.loose ?? []), []);
+
+  // 2. Non-positioned fold: same cleanup on withdrawn item/completed and turn/completed.
+  let flatFold = sessionReducer.initial({
+    thread: { id: 't-flat' },
+    state: {},
+    items: [reply('r1'), call('call:snap', { status: 'inProgress', ext: { provisional: true } })],
+  } as unknown as Json);
+  flatFold = at(flatFold, 'item/started', {
+    turnId: 't2',
+    item: call('call:aborted2', { status: 'inProgress', ext: { provisional: true } }),
+  });
+  flatFold = at(flatFold, 'item/started', {
+    turnId: 't2',
+    item: call('call:committed2', { status: 'inProgress', ext: { provisional: true } }),
+  });
+  flatFold = at(flatFold, 'item/completed', {
+    turnId: 't2',
+    item: call('call:committed2', { status: 'completed' }),
+  });
+  flatFold = at(flatFold, 'item/completed', {
+    turnId: 't2',
+    item: call('call:aborted2', { status: 'interrupted', ext: { withdrawn: true } }),
+  });
+  assert.deepEqual(ids(flatFold.items), ['r1', 'call:snap', 'call:committed2']);
+  flatFold = at(flatFold, 'turn/completed', { turnId: 't2' });
+  assert.deepEqual(ids(flatFold.items), ['r1', 'call:committed2']);
+  assert.ok(!flatFold.coreItems?.includes('call:aborted2'));
+  assert.ok(!flatFold.coreItems?.includes('call:snap'));
 });

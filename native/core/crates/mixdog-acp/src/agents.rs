@@ -333,14 +333,14 @@ pub(crate) enum ExistingSession {
 }
 
 /// One start of a thread's agent, for as long as it is the thread's current one.
-struct Opening<'a> {
+pub(crate) struct Opening<'a> {
     agents: &'a Agents,
     thread: ThreadId,
     id: u64,
 }
 
 impl Opening<'_> {
-    fn current(&self) -> bool {
+    pub(crate) fn current(&self) -> bool {
         lock(&self.agents.opening).get(&self.thread) == Some(&self.id)
     }
 }
@@ -495,6 +495,7 @@ impl Agents {
     /// here on, across a restart of the app.
     pub(crate) async fn window_reported(&self, preset: &AgentPreset, model: &str, size: u64) {
         let model = self.grouped_model(preset, model);
+        let size = preset.quirks.effective_context_window(&model, size);
         let kept = {
             let mut windows = lock(&self.windows);
             if windows.entry(preset.id.clone()).or_default().insert(model, size) == Some(size) {
@@ -509,7 +510,8 @@ impl Agents {
     /// The window `preset`'s agent last reported on `model`; `None` until it has reported one on that model.
     pub fn reported_window(&self, preset: &AgentPreset, model: &str) -> Option<u64> {
         let model = self.grouped_model(preset, model);
-        lock(&self.windows).get(&preset.id)?.get(&model).copied()
+        let size = lock(&self.windows).get(&preset.id)?.get(&model).copied()?;
+        Some(preset.quirks.effective_context_window(&model, size))
     }
 
     /// The model a window is kept under: the listed model a route's `model` names (a route saved under the agent's own id
@@ -588,7 +590,15 @@ impl Agents {
                     "models": models,
                     // The window the agent reported on each model: a new one changes this value, which is how the desktop
                     // learns its model rows state a window now (the slider's maximum).
-                    "contextWindows": lock(&self.windows).get(&preset.id).cloned().unwrap_or_default(),
+                    "contextWindows": lock(&self.windows)
+                        .get(&preset.id)
+                        .map(|models| {
+                            models
+                                .iter()
+                                .map(|(model, size)| (model.clone(), preset.quirks.effective_context_window(model, *size)))
+                                .collect::<HashMap<String, u64>>()
+                        })
+                        .unwrap_or_default(),
                     // What the agent tells of the signed-in account: its plan, and whether it can be signed out here.
                     "plan": slot.filter(|_| matches!(readiness, Some(Readiness::Ready { .. }))).and_then(|slot| slot.account.plan.clone()),
                     "canSignOut": slot.is_some_and(|slot| slot.account.sign_out) && signed_in,
@@ -724,7 +734,7 @@ impl Agents {
     ) -> Result<Arc<AgentSession>, Refusal> {
         // A session reopened on its preset's shared server keeps the server running until the new one is on it.
         let _held = self.hold_shared(thread, preset);
-        match self.resolve_running(thread, preset, &cwd, stored).await? {
+        match self.resolve_running(thread, preset, &cwd, stored, rules.as_deref()).await? {
             ExistingSession::Reuse(running) => Ok(running),
             ExistingSession::Open { stored, abandoned } => self.open_session(thread, preset, cwd, stored, rules, abandoned).await,
         }
@@ -732,12 +742,15 @@ impl Agents {
 
     /// Checks whether `thread`'s existing running session can be reused, waiting up to [`Self::cancel_close_grace`]
     /// for a cancelled prompt to close and abandoning + ending a stuck session before opening a replacement.
+    /// Also checks that the host's prompt rules digest and handed `tools/list` digest match the live session so
+    /// changed rules or tool surfaces reopen cleanly instead of reusing stale state.
     pub(crate) async fn resolve_running(
         &self,
         thread: &ThreadId,
         preset: &AgentPreset,
         cwd: &AbsPath,
         mut stored: Option<crate::runs::Stored>,
+        rules: Option<&str>,
     ) -> Result<ExistingSession, Refusal> {
         if !self.enabled() {
             return Err(Refusal::Off);
@@ -751,22 +764,33 @@ impl Agents {
         let mut _held = None;
         if let Some(running) = running {
             if running.preset.id == preset.id && running.cwd == *cwd && !running.gone().is_cancelled() {
-                // A session that holds a cancelled prompt would read the next prompt as part of it: the agent
-                // closes that prompt first, which is the answer the protocol has it give to a cancel. If the agent
-                // never answers, drop the stuck session after a bounded grace so the next turn does not hang.
-                let closed = if running.holds_cancelled_prompt() {
-                    mixdog_rt::time::timeout(self.cancel_close_grace(), running.cancelled_prompt_closed()).await.is_ok()
-                } else {
-                    true
+                let expected_prompt = crate::session::prompt_digest_for(preset, rules, running.handed.is_some());
+                let rules_match = running.prompt == expected_prompt;
+                let tools_match = match (&running.handed, running.served_tools_digest()) {
+                    (Some(handed), Some(served)) => handed.current_digest().await.is_none_or(|current| current == served),
+                    _ => true,
                 };
-                if closed && !running.gone().is_cancelled() {
-                    return Ok(ExistingSession::Reuse(running));
-                }
-                if !closed && preset.scope == ProcessScope::Shared {
-                    // Reopening the same session id on the shared server would reattach to the stuck prompt.
-                    self.abandon_shared(preset, &running.session_id);
+                if rules_match && tools_match {
+                    // A session that holds a cancelled prompt would read the next prompt as part of it: the agent
+                    // closes that prompt first, which is the answer the protocol has it give to a cancel. If the agent
+                    // never answers, drop the stuck session after a bounded grace so the next turn does not hang.
+                    let closed = if running.holds_cancelled_prompt() {
+                        mixdog_rt::time::timeout(self.cancel_close_grace(), running.cancelled_prompt_closed()).await.is_ok()
+                    } else {
+                        true
+                    };
+                    if closed && !running.gone().is_cancelled() {
+                        return Ok(ExistingSession::Reuse(running));
+                    }
+                    if !closed && preset.scope == ProcessScope::Shared {
+                        // Reopening the same session id on the shared server would reattach to the stuck prompt.
+                        self.abandon_shared(preset, &running.session_id);
+                        stored = None;
+                        abandoned = true;
+                    }
+                } else {
+                    // Rules or tools changed: open a fresh ACP session instead of resuming the stale stored session.
                     stored = None;
-                    abandoned = true;
                 }
             }
             // A session reopened on its preset's shared server keeps the server running until the new one is on it,
@@ -777,6 +801,18 @@ impl Agents {
             self.end_process(thread);
         }
         Ok(ExistingSession::Open { stored, abandoned })
+    }
+
+    /// Tracks `thread` in `Agents::opening` for the duration of a session spawn until registration or drop.
+    pub(crate) fn begin_opening(&self, thread: ThreadId) -> Opening<'_> {
+        let id = self.next_check.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        lock(&self.opening).insert(thread.clone(), id);
+        Opening { agents: self, thread, id }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn opening_count(&self) -> usize {
+        lock(&self.opening).len()
     }
 
     /// Opens a fresh or reopened agent session for `thread`, bounding opens on an existing shared server so a
@@ -794,12 +830,17 @@ impl Agents {
             return Err(Refusal::Off);
         }
         // A close of the thread while its agent starts ends the start: the agent it would hold is never kept.
-        let opening = Opening { agents: self.as_ref(), thread: thread.clone(), id: self.next_check.fetch_add(1, std::sync::atomic::Ordering::Relaxed) };
-        lock(&self.opening).insert(opening.thread.clone(), opening.id);
+        let opening = self.begin_opening(thread.clone());
         // The CLI is checked before its ACP mode is started: one too old for it is never run in it. The start is
         // held against an update of the CLI until the session is among those the update looks at.
         let (program, _starting) = self.ready_program(preset).await?;
-        let grants = lock(&self.grants).entry(thread.clone()).or_default().clone();
+        let grants = {
+            let _sessions = lock(&self.sessions);
+            if !opening.current() {
+                return Err(Refusal::Closed);
+            }
+            lock(&self.grants).entry(thread.clone()).or_default().clone()
+        };
         let wake: crate::session::Wake = {
             let (agents, thread) = (Arc::downgrade(self), thread.clone());
             Arc::new(move || {
@@ -1026,7 +1067,12 @@ impl Agents {
 
     /// Ends every agent, shared server, check and sign-in: the feature was turned off.
     pub fn release_all(&self) {
-        let sessions: Vec<_> = lock(&self.sessions).drain().collect();
+        let sessions: Vec<_> = {
+            let mut sessions = lock(&self.sessions);
+            lock(&self.opening).clear();
+            lock(&self.grants).clear();
+            sessions.drain().collect()
+        };
         for (_, session) in sessions {
             session.end();
         }

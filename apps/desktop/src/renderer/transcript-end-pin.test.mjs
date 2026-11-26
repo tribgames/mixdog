@@ -175,3 +175,29 @@ test('passive or at-bottom gesture does not defer end-pinning when viewport is a
   assert.equal(state.viewport.scrollTop, 1000, 'at-bottom gesture pins immediately without deferring across frames');
   assert.equal(state.frames.size, 0);
 });
+
+test('releasing follow clears stale lastTarget immediately so rearming under an active gesture defers instead of snapping', async () => {
+  const state = fixture();
+  state.pin.request();
+  await Promise.resolve();
+  assert.equal(state.viewport.scrollTop, 800);
+  // Follow is released (transcript-list-handles calls endPin.cancel() on release without calling pin.now()).
+  state.virtualizer.options.anchorTo = 'start';
+  state.virtualizer.options.followOnAppend = false;
+  state.pin.cancel();
+  // Streaming grows the transcript while the viewport stays at 800 (now 400px above the new bottom 1200).
+  state.viewport.scrollHeight = 1600;
+  // Re-arm while a reader gesture is active: stale lastTarget=800 must NOT fool the at-bottom check.
+  state.virtualizer.options.anchorTo = 'end';
+  state.virtualizer.options.followOnAppend = true;
+  state.gesture(true);
+  state.pin.request();
+  await Promise.resolve();
+  assert.deepEqual(state.writes, [800], 'active gesture away from the new bottom defers instead of snapping');
+  assert.equal(state.frames.size, 1, 'schedules idle retry frame');
+  state.gesture(false);
+  state.frame();
+  await Promise.resolve();
+  assert.equal(state.viewport.scrollTop, 1200);
+  assert.deepEqual(state.writes, [800, 1200]);
+});

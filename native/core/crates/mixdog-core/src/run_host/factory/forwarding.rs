@@ -153,19 +153,47 @@ pub(super) fn spawn_forwarder(
         "run-shown",
         TaskClass::Work,
         turn_task(async move {
-            let forward = async {
-                while let Some(mut shown) = turn_input(shown_rx.recv()).await {
-                    if let Shown::Prepared(preparation) = shown {
-                        match preparation.await {
-                            Some(ready) => shown = ready,
-                            // The preparation panicked: the report is not sent.
-                            None => continue,
+            let closing = port.closing();
+            loop {
+                let shown = tokio::select! {
+                    biased;
+                    () = cancel.cancelled() => break,
+                    next = turn_input(shown_rx.recv()) => match next {
+                        Some(shown) => shown,
+                        None => return,
+                    },
+                };
+                let shown = match shown {
+                    Shown::Prepared(preparation) => match cancel.run_until_cancelled(preparation).await {
+                        Some(Some(ready)) => ready,
+                        // The preparation panicked: the report is not sent.
+                        Some(None) => continue,
+                        None => break,
+                    },
+                    other => other,
+                };
+                match shown {
+                    Shown::Stage(stage, detail) if stage == "route_switch" => {
+                        let _ = closing.stage(stage, detail).await;
+                    }
+                    other => {
+                        if cancel.run_until_cancelled(forward_report(&port, other)).await.is_none() {
+                            break;
                         }
                     }
-                    let _ = forward_report(&port, shown).await;
                 }
-            };
-            let _ = cancel.run_until_cancelled(forward).await;
+            }
+            // Close the receiver before draining with recv().await so any concurrent `RouteSwitchBus::push`
+            // admitted before close() finishes enqueueing and is delivered, while any post-close publish falls
+            // back into `RouteSwitchBus` for `drive_turn` to flush.
+            shown_rx.close();
+            while let Some(shown) = shown_rx.recv().await {
+                if let Shown::Stage(stage, detail) = shown
+                    && stage == "route_switch"
+                {
+                    let _ = closing.stage(stage, detail).await;
+                }
+            }
         }),
     )
 }

@@ -303,7 +303,10 @@ fn make_link(kind: &str, source: &Path, dest: &Path) -> std::io::Result<()> {
 
 #[cfg(windows)]
 fn junction(source: &Path, dest: &Path) -> std::io::Result<()> {
-    let out = std::process::Command::new("cmd").args(["/c", "mklink", "/J"]).arg(dest).arg(source).output()?;
+    let mut command = std::process::Command::new("cmd");
+    command.args(["/c", "mklink", "/J"]).arg(dest).arg(source);
+    std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000);
+    let out = command.output()?;
     if out.status.success() { Ok(()) } else { Err(std::io::Error::other(String::from_utf8_lossy(&out.stdout).into_owned())) }
 }
 

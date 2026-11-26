@@ -283,6 +283,11 @@ function useEntryPreview(inspection: ContextInspection, request: ContextRequest 
   return { preview, openPreview, closePreview };
 }
 
+/** Categories with positive token counts, ordered largest first. */
+export function rankContextCategories<T extends { tokens: number }>(categories: readonly T[]): T[] {
+  return categories.filter((category) => category.tokens > 0).sort((a, b) => b.tokens - a.tokens);
+}
+
 export function ContextInspector({
   inspection,
   windowTokens,
@@ -297,8 +302,14 @@ export function ContextInspector({
   const [hovered, setHovered] = useState('');
   const [bubble, setBubble] = useState<{ x: number; y: number; flip: boolean; text: string } | null>(null);
   const { preview, openPreview, closePreview } = useEntryPreview(inspection, request);
-  if (category && !inspection.categories.some((row) => row.key === category && row.key !== 'host')) setCategory('');
-  const map = buildContextMap(inspection.categories, { windowTokens });
+  const rankedCategories = rankContextCategories(inspection.categories.filter((row) => row.key !== 'host'));
+  if (category && !rankedCategories.some((row) => row.key === category)) setCategory('');
+  const categorizedTokens = sumTokens(rankedCategories);
+  const measuredTokens = Math.max(categorizedTokens, inspection.estimatedTokens);
+  const uncategorizedTokens = Math.max(0, measuredTokens - categorizedTokens);
+  const mapCategories =
+    uncategorizedTokens > 0 ? [...rankedCategories, { key: 'used', tokens: uncategorizedTokens }] : rankedCategories;
+  const map = buildContextMap(mapCategories, { windowTokens });
   const selectCategory = (key: string) => {
     closePreview();
     setExpanded({});
@@ -311,10 +322,7 @@ export function ContextInspector({
       ? t('Raw estimate: ≈{{tokens}}', { tokens: uiNumber(entry.estimatedTokens) })
       : undefined;
   const entries = inspection.entries.filter((entry) => entry.category === category);
-  // Ranked by estimated size for scanning; empty categories fall to the tail
-  // and stay visible, so the set of categories remains stable.
-  const rankedCategories = [...inspection.categories].sort((a, b) => b.tokens - a.tokens);
-  const freeTokens = Math.max(0, windowTokens - inspection.estimatedTokens);
+  const freeTokens = Math.max(0, windowTokens - measuredTokens);
   const percentLabel = (tokens: number) =>
     windowTokens > 0 ? `${Math.round((tokens / windowTokens) * 1000) / 10}%` : '';
   // Every block already knows its category, so hovering one can say which
@@ -325,11 +333,16 @@ export function ContextInspector({
     if (key === 'free') {
       return [t('Free space'), percentLabel(freeTokens), `≈${uiNumber(freeTokens)}`].filter(Boolean).join(' · ');
     }
-    const row = inspection.categories.find((item) => item.key === key);
+    if (key === 'used') {
+      return [t('Used'), percentLabel(uncategorizedTokens), `≈${uiNumber(uncategorizedTokens)}`]
+        .filter(Boolean)
+        .join(' · ');
+    }
+    const row = rankedCategories.find((item) => item.key === key);
     if (!row) return '';
     return [
       t(row.label),
-      row.key === 'host' ? '' : t('{{count}} items', { count: row.count }),
+      t('{{count}} items', { count: row.count }),
       percentLabel(row.tokens),
       `≈${uiNumber(row.tokens)}`,
     ]
@@ -372,7 +385,7 @@ export function ContextInspector({
   ]
     .filter(Boolean)
     .join(' ');
-  const selected = inspection.categories.find((row) => row.key === category && row.key !== 'host');
+  const selected = rankedCategories.find((row) => row.key === category);
   const previewEntry = preview ? entries.find((item) => item.id === preview.id) : undefined;
   let detail: ReactNode;
   if (!selected) {
@@ -421,7 +434,7 @@ export function ContextInspector({
           }}
           onClick={(event) => {
             const key = cellKey(event.target);
-            if (key && key !== 'free' && key !== 'host') selectCategory(key);
+            if (key && key !== 'free' && key !== 'host' && key !== 'used') selectCategory(key);
           }}
         >
           {map.cells.map((key: string, index: number) => (
@@ -440,50 +453,26 @@ export function ContextInspector({
           )}
         </div>
         <div className="context-mix-list">
-          {rankedCategories.map((row) =>
-            row.key === 'host' ? (
-              <div
-                className="context-mix-row"
-                key={row.key}
-                data-context-key={row.key}
-                data-empty={row.tokens > 0 ? undefined : 'true'}
-                data-hot={hovered === row.key ? 'true' : undefined}
-              >
-                <i aria-hidden="true" />
-                <span>{t(row.label)}</span>
-                <em>{percentLabel(row.tokens)}</em>
-                <strong title={tokenTitle(row)}>≈{uiNumber(row.tokens)}</strong>
-              </div>
-            ) : (
-              <button
-                type="button"
-                className="context-mix-row"
-                key={row.key}
-                data-context-key={row.key}
-                data-empty={row.tokens > 0 ? undefined : 'true'}
-                data-hot={hovered === row.key ? 'true' : undefined}
-                aria-pressed={category === row.key}
-                onClick={() => selectCategory(row.key)}
-                aria-label={`${t(row.label)} · ${t('{{count}} items', { count: row.count })} · ≈${uiNumber(row.tokens)}`}
-              >
-                <i aria-hidden="true" />
-                <span>
-                  {t(row.label)}
-                  <small>{t('{{count}} items', { count: row.count })}</small>
-                </span>
-                <em>{percentLabel(row.tokens)}</em>
-                <strong title={tokenTitle(row)}>≈{uiNumber(row.tokens)}</strong>
-              </button>
-            )
-          )}
-          <div className="context-mix-remainder">
-            <div className="context-mix-row" data-context-key="free" data-hot={hovered === 'free' ? 'true' : undefined}>
+          {rankedCategories.map((row) => (
+            <button
+              type="button"
+              className="context-mix-row"
+              key={row.key}
+              data-context-key={row.key}
+              data-hot={hovered === row.key ? 'true' : undefined}
+              aria-pressed={category === row.key}
+              onClick={() => selectCategory(row.key)}
+              aria-label={`${t(row.label)} · ${t('{{count}} items', { count: row.count })} · ≈${uiNumber(row.tokens)}`}
+            >
               <i aria-hidden="true" />
-              <span>{t('Free space')}</span>
-              <em>{percentLabel(freeTokens)}</em>
-              <strong>≈{uiNumber(freeTokens)}</strong>
-            </div>
-          </div>
+              <span>
+                {t(row.label)}
+                <small>{t('{{count}} items', { count: row.count })}</small>
+              </span>
+              <em>{percentLabel(row.tokens)}</em>
+              <strong title={tokenTitle(row)}>≈{uiNumber(row.tokens)}</strong>
+            </button>
+          ))}
         </div>
       </aside>
       <div className="context-inspector-detail">{detail}</div>

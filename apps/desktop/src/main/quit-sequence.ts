@@ -70,7 +70,7 @@ export interface DesktopQuitSequenceOptions {
    *  that never settles cannot leave a quitting app running with its core and the single-instance lock held. None:
    *  unbounded. */
   teardownTimeoutMs?: number;
-  onTeardownTimeout?(): void;
+  onTeardownTimeout?(): void | Promise<void>;
 }
 
 export interface DesktopQuitSequence {
@@ -104,23 +104,24 @@ export function createDesktopQuitSequence(options: DesktopQuitSequenceOptions): 
         .catch((error: unknown) => options.onError?.(error));
       const bound = options.teardownTimeoutMs;
       let timer: ReturnType<typeof setTimeout> | null = null;
+      let timeoutHook: Promise<void> | null = null;
       const deadline =
         bound === undefined
           ? null
           : new Promise<void>((resolve) => {
               timer = setTimeout(() => {
-                try {
-                  options.onTeardownTimeout?.();
-                } catch (error) {
-                  options.onError?.(error);
-                }
-                resolve();
+                timeoutHook = Promise.resolve()
+                  .then(() => options.onTeardownTimeout?.())
+                  .catch((error: unknown) => options.onError?.(error));
+                void timeoutHook.finally(resolve);
               }, bound);
             });
-      running = (deadline ? Promise.race([teardown, deadline]) : teardown).finally(() => {
-        if (timer) clearTimeout(timer);
-        options.exit();
-      });
+      running = (deadline ? Promise.race([teardown, deadline]) : teardown)
+        .then(() => timeoutHook ?? undefined)
+        .finally(() => {
+          if (timer) clearTimeout(timer);
+          options.exit();
+        });
       return running;
     },
     secondInstance() {

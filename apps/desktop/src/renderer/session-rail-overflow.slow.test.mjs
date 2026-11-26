@@ -289,8 +289,8 @@ const HARNESS = `
       afterMark: readout.getBoundingClientRect().left >= mark.right - 0.5,
     };
   };
-  // Context's head percent and its rows: each figure's colour beside the text ink and the muted ink, and the gap
-  // above Free space.
+  // Context's head percent and its rows: each figure's colour beside the text ink and the muted ink; Free space
+  // and zero-token kinds are excluded from the list.
   window.contextFigures = () => {
     const section = document.querySelector('[data-category="context"]');
     const ink = getComputedStyle(section.querySelector('.session-rail-tt').closest('.session-rail')).color;
@@ -302,12 +302,12 @@ const HARNESS = `
       muted,
       percent: getComputedStyle(section.querySelector('.session-rail-context-percent')).color,
       tone: section.querySelector('.session-rail-context-percent').dataset.tone ?? null,
+      hasFree: Boolean(free),
       rows: rows.map((row) => ({
         key: row.dataset.contextKey,
         zero: row.hasAttribute('data-zero'),
         color: getComputedStyle(row.querySelector('.session-rail-num')).color,
       })),
-      freeGap: free.getBoundingClientRect().top - free.previousElementSibling.getBoundingClientRect().bottom,
     };
   };
   // Two agents and two shells at a width: the first of each in the state the test names (an agent's state, with or
@@ -390,8 +390,9 @@ const HARNESS = `
         shown: getComputedStyle(word).visibility === 'visible',
       };
     };
-    // A shell row's buttons: shown at rest (nothing up to the row faded out); icon buttons in the row's fourth column,
-    // right of its state on its line; a worded one on a line of its own under the command.
+    // A shell row's buttons: shown at rest (nothing up to the row faded out); icon and transient stop buttons in the
+    // row's fourth column, right of its state on its line; held unconfirmed-termination actions on a second line under
+    // the command.
     const actions = (row) => {
       const cell = row.querySelector('.composer-island-row-actions');
       const buttons = [...cell.querySelectorAll('button')];
@@ -406,12 +407,12 @@ const HARNESS = `
       const word = row.querySelector('.agent-activity-elapsed').getBoundingClientRect();
       const command = row.querySelector('.schedules-row-copy').getBoundingClientRect();
       const edge = row.getBoundingClientRect();
-      const worded = buttons.some((button) => !button.hasAttribute('data-icon'));
+      const wrapped = Boolean(row.querySelector('[data-state="unconfirmed"]'));
       return {
         labels: buttons.map((button) => button.getAttribute('aria-label')),
         shown: buttons.length > 0 && shown,
-        worded,
-        placed: worded
+        worded: wrapped,
+        placed: wrapped
           ? a.top >= command.bottom - 0.5 && a.bottom <= edge.bottom + 0.5
           : a.left >= word.right - 0.5 && a.right <= edge.right + 0.5 && Math.abs((a.top + a.bottom) / 2 - (word.top + word.bottom) / 2) <= 2,
       };
@@ -639,13 +640,17 @@ const HARNESS = `
       rows: [...agentsList.querySelectorAll('.agent-pool-row')].map((row) => {
         const ring = row.querySelector(':scope > .agent-row-ring > svg');
         const status = row.querySelector(':scope > .agent-activity-status');
-        const steps = row.querySelector(':scope > .agent-row-steps');
+        const steps = status?.querySelector(':scope > .agent-row-steps');
+        const sep = status?.querySelector(':scope > .agent-row-meta-sep');
+        const elapsed = status?.querySelector(':scope > .agent-activity-elapsed');
         return {
           working: row.hasAttribute('data-working'),
           look: rowLook(row),
           ring: ring && { ink: inkLeft(ring), width: box(ring).right - box(ring).left },
           name: box(row.querySelector('.agent-pool-name')).left,
-          steps: [box(steps).left, box(steps).right, steps.textContent],
+          steps: steps ? [box(steps).left, box(steps).right, steps.textContent] : null,
+          sep: Boolean(sep),
+          elapsed: elapsed ? [box(elapsed).left, box(elapsed).right] : null,
           state: [box(status).left, box(status).right],
         };
       }),
@@ -1075,15 +1080,20 @@ test('the panel at 400px and at its 300px minimum with a busy session: nothing o
       near(row.name, agents.todo.text, `${what}: its name on the to-do's text line`);
       assert.deepEqual(row.look, agents.todo.resting, `${width}px, ${what}: the to-do's row`);
     }
-    // The step figures and the states each end on one right line down the list, the figures before the states.
-    const stepsRight = agents.rows[0].steps[1];
+    // Every row's trailing meta cluster ends on one right line; rows with a step list show `steps · elapsed`
+    // inline inside it, while rows without a step list omit the step figure and separator.
     const stateRight = agents.rows[0].state[1];
     for (const [index, row] of agents.rows.entries()) {
-      near(row.steps[1], stepsRight, `agent ${index}: its step figure's right line`);
-      near(row.state[1], stateRight, `agent ${index}: its state's right line`);
-      assert.ok(row.steps[1] <= row.state[0] + 0.5, `${width}px, agent ${index}: its figure before its state`);
+      near(row.state[1], stateRight, `agent ${index}: its trailing meta cluster's right line`);
+      if (row.steps) {
+        assert.equal(row.sep, true, `${width}px, agent ${index}: separator shown with steps`);
+        assert.ok(row.steps[0] >= row.state[0] - 0.5, `${width}px, agent ${index}: steps inside meta cluster`);
+        assert.ok(row.steps[1] < row.elapsed[0], `${width}px, agent ${index}: steps before elapsed`);
+      } else {
+        assert.equal(row.sep, false, `${width}px, agent ${index}: no separator without steps`);
+      }
     }
-    assert.ok(agents.rows.some((row) => row.steps[2] === '12/99') && agents.rows.some((row) => row.steps[2] === ''));
+    assert.ok(agents.rows.some((row) => row.steps?.[2] === '12/99') && agents.rows.some((row) => row.steps === null));
     // One rhythm: a kind's line To-do's 28px label, each row a panel row (32px), nothing between them; a kind after
     // rows 8px lower.
     const { pitch } = agents;
@@ -1240,21 +1250,26 @@ test("Info's usage line stands worded on one line at the panel's default (least)
   );
   assert.match(forms.find((form) => form.worded).text, /123\.4M.*tok\/s.*100\.0%/);
 
-  // Context: the head's percent in the text ink while the gauge has no tone; a kind holding nothing muted; Free
-  // space 6px below the rows above it.
+  // Context: the head's percent in the text ink while the gauge has no tone; zero-token kinds and Free space are
+  // excluded from the list, and every remaining figure stands in the text ink.
   const context = await page.evaluate(() => window.contextFigures());
   assert.equal(context.tone, null);
   assert.equal(context.percent, context.ink, 'the percent in the text ink');
   assert.notEqual(context.ink, context.muted);
-  const zero = context.rows.filter((row) => row.zero);
-  assert.deepEqual(
-    zero.map((row) => row.key),
-    ['mcp']
+  assert.equal(context.hasFree, false, 'Free space row is omitted from the list');
+  assert.equal(
+    context.rows.some((row) => row.zero),
+    false,
+    'zero-token kinds are omitted'
+  );
+  assert.equal(
+    context.rows.some((row) => row.key === 'mcp'),
+    false,
+    'zero-token mcp is omitted'
   );
   for (const row of context.rows) {
-    assert.equal(row.color, row.zero ? context.muted : context.ink, `${row.key}: its figure's ink`);
+    assert.equal(row.color, context.ink, `${row.key}: its figure's ink`);
   }
-  assert.ok(Math.abs(context.freeGap - 6) <= 0.5, `Free space stands 6px apart: ${context.freeGap}`);
   assert.deepEqual(errors, []);
 });
 
@@ -1326,15 +1341,19 @@ test("the Agents' name column keeps one width in every state; the Shells' state 
         assert.ok(action.placed, `${what}: ${action.worded ? 'under the command' : 'in its column, beside the state'}`);
       }
     }
-    // Shells: with only runs under an hour the state column holds that clock alone, so the commands keep the room; a
-    // longer run or a long end state takes the room it reads, and only while it is shown.
+    // Shells: the state column holds both clocks and terminal state words so normal transitions never shift the command
+    // column; only a held unconfirmed-termination label widens it while shown.
     const command = (shellCase) => seen.find((entry) => entry.shellCase === shellCase).shellName;
-    for (const wider of ['running', 'held']) {
+    for (const steady of ['running', 'stopped', 'exited', 'failed']) {
       assert.ok(
-        command('quick') > command(wider) + 0.5,
-        `${width}px: commands beside short clocks ${command('quick')} > beside ${wider} ${command(wider)}`
+        Math.abs(command('quick') - command(steady)) <= 0.5,
+        `${width}px: commands beside short clocks ${command('quick')} ≈ beside ${steady} ${command(steady)}`
       );
     }
+    assert.ok(
+      command('quick') > command('held') + 0.5,
+      `${width}px: commands beside short clocks ${command('quick')} > beside held ${command('held')}`
+    );
     // Every word the code can put in either column was shown.
     const shown = (side) => new Set(seen.map((entry) => entry[side].text));
     assert.deepEqual(
@@ -1528,7 +1547,10 @@ test("each section's head at the panel's minimum: its name at the rows' left edg
       // action (Git's Run) they end before it.
       const after = head.parts.slice(head.parts.findIndex(([kind]) => kind === 'chevron') + 1);
       if (after.length && head.action)
-        assert.ok(after.at(-1)[1].right <= head.action.left, `${label}: its figures (${after.at(-1)[1].right}) clear of its action (${head.action.left})`);
+        assert.ok(
+          after.at(-1)[1].right <= head.action.left,
+          `${label}: its figures (${after.at(-1)[1].right}) clear of its action (${head.action.left})`
+        );
       else if (after.length) near(after.at(-1)[1].right, head.contentRight, `${label}: its figures' end`);
     }
     // Every section with figures shows them, open or folded; Git's stand in its folded head (open, its Run stands

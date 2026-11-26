@@ -67,12 +67,7 @@ import { usageMoney } from './usage-format';
 import { ShellJobContent, ShellRowButton, useShellStops } from './shell-job-controls';
 import { useMobileBack } from './mobile-back';
 import { ComposerIslandContext, type ComposerIslandTab, type IslandSegmentReserves } from './composer-island-state';
-import {
-  rememberedSegmentAdvances,
-  useIslandFit,
-  useIslandGlide,
-  useIslandSlotPresence,
-} from './composer-island-layout';
+import { rememberedSegmentAdvances, useIslandFit, useIslandSlotPresence } from './composer-island-layout';
 import { desktopHeaderSnapshotsEqual, paneHeaderView } from './desktop-snapshot-store';
 import { EMPTY_SNAPSHOT } from './desktop-types';
 import { t } from './i18n';
@@ -103,14 +98,38 @@ export { ISLAND_COLLAPSE_GRACE_MS, rememberedSegmentAdvances, rememberedSlotHeig
 
 const FLASH_MS = 2_500;
 
+/** Splits a localized phrase around its numeric count so the figure can carry
+ *  its own ink and weight regardless of word order. */
+export function splitCountPhrase(text: string, count: number): { before: string; num: string; after: string } | null {
+  const token = String(count);
+  const match = new RegExp(`(?:^|(?<!\\d))${token}(?!\\d)`).exec(text);
+  if (!match) return null;
+  return {
+    before: text.slice(0, match.index),
+    num: token,
+    after: text.slice(match.index + token.length),
+  };
+}
+
 /** A segment's words, plus the icon and bare count the narrow island shows
  *  instead (the count is painted from the attribute so it never joins the
  *  text content). */
 export function IslandSegLabel({ text, count, icon }: { text: string; count: number; icon: string }) {
+  const parts = splitCountPhrase(text, count);
   return (
     <>
       <MxIcon name={icon} size={14} className="composer-island-seg-icon" aria-hidden="true" />
-      <span className="composer-island-seg-word">{text}</span>
+      <span className="composer-island-seg-word">
+        {parts ? (
+          <>
+            {parts.before}
+            <span className="composer-island-seg-count">{parts.num}</span>
+            {parts.after}
+          </>
+        ) : (
+          text
+        )}
+      </span>
       <span className="composer-island-seg-num" data-count={count} aria-hidden="true" />
     </>
   );
@@ -499,6 +518,7 @@ function AgentsPanel({
       <IslandPanelHead
         chip={
           <>
+            <MxIcon name="agent" size={14} className="composer-island-seg-icon" aria-hidden="true" />
             {t('Agents')}
             <HeadFigures count={agentsInProgress(agents)} mark={agentsHeadMark(agents)} />
           </>
@@ -559,6 +579,7 @@ function ShellsPanel({
       <IslandPanelHead
         chip={
           <>
+            <MxIcon name="shell-prompt" size={14} className="composer-island-seg-icon" aria-hidden="true" />
             {t('Shell')}
             <HeadFigures count={runningShells} mark={jobsTabMark('shell', [], runningShells)} />
           </>
@@ -1025,7 +1046,6 @@ export const ComposerIsland = memo(function ComposerIsland({
   const pillRef = useRef<HTMLDivElement | null>(null);
   const slotRef = useRef<HTMLDivElement | null>(null);
   useIslandFit(islandRef, pillRef);
-  useIslandGlide(islandRef, pillRef, useSurfaceActive());
   const heldHeightRef = useRef(heldHeight);
   const carriedHeightRef = useRef(carriedHeight);
   const routeSessionIdRef = useRef(routeSessionId);

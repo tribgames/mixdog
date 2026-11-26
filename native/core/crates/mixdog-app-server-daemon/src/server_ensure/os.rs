@@ -301,7 +301,7 @@ impl CoreAccess for OsAccess {
         #[cfg(unix)]
         std::os::unix::process::CommandExt::process_group(&mut command, 0);
         #[cfg(windows)]
-        std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0000_0008 | 0x0000_0200);
+        std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0000_0200 | 0x0800_0000);
         let from = fs::metadata(&launch.log).map_or(0, |m| m.len());
         let at = std::time::Instant::now();
         *self.launched.borrow_mut() = Some(Launched { child: command.spawn().map_err(failed)?, log: launch.log.clone(), from, at });

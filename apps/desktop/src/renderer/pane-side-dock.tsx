@@ -39,10 +39,12 @@ import {
 } from './pane-side-dock-hooks';
 import { PaneDockSurfaceSlot } from './pane-side-dock-surface-slot';
 import { DeferredPersistentSurface } from './PaneSurfaceGate';
+import { isActiveResize, onActiveResizeEnd } from './resize-gesture';
 import {
   PANE_SIDE_DOCK_WIDTH_KEY,
   PANE_SIDE_DOCK_DEFAULT_WIDTH,
   PANE_SIDE_DOCK_MIN_WIDTH,
+  PANE_SIDE_DOCK_AGENT_SESSION_MIN_WIDTH,
   PANE_SIDE_DOCK_MAX_WIDTH,
   PANE_SIDE_DOCK_DIFF_WIDTH_KEY,
   PANE_SIDE_DOCK_DIFF_DEFAULT_WIDTH,
@@ -81,7 +83,7 @@ import { sideFileKey, type PaneSideDockFile } from './side-file-tabs';
 import { SessionRailCard } from './SessionRailCard';
 import { useSessionDiffStripHasTabs } from './use-session-diff-tabs';
 import { paneDockRailLayout } from './pane-side-dock-layout';
-import { useSessionRailWidth } from './session-rail-layout';
+import { SESSION_RAIL_GAP, useSessionRailWidth } from './session-rail-layout';
 
 export {
   PANE_SIDE_DOCK_DEFAULT_WIDTH,
@@ -362,6 +364,7 @@ function paneDockShowing(entry: PaneSideDockEntry, openNow: boolean) {
   const filesShowing = surfaceShowing && paneFilesShowing(entry);
   const sessionSurfaceShowing = browserShowing || terminalShowing || fileShowing || filesShowing;
   const diffShowing = surfaceShowing && paneDiffShowing(entry);
+  const agentSessionShowing = openNow && entry.surface === '' && entry.view === 'agent-session';
   // The Changes, Visualize and agent session views draw their own DockHeaderRow.
   const sessionDiffPanelShowing =
     openNow &&
@@ -380,6 +383,7 @@ function paneDockShowing(entry: PaneSideDockEntry, openNow: boolean) {
     filesShowing,
     sessionSurfaceShowing,
     widthSurfaceShowing,
+    agentSessionShowing,
     diffShowing,
     sessionDiffPanelShowing,
   };
@@ -388,6 +392,11 @@ function paneDockShowing(entry: PaneSideDockEntry, openNow: boolean) {
 /** The panel column's drag range: the same for every surface. */
 const PANE_SIDE_DOCK_WIDTH_RANGE = {
   min: PANE_SIDE_DOCK_MIN_WIDTH,
+  max: PANE_SIDE_DOCK_MAX_WIDTH,
+  initial: PANE_SIDE_DOCK_DEFAULT_WIDTH,
+};
+const PANE_SIDE_DOCK_AGENT_SESSION_WIDTH_RANGE = {
+  min: PANE_SIDE_DOCK_AGENT_SESSION_MIN_WIDTH,
   max: PANE_SIDE_DOCK_MAX_WIDTH,
   initial: PANE_SIDE_DOCK_DEFAULT_WIDTH,
 };
@@ -779,7 +788,8 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
   // The header's toggle shows a session's or a draft's panel at every width, never on the phone.
   const railWanted = useSessionPanelShown() && Boolean(sessionId || draftId) && !mobileSheet;
   const railPref = useSessionRailWidth();
-  const cellWidth = useDockCellWidth(hostRef, openNow || railWanted);
+  const hostMounted = groups.length > 0;
+  const cellWidth = useDockCellWidth(hostRef, hostMounted, `${openNow}:${railWanted}`);
   // Desktop placement (Settings → Side panel position); the phone sheet keeps
   // its overlay grammar, so it always resolves to the right-hand layout.
   const desktopPlacement = useSidePanelPlacement();
@@ -801,7 +811,6 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
   });
   // The pane cell switches to its one-column grid (dock row under the chat)
   // through this flag rather than a :has() over the whole cell.
-  const hostMounted = groups.length > 0;
   useLayoutEffect(() => {
     const cell = hostRef.current?.parentElement;
     if (!cell || !bottom || !hostMounted) return undefined;
@@ -816,10 +825,13 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
     entry.view,
     openNow
   );
+  const previewPanelWidthRef = useRef<(width: number | null) => void>(() => {});
+  const previewDiffWidthRef = useRef<(width: number | null) => void>(() => {});
   const panelWidthDrag = usePanelWidthDrag({
     dockPref,
     setDockPref,
     storageKey: PANE_SIDE_DOCK_WIDTH_KEY,
+    preview: (width) => previewPanelWidthRef.current(width),
   });
   const diffResizeProps = useDiffColumnResize({
     diffPref,
@@ -828,6 +840,7 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
     minWidth: PANE_SIDE_DOCK_MIN_WIDTH,
     maxWidth: PANE_SIDE_DOCK_MAX_WIDTH,
     commitWidth: (width) => commitWidthPref(PANE_SIDE_DOCK_DIFF_WIDTH_KEY, width),
+    preview: (width) => previewDiffWidthRef.current(width),
   });
   const retainedDiff = useRetainedDiff(entry.diff);
   // The hidden column keeps its last shown width: the diff library observes
@@ -843,14 +856,29 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
     terminalShowing ? terminalSessionId : ''
   );
   // The pane edge this render commits (recorded below); its layout effect
-  // re-measures the transcripts it narrowed or widened in the same frame.
+  // re-measures the transcripts it narrowed or widened in the same frame,
+  // deferring until drag end while a pointer resize is active.
   const committedEdge = useRef('');
   const syncedEdge = useRef('');
+  const pendingTranscriptSync = useRef(false);
   useLayoutEffect(() => {
     if (committedEdge.current === syncedEdge.current) return;
     syncedEdge.current = committedEdge.current;
+    if (isActiveResize()) {
+      pendingTranscriptSync.current = true;
+      return;
+    }
     syncTranscriptWidths();
   });
+  useEffect(
+    () =>
+      onActiveResizeEnd(() => {
+        if (!pendingTranscriptSync.current) return;
+        pendingTranscriptSync.current = false;
+        syncTranscriptWidths();
+      }),
+    []
+  );
   if (groups.length === 0) return null;
   const sheetFrame = mobileSheet ? 0 : PANE_SIDE_DOCK_SHEET_FRAME_WIDTH;
   // Below the chat the unit owns the cell's width (its two borders and the
@@ -866,7 +894,7 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
       mobileSheet,
       diffShowing,
       sessionSurfaceShowing: widthSurfaceShowing,
-      sessionMin: PANE_SIDE_DOCK_MIN_WIDTH,
+      sessionMin: showing.agentSessionShowing ? PANE_SIDE_DOCK_AGENT_SESSION_MIN_WIDTH : PANE_SIDE_DOCK_MIN_WIDTH,
       sessionPref: dockPref,
       panelPref: dockPref,
       diffPref,
@@ -883,7 +911,56 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
   inlineDock.current = openNow && !overlay && !dockExpanded;
   const dockExpandValue = mobileSheet ? null : { expanded: dockExpanded, toggle: toggleExpanded };
   const asideWidth = expandedAsideWidth(baseAsideWidth, expandedRect, pairShowing ? diffWidth : 0);
-  committedEdge.current = `${placement}|${openNow}|${overlay}|${dockExpanded}|${asideWidth}|${pairShowing ? diffWidth : 0}|${bottom ? dockHeight : 0}|${railReserve}|${railPresentation}`;
+  const columnDiff = entry.diff ?? retainedDiff;
+  if (pairShowing && diffWidth > 0) shownDiffWidth.current = diffWidth;
+  const columnWidth = pairShowing ? diffWidth : shownDiffWidth.current || diffDesired;
+  const applyDockPreview = (nextDockPref: number | null, nextDiffPref: number | null) => {
+    const host = hostRef.current;
+    const panel = host?.querySelector<HTMLElement>('.pane-side-dock-main > .workbench-side-panel');
+    const diffEl = host?.querySelector<HTMLElement>('.pane-dock-diff-column');
+    if (!host || !panel) return;
+    if (nextDockPref === null && nextDiffPref === null) {
+      host.dataset.overlay = overlay ? 'true' : 'false';
+      panel.style.setProperty('--workbench-side-panel-width', `${asideWidth}px`);
+      diffEl?.style.setProperty('--pane-dock-diff-width', `${columnWidth}px`);
+      return;
+    }
+    const resolvedDockPref = nextDockPref ?? dockPref;
+    const resolvedDiffPref = nextDiffPref ?? diffPref;
+    const previewLayout = paneDockRailLayout({
+      cellWidth,
+      bottom,
+      sheetFrame,
+      rail: railWanted ? railPref : null,
+      dock: {
+        openNow,
+        mobileSheet,
+        diffShowing,
+        sessionSurfaceShowing: widthSurfaceShowing,
+        sessionMin: showing.agentSessionShowing ? PANE_SIDE_DOCK_AGENT_SESSION_MIN_WIDTH : PANE_SIDE_DOCK_MIN_WIDTH,
+        sessionPref: resolvedDockPref,
+        panelPref: resolvedDockPref,
+        diffPref: resolvedDiffPref,
+      },
+    });
+    const previewOverlay = previewLayout.dock.overlay && !bottom;
+    const previewAside = expandedAsideWidth(
+      previewLayout.dock.baseAsideWidth,
+      expandedRect,
+      previewLayout.dock.pairShowing ? previewLayout.dock.diffWidth : 0
+    );
+    host.dataset.overlay = previewOverlay ? 'true' : 'false';
+    panel.style.setProperty('--workbench-side-panel-width', `${previewAside}px`);
+    if (diffEl && previewLayout.dock.pairShowing && previewLayout.dock.diffWidth > 0) {
+      diffEl.style.setProperty('--pane-dock-diff-width', `${previewLayout.dock.diffWidth}px`);
+    }
+  };
+  previewPanelWidthRef.current = (next) => applyDockPreview(next, null);
+  previewDiffWidthRef.current = (next) => applyDockPreview(null, next);
+  const railVisible = railWanted && !railCovered;
+  const railOver =
+    railVisible && railPresentation === 'beside' ? Math.max(0, railWidth + SESSION_RAIL_GAP - railReserve) : 0;
+  committedEdge.current = `${placement}|${openNow}|${overlay}|${dockExpanded}|${asideWidth}|${pairShowing ? diffWidth : 0}|${bottom ? dockHeight : 0}|${railVisible}|${railWidth}|${railReserve}|${railOver}|${railPresentation}`;
   const diffContext: DockDiffSurfaceContext = {
     diffShowing: bodyShowing.diffShowing,
     diffView,
@@ -902,9 +979,6 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
   // File Diff: PAIRED to the LEFT of the panel view under the same header
   // selection; a project-tool click replaces the file in place. The narrow
   // 2뎁스 stage retires the pair column — the diff stacks over the panel.
-  const columnDiff = entry.diff ?? retainedDiff;
-  if (pairShowing && diffWidth > 0) shownDiffWidth.current = diffWidth;
-  const columnWidth = pairShowing ? diffWidth : shownDiffWidth.current || diffDesired;
   const diffColumn = dockBodyMounted && columnDiff && !twoDepth && (
     <PaneDockDiffColumn showing={diffShowing} width={columnWidth} resizeProps={diffResizeProps}>
       {renderDockDiffSurface(columnDiff, diffContext)}
@@ -968,7 +1042,9 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
               surfacesActive: bodyShowing.sessionSurfaceShowing || twoDepth,
               asideWidth,
               panelWidthDrag,
-              widthRange: PANE_SIDE_DOCK_WIDTH_RANGE,
+              widthRange: bodyShowing.agentSessionShowing
+                ? PANE_SIDE_DOCK_AGENT_SESSION_WIDTH_RANGE
+                : PANE_SIDE_DOCK_WIDTH_RANGE,
               // Below the chat the panel fills the width; only the diff pair
               // keeps its width edge (between the diff and the panel).
               widthResizable: !bottom || pairShowing,

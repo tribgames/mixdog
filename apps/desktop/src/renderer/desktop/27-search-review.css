@@ -285,12 +285,16 @@ html[data-mixdog-mobile-tabs] .turn-review-files-panel .composer-island-phead .r
   outline: none;
 }
 .turn-review-files-source {
-  font-size: var(--mx-font-minor);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
   text-overflow: ellipsis;
 }
 .turn-review-files-empty {
   color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
 }
 .turn-review-files-foot[hidden] {
   display: none;
@@ -647,9 +651,11 @@ html[data-mixdog-mobile-tabs] .turn-review-files-panel .composer-island-phead .r
   flex: 0 0 auto;
   white-space: nowrap;
 }
-/* Row 2: the scope pill at the left, the controls at the right. */
+/* Row 2 when extra file/diff tabs are open; otherwise merged into DockHeaderRow. */
 .session-diff-toolbar {
   container-type: inline-size;
+}
+.session-diff-toolbar:not(.session-diff-header) {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -659,6 +665,14 @@ html[data-mixdog-mobile-tabs] .turn-review-files-panel .composer-island-phead .r
   height: 34px;
   padding: 0 6px;
   border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
+}
+.session-diff-header.session-diff-toolbar > .dock-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.session-diff-header.session-diff-toolbar .session-diff-refresh {
+  margin-left: 0;
 }
 .session-diff-summary.session-diff-scope {
   flex: 0 1 auto;
@@ -1479,7 +1493,7 @@ div.diff-tailwindcss-wrapper .diff-line {
   outline-offset: 1px;
 }
 .turn-changes-action:disabled,
-.turn-changes-action[aria-disabled='true'] {
+.turn-changes-action[aria-disabled="true"] {
   opacity: var(--mx-op-disabled);
   cursor: default;
 }
@@ -1570,7 +1584,7 @@ div.diff-tailwindcss-wrapper .diff-line {
   opacity: 1;
 }
 .turn-changes-file-actions .turn-review-revert:disabled,
-.turn-changes-file-actions .turn-review-revert[aria-disabled='true'] {
+.turn-changes-file-actions .turn-review-revert[aria-disabled="true"] {
   opacity: 0.25;
 }
 .turn-changes-more {

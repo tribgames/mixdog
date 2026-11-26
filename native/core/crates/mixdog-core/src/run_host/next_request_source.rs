@@ -197,6 +197,18 @@ impl NextMainRequest for NextRequestSource {
         self.rebuilt(thread, Owners::Main).await.map(|(_, material)| material)
     }
 
+    async fn has_next(&self, thread: &ThreadId) -> bool {
+        let Some((directory, parts)) = self.bound.get() else { return false };
+        let Some(directory) = directory.upgrade() else { return false };
+        let Some(handle) = directory.handle(thread) else { return false };
+        let header = handle.live_header().header();
+        if !HostRunParts::rebuildable_header(&header, Owners::Main) {
+            return false;
+        }
+        let Ok(prior) = directory.model_context(thread).read().await else { return false };
+        parts.has_next_request(thread, &header, &prior, Owners::Main).await
+    }
+
     async fn outside_refusal(&self, thread: &ThreadId) -> Option<String> {
         use super::factory::RunParts as _;
         let (directory, parts) = self.bound.get()?;

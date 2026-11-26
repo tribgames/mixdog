@@ -86,7 +86,6 @@ export function ToolTurnProvider({ checkpointId, boundary, visualized, children 
   return <ToolTurnContext.Provider value={turn}>{children}</ToolTurnContext.Provider>;
 }
 
-type TranscriptItems = Parameters<typeof listedTurnChanges>[1];
 const NO_FILES: readonly TurnChangesFile[] = [];
 type ActivateChange = (event: ReactMouseEvent, file: TurnChangesFile | null) => void;
 type MutateChanges = (capability: TurnChangesCapability, file: string | null, success: string) => void;
@@ -453,10 +452,12 @@ function TurnChangesCardBody({
   reclosed,
   frame,
   visualized,
+  visualizedFor,
 }: {
   surface: TurnChangesSurface;
   frame?: (card: ReactNode) => ReactNode;
   visualized?: readonly string[];
+  visualizedFor?: (reply: TurnChangesReply) => readonly string[] | undefined;
 } & TurnChangesRef) {
   const { sessionId } = surface;
   const running = turnCardHeld(
@@ -498,8 +499,6 @@ function TurnChangesCardBody({
   const [given, setGiven] = useState<TurnChangesReply | null>(() => (withheld?.has(checkpointId) ? null : read));
   /** The read kept back from the row. */
   const [held, setHeld] = useState<TurnChangesReply | null>(() => (withheld?.has(checkpointId) ? read : null));
-  const listedOf = (from: TurnChangesReply | null, counts?: TranscriptItems): readonly TurnChangesFile[] =>
-    from && from.status === 'ready' ? listedTurnChanges(from.files, counts, visualized, from.root) : NO_FILES;
   /** A read neither shown nor kept back: this render lays it out to be measured. */
   const trying = read !== null && read !== given && read !== held;
   const superseded = read !== null && read === held;
@@ -597,13 +596,23 @@ function TurnChangesCardBody({
   // edit completes them, as in the session pane and the island.
   const needsCounts = Boolean(reply?.files.some((file) => file.unmeasured));
   const lane = useSessionLane(sessionId, defaultSessionLaneStore, undefined, needsCounts);
+  const unread = fromRecords && Boolean(error || stalled);
   // A file the turn showed as a visualize card stands as that card, not as a
   // diff; Undo still covers the whole turn from this card (or, when every
-  // file was shown, from the visualize card: TurnChangesUndo).
-  // biome-ignore lint/correctness/useExhaustiveDependencies: listedOf reads visualized, which is listed
+  // file was shown, from the visualize card: TurnChangesUndo). When the
+  // authoritative read failed or stalled, automatic visualize previews cannot
+  // render (they require a ready read), so keep auto-preview candidates listed
+  // here so the artifact and retry control stay reachable.
+  const excluded = useMemo(
+    () => (reply && reply.status === 'ready' && visualizedFor && !unread ? visualizedFor(reply) : visualized),
+    [reply, visualizedFor, visualized, unread]
+  );
   const listed = useMemo(
-    () => listedOf(reply, needsCounts ? lane?.items : undefined),
-    [reply, needsCounts, lane, visualized]
+    () =>
+      reply && reply.status === 'ready'
+        ? listedTurnChanges(reply.files, needsCounts ? lane?.items : undefined, excluded, reply.root)
+        : NO_FILES,
+    [reply, needsCounts, lane, excluded]
   );
   if (running) return null;
   const pending = reading ? <span hidden data-transcript-pending="read" /> : null;
@@ -618,7 +627,6 @@ function TurnChangesCardBody({
   }
 
   const { revision } = reply;
-  const unread = fromRecords && Boolean(error || stalled);
   /** The card waits on the reader: a press on it updates it. */
   const waits = superseded || unread;
   // Why the card's actions wait, said as it is.
@@ -634,7 +642,7 @@ function TurnChangesCardBody({
   const blockedReason = surface.busy || mutation.mutating ? t('Unavailable while the session is busy') : waitingReason;
   const mutate: MutateChanges = (capability, file, success) => mutation.mutate(revision, capability, file, success);
   const activate: ActivateChange = (event, file) => {
-    activateTurnChange(event, file, surface, { checkpointId, boundary }, reply.root, visualized);
+    activateTurnChange(event, file, surface, { checkpointId, boundary }, reply.root, excluded);
   };
   /** A press on a card that waits. One the read has superseded takes the read's card, and the press does nothing
    *  else: it never acts on what the old card listed. One whose read failed or stalled asks again; a press on a
@@ -719,11 +727,14 @@ export const TurnChangesCard = memo(function TurnChangesCard({
   turnChanges,
   frame,
   visualized,
+  visualizedFor,
 }: {
   turnChanges: TurnChangesRef;
   frame?: (card: ReactNode) => ReactNode;
   /** The files the turn showed as visualize cards (not listed here). */
   visualized?: readonly string[];
+  /** Synchronously resolves visualized + auto-previewed paths for the active reply before paint. */
+  visualizedFor?: (reply: TurnChangesReply) => readonly string[] | undefined;
 }) {
   const surface = useContext(TurnChangesContext);
   if (!surface?.sessionId) return null;
@@ -737,6 +748,7 @@ export const TurnChangesCard = memo(function TurnChangesCard({
       reclosed={turnChanges.reclosed}
       frame={frame}
       visualized={visualized}
+      visualizedFor={visualizedFor}
     />
   );
 });

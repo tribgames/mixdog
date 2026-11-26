@@ -37,6 +37,12 @@ export type TurnIndexEntry = {
   toolItems(): readonly TranscriptItem[];
   /** The turn's last row, its live band aside. */
   lastRow: number;
+  /** Whether the turn has an accepted completion, standalone turndone, or terminal Error row. */
+  closed: boolean;
+  /** The single row index that owns this turn's cards, or -1 while the turn has no accepted completion row. */
+  cardOwnerRow: number;
+  /** Whether this turn is the last logical turn in the indexed rows. */
+  trailing: boolean;
   /** The turn still runs: its live band or a streaming reply part is among the rows. */
   running: boolean;
   /** The rows of its live band and streaming reply parts, oldest first. */
@@ -44,6 +50,47 @@ export type TurnIndexEntry = {
   /** The rows of its reply parts, oldest first. */
   replyRows: readonly number[];
 };
+
+/** Unified trailing-turn reveal state published alongside a projected `rows` array. */
+export interface TurnCardsRevealState {
+  /** Whether the trailing turn is still active, winding down, or draining paced text. */
+  readonly trailingTurnRunning: boolean;
+  /** Whether the trailing checkpoint already stood revealed while idle. */
+  readonly trailingCheckpointShown: boolean;
+}
+
+const rowsRevealState = new WeakMap<readonly TranscriptRowModel[], TurnCardsRevealState>();
+
+/** Associates the unified reveal decision with the `rows` array it was computed for. */
+export function noteTurnRowsReveal(rows: readonly TranscriptRowModel[], state: TurnCardsRevealState): void {
+  rowsRevealState.set(rows, state);
+}
+
+/** Reads the unified reveal decision associated with `rows`, if `useTranscriptRows` published one. */
+export function turnRowsRevealOf(rows: readonly TranscriptRowModel[]): TurnCardsRevealState | undefined {
+  return rowsRevealState.get(rows);
+}
+
+/** Single unified reveal decision shared by visualize cards and changed-files cards. */
+export function turnCardsRevealed(
+  turn: TurnIndexEntry | undefined,
+  rowIndex: number,
+  {
+    trailingTurnRunning = false,
+    trailingCheckpointShown,
+  }: {
+    trailingTurnRunning?: boolean;
+    trailingCheckpointShown?: boolean;
+  } = {}
+): boolean {
+  if (!turn || turn.cardOwnerRow !== rowIndex) return false;
+  const trailing = turn.changes ? turn.changes.trailing : turn.trailing;
+  const alreadyRevealed = Boolean(turn.changes && trailingCheckpointShown === true);
+  if (turn.running && !(alreadyRevealed && (!trailingTurnRunning || turn.changes?.reclosed))) return false;
+  if (!trailing || !trailingTurnRunning) return true;
+  if (turn.changes?.reclosed && trailingCheckpointShown !== false) return true;
+  return false;
+}
 
 /** What one turn's rows gave, each with the row it came from, oldest first: the rows from some row on are taken back by
  *  dropping the ends of these lists. */
@@ -62,6 +109,7 @@ class TurnRows implements TurnIndexEntry {
   readonly changeRefs: TurnChangesRef[] = [];
   readonly groupRows: number[] = [];
   readonly groups: (readonly TranscriptItem[])[] = [];
+  trailing = false;
   private flat: readonly TranscriptItem[] | undefined;
   private shown: readonly string[] | undefined;
 
@@ -84,6 +132,9 @@ class TurnRows implements TurnIndexEntry {
   }
   get closed(): boolean {
     return this.closedRows.length > 0;
+  }
+  get cardOwnerRow(): number {
+    return this.closedRows.at(-1) ?? -1;
   }
   get running(): boolean {
     return this.liveRows.length > 0 || this.pendingSteerRows.length > 0;
@@ -145,6 +196,8 @@ interface CarriedIndex {
   surfacedSet: Set<string>;
   /** The list a turn's `surfacedBefore` was last made of. */
   snapshot: string[];
+  /** The turn owning the last non-gap row of `rows`. */
+  trailingTurn: TurnRows | undefined;
 }
 
 function explicitRowCheckpointId(row: TranscriptRowModel): string {
@@ -332,6 +385,16 @@ export function createTurnIndexer(targetsOf: (items: readonly TranscriptItem[]) 
         turn.changeRefs.push(row.turnChanges);
       }
     }
+    if (index.trailingTurn) index.trailingTurn.trailing = false;
+    let lastTurn: TurnRows | undefined;
+    for (let at = rows.length - 1; at >= 0; at -= 1) {
+      const row = rows[at] as TranscriptRowModel;
+      if (row._tag === 'TurnGap') continue;
+      lastTurn = index.turns.get(row.turnKey);
+      break;
+    }
+    index.trailingTurn = lastTurn;
+    if (lastTurn) lastTurn.trailing = true;
     index.rows = rows;
   }
 
@@ -358,6 +421,7 @@ export function createTurnIndexer(targetsOf: (items: readonly TranscriptItem[]) 
         surfacedRows: [],
         surfacedSet: new Set(),
         snapshot: [],
+        trailingTurn: undefined,
       };
       carry(index, rows, 0);
     }

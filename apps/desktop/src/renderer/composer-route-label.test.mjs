@@ -220,11 +220,18 @@ function Bar({
   pickers = false,
   readout = true,
   lineShown = true,
+  hidden = false,
+  layoutKey,
+  onLayout,
 }) {
   const form = React.useRef(null);
-  const overflow = useOneLineOverflow(form, active);
+  const overflow = useOneLineOverflow(form, active, layoutKey);
+  React.useLayoutEffect(() => {
+    onLayout?.({ form: form.current, overflow });
+  });
+  const measuredWidth = hidden ? 0 : width;
   const sized = (box) => (element) => {
-    if (element) element.getBoundingClientRect = () => ({ width: box });
+    if (element) element.getBoundingClientRect = () => ({ width: hidden ? 0 : box });
   };
   const controls = React.createElement(
     'span',
@@ -236,8 +243,8 @@ function Bar({
         className: 'model-route-label',
         ref: (element) => {
           if (!element) return;
-          Object.defineProperty(element, 'scrollWidth', { value: 130 });
-          Object.defineProperty(element, 'clientWidth', { value: 100 });
+          Object.defineProperty(element, 'scrollWidth', { configurable: true, get: () => (hidden ? 0 : 130) });
+          Object.defineProperty(element, 'clientWidth', { configurable: true, get: () => (hidden ? 0 : 100) });
         },
       })
     )
@@ -251,7 +258,11 @@ function Bar({
         ref: (element) => {
           form.current = element;
           // The line's 16px of side padding come off the form's width.
-          if (element) Object.defineProperty(element, 'clientWidth', { configurable: true, get: () => width + 16 });
+          if (element)
+            Object.defineProperty(element, 'clientWidth', {
+              configurable: true,
+              get: () => (hidden ? 0 : measuredWidth + 16),
+            });
         },
         className: 'composer',
         'data-overflow': String(overflow),
@@ -265,7 +276,8 @@ function Bar({
           className: 'composer-model-line',
           style: { padding: '0px' },
           ref: (element) => {
-            if (element) Object.defineProperty(element, 'clientWidth', { configurable: true, get: () => width });
+            if (element)
+              Object.defineProperty(element, 'clientWidth', { configurable: true, get: () => measuredWidth });
           },
         },
         pickers
@@ -410,4 +422,113 @@ test('card line: simple shows nothing, basic the readout alone, detail the reado
   });
   const pickers = React.createElement('div', { className: 'composer-model-line-context' });
   assert.deepEqual(await render('simple', { pickers }), { line: true, shown: ['composer-model-line-context'] });
+});
+
+test('card layout: re-evaluates synchronously when bare flips off and the model line mounts', async (t) => {
+  const savedMutationObserver = globalThis.MutationObserver;
+  // No-op MutationObserver proves overflow and observer rebinding happen
+  // synchronously in useLayoutEffect rather than via async DOM mutation callbacks.
+  globalThis.MutationObserver = class {
+    observe() {}
+    disconnect() {}
+  };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+    globalThis.MutationObserver = savedMutationObserver;
+  });
+  let passiveFlushed = false;
+  const layoutSnapshots = [];
+  function HandoffHarness(props) {
+    React.useEffect(() => {
+      passiveFlushed = true;
+    });
+    return React.createElement(Bar, {
+      ...props,
+      onLayout: ({ form }) => {
+        const line = host.querySelector('.composer-model-line');
+        if (form && line) {
+          layoutSnapshots.push({
+            overflow: form.dataset.overflow,
+            lineObserved: [...resizeCallbacks].some((observer) => observer.targets.has(line)),
+            passiveFlushed,
+          });
+        }
+      },
+    });
+  }
+  // Mirror Composer.tsx (`active = !phone && !roomMembers && !bare`): while
+  // bare, overflow measurement is inactive and no sibling model line exists.
+  await act(async () =>
+    root.render(
+      React.createElement(HandoffHarness, {
+        width: 360,
+        active: false,
+        lineShown: false,
+        controlsInLine: true,
+        layoutKey: '1:1',
+      })
+    )
+  );
+  assert.equal(host.querySelector('form').dataset.overflow, 'false');
+  // Rail hands back to the composer (`bare: true -> false`, `active: false -> true`):
+  // the model line mounts and both observer rebinding and overflow must settle
+  // during useLayoutEffect before passive effects flush.
+  passiveFlushed = false;
+  layoutSnapshots.length = 0;
+  await act(async () =>
+    root.render(
+      React.createElement(HandoffHarness, {
+        width: 360,
+        active: true,
+        lineShown: true,
+        controlsInLine: true,
+        layoutKey: '1:0',
+      })
+    )
+  );
+  assert.equal(passiveFlushed, true, 'passive effects ran after layout commit');
+  assert.deepEqual(
+    layoutSnapshots[0],
+    { overflow: 'false', lineObserved: true, passiveFlushed: false },
+    'model-line ResizeObserver rebinding occurred during layout effect before passive effects flushed'
+  );
+  assert.equal(
+    layoutSnapshots.at(-1)?.overflow,
+    'true',
+    'overflow settled synchronously from the layout-effect measurement without observers'
+  );
+  assert.equal(host.querySelector('form').dataset.overflow, 'true');
+  const line = host.querySelector('.composer-model-line');
+  assert.ok(
+    [...resizeCallbacks].some((observer) => observer.targets.has(line)),
+    'the newly mounted model line is now observed for future resizes'
+  );
+});
+
+test('card layout: re-evaluates synchronously when a hidden panel reveals at a new width', async (t) => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  });
+  // Mounted inside a hidden panel (0px box): must not latch into card mode from 0px.
+  await act(async () => root.render(React.createElement(Bar, { width: 515, hidden: true, layoutKey: 'shown:0' })));
+  assert.equal(host.querySelector('form').dataset.overflow, 'false');
+  // Revealed at 515px (fits 505px items, inside hysteresis band): stays one-line before paint.
+  await act(async () => root.render(React.createElement(Bar, { width: 515, hidden: false, layoutKey: 'shown:1' })));
+  assert.equal(host.querySelector('form').dataset.overflow, 'false');
+  // Hidden again, then revealed at a narrow 360px dock width: switches to card synchronously without ResizeObserver.
+  await act(async () => root.render(React.createElement(Bar, { width: 360, hidden: true, layoutKey: 'shown:0' })));
+  await act(async () => root.render(React.createElement(Bar, { width: 360, hidden: false, layoutKey: 'shown:1' })));
+  assert.equal(host.querySelector('form').dataset.overflow, 'true');
+  // Hidden again, then revealed at a wide 640px width: returns to one-line synchronously without ResizeObserver.
+  await act(async () => root.render(React.createElement(Bar, { width: 640, hidden: true, layoutKey: 'shown:0' })));
+  await act(async () => root.render(React.createElement(Bar, { width: 640, hidden: false, layoutKey: 'shown:1' })));
+  assert.equal(host.querySelector('form').dataset.overflow, 'false');
 });

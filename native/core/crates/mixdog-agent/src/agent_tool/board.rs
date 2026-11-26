@@ -920,6 +920,25 @@ impl JobBoard {
         done
     }
 
+    /// A running job whose work found nothing to run and never reached its session leaves the board as if it had never
+    /// been listed: nobody is told, and the newest earlier job of its owner's tag holds the tag again.
+    pub fn withdraw(&self, task_id: &str) {
+        let changed = {
+            let mut state = self.lock();
+            let Some(at) = state.tasks.iter().position(|t| t.task_id == task_id && !is_terminal(&t.status)) else { return };
+            let task = state.tasks.remove(at);
+            if let Some(tag) = task.meta.tag.as_deref().filter(|t| !t.is_empty()) {
+                let owner = owner_of(&task);
+                let held = state.tasks.iter_mut().filter(|t| t.meta.tag.as_deref() == Some(tag) && owner_of(t) == owner).max_by_key(|t| t.started_ms);
+                if let Some(held) = held {
+                    held.tag_superseded = false;
+                }
+            }
+            task.session_id.unwrap_or_default()
+        };
+        self.run(Effects { changed: vec![changed], ..Effects::default() });
+    }
+
     /// `reconcileBackgroundTask`: a terminal state the run's own path missed; a terminal row
     /// whose body never went out is re-announced.
     pub fn reconcile(&self, task_id: &str, completion: Completion) {

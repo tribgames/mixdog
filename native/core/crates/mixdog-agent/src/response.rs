@@ -112,6 +112,7 @@ impl ResponseBuilder {
             StreamEvent::ItemStart { .. }
             | StreamEvent::ProgressDelta(_)
             | StreamEvent::ToolCallStart { .. }
+            | StreamEvent::ToolCallIdRenamed { .. }
             | StreamEvent::ToolCallArgsDelta { .. }
             | StreamEvent::Refusal(_)
             | StreamEvent::Citation(_)

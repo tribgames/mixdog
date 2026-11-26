@@ -112,19 +112,7 @@
 .composer-island-slot[data-presence="closed"] {
   display: none;
 }
-/* Opening, closing or resizing: the height eases (no overshoot, reversible
-   mid-flight) while the island keeps its own size on the slot's floor and the
-   slot clips what is not open yet. Never set under reduced motion. */
-.composer-island-slot[data-motion] {
-  overflow: clip;
-  transition: --island-slot-height 200ms cubic-bezier(0.2, 0, 0, 1);
-}
-@media (prefers-reduced-motion: reduce) {
-  .composer-island-slot[data-motion] {
-    transition: none;
-  }
-}
-.composer-island-slot:is([data-motion], [data-measuring], [data-mode="pill"]) > .composer-island-stage {
+.composer-island-slot:is([data-measuring], [data-mode="pill"]) > .composer-island-stage {
   flex-shrink: 0;
 }
 /* An expanded panel overlays the transcript instead of taking dock room. The
@@ -200,12 +188,6 @@
   letter-spacing: -0.005em;
   pointer-events: auto;
 }
-/* Entry fades only for content that arrives after the island mounted
-   (ComposerIsland sets data-entry then): a mounted island — a session switch
-   remounts it — draws at its final state. */
-:where(.composer-island-slot[data-entry]) .composer-island {
-  animation: composer-island-fade 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
 /* Nothing to carry: the island vanishes; its slot follows after the grace
    (ComposerIsland; same content test as ISLAND_CONTENT there). */
 .composer-island:not(
@@ -219,12 +201,6 @@
   )
 ) {
   visibility: hidden;
-  animation: none;
-}
-/* A distinct animation name per mode replays the fade whenever the island
-   changes shape. */
-:where(.composer-island-slot[data-entry]) .composer-island[data-mode="approval"] {
-  animation-name: composer-island-pop-approval;
 }
 /* Expanded, the approval card takes real room in the dock and a panel floats
    over the transcript. Neither takes the pane: past this bound it scrolls
@@ -248,74 +224,13 @@
 .composer-island:is([data-mode="pill"], [data-mode="flash"]) {
   border-radius: var(--mx-radius-pill);
 }
-/* While the pill changes width (useIslandGlide) its frame is a layer of its
-   own whose edges ease from the old width to the new one, so the capsule
-   never jumps under segments that slide. */
-.composer-island[data-mode="pill"][data-glide] {
-  overflow: visible;
-  background: none;
-  box-shadow: none;
-}
-.composer-island[data-mode="pill"][data-glide]::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  background: var(--composer-island-bg);
-  box-shadow: var(--composer-island-edge);
-  pointer-events: none;
-}
-:where(.composer-island-slot[data-entry]) .composer-island[data-mode="flash"] {
-  animation-name: composer-island-pop-flash;
-}
-:where(.composer-island-slot[data-entry]) .composer-island[data-mode="panel"] {
-  animation-name: composer-island-pop-panel;
-}
-/* The island fades in place; it never scales or slides, so nothing reads as
-   moving while its slot eases open. The fade also animates transform (to its
-   own resting value) so the browser leaves the island's lift between collapsed
-   and expanded (a panel is positioned by transform) out of layout-shift
-   reporting; the panel's rise below is that lift's last 12px. */
-@keyframes composer-island-fade {
-  from {
-    opacity: 0;
-    transform: translateY(0);
-  }
-}
-@keyframes composer-island-pop-panel {
-  from {
-    opacity: 0;
-    transform: translateY(calc(-100% + var(--island-rest-pill-height, var(--island-pill-height)) + 12px));
-  }
-}
-@keyframes composer-island-pop-approval {
-  from {
-    opacity: 0;
-  }
-}
-@keyframes composer-island-pop-flash {
-  from {
-    opacity: 0;
-  }
-}
-@keyframes composer-island-pop {
-  from {
-    transform: scale(0.94);
-    opacity: 0.4;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .composer-island {
-    animation: none;
-  }
-}
 .composer-island-pill {
   min-width: 0;
   height: var(--island-pill-height);
   display: flex;
   align-items: center;
-  padding: 0 4px;
+  gap: 2px;
+  padding: 0 5px;
   border-radius: var(--mx-radius-pill);
   white-space: nowrap;
 }
@@ -330,14 +245,16 @@
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
-  /* A glyph 8px from its words, as a left sidebar row's (its 16px slot and 6px). */
-  gap: 8px;
-  padding: 0 10px;
+  gap: 6px;
+  padding: 0 9px;
   border: 0;
   border-radius: var(--mx-radius-pill);
-  color: var(--mx-text-soft);
+  color: var(--mx-text-muted);
   background: transparent;
   font: inherit;
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   cursor: pointer;
@@ -354,43 +271,20 @@
 .composer-island-seg:disabled {
   cursor: default;
 }
-/* Hairline separators between segments, outside each segment's hover wash. */
-.composer-island-pill
-  > :is(.composer-island-seg, .session-goal-island)
-  ~ :is(.composer-island-seg, .session-goal-island) {
-  margin-inline-start: 5px;
-}
-.composer-island-pill
-  > :is(.composer-island-seg, .session-goal-island)
-  ~ :is(.composer-island-seg, .session-goal-island)::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  inset-inline-start: -3px;
-  width: var(--mx-hairline);
-  height: 14px;
-  background: var(--composer-island-rule);
-  transform: translateY(-50%);
-}
-/* An undecided files segment's room (IslandFilesPending): its last advance,
-   separator margin included, so the arriving segment moves nothing. */
+/* An undecided segment's room (IslandSegmentPending): its last advance so the
+   arriving segment moves nothing. */
 .composer-island-pill > .composer-island-reserve {
   flex: none;
   height: 26px;
-}
-/* A segment after a reserve keeps the separator margin it has beside the
-   segment the reserve stands in for. */
-.composer-island-pill > .composer-island-reserve ~ .composer-island-seg {
-  margin-inline-start: 5px;
 }
 /* The divider between the work group (Goal, agents, shells) and the git group
    (branch, files, git action): drawn only while both groups have something. */
 .composer-island-divider {
   display: none;
   width: var(--mx-hairline);
-  height: 18px;
+  height: 16px;
   flex: none;
-  margin: 0 4px;
+  margin: 0 2px;
   background: var(--mx-border);
 }
 .composer-island-pill
@@ -398,22 +292,13 @@
   ~ .composer-island-divider:has(~ .composer-island-seg) {
   display: block;
 }
-.composer-island-pill > .composer-island-divider + :is(.composer-island-seg, .session-goal-island) {
-  margin-inline-start: 0;
-}
-.composer-island-pill > .composer-island-divider + :is(.composer-island-seg, .session-goal-island)::before {
-  content: none;
-}
-/* The git action ends the pill as a plain segment (same box, tone, hairline
-   and wash as branch and files): the action's icon and label, then a 13px
-   chevron. The two buttons fill the segment, so the chevron's area alone
-   toggles the tab and the rest runs; together they draw the segment's
-   0 8px 0 10px padding and 8px gaps. */
+/* The git action ends the pill as a plain segment. */
 .composer-island-pill > .composer-island-seg.composer-island-git {
   gap: 0;
   padding: 0;
-  font-size: var(--mx-font-minor);
-  font-weight: var(--mx-weight-label);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
   cursor: default;
 }
 .composer-island-git[data-open] {
@@ -441,8 +326,8 @@
   color: var(--mx-text-muted);
 }
 .composer-island-git-main {
-  gap: 8px;
-  padding: 0 10px;
+  gap: 6px;
+  padding: 0 9px;
 }
 .composer-island:is([data-fit~="git-word"]:where(:not([data-measuring])), [data-measuring~="git-word"])
   .composer-island-git-main
@@ -479,12 +364,12 @@
 }
 /* A row: the action's icon and label, and its own Run at the right. */
 .composer-island-git-row {
-  min-height: 40px;
+  min-height: 32px;
   display: flex;
   align-items: center;
   gap: 8px;
   margin-inline: -6px;
-  padding: 4px 6px;
+  padding: 0 6px;
   /* The left sidebar's row wash: its radius and its ink step. */
   border-radius: var(--mx-radius-lg);
   transition: background-color var(--mx-motion-ink);
@@ -503,7 +388,9 @@
   gap: 6px;
   padding: 0;
   color: var(--mx-row-title-ink);
+  font-size: var(--mx-font-item);
   font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
 }
 .composer-island-git-row:is(:hover, :focus-within) > .composer-island-git-label {
   color: var(--mx-row-title-ink-active);
@@ -553,6 +440,9 @@
 }
 .composer-island-seg-sub {
   color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -589,6 +479,21 @@
 .composer-island-seg-word,
 .composer-island-seg-num {
   font-variant-numeric: tabular-nums;
+}
+.composer-island-seg-count,
+.composer-island-seg-num {
+  color: var(--mx-text);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-medium);
+  line-height: var(--mx-line-meta);
+}
+.composer-island-seg-branch .composer-island-seg-label {
+  color: var(--mx-text-soft);
+  font-weight: var(--mx-weight-medium);
+}
+.composer-island-seg-branch:is(:hover:not(:disabled), :focus-visible, [aria-expanded="true"])
+  .composer-island-seg-label {
+  color: var(--mx-text);
 }
 .composer-island-seg-text {
   min-width: 0;
@@ -676,6 +581,7 @@
 }
 .composer-island-seg-prefix {
   color: var(--mx-text-muted);
+  font-weight: var(--mx-weight-regular);
 }
 /* A branch or worktree move is running: a spinner takes the glyph's 14px slot,
    so the segment never narrows or shifts while it runs. */
@@ -769,8 +675,18 @@
   > .composer-island-pill
   > :is(.composer-island-seg, .session-goal-island)
   ~ .composer-island-divider
-  ~ :is(.composer-island-seg, .session-goal-island):not([data-line-start])::before {
+  ~ :is(.composer-island-seg, .session-goal-island):not(
+    .composer-island-divider ~ :is(.composer-island-seg, .session-goal-island) ~ *,
+    [data-line-start]
+  )::before {
   content: "";
+  position: absolute;
+  top: 50%;
+  inset-inline-start: -3px;
+  width: var(--mx-hairline);
+  height: 14px;
+  background: var(--mx-border);
+  transform: translateY(-50%);
 }
 .composer-island[data-mode="pill"]:is([data-fit~="tight"]:where(:not([data-measuring])), [data-measuring~="tight"])
   > .composer-island-pill
@@ -782,26 +698,35 @@
 .turn-review-files-list {
   min-height: 0;
   max-height: min(240px, 36dvh);
-  /* The rows' wash reaches past the text by their own inset; the scrollbar
-     keeps a gutter of its own, so it never sits on the +/− counts. */
-  margin-inline-start: -6px;
-  margin-inline-end: calc(-6px - var(--mx-scrollbar-gutter, 8px));
+  padding: 8px calc(var(--island-panel-inset) - var(--mx-scrollbar-gutter, 8px) - 6px) 8px
+    calc(var(--island-panel-inset) - 6px);
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
 }
-/* Its list scrolls itself: the panel body only holds it, at the shared inset. */
+.turn-review-files-list:empty {
+  display: none;
+}
+/* Its list scrolls itself: the panel body only holds it and the fixed banded footer. */
 .composer-island-panel.turn-review-files-panel > .composer-island-pbody {
   scrollbar-gutter: auto;
-  padding-inline: var(--island-panel-inset);
+  padding: 0;
+  overflow: hidden;
+}
+.composer-island .turn-review-files-empty {
+  margin: 0;
+  padding: 16px var(--island-panel-inset);
+}
+.composer-island .turn-review-files-menu > [role="alert"] {
+  margin: 0 var(--island-panel-inset) 8px;
 }
 .turn-review-files-row {
   width: 100%;
-  min-height: 28px;
+  min-height: 32px;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 3px 6px;
+  padding: 0 6px;
   border: 0;
   /* The left sidebar's rows: their radius, title ink at rest and active
      pointed at, the neutral inner line for keyboard focus. */
@@ -809,7 +734,9 @@
   color: var(--mx-row-title-ink);
   background: transparent;
   font: inherit;
-  font-size: var(--mx-font-minor);
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
   text-align: left;
   transition: background-color var(--mx-motion-ink);
   cursor: pointer;
@@ -848,6 +775,9 @@
 }
 .turn-review-files-row > .diff-stats {
   flex: none;
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-medium);
+  line-height: var(--mx-line-meta);
   font-variant-numeric: tabular-nums;
 }
 .turn-review-files-row > .diff-stats i {
@@ -863,6 +793,10 @@
 } /* Inline, so the literal space between +a and −b shows. */
 .turn-review-segment .diff-stats {
   display: inline;
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-medium);
+  line-height: var(--mx-line-meta);
+  font-variant-numeric: tabular-nums;
 }
 .turn-review-segment .diff-stats i {
   color: var(--mx-success);
@@ -952,6 +886,13 @@ html[data-mixdog-mobile-tabs] .composer-island .session-goal-panel {
   gap: 2px;
   padding: 0 8px;
 }
+.composer-island .composer-island-phead {
+  min-height: 42px;
+  gap: 8px;
+  padding: 0 8px 0 var(--island-panel-inset);
+  background: var(--mx-card-header-surface);
+  border-bottom: var(--mx-hairline) solid var(--composer-island-rule);
+}
 /* The panel's name, starting on the body's inset: the title tier the session
    panel's categories wear (item size, label weight). */
 .composer-island-tab {
@@ -969,10 +910,17 @@ html[data-mixdog-mobile-tabs] .composer-island .session-goal-panel {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-/* A head's count (HeadFigures), as the pill's segment writes it after the
-   label: the island's type in the segment's soft ink. */
+.composer-island .composer-island-tab {
+  min-width: 0;
+  flex: 0 1 auto;
+  padding: 0;
+}
+/* A head's count (HeadFigures), lifted to active figure ink and weight. */
 .composer-island-head-count {
-  color: var(--mx-text-soft);
+  color: var(--mx-text);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-medium);
+  line-height: var(--mx-line-meta);
   font-variant-numeric: tabular-nums;
 }
 .composer-island-close {
@@ -999,13 +947,18 @@ html[data-mixdog-mobile-tabs] .composer-island .session-goal-panel {
   margin: 0;
   padding: 10px 14px 12px;
 }
-/* Under the panel's name the body starts at once: the head's own height is
-   the room above the first row. */
 .composer-island-phead + .composer-island-pbody {
   padding-top: 0;
 }
-html:not([data-mixdog-mobile-tabs]) .composer-island .session-goal-panel > .session-goal-body {
-  padding-top: 4px;
+.composer-island .composer-island-phead + .composer-island-pbody {
+  padding-top: 8px;
+}
+.composer-island .composer-island-panel.turn-review-files-panel > .composer-island-phead + .composer-island-pbody {
+  padding-top: 0;
+}
+.composer-island .session-goal-panel > .session-goal-body {
+  padding: 0;
+  gap: 0;
 }
 /* The cap below is the room; useWholeRowList ends the list at the last row
    that fits whole under it (the rows are its offset children). */
@@ -1021,9 +974,9 @@ html:not([data-mixdog-mobile-tabs]) .composer-island .session-goal-panel > .sess
    row's text. The state and button columns hold the common widths. */
 ul.composer-island-jobs {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto minmax(4rem, auto);
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-content: start;
-  column-gap: 10px;
+  column-gap: 8px;
 }
 ul.composer-island-jobs > .composer-island-row {
   /* One line, the command's title, on the agent rows' 32px pitch. */
@@ -1102,16 +1055,24 @@ ul.composer-island-jobs > .composer-island-row {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* A command reads at the code size in the row name's weight, as an agent's
-   name does: bold mono at the UI size outweighed the agent rows beside it. */
 .composer-island-row .composer-island-shell-command {
   color: var(--mx-row-title-ink);
   font-family: var(--mx-font-mono);
   font-size: var(--mx-font-code);
   font-weight: var(--mx-weight-regular);
 }
+.composer-island .composer-island-row .composer-island-shell-command {
+  font-size: var(--mx-font-item);
+  line-height: var(--mx-line-ui);
+}
 .composer-island-row .schedules-row-copy > small.composer-island-row-error {
   color: var(--mx-danger);
+}
+.composer-island .composer-island-row .schedules-row-copy > small.composer-island-row-error {
+  display: block;
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
 }
 /* Running rows show only the clock, like the Agents pane: one stable right
    column for clocks and end states, then the row's button. */
@@ -1158,7 +1119,6 @@ ul.composer-island-jobs > .composer-island-row {
 }
 .composer-island-row-dismiss {
   flex: none;
-  min-width: 4rem;
 }
 /* A row's worded button on the button tier, its label on the state's line
    (over the island buttons' `font: inherit`). */
@@ -1178,8 +1138,14 @@ ul.composer-island-jobs > .composer-island-row {
   color: var(--mx-text);
   box-shadow: none;
 }
-/* The row's last mark stands under the head's close mark: its button reaches
-   the head button's edge, past the list's inset. */
+.composer-island ul.composer-island-jobs .composer-island-row-dismiss[data-icon] {
+  background: color-mix(in srgb, var(--mx-text) 7.5%, transparent);
+}
+.composer-island ul.composer-island-jobs .composer-island-row-dismiss[data-icon]:hover:not(:disabled),
+.composer-island ul.composer-island-jobs .composer-island-row-dismiss[data-icon]:focus-visible {
+  background: var(--mx-pressed);
+}
+/* The row's last icon stands under the head's close mark inside the 14px inset. */
 .composer-island .composer-island-row-actions > .composer-island-row-dismiss[data-icon]:last-child {
   margin-right: -6px;
 }
@@ -1203,7 +1169,7 @@ ul.composer-island-jobs > .composer-island-row {
   --island-kind-row: var(--mx-control-sm);
   --island-row-bleed: min(6px, calc(var(--island-panel-inset) - var(--mx-scrollbar-gutter, 8px)));
   --island-row-bleed-end: var(--island-row-bleed);
-  grid-template-columns: var(--mx-icon-md) minmax(0, 1fr) auto auto;
+  grid-template-columns: var(--mx-icon-md, 16px) minmax(0, 1fr) auto;
   /* The rows' 6px (the left sidebar's slot-to-name gap), over the list's own. */
   column-gap: 6px;
   row-gap: 0;
@@ -1212,9 +1178,6 @@ ul.composer-island-jobs > .composer-island-row {
 }
 .composer-island-agent-item + .composer-island-agent-group {
   margin-top: 8px;
-}
-.composer-island-agents > .composer-island-col-sizer {
-  grid-column: 4;
 }
 .composer-island-agents :is(.composer-island-agent-fold, .agent-pool-row) {
   margin: 0 calc(-1 * var(--island-row-bleed-end)) 0 calc(-1 * var(--island-row-bleed));
@@ -1268,6 +1231,13 @@ ul.composer-island-jobs > .composer-island-row {
   text-align: start;
   cursor: pointer;
 }
+.composer-island .composer-island-agent-fold {
+  background: var(--mx-card-header-surface);
+  margin-bottom: 2px;
+}
+.composer-island .composer-island-agents .composer-island-agent-fold:hover {
+  background: var(--mx-hover);
+}
 .composer-island-agent-fold:hover {
   color: var(--mx-row-title-ink-active);
 }
@@ -1284,6 +1254,10 @@ ul.composer-island-jobs > .composer-island-row {
 .composer-island-agent-fold-count {
   flex: none;
   font-weight: var(--mx-weight-regular);
+}
+.composer-island .composer-island-agent-fold-count {
+  color: var(--mx-row-title-ink);
+  font-weight: var(--mx-weight-medium);
 }
 /* What stands after the chevron (the mark, the count) ends the line. */
 .composer-island-agent-fold-cv + * {
@@ -1332,15 +1306,29 @@ ul.composer-island-jobs > .composer-island-row {
 .composer-island-agents .agent-row-ring > [data-state="dropped"] {
   color: var(--mx-text-faint);
 }
-/* The step figure: the trailing meta tier, right-aligned in its column. */
+/* The step figure and separator inside the trailing meta cluster. */
 .composer-island-agents .agent-row-steps {
-  justify-self: end;
   color: var(--mx-row-meta-ink);
   font-size: var(--mx-font-supporting);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-meta);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+.composer-island .composer-island-agents .agent-row-steps {
+  font-size: var(--mx-font-meta);
+}
+.composer-island .composer-island-agents .agent-row-steps[data-active="true"] {
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-medium);
+}
+.composer-island-agents .agent-row-meta-sep {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-supporting);
+  line-height: var(--mx-line-meta);
+}
+.composer-island .composer-island-agents .agent-row-meta-sep {
+  font-size: var(--mx-font-meta);
 }
 /* A status beside a panel's chip (the branch tab's), quiet: on its line while
    it fits, wrapping in the room before the close button. */
@@ -1355,8 +1343,16 @@ ul.composer-island-jobs > .composer-island-row {
   /* The head figures' tier, as the session panel's heads read. */
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+.composer-island .composer-island-phead-meta {
+  display: block;
+  margin-inline-start: 4px;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .composer-island-phead-meta b {
   color: var(--mx-text);
@@ -1398,7 +1394,11 @@ ul.composer-island-jobs > .composer-island-row {
 }
 .composer-island-agents .agent-activity-status {
   flex: none;
+  display: inline-flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 4px;
+  white-space: nowrap;
   text-align: right;
 }
 /* The brand mark is a box of its own height, centred on its line. */
@@ -1410,14 +1410,17 @@ ul.composer-island-jobs > .composer-island-row {
 /* One weight down the list: a state is set apart by its ink, a figure by its size. */
 .composer-island-jobs .agent-activity-elapsed {
   font-weight: var(--mx-weight-regular);
-}
-/* A state or clock on its size's own line (the session panel's too). */
-.composer-island-jobs .agent-activity-elapsed {
   line-height: var(--mx-line-meta);
 }
-/* The list starts under the panel's name and ends 4px clear of the foot's rule. */
+.composer-island .composer-island-jobs .agent-activity-elapsed {
+  font-size: var(--mx-font-meta);
+}
+/* The list starts under the header band and ends 4px clear of the foot's rule. */
 .composer-island-panel > .composer-island-pbody.composer-island-jobs.composer-island-agents {
   padding-top: 0;
+}
+.composer-island .composer-island-panel > .composer-island-pbody.composer-island-jobs.composer-island-agents {
+  padding-top: 8px;
 }
 .composer-island-agents + .composer-island-panel-foot {
   margin-top: 4px;
@@ -1431,9 +1434,8 @@ ul.composer-island-jobs > .composer-island-row {
 }
 /* The quota banner: one pill line in the island's material at the
    composer's width, between the island and the prompt input. Only the icon
-   carries the warning hue. A relay surface's connection line is the same row. */
-.composer-quota-card,
-.composer-connection-line {
+   carries the warning hue. */
+.composer-quota-card {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1452,8 +1454,6 @@ ul.composer-island-jobs > .composer-island-row {
   line-height: var(--mx-line-ui);
   letter-spacing: -0.005em;
   white-space: nowrap;
-  transform-origin: 50% 100%;
-  animation: composer-island-pop 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .composer-quota-card-icon {
   flex: none;
@@ -1508,49 +1508,7 @@ ul.composer-island-jobs > .composer-island-row {
 .composer-quota-card-resume[data-reserved="true"] .composer-quota-card-resume-icon {
   animation: var(--mx-motion-spin);
 }
-/* The connection line (RemoteConnectionBanner): its icon carries the state's
-   hue, the title and the redial countdown share one line that gives way at
-   its end, and the buttons are the quota banner's pills. */
-.composer-connection-line-icon {
-  flex: none;
-  color: var(--mx-text-muted);
-}
-.composer-connection-line[data-phase="connecting"] .composer-connection-line-icon {
-  animation: var(--mx-motion-spin);
-}
-.composer-connection-line[data-phase="failed"] .composer-connection-line-icon {
-  color: var(--mx-warning);
-}
-.composer-connection-line[data-phase="reconnected"] .composer-connection-line-icon {
-  color: var(--mx-success);
-}
-.composer-connection-line-text {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.composer-connection-line-title {
-  font-weight: var(--mx-weight-semibold);
-}
-.composer-connection-line-note {
-  margin-inline-start: 6px;
-  color: var(--mx-text-muted);
-}
-.composer-connection-line .composer-connection-line-button {
-  flex: none;
-  height: 30px;
-  padding: 0 12px;
-  border-radius: 999px;
-  font-weight: var(--mx-weight-semibold);
-}
-.composer-connection-line .composer-connection-line-button[data-quiet="true"] {
-  box-shadow: none;
-}
 @media (prefers-reduced-motion: reduce) {
-  .composer-quota-card,
-  .composer-connection-line,
-  .composer-connection-line[data-phase="connecting"] .composer-connection-line-icon,
   .composer-quota-card-resume[data-reserved="true"] .composer-quota-card-resume-icon {
     animation: none;
   }
@@ -1567,6 +1525,9 @@ ul.composer-island-jobs > .composer-island-row {
 .composer-island-pnote {
   margin: 4px 0 0;
   color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
 }
 .composer-island-pfoot {
   display: flex;
@@ -1576,35 +1537,48 @@ ul.composer-island-jobs > .composer-island-row {
 }
 /* The agents, shell and branch panels' footer (IslandPanelFoot), below the
    list: the panel's line or actions on the left, its tidy action at the right
-   end, which never leaves the row's last slot. The list above keeps 4px of
-   its inset before the rule, as the branch panel always did. */
-.composer-island-panel-foot,
-.composer-island .turn-review-files-foot,
-.composer-island .session-goal-controls {
+   end, which never leaves the row's last slot. */
+.composer-island-panel-foot {
   min-height: 44px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
   padding: 8px var(--island-panel-inset);
-  /* The one rule a panel draws: above its actions, between the text insets. */
   border-top: 0;
   background:
     linear-gradient(var(--composer-island-rule), var(--composer-island-rule)) top /
     calc(100% - 2 * var(--island-panel-inset)) var(--mx-hairline) no-repeat;
 }
-/* The files and Goal footers live inside their body (a menu's items, the
-   drawer's grid): they reach its edges like the shared footer. */
-.composer-island .turn-review-files-foot {
-  justify-content: flex-end;
-  margin: 8px calc(-1 * var(--island-panel-inset)) -12px;
+.composer-island :is(.composer-island-panel-foot, .turn-review-files-foot, .session-goal-controls) {
+  min-height: 44px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 7px var(--island-panel-inset) 8px;
+  border-top: var(--mx-hairline) solid var(--composer-island-rule);
+  background: color-mix(in srgb, var(--mx-card-header-surface) 70%, transparent);
 }
+.composer-island .turn-review-files-foot,
 .composer-island .session-goal-controls {
   justify-content: flex-end;
-  margin: 0 calc(-1 * var(--island-panel-inset)) -12px;
+  margin: 0;
+}
+.composer-island-foot-meta {
+  min-width: 0;
+  flex: 1 1 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
+  font-variant-numeric: tabular-nums;
 }
 .composer-island-panel > .composer-island-pbody:has(+ .composer-island-panel-foot) {
-  padding-bottom: 4px;
+  padding-bottom: 8px;
 }
 /* Every panel body scrolls inside the panel with the same inset as its
    header and footer; the scrollbar has a reserved gutter on both edges, so
@@ -1622,8 +1596,8 @@ ul.composer-island-jobs > .composer-island-row {
    scrollbar in a gutter of its own. */
 .composer-island .session-goal-content {
   scrollbar-gutter: stable both-edges;
-  margin-inline: calc(-6px - var(--mx-scrollbar-gutter, 8px));
-  padding-inline: 6px;
+  margin-inline: 0;
+  padding: 8px calc(var(--island-panel-inset) - var(--mx-scrollbar-gutter, 8px)) 10px;
 }
 /* The usage line takes the footer's free room on the action's row, never a
    row of its own: it starts from nothing (a basis of 0, so the row never
@@ -1670,19 +1644,13 @@ ul.composer-island-jobs > .composer-island-row {
   background: transparent;
   box-shadow: var(--mx-button);
   font: inherit;
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
   cursor: pointer;
 }
 .composer-island-button:hover:not(:disabled),
 .composer-island .session-goal-control:hover:not(:disabled) {
-  background: var(--mx-hover);
-}
-/* Goal drawer controls: pill buttons. Stop and Edit are quiet text; Pause /
-   Resume is the one filled button. */
-.composer-island .session-goal-control {
-  height: 32px;
-  padding: 0 14px;
-  border-radius: var(--mx-radius-pill);
-  box-shadow: none;
   background: var(--mx-hover);
 }
 .composer-island .session-goal-control[data-quiet="true"] {
@@ -1694,12 +1662,22 @@ ul.composer-island-jobs > .composer-island-row {
   color: var(--mx-text);
   background: var(--mx-hover);
 }
-.composer-island .session-goal-control[data-danger="true"] {
-  color: var(--mx-danger);
-  background: color-mix(in srgb, var(--mx-danger) 16%, transparent);
+.composer-island .session-goal-control[data-primary="true"] {
+  font-weight: var(--mx-weight-medium);
+  background: color-mix(in srgb, var(--mx-accent) 16%, transparent);
+  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-accent) 34%, transparent);
 }
 .composer-island .session-goal-control[data-primary="true"]:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--mx-text) 14%, transparent);
+  background: color-mix(in srgb, var(--mx-accent) 24%, transparent);
+}
+.composer-island .session-goal-control[data-danger="true"] {
+  font-weight: var(--mx-weight-medium);
+  color: var(--mx-danger);
+  background: color-mix(in srgb, var(--mx-danger) 14%, transparent);
+  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-danger) 30%, transparent);
+}
+.composer-island .session-goal-control[data-danger="true"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--mx-danger) 22%, transparent);
 }
 .composer-island-button:disabled {
   opacity: var(--mx-op-disabled);
@@ -1715,6 +1693,7 @@ ul.composer-island-jobs > .composer-island-row {
   color: var(--mx-accent-fg, var(--mx-grey-50));
   background: var(--mx-accent-bg);
   box-shadow: none;
+  font-weight: var(--mx-weight-medium);
 }
 /* ask_user question card and its answered record wear the turn-changes card's
    grammar (27-search-review.css): hairline frame on the transcript, plate
@@ -2104,10 +2083,17 @@ html[data-mixdog-mobile-tabs] .composer-island-phead {
   min-height: 44px;
   padding-inline: 8px;
 }
+html[data-mixdog-mobile-tabs] .composer-island .composer-island-phead {
+  min-height: 44px;
+  padding: 0 8px 0 var(--island-panel-inset);
+}
 html[data-mixdog-mobile-tabs] .composer-island-tab {
   height: 32px;
   gap: 7px;
   padding-inline: 11px;
+}
+html[data-mixdog-mobile-tabs] .composer-island .composer-island-tab {
+  padding-inline: 0;
 }
 /* The header's close button: a 44px tap area, its glyph kept where the 32px
    box put it. */
@@ -2133,17 +2119,21 @@ html[data-mixdog-mobile-tabs] .composer-island-row-dismiss[data-icon] {
   width: 32px;
   padding: 0;
 }
-html[data-mixdog-mobile-tabs] :is(.composer-island-panel-foot, .composer-island .turn-review-files-foot) {
+html[data-mixdog-mobile-tabs]
+  :is(.composer-island-panel-foot, .composer-island .turn-review-files-foot, .composer-island .session-goal-controls) {
   min-height: 56px;
   column-gap: 8px;
 }
+html[data-mixdog-mobile-tabs] .composer-island .composer-island-git-row {
+  min-height: var(--mx-touch, 44px);
+}
 /* The scrollbars are hidden here: no gutter to make up for. */
 html[data-mixdog-mobile-tabs] .composer-island .session-goal-content {
-  margin-inline: -6px;
-  padding-inline: 6px;
+  margin-inline: 0;
+  padding: 8px var(--island-panel-inset) 12px;
 }
 html[data-mixdog-mobile-tabs] .turn-review-files-list {
-  margin-inline-end: -6px;
+  padding: 8px calc(var(--island-panel-inset) - 6px);
   scrollbar-gutter: auto;
 }
 /* Long shell names read whole on a narrow panel: two lines before the
@@ -2169,6 +2159,9 @@ html[data-mixdog-mobile-tabs] .composer-island-pfoot {
 }
 /* On touch a kind's fold and an agent's row keep the touch floor; 32px is the
    pointer's pitch (in the session panel too). */
+html[data-mixdog-mobile-tabs] .composer-island-jobs {
+  max-height: min(360px, 40dvh);
+}
 html[data-mixdog-mobile-tabs] .composer-island-jobs.composer-island-agents.agent-pool-list {
   --island-agent-row: var(--mx-touch-main);
   --island-kind-row: var(--mx-touch-main);

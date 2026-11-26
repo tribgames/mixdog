@@ -966,13 +966,25 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
   border-radius: var(--mx-radius-lg);
   box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
+.markdown > .markdown-unit:first-child > :first-child {
+  margin-top: 0;
+}
+.markdown > .markdown-unit:last-child > :last-child {
+  margin-bottom: 0;
+}
 /* The ring is painted outside the frame's box, and a reply's closing block has
    its margin stripped (`.markdown > :last-child`), so the transcript row
    (overflow: clip) ended exactly at the frame's edge and clipped the ring's
    bottom line. A closing table frame or code card keeps one hairline of
    margin for the ring. */
-.markdown .markdown-table-frame:last-child,
-.markdown .markdown-code:last-child {
+.markdown > .markdown-table-frame:last-child,
+.markdown > .markdown-code:last-child,
+.markdown > .markdown-unit:last-child > .markdown-table-frame:last-child,
+.markdown > .markdown-unit:last-child > .markdown-code:last-child,
+.markdown blockquote > .markdown-table-frame:last-child,
+.markdown blockquote > .markdown-code:last-child,
+.markdown li > .markdown-table-frame:last-child,
+.markdown li > .markdown-code:last-child {
   margin-bottom: var(--mx-hairline);
 }
 .markdown-table-frame:has(> .markdown-table:focus-visible) {
@@ -1006,6 +1018,12 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
   display: table;
   overflow: visible;
   table-layout: auto;
+}
+/* While a reply streams, fix the table column grid from the header row so
+   incoming body chunks do not rebalance already-painted rows; settled replies
+   return to `table-layout: auto` so streamed and remounted tables match. */
+.markdown.streaming .markdown-table table {
+  table-layout: fixed;
 }
 .markdown-code > pre,
 .diff-fallback {
@@ -1594,8 +1612,17 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 }
 .session-goal-progress,
 .session-goal-time {
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+.session-goal-progress {
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-medium);
+}
+.session-goal-time {
+  font-weight: var(--mx-weight-regular);
 }
 .session-goal-meta,
 .session-goal-meta-time {
@@ -1607,10 +1634,11 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 .session-goal-meta-time,
 .session-goal-trigger-time {
   color: var(--mx-text-muted);
-  font-weight: 400;
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
 }
 .session-goal-trigger-time {
-  font-weight: 400;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -1674,17 +1702,28 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   min-height: 28px;
   display: flex;
   align-items: center;
+  gap: 4px;
   margin: 0;
   padding: 0;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
-  font-weight: var(--mx-weight-label);
-  line-height: var(--mx-line-minor);
+  font-weight: var(--mx-weight-medium);
+  line-height: var(--mx-line-meta);
+}
+.session-goal-group-count,
+.session-goal-fold-count {
+  margin-inline-start: auto;
+  flex: none;
+  color: var(--mx-row-title-ink);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-medium);
+  line-height: var(--mx-line-meta);
+  font-variant-numeric: tabular-nums;
 }
 .session-goal-tasks ul {
   display: grid;
   align-content: start;
-  gap: 1px;
+  gap: 0;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1706,13 +1745,19 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   color: var(--mx-text-muted);
   font: inherit;
   font-size: var(--mx-font-meta);
-  font-weight: var(--mx-weight-label);
-  line-height: var(--mx-line-minor);
+  font-weight: var(--mx-weight-medium);
+  line-height: var(--mx-line-meta);
   text-align: left;
   cursor: pointer;
 }
+.composer-island .session-goal-fold {
+  background: var(--mx-card-header-surface);
+  border-radius: var(--mx-radius-md);
+}
 .session-goal-fold:hover,
-.session-goal-fold:focus-visible {
+.session-goal-fold:focus-visible,
+.composer-island .session-goal-fold:hover,
+.composer-island .session-goal-fold:focus-visible {
   background: var(--mx-hover);
   color: var(--mx-text);
   outline: none;
@@ -1737,6 +1782,8 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   color: var(--mx-text-muted);
   font: inherit;
   font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: pointer;
@@ -1755,7 +1802,8 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   background: var(--composer-island-wash);
   color: var(--mx-text);
   font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-minor);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
   overflow-wrap: anywhere;
 }
 .session-goal-note[data-tone="blocked"],
@@ -1767,39 +1815,39 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 }
 .session-goal-tasks li {
   min-width: 0;
+  min-height: 32px;
+  box-sizing: border-box;
   display: grid;
   /* Mirrors .session-goal-title-region: icon column + 6px gap, no extra
      inline padding, so rows align with the collapsed header. */
   grid-template-columns: var(--mx-icon-md) minmax(0, 1fr);
   align-items: start;
   column-gap: 10px;
-  padding: 7px 0;
+  padding: 6px 0;
   border-radius: 9px;
   background: transparent;
-}
-.session-goal-tasks li + li {
-  margin-top: 1px;
 }
 /* The running row reads by its ink and weight; rows that need the user or are
    stalled tint with their state. Text names the state too, not colour alone. */
 .session-goal-tasks li[data-status="in_progress"] > div > span {
   color: var(--mx-text);
-  font-weight: var(--mx-weight-label);
+  font-weight: var(--mx-weight-medium);
 }
 .session-goal-tasks li.session-goal-phase {
   display: block;
+  min-height: 0;
   padding: 5px 0;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
-  font-weight: var(--mx-weight-label);
-  line-height: var(--mx-line-minor);
+  font-weight: var(--mx-weight-medium);
+  line-height: var(--mx-line-meta);
   overflow-wrap: anywhere;
 }
 .session-goal-task-note {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
-  line-height: var(--mx-line-minor);
+  line-height: var(--mx-line-meta);
   overflow-wrap: anywhere;
 }
 .session-goal-task-note {
@@ -1809,18 +1857,21 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   overflow: hidden;
 }
 .session-goal-tab-label {
-  font-weight: var(--mx-weight-label);
+  font-weight: var(--mx-weight-medium);
 }
 .session-goal-statusline {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
   font-variant-numeric: tabular-nums;
 }
 .session-goal-statusline-state {
   color: var(--goal-tint);
-  font-weight: 600;
+  font-weight: var(--mx-weight-medium);
 }
 .session-goal-tasks li > span {
   width: var(--mx-icon-md);
@@ -1857,7 +1908,8 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 }
 .session-goal-tasks li > div > span {
   overflow-wrap: anywhere;
-  font-size: var(--mx-font-minor);
+  color: var(--mx-row-title-ink);
+  font-size: var(--mx-font-item);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);
 }
@@ -1869,9 +1921,9 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 .session-goal-title {
   margin: 0;
   max-width: 100%;
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 21px;
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-medium);
+  line-height: var(--mx-line-ui);
   overflow-wrap: anywhere;
 }
 /* The objective under the title: muted, wrapped, 3 lines before "Show more". */
@@ -1881,7 +1933,7 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
-  line-height: 19px;
+  line-height: var(--mx-line-meta);
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
@@ -1924,13 +1976,14 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   flex: 1 1 200px;
   color: var(--mx-text);
   font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-minor);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
 }
 .session-goal-actions {
   display: flex;
   gap: 6px;
 }
-.session-goal-tasks li[data-status="completed"] > div > span {
+.session-goal-tasks li:is([data-status="completed"], [data-status="abandoned"]) > div > span {
   color: var(--mx-text-muted);
 }
 
@@ -1960,6 +2013,9 @@ html[data-mixdog-mobile-tabs] .session-goal-fold {
 html[data-mixdog-mobile-tabs]
   :is(.session-goal-group-label, .session-goal-fold, .session-goal-tasks li.session-goal-phase) {
   padding-inline: 0;
+}
+html[data-mixdog-mobile-tabs] .composer-island .session-goal-fold {
+  padding-inline: 8px;
 }
 html[data-mixdog-mobile-tabs] .session-goal-tasks li {
   grid-template-columns: 16px minmax(0, 1fr);

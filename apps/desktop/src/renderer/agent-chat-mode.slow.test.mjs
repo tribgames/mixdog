@@ -1350,12 +1350,18 @@ const visualizeAnswer = {
   turnKey: 'f',
   turnChanges: { checkpointId: 'cp', boundary: 'done-f', trailing: false },
 };
+const doneRow = (turnKey, id = `done-${turnKey}`) => ({
+  _tag: 'AssistantPart',
+  key: id,
+  turnKey,
+  item: { kind: 'turndone', id, status: 'done', at: DAY1 },
+});
 const nodeFollows = (a, b) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
 test('a visualize open leaves one compact card in the bubble column at turn end', async (t) => {
   const { show, open, host, cards, seedTab } = await mountVisualize(t);
   seedTab(1);
-  await show([user('u1', DAY1), open('e', 100)]);
+  await show([user('u1', DAY1), open('e', 100), doneRow('e')]);
   assert.equal(cards().length, 1);
   const [first] = cards();
   assert.ok(first.closest('.mx-chat-row[data-side="aside"]'), 'in the bubble column');
@@ -1376,7 +1382,7 @@ test('a visualize open leaves one compact card in the bubble column at turn end'
 test('a later turn opening the tab again leaves one card per turn, the latter closing its turn under the reply, with no changed-files card in a bot chat', async (t) => {
   const { show, open, host, cards, turnCards, seedTab } = await mountVisualize(t);
   seedTab(2);
-  await show([user('u1', DAY1), open('e', 100), user('u2', DAY1), open('f', 200), visualizeAnswer]);
+  await show([user('u1', DAY1), open('e', 100), doneRow('e'), user('u2', DAY1), open('f', 200), visualizeAnswer]);
   const rows = [...host().querySelectorAll('.mx-chat-row')];
   assert.equal(host().querySelector('.turn-changes-card'), null, 'no changed-files card in a bot chat');
   assert.ok(rows.at(-1).contains(cards()[1]), 'the visualize card closes the turn');
@@ -1387,7 +1393,7 @@ test('a later turn opening the tab again leaves one card per turn, the latter cl
 test('each visualize card shows its own version: the earlier one folded on v1, the newest open on v2', async (t) => {
   const { show, open, cards, seedTab } = await mountVisualize(t);
   seedTab(2);
-  await show([user('u1', DAY1), open('e', 100), user('u2', DAY1), open('f', 200), visualizeAnswer]);
+  await show([user('u1', DAY1), open('e', 100), doneRow('e'), user('u2', DAY1), open('f', 200), visualizeAnswer]);
   assert.equal(cards()[0].querySelector('.transcript-visualize-badge.is-version').textContent, 'Version 1');
   assert.equal(cards()[0].querySelector('.transcript-visualize-status'), null, 'no status words, only the version');
   assert.equal(cards()[0].getAttribute('aria-label'), `${cards()[0].querySelector('b').textContent}, Version 1`);
@@ -1407,7 +1413,7 @@ test('each visualize card shows its own version: the earlier one folded on v1, t
 test('clicking an earlier visualize card activates its tab at its version; the newest card shows live', async (t) => {
   const { show, open, cards, seedTab, sentCommands, clearCommands } = await mountVisualize(t);
   seedTab(2);
-  await show([user('u1', DAY1), open('e', 100), user('u2', DAY1), open('f', 200), visualizeAnswer]);
+  await show([user('u1', DAY1), open('e', 100), doneRow('e'), user('u2', DAY1), open('f', 200), visualizeAnswer]);
   clearCommands();
   await act(async () => cards()[0].click());
   assert.deepEqual(
@@ -1429,7 +1435,7 @@ test('clicking an earlier visualize card activates its tab at its version; the n
 test('coding mode seats the same turn-end card, not compact, outside the tool group', async (t) => {
   const { show, open, host, seedTab } = await mountVisualize(t);
   seedTab(2);
-  await show([user('u1', DAY1), open('g', 300)], false);
+  await show([user('u1', DAY1), open('g', 300), doneRow('g')], false);
   assert.equal(host().querySelector('.is-compact'), null);
   assert.ok(host().querySelector('.transcript-visualize-turn'));
   assert.equal(host().querySelector('.tool-activity .transcript-visualize-tile'), null);
@@ -1532,7 +1538,11 @@ const followFlowOpen = {
   ],
 };
 const followFlowBefore = { ...reply('before-text', DAY1), turnKey: 'f' };
-const followFlowAfter = { ...reply('after-text', DAY1), turnKey: 'f' };
+const followFlowAfter = {
+  ...reply('after-text', DAY1),
+  turnKey: 'f',
+  completion: { kind: 'turndone', id: 'done-f', status: 'done', at: DAY1 },
+};
 
 async function mountFollowFlow(t, agentMode) {
   const { resyncVisualizeStates } = await import('./visualize-store.ts');
@@ -1563,17 +1573,28 @@ for (const agentMode of [false, true]) {
     assert.ok(nodeFollows(textNode('after-text'), card), 'the card follows the text after the call');
   });
 
-  test(`a turn ending on the visualize call still draws the card under the earlier text (agentMode ${agentMode})`, async (t) => {
+  test(`a turn ending on the visualize call waits for turndone and then draws the card under the earlier text (agentMode ${agentMode})`, async (t) => {
     const { show, textNode } = await mountFollowFlow(t, agentMode);
     await show([user('u1', DAY1), followFlowBefore, followFlowOpen]);
+    assert.equal(
+      document.querySelectorAll('main .transcript-visualize-turn').length,
+      0,
+      'an unclosed tool-only tail shows no mid-turn card'
+    );
+    await show([user('u1', DAY1), followFlowBefore, followFlowOpen, doneRow('f')]);
     const closing = document.querySelector('main .transcript-visualize-turn');
-    assert.ok(closing, 'a turn ending on the call still draws it');
+    assert.ok(closing, 'a turn ending on the call still draws it once turndone lands');
     assert.ok(nodeFollows(textNode('before-text'), closing), 'under the text before the call');
   });
 
   test(`no visualize card shows while the reply after the call streams (agentMode ${agentMode})`, async (t) => {
     const { show } = await mountFollowFlow(t, agentMode);
-    await show([user('u1', DAY1), followFlowBefore, followFlowOpen, { ...followFlowAfter, active: true, live: true }]);
+    await show([
+      user('u1', DAY1),
+      followFlowBefore,
+      followFlowOpen,
+      { ...followFlowAfter, completion: undefined, active: true, live: true },
+    ]);
     assert.equal(document.querySelectorAll('main .transcript-visualize-turn').length, 0);
   });
 }
@@ -1636,7 +1657,11 @@ async function mountTurnCard(t, agentMode) {
       turnKey: 'f',
       items: [call('c3', 'a.html', 'v1', 'Login', 120), call('c4', 'c.html', 'v3', 'Closed one', 130)],
     },
-    { ...reply('done', DAY1), turnKey: 'f' },
+    {
+      ...reply('done', DAY1),
+      turnKey: 'f',
+      completion: { kind: 'turndone', id: 'done-f', status: 'done', at: DAY1 },
+    },
   ];
   await renderRows(render, rowOptions(SESSION, { agentMode }), rows, {
     wrap: (children) => React.createElement('div', null, children),

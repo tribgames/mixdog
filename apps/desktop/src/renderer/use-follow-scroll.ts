@@ -3,6 +3,7 @@ import { takeScrollWrite } from './own-scroll-writes';
 import {
   chromePressHeld,
   distanceFromBottom,
+  END_TOLERANCE_PX,
   judgeScrollEvent,
   keyUpRecent,
   moveArrivesNearEnd,
@@ -118,11 +119,38 @@ export function useFollowScrollJudge({
       // the final word; under a held press it also says whether the move is the press's own.
       const extent = (movedUp || barHeld) && element.clientHeight > 0 ? element.scrollHeight - element.clientHeight : 0;
       if (movedUp && followingRef.current && extent > 0) distance = Math.min(distance, extent - nativeTop);
-      // A followed view arrives nowhere: its moves are the end kept.
-      if (top !== previousTop) {
-        state.arrived = !followingRef.current && moveArrivesNearEnd({ previousTop, top, distance, written });
-      }
       const touchDown = fingerOnGlass();
+      const inFlight = touchDown || barHeld;
+      // A followed view arrives nowhere: its moves are the end kept. Keep an
+      // in-flight bottom arrival intact across subpixel clamps and downward
+      // nudges while streaming appends height before release.
+      if (top !== previousTop) {
+        if (followingRef.current) {
+          state.arrived = false;
+          state.heldArrival = false;
+          state.arrivedTop = null;
+        } else if (moveArrivesNearEnd({ previousTop, top, distance, written })) {
+          state.arrived = true;
+          state.heldArrival = inFlight;
+          state.arrivedTop = top;
+        } else if (inFlight && state.heldArrival && !written && top > previousTop) {
+          state.arrived = true;
+          state.arrivedTop = Math.max(state.arrivedTop ?? top, top);
+        } else {
+          const subpixelTremor =
+            state.arrived &&
+            !written &&
+            previousTop > top &&
+            previousTop - top <= END_TOLERANCE_PX &&
+            (distance <= END_TOLERANCE_PX ||
+              (state.heldArrival && state.arrivedTop !== null && top >= state.arrivedTop - END_TOLERANCE_PX));
+          if (!subpixelTremor) {
+            state.arrived = false;
+            state.heldArrival = false;
+            state.arrivedTop = null;
+          }
+        }
+      }
       // The upward input of the reader's behind this move, named for the release it may make.
       const upwardInput =
         (wheelUpRecent({ wheelUpAt: state.wheelUpAt, now }) && 'wheel') ||
@@ -144,8 +172,9 @@ export function useFollowScrollJudge({
         top,
         distance,
         arrived: state.arrived,
+        heldArrival: state.heldArrival,
         upward,
-        inFlight: touchDown || barHeld,
+        inFlight,
         atWrittenTop: written,
       });
       // A scroll the timeline did not write while a finger is down.
@@ -161,7 +190,9 @@ export function useFollowScrollJudge({
           verdict,
         });
       }
-      if (top !== previousTop && !written && hasReaderScroll()) markReaderMotion();
+      if (top !== previousTop && !written && hasReaderScroll() && (!followingRef.current || upward)) {
+        markReaderMotion();
+      }
       if (verdict === 'pin') {
         reportRearm('scroll', metrics);
         publish(true);

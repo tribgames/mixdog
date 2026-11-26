@@ -254,6 +254,8 @@ impl Attachments for Turns {
 struct Recorded {
     /// The session does not take a row that makes a tool call: its commit fails.
     refuses_calls: AtomicBool,
+    /// The session refuses terminal assistant text rows (simulating a disk/store write failure during `Reply::close`).
+    refuses_assistant_text: AtomicBool,
     events: Mutex<Vec<Event>>,
     asks: Mutex<Vec<ApprovalAsk>>,
     /// The answers the next approvals get; none left answers as a session with no approval surface.
@@ -365,6 +367,12 @@ impl TurnSurface for Surface {
 
     async fn commit(&self, item: ItemCommit) -> Result<(), RunError> {
         if self.0.refuses_calls.load(Ordering::SeqCst) && item.body["toolCalls"].as_array().is_some_and(|calls| !calls.is_empty()) {
+            return Err(RunError::Closed);
+        }
+        if self.0.refuses_assistant_text.load(Ordering::SeqCst)
+            && item.role.as_deref() == Some("assistant")
+            && item.body["toolCalls"].as_array().is_none_or(Vec::is_empty)
+        {
             return Err(RunError::Closed);
         }
         if !self.1
@@ -884,6 +892,8 @@ impl World {
             selected_window: None,
             attachments: None,
             pictures: None,
+            transcript: None,
+            output_produced: None,
         }
     }
 
@@ -1047,9 +1057,9 @@ fn tool_server(said: &str) -> (String, String) {
     (servers[0]["url"].as_str().expect("the URL").to_owned(), token)
 }
 
-/// The agent's session `id` as a conversation holds it, with no record of the prompt that session was given.
+/// The agent's session `id` as a conversation holds it after a turn with `"RULES"`.
 fn held(id: &str) -> Stored {
-    Stored { session_id: id.to_owned(), prompt: None }
+    Stored { session_id: id.to_owned(), prompt: Some(mixdog_acp::session::digest("RULES")) }
 }
 
 async fn within<T>(what: &str, wait: impl Future<Output = T>) -> T {
@@ -2119,10 +2129,8 @@ async fn route_facts_refuses_an_out_of_scope_agent_model_during_readiness() {
     world.checked().await;
     let facts = AgentRouteFacts { inner: Arc::new(AnyCatalog), agents: world.agents.clone() };
     let config = serde_json::Map::new();
-    let refused = facts
-        .ensure_route_ready(&config, "acp-antigravity-cli", "claude-opus-5-5")
-        .await
-        .expect_err("out-of-scope model must be refused during readiness");
+    let refused =
+        facts.ensure_route_ready(&config, "acp-antigravity-cli", "claude-opus-5-5").await.expect_err("out-of-scope model must be refused during readiness");
     assert!(refused.contains("claude-opus-5-5"), "{refused}");
     assert!(facts.ensure_route_ready(&config, "acp-antigravity-cli", "").await.is_err());
     assert_eq!(facts.ensure_route_ready(&config, "acp-antigravity-cli", "gem-pro").await, Ok(()));
@@ -3003,6 +3011,10 @@ impl Tools {
             cancel: CancellationToken::new(),
             slot: None,
             asks: None,
+            limits: None,
+            hidden_agent: false,
+            vision: None,
+            reactions: None,
         }))
     }
 
@@ -4484,7 +4496,10 @@ async fn one_official_server_serves_every_session_each_with_its_own_folder_tool_
 /// session it holds open is refused. A cancel stops that session's prompt alone.
 #[tokio::test]
 async fn what_the_shared_server_sends_of_a_session_reaches_that_session_alone() {
-    let world = World::official(&[]);
+    // Official Neon disables fs_read_text_file; opt in here to exercise shared-server read isolation.
+    let world = World::of(&["antigravity"], &[], |preset, _| {
+        preset.quirks.fs_read_text_file = true;
+    });
     let (a, b) = (ThreadId::from("sess_a"), ThreadId::from("sess_b"));
     let (in_a, in_b) = (world.folder("a"), world.folder("b"));
     #[allow(clippy::disallowed_methods, reason = "a test writes the files its sessions read")]
@@ -4494,7 +4509,8 @@ async fn what_the_shared_server_sends_of_a_session_reaches_that_session_alone() 
     }
     let (of_a, of_b) = (in_a.as_path().join("a.txt").display().to_string(), in_b.as_path().join("b.txt").display().to_string());
     // A's session opens first: it is the server's first.
-    assert!(world.answer_in(&a, &in_a, "whoami").await.starts_with("session=sess-1"));
+    let whoami = world.answer_in(&a, &in_a, "whoami").await;
+    assert!(whoami.starts_with("session=sess-1") && whoami.contains(" read=true "), "{whoami}");
 
     let (working, stop) = (Surface::default(), CancellationToken::new());
     let hanging = world.prompt_in(&a, &in_a, &working, "hang", None, stop.clone());
@@ -6838,7 +6854,11 @@ async fn a_cancelled_prompt_the_agent_never_closes_does_not_hold_the_next_turn()
     assert_eq!(end, TurnEnd::Interrupted);
     within("the end of the agent that held the prompt", held.connection.exited().cancelled()).await;
 
-    let end = within("the recovered turn", world.serve(&Surface::default(), json!({ "role": "user", "content": "whoami" }), Some("sess-1"), "default", CancellationToken::new())).await;
+    let end = within(
+        "the recovered turn",
+        world.serve(&Surface::default(), json!({ "role": "user", "content": "whoami" }), Some("sess-1"), "default", CancellationToken::new()),
+    )
+    .await;
     assert!(completed_text(&end).starts_with("session=sess-1 resumed=true"), "{end:?}");
 }
 
@@ -6872,7 +6892,11 @@ async fn a_wedged_prompt_on_a_shared_server_is_never_resumed_while_its_cancel_or
     within("retiring the wedged shared server", server1.exited().cancelled()).await;
     assert!(solo.agents.running(&thread()).is_none());
 
-    let end = within("recovered turn on fresh server", solo.serve(&Surface::default(), json!({ "role": "user", "content": "whoami" }), Some("sess-1"), "default", CancellationToken::new())).await;
+    let end = within(
+        "recovered turn on fresh server",
+        solo.serve(&Surface::default(), json!({ "role": "user", "content": "whoami" }), Some("sess-1"), "default", CancellationToken::new()),
+    )
+    .await;
     assert!(completed_text(&end).starts_with("session=sess-1 resumed=true"), "{end:?}");
     let fresh = solo.agents.running(&thread()).expect("the recovered session");
     assert_ne!(fresh.connection.handle(), server1.handle());
@@ -6906,7 +6930,11 @@ async fn a_wedged_prompt_on_a_shared_server_is_never_resumed_while_its_cancel_or
     assert_eq!(end, TurnEnd::Interrupted);
     assert!(!server.exited().is_cancelled(), "the shared server stays up for the keeper");
 
-    let end = within("fresh session on shared server", shared.serve(&Surface::default(), json!({ "role": "user", "content": "whoami" }), Some("sess-2"), "default", CancellationToken::new())).await;
+    let end = within(
+        "fresh session on shared server",
+        shared.serve(&Surface::default(), json!({ "role": "user", "content": "whoami" }), Some("sess-2"), "default", CancellationToken::new()),
+    )
+    .await;
     assert!(completed_text(&end).starts_with("session=sess-3 resumed=false"), "{end:?}");
     assert_eq!(shared.logged("session/resume sess-2"), 0, "wedged sessionId must never be resumed on the same server: {:?}", shared.log());
     assert_eq!(shared.agents.running(&thread()).expect("fresh session").connection.handle(), server.handle());
@@ -6924,12 +6952,9 @@ async fn a_wedged_prompt_on_a_shared_server_is_never_resumed_while_its_cancel_or
     let (end, ()) = within("shared third stop", async { tokio::join!(muted, stop3) }).await;
     assert_eq!(end, TurnEnd::Interrupted);
     let moved = shared.folder("moved");
-    let reopened = within(
-        "reopening after cwd change",
-        shared.agents.session(&thread(), &shared.preset, moved, Some(held("sess-3")), Some("RULES".into())),
-    )
-    .await
-    .expect("fresh session opened");
+    let reopened = within("reopening after cwd change", shared.agents.session(&thread(), &shared.preset, moved, Some(held("sess-3")), Some("RULES".into())))
+        .await
+        .expect("fresh session opened");
     assert_eq!(reopened.session_id, "sess-4");
     assert!(reopened.restarted);
     assert_eq!(shared.logged("session/resume sess-3"), 0, "{:?}", shared.log());
@@ -7132,7 +7157,8 @@ async fn a_report_the_agent_makes_after_its_prompt_is_answered_is_told_by_the_ne
 async fn a_read_that_names_another_session_than_the_processs_own_is_refused() {
     let world = World::new(&[]);
     let note = world.dir.path().join("note.txt");
-    let end = within("the turn", world.prompt(&thread(), &Surface::default(), &format!("readas sess-9 {}", note.display()), None, CancellationToken::new())).await;
+    let end =
+        within("the turn", world.prompt(&thread(), &Surface::default(), &format!("readas sess-9 {}", note.display()), None, CancellationToken::new())).await;
     assert_eq!(completed_text(&end), "error:the read names no session this client holds open");
 }
 
@@ -7180,7 +7206,9 @@ async fn attached_resource_link_outside_cwd_is_readable_by_agent() {
 
     // An unrelated session in the same `cwd` must NOT inherit the first session's attached file allowlist.
     let other_thread = ThreadId::from("t2".to_owned());
-    let other = within("other session read", world.prompt(&other_thread, &Surface::default(), &format!("read {}", attached.display()), None, CancellationToken::new())).await;
+    let other =
+        within("other session read", world.prompt(&other_thread, &Surface::default(), &format!("read {}", attached.display()), None, CancellationToken::new()))
+            .await;
     assert!(completed_text(&other).starts_with("error:"), "other session in same cwd must be denied: {other:?}");
 
     // Ending the session evicts its allowlist: a fresh session on the same thread cannot read it without re-attaching.
@@ -7212,18 +7240,10 @@ async fn nontext_chunks_and_both_generate_image_shapes_store_and_render_media_ca
     assert!(!serialized.contains("aW1n"), "tool image base64 must not be retained in rows: {serialized}");
     assert_eq!(kept.lock().unwrap().len(), 2, "chunk image and generate_image each stored once");
 
-    let media_calls: Vec<&Value> = rows
-        .iter()
-        .filter_map(|row| row["toolCalls"].as_array())
-        .flatten()
-        .filter(|call| call["name"] == "media")
-        .collect();
+    let media_calls: Vec<&Value> = rows.iter().filter_map(|row| row["toolCalls"].as_array()).flatten().filter(|call| call["name"] == "media").collect();
     assert_eq!(media_calls.len(), 2, "one card for chunk image, one single card for generate_image: {rows:?}");
-    let results: Vec<Value> = rows
-        .iter()
-        .filter(|row| row["role"] == "tool")
-        .filter_map(|row| row["content"].as_str().and_then(|s| serde_json::from_str::<Value>(s).ok()))
-        .collect();
+    let results: Vec<Value> =
+        rows.iter().filter(|row| row["role"] == "tool").filter_map(|row| row["content"].as_str().and_then(|s| serde_json::from_str::<Value>(s).ok())).collect();
     assert!(results.iter().any(|r| r["assetId"] == "asset-1" && r["kind"] == "image"), "{results:?}");
     assert!(results.iter().any(|r| r["assetId"] == "asset-2" && r["prompt"] == "a red fox"), "{results:?}");
 
@@ -7352,10 +7372,7 @@ async fn prompt_parts_mediatype_and_percent_encoded_inline_attachment_uri() {
     assert!(matches!(end, TurnEnd::Failed { reported: false, .. }), "{end:?}");
     assert_eq!(no_img.logged("session/prompt"), 0, "must not send empty prompt: []");
     assert!(no_img.agents.running(&thread()).is_none(), "must not leave an orphaned session after an all-dropped prompt");
-    let handover_notice = no_img_surface
-        .events()
-        .into_iter()
-        .any(|e| matches!(e, Event::Notice(text) if text.contains("summarized")));
+    let handover_notice = no_img_surface.events().into_iter().any(|e| matches!(e, Event::Notice(text) if text.contains("summarized")));
     assert!(!handover_notice, "must not run handover when all prompt parts are dropped: {:?}", no_img_surface.events());
 
     // mediaType: "image/png" detected as image when agent supports images.
@@ -7389,11 +7406,7 @@ async fn prompt_parts_mediatype_and_percent_encoded_inline_attachment_uri() {
 #[tokio::test]
 async fn cut_short_stop_reasons_surface_why_and_close_open_calls() {
     let world = World::new(&[]);
-    for (reason, expected_why) in [
-        ("refusal", "refused"),
-        ("max_tokens", "output tokens"),
-        ("max_turn_requests", "model requests"),
-    ] {
+    for (reason, expected_why) in [("refusal", "refused"), ("max_tokens", "output tokens"), ("max_turn_requests", "model requests")] {
         let surface = Surface::default();
         let end = world.ask(&surface, &format!("stopreason {reason}"), Turns::default()).await;
         assert!(matches!(&end, TurnEnd::Completed { stop_reason: Some(r), .. } if r == reason), "{end:?}");
@@ -7445,26 +7458,16 @@ async fn late_tool_call_update_after_close_reaches_transcript() {
 async fn rpc_error_data_classifies_failure_and_ask_once_passes_effort() {
     let world = World::new(&[]);
     let end = world.ask(&Surface::default(), "errdata", Turns::default()).await;
-    assert!(
-        matches!(&end, TurnEnd::Failed { code: Some(-32002), message, reported: true } if message.contains("Session not found")),
-        "{end:?}"
-    );
+    assert!(matches!(&end, TurnEnd::Failed { code: Some(-32002), message, reported: true } if message.contains("Session not found")), "{end:?}");
 
-    let tiered = World::build(
-        &[(
-            "FAKE_AGENT_MODELS",
-            r#"[{"modelId":"gem-low","name":"Gem (Low)"},{"modelId":"gem-high","name":"Gem (High)"}]"#,
-        )],
-        |preset, _| {
+    let tiered =
+        World::build(&[("FAKE_AGENT_MODELS", r#"[{"modelId":"gem-low","name":"Gem (Low)"},{"modelId":"gem-high","name":"Gem (High)"}]"#)], |preset, _| {
             preset.quirks.effort_tiers = vec!["low".into(), "high".into()];
-        },
-    );
-    let answered = within(
-        "ask_once effort",
-        mixdog_acp::runs::ask_once(&tiered.agents, &tiered.preset, ("gem", Some("low")), "RULES", "whoami", Arc::new(|| 0_i64)),
-    )
-    .await
-    .expect("ask_once succeeds");
+        });
+    let answered =
+        within("ask_once effort", mixdog_acp::runs::ask_once(&tiered.agents, &tiered.preset, ("gem", Some("low")), "RULES", "whoami", Arc::new(|| 0_i64)))
+            .await
+            .expect("ask_once succeeds");
     assert!(answered.text.contains("model=gem-low"), "{answered:?}");
 }
 
@@ -7482,12 +7485,7 @@ async fn generate_image_recognized_on_update_and_late_result_emit_single_media_c
     assert!(matches!(end, TurnEnd::Completed { .. }), "{end:?}");
     assert_eq!(kept.lock().unwrap().len(), 1, "image stored once");
     let rows = surface.rows();
-    let media_calls: Vec<&Value> = rows
-        .iter()
-        .filter_map(|row| row["toolCalls"].as_array())
-        .flatten()
-        .filter(|call| call["name"] == "media")
-        .collect();
+    let media_calls: Vec<&Value> = rows.iter().filter_map(|row| row["toolCalls"].as_array()).flatten().filter(|call| call["name"] == "media").collect();
     assert_eq!(media_calls.len(), 1, "standalone media card emitted once: {rows:?}");
     assert!(
         rows.iter().any(|row| row["role"] == "tool" && row["content"].as_str().is_some_and(|s| s.contains("\"assetId\":\"asset-1\""))),
@@ -7506,21 +7504,237 @@ async fn generate_image_recognized_on_update_and_late_result_emit_single_media_c
     let kept2 = t2.kept_images.clone();
     let end2 = within(
         "finishbgimage",
-        bg_world.serve_with(&s2, json!({ "role": "user", "content": "finishbgimage" }), Some(held(&bg_session)), Some("RULES"), "default", CancellationToken::new(), t2),
+        bg_world.serve_with(
+            &s2,
+            json!({ "role": "user", "content": "finishbgimage" }),
+            Some(held(&bg_session)),
+            Some("RULES"),
+            "default",
+            CancellationToken::new(),
+            t2,
+        ),
     )
     .await;
     assert!(matches!(end2, TurnEnd::Completed { .. }), "{end2:?}");
     assert_eq!(kept2.lock().unwrap().len(), 1, "background image stored once");
     let rows2 = s2.rows();
-    let media_calls2: Vec<&Value> = rows2
-        .iter()
-        .filter_map(|row| row["toolCalls"].as_array())
-        .flatten()
-        .filter(|call| call["name"] == "media")
-        .collect();
+    let media_calls2: Vec<&Value> = rows2.iter().filter_map(|row| row["toolCalls"].as_array()).flatten().filter(|call| call["name"] == "media").collect();
     assert_eq!(media_calls2.len(), 1, "late_result must emit exactly one media card without duplicating: {rows2:?}");
     assert!(
         rows2.iter().any(|row| row["role"] == "tool" && row["content"].as_str().is_some_and(|s| s.contains("\"assetId\":\"asset-1\""))),
         "late_result media card holds stored assetId: {rows2:?}"
     );
+}
+
+/// Live User Bug #2 regression: when two Mixdog tool calls run concurrently (`slow` + `read`) and a mid-turn user
+/// steer is queued, the first completing call (`read`) MUST NOT commit or attach the steer while `slow` is still in
+/// flight (`self.running > 0`). Only once `slow` finishes (`self.running == 0`) is the steer committed once and
+/// attached to the final answer of the batch.
+#[tokio::test]
+async fn parallel_tool_batch_defers_mid_turn_steer_until_all_concurrent_calls_complete() {
+    let (world, tools) = handing(&[]);
+    let surface = Surface::default();
+    surface.0.steers.lock().unwrap().push_back(SteerDelivery {
+        queued_ids: vec![QueuedId::from("q-parallel-steer")],
+        content: Content::Text("wait for the whole batch".into()),
+        task_notification: false,
+    });
+
+    let calling = tools.prompt(&world, &surface, "concurrent slow read");
+    let drive = async {
+        // Wait until sibling `read` has completed and streamed its result WHILE `slow` is still blocked.
+        surface.until(|events| events.iter().any(|e| matches!(e, Event::Delta(t) if t.contains("second=read ran")))).await;
+        assert_eq!(surface.0.steer_commits.load(Ordering::SeqCst), 0, "mid-turn steer must NOT be committed while a sibling Mixdog call is still in flight");
+        assert_eq!(surface.0.steers.lock().unwrap().len(), 1, "steer must stay queued until batch finishes");
+        assert!(
+            !surface.streamed().contains("wait for the whole batch"),
+            "steer must NOT be attached to the earlier-finishing sibling answer: {}",
+            surface.streamed()
+        );
+        // Release `slow` so `self.running` reaches 0.
+        tools.release.add_permits(1);
+    };
+    let (end, ()) = within("parallel batch mid-turn steer", async { tokio::join!(calling, drive) }).await;
+    let text = completed_text(&end);
+    let (second_part, first_part) = text.split_once(" first=").expect("both second and first answers echoed");
+    assert!(second_part.contains("second=read ran"), "{second_part}");
+    assert!(
+        !second_part.contains("wait for the whole batch"),
+        "steer must be absent from EVERY content block of the earlier-finishing sibling answer: {second_part}"
+    );
+    assert!(first_part.contains("slow ended"), "{first_part}");
+    assert!(
+        first_part.contains("[User message received while you were working]\nwait for the whole batch"),
+        "steer must be attached to the final answer of the batch: {first_part}"
+    );
+    assert_eq!(surface.0.steer_commits.load(Ordering::SeqCst), 1, "steer committed exactly once when batch finished");
+    assert_eq!(*surface.0.committed_steers.lock().unwrap(), vec![QueuedId::from("q-parallel-steer")]);
+    assert!(surface.0.steers.lock().unwrap().is_empty());
+}
+
+/// `Reply::close` propagates terminal transcript write failures on normal AND cut-short (`max_tokens`,
+/// `max_turn_requests`, `refusal`) completions instead of reporting `TurnEnd::Completed` after dropping the final row.
+#[tokio::test]
+async fn reply_close_terminal_write_error_fails_turn_instead_of_completing() {
+    for prompt in ["whoami", "stopreason max_tokens", "stopreason max_turn_requests", "stopreason refusal"] {
+        let world = World::new(&[]);
+        let surface = Surface::default();
+        surface.0.refuses_assistant_text.store(true, Ordering::SeqCst);
+
+        let end = world.ask(&surface, prompt, Turns::default()).await;
+        assert!(
+            matches!(&end, TurnEnd::Failed { message, reported: false, .. } if message.contains("could not be saved")),
+            "terminal commit failure for `{prompt}` must fail the turn cleanly: {end:?}"
+        );
+    }
+}
+
+/// Reusing an in-process ACP session checks the rules digest so changed rules force a fresh `session/new` (never
+/// resuming the stale stored session) and apply the new rules cleanly.
+#[tokio::test]
+async fn reused_session_with_changed_rules_digest_reopens_and_applies_new_rules() {
+    let world = World::new(&[]);
+    let first_surface = Surface::default();
+    let end1 = within(
+        "first rules turn",
+        world.serve_with(
+            &first_surface,
+            json!({ "role": "user", "content": "whoami" }),
+            None,
+            Some("RULES-V1"),
+            "default",
+            CancellationToken::new(),
+            Turns::default(),
+        ),
+    )
+    .await;
+    assert!(matches!(end1, TurnEnd::Completed { .. }), "{end1:?}");
+    let first_session = world.agents.running(&thread()).expect("running session").clone();
+    let stored_v1 = Stored { session_id: first_session.session_id.clone(), prompt: first_session.prompt.clone() };
+
+    let second_surface = Surface::default();
+    let end2 = within(
+        "changed rules turn",
+        world.serve_with(
+            &second_surface,
+            json!({ "role": "user", "content": "whoami" }),
+            Some(stored_v1),
+            Some("RULES-V2"),
+            "default",
+            CancellationToken::new(),
+            Turns::default(),
+        ),
+    )
+    .await;
+    let text2 = completed_text(&end2);
+    assert!(text2.contains("resumed=false"), "changed rules must open a fresh session, not resume the stale one: {text2}");
+    assert!(text2.contains("append=RULES-V2"), "fresh session must apply the new rules: {text2}");
+    assert_eq!(world.logged("session/resume"), 0, "stale session must not be resumed: {:?}", world.log());
+    let second_session = world.agents.running(&thread()).expect("fresh session");
+    assert_ne!(second_session.prompt, first_session.prompt);
+}
+
+#[tokio::test]
+async fn cold_reopen_adding_rules_without_prior_digest_opens_fresh_session() {
+    let world = World::new(&[]);
+    let first_surface = Surface::default();
+    let end1 = within(
+        "first turn without rules",
+        world.serve_with(&first_surface, json!({ "role": "user", "content": "whoami" }), None, None, "default", CancellationToken::new(), Turns::default()),
+    )
+    .await;
+    assert!(matches!(end1, TurnEnd::Completed { .. }), "{end1:?}");
+    let first_session = world.agents.running(&thread()).expect("running session").clone();
+    assert_eq!(first_session.prompt, None);
+    let stored_without_digest = Stored { session_id: first_session.session_id.clone(), prompt: None };
+
+    // Simulate a cold restart: no live handle remains, only the stored session ID with no recorded prompt digest.
+    world.agents.release(&thread());
+    assert!(world.agents.running(&thread()).is_none());
+
+    let second_surface = Surface::default();
+    let end2 = within(
+        "cold reopen with newly supplied rules",
+        world.serve_with(
+            &second_surface,
+            json!({ "role": "user", "content": "whoami" }),
+            Some(stored_without_digest),
+            Some("NEW-RULES"),
+            "default",
+            CancellationToken::new(),
+            Turns::default(),
+        ),
+    )
+    .await;
+    let text2 = completed_text(&end2);
+    assert!(text2.contains("resumed=false"), "cold reopen adding rules must open a fresh session: {text2}");
+    assert!(text2.contains("append=NEW-RULES"), "fresh session must apply the newly supplied rules: {text2}");
+    assert_eq!(world.logged("session/resume"), 0, "stale session without rules must not be resumed: {:?}", world.log());
+    assert_eq!(world.logged("session/load"), 0, "stale session without rules must not be loaded: {:?}", world.log());
+    let second_session = world.agents.running(&thread()).expect("fresh session");
+    assert_eq!(second_session.prompt, Some(mixdog_acp::session::digest("NEW-RULES")));
+}
+
+/// Live User Bug #1: Built-in official Antigravity (Neon) preset enforces real context window caps (256k for
+/// Gemini/Claude and the `default` route, 128k for gpt-oss) and surfaces the 76% mid-turn compaction cliff warning
+/// when reported usage reaches ~195k/256k on the real `default` route.
+#[tokio::test]
+async fn antigravity_context_window_cap_and_mid_turn_compaction_cliff_enforced() {
+    // Verify built-in Antigravity preset caps and cliff math directly.
+    let presets = mixdog_acp::preset::builtin();
+    let neon = presets.iter().find(|p| p.id == "antigravity").expect("official antigravity preset");
+    assert!(!neon.quirks.fs_read_text_file, "official Neon preset must disable fs.readTextFile");
+    assert_eq!(neon.quirks.effective_context_window("gemini-4-neon", 1_048_576), 256_000);
+    assert_eq!(neon.quirks.effective_context_window("claude-opus-4-6", 1_000_000), 256_000);
+    assert_eq!(neon.quirks.effective_context_window("gpt-oss-120b", 1_048_576), 128_000);
+    assert_eq!(neon.quirks.effective_context_window_for("default", None, 1_048_576), 256_000);
+    let cliff = neon.quirks.mid_turn_compaction_cliff(256_000).expect("antigravity cliff");
+    assert!((190_000..=200_000).contains(&cliff), "expected ~195k compaction cliff, got {cliff}");
+
+    // End-to-end turn check on the real built-in official Neon preset (`World::official`) and `"default"` route:
+    // fake agent reports used=196_000, size=1_048_576; the real preset caps 1M -> 256_000 and fires the 76% cliff notice.
+    let world = World::official(&[]);
+    let surface = Surface::default();
+    let end = world.ask(&surface, "cliff 196000 1048576", Turns::default()).await;
+    assert!(matches!(end, TurnEnd::Completed { .. }), "{end:?}");
+    let windows: Vec<HeaderChange> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Header(change) if change.set.contains_key("contextWindow") => Some(change),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(windows.len(), 1, "{:?}", surface.events());
+    assert_eq!(windows[0].set.get("contextWindow"), Some(&json!(256_000)), "reported 1M window capped to 256k on official default route");
+    assert!(
+        surface.notices().iter().any(|n| n.contains("compaction cliff") && n.contains("196000 / 256000")),
+        "expected mid-turn compaction cliff notice: {:?}",
+        surface.notices()
+    );
+}
+
+/// Neon `SharedServer` (`World::official`) initializes with `fs.readTextFile: false`, and `Agents::release_all` clears
+/// remembered session grants so a reopened session does not inherit them.
+#[tokio::test]
+async fn neon_official_disables_fs_read_text_file_and_release_all_clears_grants() {
+    let world = World::official(&[]);
+    let surface = Surface::default();
+    let end = world.ask(&surface, "whoami", Turns::default()).await;
+    let text = completed_text(&end);
+    assert!(text.contains("read=false"), "shared/official Neon server must initialize with fs.readTextFile=false: {text}");
+
+    let session = world.agents.running(&thread()).expect("running session");
+    let key = mixdog_tools::policy::GrantKey::tool("antigravity:demo").expect("grant key");
+    session.grants.lock().unwrap().insert(key.clone());
+    assert!(session.grants.lock().unwrap().contains(&key));
+    world.agents.release_all();
+    assert!(world.agents.running(&thread()).is_none(), "release_all drops running sessions");
+
+    // Reopen a fresh session on the same thread and prove it does NOT inherit the old grant.
+    let surface2 = Surface::default();
+    let end2 = world.ask(&surface2, "whoami", Turns::default()).await;
+    assert!(matches!(end2, TurnEnd::Completed { .. }), "{end2:?}");
+    let reopened = world.agents.running(&thread()).expect("reopened session");
+    assert!(!reopened.grants.lock().unwrap().contains(&key), "reopened session must not inherit grants cleared by release_all");
 }

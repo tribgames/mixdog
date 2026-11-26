@@ -72,8 +72,10 @@ const edges = (page) =>
     (ids) =>
       Object.fromEntries(
         ids.map((id) => {
-          const box = document.getElementById(id).getBoundingClientRect();
-          const style = getComputedStyle(document.getElementById(id));
+          const node = document.getElementById(id);
+          const box = node.getBoundingClientRect();
+          // The tool roll-up paints its plate on ::before (33-skin.css).
+          const style = getComputedStyle(node, node.matches('.tool-activity') ? '::before' : null);
           return [
             id,
             { left: box.left, right: box.right, background: style.backgroundColor, filter: style.backdropFilter },

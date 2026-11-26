@@ -260,6 +260,14 @@ impl JobViews {
             apply(view, frozen);
         } else if let Some(session_id) = job.meta.session_id.as_deref().filter(|s| !s.is_empty()) {
             if let Some(facts) = self.workers.session(session_id).await {
+                if let Some(provider) = facts.provider.as_deref().filter(|p| !p.is_empty())
+                    && let Some(model) = facts.model.as_deref().filter(|m| !m.is_empty())
+                {
+                    view.provider = Some(provider.to_owned());
+                    view.model = Some(model.to_owned());
+                    view.effort = facts.effort.as_deref().filter(|e| !e.is_empty()).map(str::to_owned);
+                    view.fast = Some(facts.fast);
+                }
                 view.worker_status =
                     Some(if facts.closed { "closed".to_owned() } else { facts.status.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| "idle".to_owned()) });
                 view.stage = Some(self.progress_of(session_id, None).await.worker_stage);
@@ -479,5 +487,161 @@ impl Views for JobViews {
             });
         }
         rows
+    }
+}
+
+#[cfg(test)]
+mod route_sync_tests {
+    use super::*;
+    use crate::agent_tool::board::NewJob;
+    use crate::agent_tool::host::{Released, ResolveOptions, Resumable, TurnMark};
+    use crate::agent_tool::scope::{SessionFacts, TagRecord};
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    struct FixedClock;
+    impl Clock for FixedClock {
+        fn now_ms(&self) -> i64 {
+            1_700_000_000_000
+        }
+    }
+
+    struct StubRegistry;
+    #[async_trait]
+    impl Registry for StubRegistry {
+        async fn resolve_tombstone_owners(&self) {}
+        async fn refresh_tags_from_sessions(&self, _: bool, _: &Scope) -> Result<(), String> {
+            Ok(())
+        }
+        async fn resolve_tag(&self, _: &str, _: &Scope, _: ResolveOptions) -> Result<Option<String>, String> {
+            Ok(None)
+        }
+        async fn live_session(&self, _: &str) -> Option<SessionFacts> {
+            None
+        }
+        fn tag_session(&self, _: &str) -> Option<String> {
+            None
+        }
+        fn has_tag_agent(&self, _: &str) -> bool {
+            false
+        }
+        async fn tag_for_session(&self, _: &str) -> Option<String> {
+            None
+        }
+        fn unbind_tag(&self, _: &str) {}
+        async fn bind_tag(&self, _: &str, _: &SessionFacts, _: &str) {}
+        fn forget_terminal_session(&self, _: Option<&str>, _: &str) {}
+        fn remove_worker_row(&self, _: &str) {}
+        fn release_closed_at(&self, _: &Scope, _: Option<&str>, _: &str, _: &[String], _: Option<&HashMap<String, Option<TurnMark>>>) -> Released {
+            Released::default()
+        }
+        fn mark_released(&self, _: &[String]) {}
+        fn read_worker_rows(&self, _: &Scope) -> Result<Vec<TagRecord>, String> {
+            Ok(Vec::new())
+        }
+        fn bound_sessions(&self) -> Vec<String> {
+            Vec::new()
+        }
+        fn read_all_tag_tombstones(&self) -> Vec<TagRecord> {
+            Vec::new()
+        }
+        fn tag_tombstone_for_tag(&self, _: &str, _: &Scope) -> Option<TagRecord> {
+            None
+        }
+        fn consume_tag_tombstone(&self, _: &TagRecord) {}
+        async fn last_tag_session(&self, _: &str, _: &Scope) -> Option<TagRecord> {
+            None
+        }
+        async fn resumable_tag_session(&self, _: &str, _: &str, _: &Scope) -> Result<Option<Resumable>, String> {
+            Ok(None)
+        }
+    }
+
+    struct StubWorkers(Mutex<WorkerFacts>);
+    #[async_trait]
+    impl Workers for StubWorkers {
+        async fn session(&self, _: &str) -> Option<WorkerFacts> {
+            Some(self.0.lock().unwrap().clone())
+        }
+        fn live(&self, _: &str) -> WorkerLive {
+            WorkerLive::default()
+        }
+        async fn entries(&self, _: bool, _: &Scope) -> Vec<(String, WorkerFacts)> {
+            Vec::new()
+        }
+    }
+
+    #[tokio::test]
+    async fn live_job_card_surfaces_committed_active_route_from_worker_session() {
+        let clock: Arc<dyn Clock> = Arc::new(FixedClock);
+        let board = JobBoard::new(clock.clone(), None, None);
+        let task_id = board
+            .register(NewJob {
+                operation: "spawn".into(),
+                meta: JobMeta {
+                    tag: Some("scout".into()),
+                    session_id: Some("sess_w1".into()),
+                    agent: Some("worker".into()),
+                    provider: Some("openai".into()),
+                    model: Some("gpt-5".into()),
+                    effort: Some("high".into()),
+                    fast: Some(false),
+                    ..JobMeta::default()
+                },
+                ..NewJob::default()
+            })
+            .unwrap();
+        let workers = Arc::new(StubWorkers(Mutex::new(WorkerFacts {
+            id: "sess_w1".into(),
+            provider: Some("anthropic".into()),
+            model: Some("sonnet-4".into()),
+            effort: Some("low".into()),
+            fast: true,
+            status: Some("running".into()),
+            ..WorkerFacts::default()
+        })));
+        let views = JobViews::new(board, Arc::new(StubRegistry), workers, clock);
+        let card = views.card(&task_id, &Scope::default(), false).await.expect("card");
+        assert_eq!(
+            (card.view.provider.as_deref(), card.view.model.as_deref(), card.view.effort.as_deref(), card.view.fast),
+            (Some("anthropic"), Some("sonnet-4"), Some("low"), Some(true))
+        );
+    }
+
+    #[tokio::test]
+    async fn live_job_card_clears_effort_and_flips_fast_even_on_same_provider_and_model() {
+        let clock: Arc<dyn Clock> = Arc::new(FixedClock);
+        let board = JobBoard::new(clock.clone(), None, None);
+        let task_id = board
+            .register(NewJob {
+                operation: "spawn".into(),
+                meta: JobMeta {
+                    tag: Some("scout".into()),
+                    session_id: Some("sess_w1".into()),
+                    agent: Some("worker".into()),
+                    provider: Some("openai".into()),
+                    model: Some("gpt-5".into()),
+                    effort: Some("high".into()),
+                    fast: Some(true),
+                    ..JobMeta::default()
+                },
+                ..NewJob::default()
+            })
+            .unwrap();
+        let workers = Arc::new(StubWorkers(Mutex::new(WorkerFacts {
+            id: "sess_w1".into(),
+            provider: Some("openai".into()),
+            model: Some("gpt-5".into()),
+            effort: None,
+            fast: false,
+            status: Some("running".into()),
+            ..WorkerFacts::default()
+        })));
+        let views = JobViews::new(board, Arc::new(StubRegistry), workers, clock);
+        let card = views.card(&task_id, &Scope::default(), false).await.expect("card");
+        assert_eq!(
+            (card.view.provider.as_deref(), card.view.model.as_deref(), card.view.effort.as_deref(), card.view.fast),
+            (Some("openai"), Some("gpt-5"), None, Some(false))
+        );
     }
 }

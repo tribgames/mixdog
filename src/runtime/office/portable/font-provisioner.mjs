@@ -153,7 +153,7 @@ async function registerFontWithOs(fontDef, targetPath) {
   if (currentPlatform === 'win32') {
     try {
       const { command, args, env } = fontRegistrationCommand(fontDef, targetPath);
-      await execFileAsync(command, args, { env, timeout: 15000 });
+      await execFileAsync(command, args, { env, timeout: 15000, windowsHide: true });
     } catch {
       // non-fatal
     }

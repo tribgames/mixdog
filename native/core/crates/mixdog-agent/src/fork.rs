@@ -164,10 +164,12 @@ mod tests {
         assert_eq!(fork.messages.len(), 2);
     }
 
-    /// An adapter that counts the attempts it is given.
+    /// An adapter that counts and records the attempts it is given, optionally declaring a vision route.
     struct Counting {
         inner: mixdog_core_api::domain::mock::MockProvider,
         attempts: std::sync::atomic::AtomicU32,
+        seen: std::sync::Mutex<Vec<Arc<ModelRequest>>>,
+        route: Option<mixdog_image_egress::route::RouteFacts>,
     }
 
     #[async_trait::async_trait]
@@ -185,22 +187,30 @@ mod tests {
         fn keepalive(&self) -> &mixdog_core_api::domain::keepalive::KeepaliveSchedule {
             self.inner.keepalive()
         }
+        async fn image_route(&self, request: &ModelRequest) -> mixdog_image_egress::route::RouteFacts {
+            match &self.route {
+                Some(route) => route.clone(),
+                None => self.inner.image_route(request).await,
+            }
+        }
         async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn mixdog_core_api::domain::provider::ModelStream>, ProviderError> {
             self.attempts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.seen.lock().unwrap().push(request.clone());
             self.inner.attempt(request).await
         }
     }
 
     /// Side questions and compaction forks send through `send_forked`, one `attempt` of the registered provider, which is
-    /// under the egress guard: an image its route cannot take (here a route that declares none) refuses the fork, naming nothing
-    /// as sent, before the adapter is asked.
+    /// under the egress guard: a route declaring no vision omits images before the adapter is asked, while a seeing route
+    /// refuses an unreadable image naming nothing as sent before the adapter is asked.
     #[tokio::test]
-    async fn a_fork_carrying_an_image_no_route_declared_is_refused_before_the_adapter_is_asked() {
+    async fn a_forks_image_is_omitted_on_a_blind_route_and_an_unreadable_one_is_refused_on_a_seeing_route() {
         use base64::Engine as _;
-        let counting = Arc::new(Counting { inner: mixdog_core_api::domain::mock::MockProvider::new([]), attempts: Default::default() });
-        let provider: Arc<dyn ProviderAdapter> = mixdog_ai::registry::egress::EgressGuard::wrap(counting.clone());
+        use mixdog_core_api::domain::prepared_request::OMITTED_IMAGE;
+        use mixdog_core_api::domain::provider::ContentPart;
+        use mixdog_image_egress::route::{RouteFacts, Vision, WireBranch};
         let heic = base64::engine::general_purpose::STANDARD.encode(b"\0\0\0\x18ftypheic\0\0\0\0mif1heic");
-        let image = mixdog_core_api::domain::provider::ContentPart::Image(mixdog_core_api::domain::provider::ImageSource::Base64 {
+        let image = ContentPart::Image(mixdog_core_api::domain::provider::ImageSource::Base64 {
             data: heic,
             mime_type: "image/heic".into(),
             width: None,
@@ -209,9 +219,29 @@ mod tests {
         let mut request = saved();
         request.messages = vec![Message::new(Role::User, Content::Parts(vec![image]))];
         let fork = forked_request(&request, None, "summarize");
+
+        let no_vision = Arc::new(Counting {
+            inner: mixdog_core_api::domain::mock::MockProvider::new([]),
+            attempts: Default::default(),
+            seen: Default::default(),
+            route: None,
+        });
+        let provider: Arc<dyn ProviderAdapter> = mixdog_ai::registry::egress::EgressGuard::wrap(no_vision.clone());
+        let _ = send_forked(&provider, fork.clone(), &CancellationToken::new()).await;
+        assert_eq!(no_vision.attempts.load(std::sync::atomic::Ordering::Relaxed), 1);
+        let sent = no_vision.seen.lock().unwrap().last().cloned().expect("omitted fork reached adapter");
+        assert_eq!(sent.messages[0].content, Content::Parts(vec![ContentPart::Text(OMITTED_IMAGE.into(), None)]));
+
+        let seeing = Arc::new(Counting {
+            inner: mixdog_core_api::domain::mock::MockProvider::new([]),
+            attempts: Default::default(),
+            seen: Default::default(),
+            route: Some(RouteFacts::declared("https://api.anthropic.com/v1/messages", "claude-test", WireBranch::AnthropicMessages, Vision::Yes)),
+        });
+        let provider: Arc<dyn ProviderAdapter> = mixdog_ai::registry::egress::EgressGuard::wrap(seeing.clone());
         let error = send_forked(&provider, fork, &CancellationToken::new()).await.unwrap_err();
         assert!(error.message.starts_with("Nothing was sent."), "{}", error.message);
         assert!(!error.message.contains("/compact"), "never prescribe /compact: {}", error.message);
-        assert_eq!(counting.attempts.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert_eq!(seeing.attempts.load(std::sync::atomic::Ordering::Relaxed), 0);
     }
 }

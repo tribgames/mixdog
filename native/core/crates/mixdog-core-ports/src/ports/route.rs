@@ -189,9 +189,17 @@ pub fn held_route_pick(route: &Route) -> Route {
     if let Some(percent) = route.get("contextPercent") {
         put("contextPercent", percent.clone());
     }
-    for key in ["contextTokens", "selectedContextWindow"] {
-        if truthy(route.get(key)) {
-            put(key, route[key].clone());
+    if let Some(tokens) = route.get("contextTokens")
+        && (truthy(Some(tokens)) || tokens.is_null())
+    {
+        put("contextTokens", tokens.clone());
+    }
+    if truthy(route.get("selectedContextWindow")) {
+        put("selectedContextWindow", route["selectedContextWindow"].clone());
+    }
+    for key in ["routeFallbacks", "routeFallbackSource"] {
+        if let Some(value) = route.get(key) {
+            put(key, value.clone());
         }
     }
     pick
@@ -301,6 +309,12 @@ impl SessionRoutes {
         let mut fields = Route::new();
         if let Some(chain) = self.session.owner_fallbacks(thread, header, text(route, "provider"), text(route, "model")).await? {
             fields.insert("routeFallbacks".into(), Value::Array(chain));
+        } else {
+            for key in ["routeFallbacks", "routeFallbackSource"] {
+                if let Some(value) = route.get(key) {
+                    fields.insert(key.to_owned(), value.clone());
+                }
+            }
         }
         Ok(fields)
     }
@@ -369,9 +383,15 @@ impl SessionRoutes {
     /// longer matches the session's.
     async fn refresh_fallbacks(&self, thread: &ThreadId, header: &Header) -> Result<(), PortError> {
         let fields = self.fallback_fields(thread, header, &self.live.route(thread)).await?;
-        let Some(chain) = fields.get("routeFallbacks") else { return Ok(()) };
-        let held = header.get("routeFallbacks").filter(|v| truthy(Some(*v))).cloned().unwrap_or(Value::Array(Vec::new()));
-        if mixdog_js::json_stringify(chain) == mixdog_js::json_stringify(&held) {
+        let chain_changed = fields.get("routeFallbacks").is_some_and(|chain| {
+            let held = header.get("routeFallbacks").filter(|v| truthy(Some(*v))).cloned().unwrap_or(Value::Array(Vec::new()));
+            mixdog_js::json_stringify(chain) != mixdog_js::json_stringify(&held)
+        });
+        let source_changed = fields.get("routeFallbackSource").is_some_and(|source| {
+            let held = header.get("routeFallbackSource").filter(|v| truthy(Some(*v))).cloned().unwrap_or(Value::Null);
+            mixdog_js::json_stringify(source) != mixdog_js::json_stringify(&held)
+        });
+        if !chain_changed && !source_changed {
             return Ok(());
         }
         self.session.update_route(thread, fields, false).await.map(|_| ())
@@ -1067,6 +1087,107 @@ mod tests {
         assert_eq!(switched["modelId"], "claude-x");
         assert!(!routes.threads.header(&thread()).await.unwrap().contains_key("pendingRoute"));
         assert_eq!(routes.apply_pending(&thread()).await.unwrap(), None);
+    }
+
+    #[test]
+    fn held_route_pick_preserves_fallback_fields_and_explicit_null_clears() {
+        let chain = json!([{ "provider": "anthropic", "model": "claude-sonnet", "effort": "low" }]);
+        let source = json!({ "preset": "preset-b" });
+        let pick = held_route_pick(&obj(json!({
+            "provider": "xai",
+            "model": "grok",
+            "fast": true,
+            "contextTokens": null,
+            "routeFallbacks": chain,
+            "routeFallbackSource": source,
+        })));
+        assert_eq!(pick.get("routeFallbacks"), Some(&chain));
+        assert_eq!(pick.get("routeFallbackSource"), Some(&source));
+        assert_eq!(pick.get("contextTokens"), Some(&Value::Null));
+
+        let cleared = held_route_pick(&obj(json!({
+            "provider": "xai",
+            "model": "grok",
+            "routeFallbacks": [],
+            "routeFallbackSource": null,
+            "contextTokens": 0,
+        })));
+        assert_eq!(cleared.get("routeFallbacks"), Some(&json!([])));
+        assert_eq!(cleared.get("routeFallbackSource"), Some(&Value::Null));
+        assert!(!cleared.contains_key("contextTokens"), "zero contextTokens remains omitted");
+    }
+
+    #[tokio::test]
+    async fn held_route_pick_defers_and_applies_fallback_fields_to_session_update() {
+        let captured = Arc::new(Mutex::new(Vec::<Route>::new()));
+        struct CapturingSession(Arc<Mutex<Vec<Route>>>);
+        #[async_trait]
+        impl RouteSession for CapturingSession {
+            fn generation(&self, _: &ThreadId) -> u64 {
+                3
+            }
+            async fn live_turn_messages(&self, _: &ThreadId) -> Result<Vec<Value>, PortError> {
+                Ok(Vec::new())
+            }
+            fn has_user_conversation(&self, messages: &[Value]) -> bool {
+                messages.iter().any(|m| m["role"] == "user")
+            }
+            async fn update_route(&self, _: &ThreadId, fields: Route, _: bool) -> Result<bool, PortError> {
+                self.0.lock().unwrap().push(fields);
+                Ok(true)
+            }
+            async fn record_boundary(&self, _: &ThreadId, _: &str, _: Value) -> Result<bool, PortError> {
+                Ok(true)
+            }
+            async fn rebuild_tool_surface(&self, _: &ThreadId, _: &str) -> Result<(), PortError> {
+                Ok(())
+            }
+            async fn owner_fallbacks(&self, _: &ThreadId, _: &Header, _: &str, _: &str) -> Result<Option<Vec<Value>>, PortError> {
+                Ok(None)
+            }
+            fn write_statusline(&self, _: &ThreadId, _: &Route) {}
+            fn invalidate_context_status(&self, _: &ThreadId) {}
+        }
+
+        let chain_b = json!([{ "provider": "anthropic", "model": "claude-sonnet", "effort": "low" }]);
+        let source_b = json!({ "preset": "preset-b" });
+        let live = json!({
+            "provider": "xai",
+            "model": "grok",
+            "fast": true,
+            "contextTokens": null,
+            "routeFallbacks": chain_b,
+            "routeFallbackSource": source_b,
+        });
+        let calls = Arc::new(Calls::default());
+        let routes = SessionRoutes::new(
+            Arc::new(Threads::new(
+                json!({
+                    "provider": "openai",
+                    "model": "gpt-a",
+                    "contextTokens": 100000,
+                    "routeFallbacks": [{ "provider": "google", "model": "gemini-pro" }],
+                    "routeFallbackSource": { "preset": "preset-a" },
+                }),
+                calls,
+            )),
+            Arc::new(Messages(established())),
+            Arc::new(CapturingSession(captured.clone())),
+            Arc::new(Live(obj(live))),
+        );
+        let defer = FollowOptions { switch_established: true, defer_until_next_turn: true, lease: Some(3), ..FollowOptions::default() };
+        routes.follow(&thread(), &defer).await.unwrap();
+        let pending = routes.threads.header(&thread()).await.unwrap()["pendingRoute"].clone();
+        assert_eq!(pending.get("routeFallbacks"), Some(&chain_b));
+        assert_eq!(pending.get("routeFallbackSource"), Some(&source_b));
+        assert_eq!(pending.get("contextTokens"), Some(&Value::Null));
+
+        routes.apply_admitted(&thread(), Some(&pending)).await.unwrap();
+        let updates = captured.lock().unwrap();
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].get("routeFallbacks"), Some(&chain_b));
+        assert_eq!(updates[0].get("routeFallbackSource"), Some(&source_b));
+        assert_eq!(updates[0].get("contextTokens"), Some(&Value::Null));
     }
 
     /// "Has a session" is read from the stored record alone (a model on it, or a conversation), so a record loaded after a

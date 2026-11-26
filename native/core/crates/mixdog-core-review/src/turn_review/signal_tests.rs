@@ -325,7 +325,7 @@ async fn an_edit_inside_a_turn_of_a_git_workspace_calls_the_review_listeners_and
         counted.fetch_add(1, Ordering::SeqCst);
     }));
     let cwd = workspace.to_string_lossy().trim_start_matches(r"\\?\").to_owned();
-    world.review.begin_turn(&cwd, "s1", mixdog_core_api::turn_review::TurnOpen { checkpoint_id: "c1".into(), continue_turn: false }).await.expect("a turn");
+    world.review.begin_turn(&cwd, "s1", mixdog_core_api::turn_review::TurnOpen { checkpoint_id: "c1".into() }).await.expect("a turn");
     let ctx = context(&world, &workspace, "s1", 1);
     let outcome = EditTool::new()
         .with_state(world.state.clone())
@@ -352,8 +352,7 @@ async fn a_completed_turns_change_is_listed_undone_and_applied_again() {
     std::fs::write(&file, "one\ntwo\n").unwrap();
     let world = world(&dir.path().join("data"));
     let cwd = workspace.to_string_lossy().trim_start_matches(r"\\?\").to_owned();
-    let token =
-        world.review.begin_turn(&cwd, "s1", mixdog_core_api::turn_review::TurnOpen { checkpoint_id: "c1".into(), continue_turn: false }).await.expect("a turn");
+    let token = world.review.begin_turn(&cwd, "s1", mixdog_core_api::turn_review::TurnOpen { checkpoint_id: "c1".into() }).await.expect("a turn");
     let ctx = context(&world, &workspace, "s1", 1);
     let outcome =
         EditTool::new().with_state(world.state.clone()).call(&ctx, serde_json::json!({ "file_path": file, "old_string": "one", "new_string": "uno" })).await;

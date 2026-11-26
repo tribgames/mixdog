@@ -1,9 +1,23 @@
 import { createLucideIcon, DatabaseZap, Gauge, type LucideIcon } from 'lucide-react';
-import { type CSSProperties, type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from 'react';
+import {
+  createContext,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+  useContext,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import type { Snapshot } from './desktop-types';
 import { t } from './i18n';
+import { useSurfaceActive } from './surface-activity';
 import { asRecord } from './text-format';
 import { usageMoney } from './usage-format';
+
+/** Layout placement token provided by enclosing rows (e.g. ComposerModelLine) so
+ *  FittedReadout re-fits synchronously in useLayoutEffect when card/row mode flips. */
+export const ReadoutLayoutContext = createContext<string>('');
 
 interface SessionUsageTotals {
   /** Fresh prompt tokens, over the calls whose prompt was measured. */
@@ -343,6 +357,7 @@ export function FittedReadout({
   title,
   className = '',
   gap = ITEM_GAP,
+  layoutKey,
 }: {
   variants: ReadoutItem[][];
   onClick?(): void;
@@ -350,19 +365,34 @@ export function FittedReadout({
   className?: string;
   /** The room between items and around a `·`, in px (--readout-gap): a word space where the line is read as text. */
   gap?: number;
+  /** Explicit placement or visibility key that forces a synchronous re-fit before paint. */
+  layoutKey?: unknown;
 }) {
   const ref = useRef<HTMLElement>(null);
+  const textCacheRef = useRef<{ key: string; measure: ReturnType<typeof textWidths> } | null>(null);
   const [shown, setShown] = useState(0);
+  const surfaceActive = useSurfaceActive();
+  const contextLayoutKey = useContext(ReadoutLayoutContext);
   const key = variants
     .map((items) => items.map((item) => `${item.icon ? 1 : 0}${fitText(item)}`).join('\t'))
     .join('\n');
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the variants' texts are the key
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the variants' texts, row placement and visibility key re-measurement
   useLayoutEffect(() => {
     const button = ref.current;
     const line = button?.parentElement;
-    if (!button || !line) return undefined;
-    let textWidth = textWidths();
+    if (!button || !line) {
+      // Clear cached widths while absent (e.g. empty variants): its font-load
+      // listener is disconnected, so returning with the same texts must re-measure.
+      textCacheRef.current = null;
+      return undefined;
+    }
+    // Reuse cached measurements across layout/placement re-fits of the same
+    // variant texts, but replace the cache when the texts themselves change
+    // so historical token/cost strings are not retained.
+    if (textCacheRef.current?.key !== key) textCacheRef.current = { key, measure: textWidths() };
     const measure = () => {
+      const textWidth = textCacheRef.current?.measure ?? textWidths();
+      if (!textCacheRef.current) textCacheRef.current = { key, measure: textWidth };
       const lineStyle = getComputedStyle(line);
       const style = getComputedStyle(button);
       // The others at their own width, not the one the readout squeezed them
@@ -415,7 +445,7 @@ export function FittedReadout({
     // A web font that finishes loading changes the texts' widths, though
     // neither the line nor its items may resize for it: measure afresh.
     const onFontsLoaded = () => {
-      textWidth = textWidths();
+      textCacheRef.current = { key, measure: textWidths() };
       measure();
     };
     document.fonts?.addEventListener('loadingdone', onFontsLoaded);
@@ -424,7 +454,7 @@ export function FittedReadout({
       siblings.disconnect();
       document.fonts?.removeEventListener('loadingdone', onFontsLoaded);
     };
-  }, [key, gap]);
+  }, [key, gap, surfaceActive, contextLayoutKey, layoutKey]);
   if (!variants.length) return null;
   const index = shown < 0 ? -1 : Math.min(shown, variants.length - 1);
   const classes = `composer-usage-readout ${className}`.trim();

@@ -160,6 +160,26 @@ impl SessionActor {
         let Change::Record { record, display } = change else { return };
         match &**record {
             Record::Item(row) => {
+                if row.role.as_ref().is_some_and(|role| role.as_str() == "assistant") {
+                    if let Slot::Inline(body) = &row.body {
+                        for key in ["toolCalls", "tool_calls"] {
+                            if let Some(calls) = body.get(key).and_then(Value::as_array) {
+                                for call_id in calls.iter().filter_map(|call| call.get("id").and_then(Value::as_str)).filter(|id| !id.is_empty()) {
+                                    self.committed_tool_calls.insert(call_id.to_owned(), ordinal);
+                                    self.provisional_tool_identities.remove(call_id);
+                                }
+                            }
+                        }
+                    }
+                    for item in unit {
+                        if let ThreadItem::ToolCall { run, .. } = item
+                            && let Some(call_id) = run.call_id.as_deref().filter(|id| !id.is_empty())
+                        {
+                            self.committed_tool_calls.insert(call_id.to_owned(), ordinal);
+                            self.provisional_tool_identities.remove(call_id);
+                        }
+                    }
+                }
                 if let Some(turn) = self.running(row) {
                     if let Slot::Inline(body) = &row.body {
                         let made = body.get("toolCalls").and_then(Value::as_array).into_iter().flatten();
@@ -220,7 +240,10 @@ impl SessionActor {
                 self.unit_job(UnitJob::Tail);
                 self.unit_job(UnitJob::Held);
             }
-            Record::Rewind(_) => {
+            Record::Rewind(rewind) => {
+                let cut = rewind.to_ordinal;
+                self.provisional_tool_identities.clear();
+                self.committed_tool_calls.retain(|_, ord| *ord < cut);
                 if !self.calls.is_empty() {
                     Arc::make_mut(&mut self.calls).reread();
                 }
@@ -340,10 +363,10 @@ impl SessionActor {
                         continue;
                     }
                     self.unit_reading = true;
-                    let (budget, calls) = (self.feed.frame_budget(), self.calls.clone());
+                    let (budget, calls, feed_id) = (self.feed.frame_budget(), self.calls.clone(), self.feed_id.clone());
                     tokio::spawn(async move {
                         let ctl = ctl("thread/window/set", &id, &ask.params.request_id, ask.cancel.clone());
-                        let read = window::demand(&deps, &id, &held, &ask.params.request_id, &ask.params.want, &calls, budget, &ctl).await;
+                        let read = window::demand(&deps, &id, &held, &ask.params, &feed_id, &calls, budget, &ctl).await;
                         let _ = jobs.send(JobDone::UnitsRead(Box::new(UnitsRead::Demand(ask, Box::new(held), read))));
                     });
                 }
@@ -367,10 +390,52 @@ impl SessionActor {
             UnitsRead::Tail(Err(error)) => self.unread("the newest records", error),
             UnitsRead::Demand(ask, held, read) => {
                 let WindowAsk { params, tx, .. } = *ask;
-                let _ = tx.send(read.and_then(|demand| self.install_demand(&params, &held, demand)));
+                let _ = tx.send(read.and_then(|mut demand| {
+                    for wanted in &mut demand.ranges {
+                        if let Some(units) = &mut wanted.units {
+                            for unit in units {
+                                self.apply_provisional_tool_identities(unit);
+                            }
+                        }
+                    }
+                    window::fit_demand(&self.id, &params, &held, &self.feed_id, &mut demand, self.feed.frame_budget())?;
+                    self.install_demand(&params, &held, demand)
+                }));
             }
         }
         self.next_unit_job();
+    }
+
+    /// Re-applies live provisional tool-call identities (`call:{call_id}`, `started_at`, `meta.at`) onto a
+    /// freshly read stored unit so rereads triggered by tool results, tail refreshes, or window demands keep
+    /// the card's stable id and start timestamp. Returns `true` when the unit changed and was re-measured.
+    fn apply_provisional_tool_identities(&self, unit: &mut StoredUnit) -> bool {
+        if self.provisional_tool_identities.is_empty() {
+            return false;
+        }
+        let mut changed = false;
+        for item in &mut unit.unit.items {
+            if let ThreadItem::ToolCall { id, run, meta, .. } = item
+                && let Some(identity) = run.call_id.as_deref().and_then(|cid| self.provisional_tool_identities.get(cid))
+            {
+                if *id != identity.item_id {
+                    *id = identity.item_id.clone();
+                    changed = true;
+                }
+                if identity.started_at.is_some() && run.started_at != identity.started_at {
+                    run.started_at = identity.started_at;
+                    changed = true;
+                }
+                if identity.at.is_some() && meta.at != identity.at {
+                    meta.at = identity.at;
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            unit.bytes = reads::unit_bytes(&unit.unit);
+        }
+        changed
     }
 
     /// `unit` with the calls of the running turns as the session holds them ([`window::Calls`]): the unit itself when
@@ -381,12 +446,13 @@ impl SessionActor {
 
     /// The stored record as it reads now: to the snapshot's tail when it belongs there, and to every positioned
     /// subscription whose grant holds it, in one step with the view that carries it.
-    fn deliver_unit(&mut self, rev: u64, unit: StoredUnit, after: Option<String>, older: bool) {
+    fn deliver_unit(&mut self, rev: u64, mut unit: StoredUnit, after: Option<String>, older: bool) {
         let lineage = self.acked.history_rev;
         // A read of a history revision that is gone tells nothing of this one.
         if rev != lineage {
             return;
         }
+        self.apply_provisional_tool_identities(&mut unit);
         if !self.calls.is_empty() {
             Arc::make_mut(&mut self.calls).read(&unit);
         }
@@ -423,7 +489,10 @@ impl SessionActor {
 
     /// The newest stored records as read: what a positioned snapshot carries from here on.
     fn tail_read(&mut self, read: Option<reads::Units>) {
-        if let Some(read) = read.filter(|read| read.rev == self.acked.history_rev) {
+        if let Some(mut read) = read.filter(|read| read.rev == self.acked.history_rev) {
+            for unit in &mut read.units {
+                self.apply_provisional_tool_identities(unit);
+            }
             self.tail_next = self.tail_next.max(read.units.last().map_or(0, |last| last.ordinal + 1));
             self.tail_older = !read.reaches_start;
             self.tail = read.units.into_iter().map(Arc::new).collect();

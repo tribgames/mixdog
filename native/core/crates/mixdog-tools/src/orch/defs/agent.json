@@ -41,7 +41,7 @@
       },
       "prompt": {
         "type": "string",
-        "description": "Spawn task brief."
+        "description": "Spawn task brief: concise, essentials only; what, never how."
       },
       "message": {
         "type": "string",

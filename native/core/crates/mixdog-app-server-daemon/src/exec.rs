@@ -126,6 +126,26 @@ pub struct ExecEvents {
 
 pub type ForgetThread = Arc<dyn Fn(&str) + Send + Sync>;
 
+static FORGET_BY_RUNTIME: OnceLock<Mutex<Vec<(Weak<ExecRuntime>, Weak<dyn Fn(&str) + Send + Sync>)>>> = OnceLock::new();
+
+fn register_forget_thread(runtime: &Arc<ExecRuntime>, forget_thread: &ForgetThread) {
+    let entries = FORGET_BY_RUNTIME.get_or_init(|| Mutex::new(Vec::new()));
+    let mut guard = entries.lock().unwrap_or_else(|e| e.into_inner());
+    guard.retain(|(weak, forget)| weak.strong_count() > 0 && forget.strong_count() > 0);
+    guard.push((Arc::downgrade(runtime), Arc::downgrade(forget_thread)));
+}
+
+/// Resolves the [`ForgetThread`] callback associated with `runtime` (registered by [`build_exec`]).
+pub(crate) fn forget_thread_for(runtime: &Arc<ExecRuntime>) -> ForgetThread {
+    let entries = FORGET_BY_RUNTIME.get_or_init(|| Mutex::new(Vec::new()));
+    let found = {
+        let mut guard = entries.lock().unwrap_or_else(|e| e.into_inner());
+        guard.retain(|(weak, forget)| weak.strong_count() > 0 && forget.strong_count() > 0);
+        guard.iter().find_map(|(weak, forget)| weak.upgrade().filter(|held| Arc::ptr_eq(held, runtime)).and_then(|_| forget.upgrade()))
+    };
+    found.unwrap_or_else(|| Arc::new(|_| {}))
+}
+
 pub struct Exec {
     pub runtime: Arc<ExecRuntime>,
     pub wakes: Arc<WakeHub>,
@@ -215,6 +235,7 @@ pub fn build_exec(
             publisher.threads.send_if_modified(|all| all.remove(thread).is_some());
         })
     };
+    register_forget_thread(&runtime, &forget_thread);
     let prune_empty_thread: ForgetThread = Arc::new(move |thread| {
         publisher.threads.send_if_modified(|all| {
             if all.get(thread).is_some_and(is_empty_strip) {
@@ -381,5 +402,47 @@ mod tests {
             mib(commit_after),
             mib(commit_after - commit)
         );
+    }
+}
+
+#[cfg(test)]
+mod forget_tests {
+    use super::*;
+    use mixdog_core_api::domain::mock::MockExtPool;
+
+    #[tokio::test]
+    async fn forget_thread_for_resolves_built_runtime_callback_and_drops_strip_entry() {
+        let tokens = mixdog_rt::testing::tokens();
+        let dir = tempfile::tempdir().unwrap();
+        let processes = LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default());
+        let configured = Arc::new(ConfiguredShell::default());
+        let (exec, events) = build_exec(
+            &tokens,
+            dir.path(),
+            dir.path().join("launchers"),
+            "sh".into(),
+            configured,
+            SkillRuntime { platform: "win32".into(), interpreter: "node".into(), entry: "skill-entry.mjs".into(), electron: false },
+            ExecHosts { ext_pool: Arc::new(MockExtPool::new(1)), processes },
+        );
+
+        let resolved = forget_thread_for(&exec.runtime);
+        assert!(Arc::ptr_eq(&resolved, &exec.forget_thread));
+        let weak_forget = Arc::downgrade(&exec.forget_thread);
+
+        let (threads, thread_strips) = watch::channel(HashMap::new());
+        let (host, _host_strip) = watch::channel(HostShellJobs::default());
+        let publisher = Arc::new(StripPublisher { threads, host, registry: OnceLock::new(), armed: Mutex::new(None) });
+        let mut non_empty = ShellJobsState::default();
+        non_empty.count = 1;
+        publisher.thread_updated("t-drop", &non_empty);
+        assert!(thread_strips.borrow().contains_key("t-drop"));
+
+        publisher.threads.send_if_modified(|all| all.remove("t-drop").is_some());
+        assert!(!thread_strips.borrow().contains_key("t-drop"));
+        drop(resolved);
+        drop(events);
+        drop(exec);
+        assert!(weak_forget.upgrade().is_none(), "FORGET_BY_RUNTIME must not retain a strong reference after Exec and ExecEvents drop");
     }
 }

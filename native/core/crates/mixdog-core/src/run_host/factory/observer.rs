@@ -303,12 +303,14 @@ impl RunObserver for PortObserver {
                     self.settle_text();
                 }
             }
-            RunEvent::ToolCallObserved(call) => {
-                // A stream that reports no tool progress settles the text at the call's end; text after the call shows after
-                // its card.
+            RunEvent::ToolCallObserved { call, provisional, replaces } => {
+                // A stream that reports no tool progress settles the text at the call's start/end; text after the call shows
+                // after its card.
+                self.end_reasoning();
                 self.settle_text();
-                lock(&self.streaming).called();
-                lock(&self.streamed_calls).push(serde_json::json!({ "id": call.id, "name": call.name, "arguments": call.arguments }));
+                if let Some(item) = observe_tool_call(&mut lock(&self.streamed_calls), &mut lock(&self.streaming), &call, provisional, replaces.as_deref()) {
+                    let _ = self.out.send(Shown::Started(item));
+                }
             }
             RunEvent::ToolPhase(phase) => {
                 let index = self.requests.load(std::sync::atomic::Ordering::Relaxed).max(1);
@@ -552,6 +554,303 @@ impl RunObserver for PortObserver {
 
     fn retract_text(&self, _retraction: TextRetraction) -> Retracted {
         Retracted::Refused
+    }
+}
+
+fn normalized_bare_tool_name(name: &str) -> String {
+    let trimmed = mixdog_js::js_trim(name);
+    let lower = trimmed.to_lowercase();
+    let raw = lower.strip_prefix("functions.").unwrap_or(&lower);
+    let tool = raw
+        .strip_prefix("mcp__")
+        .and_then(|rest| {
+            let from = rest.chars().next()?.len_utf8();
+            let at = from + rest[from..].find("__")?;
+            Some(&rest[at + 2..]).filter(|tool| !tool.is_empty())
+        })
+        .unwrap_or(raw);
+    tool.replace('-', "_")
+}
+
+fn parsed_tool_args_object(args: &Value) -> Option<Value> {
+    match args {
+        Value::String(text) => serde_json::from_str::<Value>(text).ok().filter(Value::is_object),
+        Value::Object(map) => Some(match map.get("input") {
+            Some(input) if input.is_object() => input.clone(),
+            _ => Value::Object(map.clone()),
+        }),
+        _ => None,
+    }
+}
+
+fn observe_tool_call(
+    streamed_calls: &mut Vec<Value>,
+    streaming: &mut Segments,
+    call: &mixdog_core_api::domain::provider::ToolCall,
+    provisional: bool,
+    replaces: Option<&str>,
+) -> Option<ThreadItem> {
+    if !provisional {
+        let already_seen = record_observed_call(streamed_calls, call, replaces);
+        if !already_seen {
+            streaming.called();
+        }
+    }
+    provisional_tool_item(call, provisional, replaces)
+}
+
+/// Builds a provisional live `ThreadItem::ToolCall` for a streamed call (`ToolCallStart` or `ToolCallDone`).
+/// Hidden control tools, skills, and `task wait` calls (including `mcp__*__` and `call_tool` envelopes)
+/// are excluded so they never flash a card that disappears.
+fn provisional_tool_item(call: &mixdog_core_api::domain::provider::ToolCall, provisional_start: bool, replaces: Option<&str>) -> Option<ThreadItem> {
+    let call_id = call.id.as_str();
+    let name = call.name.trim();
+    if call_id.trim().is_empty() || name.is_empty() {
+        return None;
+    }
+    let bare = normalized_bare_tool_name(name);
+    if mixdog_protocol::tool_visibility::is_hidden_control_tool_name(&bare) || mixdog_protocol::tool_visibility::is_skill_tool_name(&bare) {
+        return None;
+    }
+    if provisional_start && matches!(bare.as_str(), "task" | "call_tool") {
+        return None;
+    }
+    if !provisional_start {
+        if mixdog_protocol::tool_visibility::is_task_wait(&bare, Some(&call.arguments)) {
+            return None;
+        }
+        if bare == "call_tool"
+            && let Some(parsed) = parsed_tool_args_object(&call.arguments)
+            && let Some(target) = parsed.get("name").and_then(Value::as_str).map(mixdog_js::js_trim).filter(|t| !t.is_empty())
+        {
+            let target_bare = normalized_bare_tool_name(target);
+            let inner = match parsed.get("arguments") {
+                Some(Value::String(text)) => serde_json::from_str::<Value>(text).ok().filter(Value::is_object),
+                Some(inner @ Value::Object(_)) => Some(inner.clone()),
+                _ => None,
+            };
+            if mixdog_protocol::tool_visibility::is_hidden_control_tool_name(&target_bare)
+                || mixdog_protocol::tool_visibility::is_skill_tool_name(&target_bare)
+                || mixdog_protocol::tool_visibility::is_task_wait(&target_bare, inner.as_ref())
+            {
+                return None;
+            }
+        }
+    }
+    let card_id = replaces.filter(|id| !id.trim().is_empty()).unwrap_or(call_id);
+    Some(ThreadItem::ToolCall {
+        id: ItemId::from(format!("call:{card_id}")),
+        name: name.to_owned(),
+        input: if provisional_start { serde_json::json!({}) } else { call.arguments.clone() },
+        output: None,
+        run: Box::new(mixdog_protocol::ToolRun {
+            call_id: Some(call_id.to_owned()),
+            count: Some(1),
+            completed_count: Some(0),
+            live: Some(true),
+            ..Default::default()
+        }),
+        meta: ItemMeta::default(),
+    })
+}
+
+/// Inserts or updates a streamed call in `calls` by non-empty `call.id` or `replaces` id, returning
+/// `true` when an existing entry was replaced in place so `Segments::called()` and `thread/modelRequest/updated`
+/// never double-count reconciled calls.
+fn record_observed_call(calls: &mut Vec<Value>, call: &mixdog_core_api::domain::provider::ToolCall, replaces: Option<&str>) -> bool {
+    let entry = serde_json::json!({ "id": call.id, "name": call.name, "arguments": call.arguments });
+    let old_id = replaces.filter(|id| !id.is_empty() && *id != call.id.as_str());
+    if !call.id.is_empty()
+        && let Some(existing) = calls.iter_mut().find(|existing| existing.get("id").and_then(Value::as_str) == Some(call.id.as_str()))
+    {
+        *existing = entry;
+        if let Some(old_id) = old_id {
+            calls.retain(|existing| existing.get("id").and_then(Value::as_str) != Some(old_id));
+        }
+        true
+    } else if let Some(old_id) = old_id
+        && let Some(existing) = calls.iter_mut().find(|existing| existing.get("id").and_then(Value::as_str) == Some(old_id))
+    {
+        *existing = entry;
+        true
+    } else {
+        calls.push(entry);
+        false
+    }
+}
+
+#[cfg(test)]
+mod provisional_tool_tests {
+    use mixdog_core_api::domain::provider::ToolCall;
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn provisional_start_and_done_share_id_and_update_streamed_calls_in_place() {
+        let start = ToolCall { id: "c1".into(), name: "read".into(), arguments: Value::Null, native_type: None };
+        let done = ToolCall { id: "c1".into(), name: "read".into(), arguments: json!({ "file_path": "a.rs" }), native_type: None };
+
+        let mut streamed = Vec::new();
+        assert!(!record_observed_call(&mut streamed, &start, None));
+        assert!(record_observed_call(&mut streamed, &done, None));
+        assert_eq!(streamed.len(), 1);
+        assert_eq!(streamed[0]["arguments"], json!({ "file_path": "a.rs" }));
+
+        let first = provisional_tool_item(&start, true, None).expect("provisional start item");
+        let second = provisional_tool_item(&done, false, None).expect("provisional done item");
+        assert_eq!(first.id().as_str(), "call:c1");
+        assert_eq!(second.id(), first.id());
+        let ThreadItem::ToolCall { input: start_in, run: start_run, .. } = first else { panic!("tool call") };
+        let ThreadItem::ToolCall { input: done_in, run: done_run, .. } = second else { panic!("tool call") };
+        assert_eq!(start_in, json!({}));
+        assert_eq!(start_run.live, Some(true));
+        assert_eq!(start_run.completed_count, Some(0));
+        assert_eq!(done_in, json!({ "file_path": "a.rs" }));
+        assert_eq!(done_run.call_id.as_deref(), Some("c1"));
+    }
+
+    #[test]
+    fn hidden_control_skill_and_task_wait_calls_do_not_emit_provisional_cards() {
+        let call = |name: &str, arguments: Value| ToolCall { id: "c1".into(), name: name.into(), arguments, native_type: None };
+        assert!(provisional_tool_item(&call("todo", Value::Null), true, None).is_none());
+        assert!(provisional_tool_item(&call("goal", json!({})), false, None).is_none());
+        assert!(provisional_tool_item(&call("Skill", Value::Null), true, None).is_none());
+        assert!(provisional_tool_item(&call("task", Value::Null), true, None).is_none());
+        assert!(provisional_tool_item(&call("functions.task", Value::Null), true, None).is_none());
+        assert!(provisional_tool_item(&call("mcp__mixdog__task", Value::Null), true, None).is_none());
+        assert!(provisional_tool_item(&call("task", json!({ "action": "wait", "task_id": "t1" })), false, None).is_none());
+        assert!(provisional_tool_item(&call("mcp__mixdog__task", json!({ "input": { "action": "wait", "task_id": "t1" } })), false, None).is_none());
+        assert!(provisional_tool_item(&call("task", json!({ "action": "list" })), false, None).is_some());
+        assert!(provisional_tool_item(&call("call_tool", Value::Null), true, None).is_none());
+        assert!(provisional_tool_item(&call("mcp__mixdog__call_tool", Value::Null), true, None).is_none());
+        assert!(provisional_tool_item(&call("call_tool", json!({ "name": "todo", "arguments": {} })), false, None).is_none());
+        assert!(
+            provisional_tool_item(&call("call_tool", json!("{\"name\":\"todo\",\"arguments\":{}}")), false, None).is_none(),
+            "stringified JSON call_tool envelope hiding control tool must be suppressed"
+        );
+        assert!(
+            provisional_tool_item(&call("mcp__mixdog__call_tool", json!({ "input": { "name": "task", "arguments": { "action": "wait" } } })), false, None,)
+                .is_none(),
+            "input-wrapped mcp call_tool task wait must be suppressed"
+        );
+        assert!(provisional_tool_item(&call("call_tool", json!({ "name": "read", "arguments": {} })), false, None).is_some());
+    }
+
+    #[test]
+    fn mcp_prefixed_control_skill_and_call_tool_envelopes_do_not_emit_provisional_cards() {
+        let call = |name: &str, arguments: Value| ToolCall { id: "c1".into(), name: name.into(), arguments, native_type: None };
+        // Direct MCP-prefixed (and functions.+MCP-prefixed) control, skill, and task calls.
+        assert!(provisional_tool_item(&call("mcp__mixdog__todo", Value::Null), true, None).is_none());
+        assert!(provisional_tool_item(&call("mcp__mixdog__todo", json!({ "op": "view" })), false, None).is_none());
+        assert!(provisional_tool_item(&call("functions.mcp__mixdog__goal", json!({})), false, None).is_none());
+        assert!(provisional_tool_item(&call("mcp__mixdog__Skill", Value::Null), true, None).is_none());
+        assert!(provisional_tool_item(&call("mcp__mixdog__Skill", json!({ "name": "pdf" })), false, None).is_none());
+        assert!(provisional_tool_item(&call("functions.mcp__mixdog__Skill", Value::Null), true, None).is_none());
+        assert!(provisional_tool_item(&call("mcp__mixdog__task", Value::Null), true, None).is_none());
+        assert!(provisional_tool_item(&call("mcp__mixdog__task", json!({ "action": "wait", "task_id": "t1" })), false, None).is_none());
+        assert!(provisional_tool_item(&call("mcp__mixdog__task", json!({ "action": "list" })), false, None).is_some());
+
+        // call_tool-wrapped MCP-prefixed control, skill, and task wait calls.
+        assert!(provisional_tool_item(&call("call_tool", json!({ "name": "mcp__mixdog__todo", "arguments": {} })), false, None).is_none());
+        assert!(provisional_tool_item(&call("call_tool", json!({ "name": "mcp__mixdog__Skill", "arguments": { "name": "pdf" } })), false, None).is_none());
+        assert!(provisional_tool_item(&call("call_tool", json!({ "name": "functions.mcp__mixdog__Skill", "arguments": {} })), false, None).is_none());
+        assert!(
+            provisional_tool_item(&call("mcp__mixdog__call_tool", json!({ "input": { "name": "mcp__mixdog__todo", "arguments": {} } })), false, None,)
+                .is_none()
+        );
+        assert!(
+            provisional_tool_item(&call("mcp__mixdog__call_tool", json!({ "input": { "name": "mcp__mixdog__Skill", "arguments": {} } })), false, None,)
+                .is_none()
+        );
+        assert!(
+            provisional_tool_item(&call("call_tool", json!({ "name": "mcp__mixdog__task", "arguments": { "action": "wait", "task_id": "t1" } })), false, None,)
+                .is_none()
+        );
+        assert!(provisional_tool_item(&call("call_tool", json!({ "name": "mcp__mixdog__read", "arguments": {} })), false, None).is_some());
+    }
+
+    #[test]
+    fn completed_tool_call_with_null_arguments_enters_streamed_calls_and_advances_segments() {
+        let mut streamed_calls = Vec::new();
+        let mut streaming = Segments::default();
+
+        let start = ToolCall { id: "c_null".into(), name: "list".into(), arguments: Value::Null, native_type: None };
+        let start_item = observe_tool_call(&mut streamed_calls, &mut streaming, &start, true, None).expect("provisional start card");
+        assert_eq!(start_item.id().as_str(), "call:c_null");
+        assert!(streamed_calls.is_empty(), "provisional start must not enter streamed_calls");
+        assert_eq!(streaming.calls, 0, "provisional start must not advance Segments::called()");
+
+        let done = ToolCall { id: "c_null".into(), name: "list".into(), arguments: Value::Null, native_type: None };
+        let done_item = observe_tool_call(&mut streamed_calls, &mut streaming, &done, false, None).expect("completed null-args card");
+        assert_eq!(done_item.id().as_str(), "call:c_null");
+        let ThreadItem::ToolCall { input, run, .. } = done_item else { panic!("tool call") };
+        assert_eq!(input, Value::Null);
+        assert_eq!(run.call_id.as_deref(), Some("c_null"));
+        assert_eq!(streamed_calls.len(), 1, "completed call with literal JSON null args must enter streamed_calls");
+        assert_eq!(streamed_calls[0]["id"], "c_null");
+        assert_eq!(streamed_calls[0]["arguments"], Value::Null);
+        assert_eq!(streaming.calls, 1, "completed call with literal JSON null args must advance Segments::called()");
+
+        // Compat rename alias reuses the synthesized start card id while carrying the final call id.
+        let renamed_done = ToolCall { id: "call_real".into(), name: "grep".into(), arguments: json!({ "pattern": "x" }), native_type: None };
+        let renamed_item = observe_tool_call(&mut streamed_calls, &mut streaming, &renamed_done, false, Some("call_synth")).expect("renamed done card");
+        assert_eq!(renamed_item.id().as_str(), "call:call_synth");
+        let ThreadItem::ToolCall { run: renamed_run, .. } = renamed_item else { panic!("tool call") };
+        assert_eq!(renamed_run.call_id.as_deref(), Some("call_real"));
+        assert_eq!(streamed_calls.len(), 2);
+        assert_eq!(streamed_calls[1]["id"], "call_real");
+        assert_eq!(streaming.calls, 2);
+    }
+
+    #[test]
+    fn provisional_tool_preserves_untrimmed_opaque_call_id() {
+        let mut streamed_calls = Vec::new();
+        let mut streaming = Segments::default();
+
+        let blank = ToolCall { id: "   ".into(), name: "read".into(), arguments: Value::Null, native_type: None };
+        assert!(provisional_tool_item(&blank, true, None).is_none(), "whitespace-only call id must still be rejected");
+
+        let start = ToolCall { id: "c1 ".into(), name: "read".into(), arguments: Value::Null, native_type: None };
+        let start_item = observe_tool_call(&mut streamed_calls, &mut streaming, &start, true, None).expect("untrimmed start card");
+        assert_eq!(start_item.id().as_str(), "call:c1 ", "opaque call id must not be trimmed");
+        let ThreadItem::ToolCall { run: start_run, .. } = start_item else { panic!("tool call") };
+        assert_eq!(start_run.call_id.as_deref(), Some("c1 "));
+
+        let done = ToolCall { id: "c1 ".into(), name: "read".into(), arguments: json!({ "file_path": "a.rs" }), native_type: None };
+        let done_item = observe_tool_call(&mut streamed_calls, &mut streaming, &done, false, None).expect("untrimmed done card");
+        assert_eq!(done_item.id().as_str(), "call:c1 ");
+        let ThreadItem::ToolCall { run: done_run, .. } = done_item else { panic!("tool call") };
+        assert_eq!(done_run.call_id.as_deref(), Some("c1 "));
+        assert_eq!(streamed_calls.len(), 1);
+        assert_eq!(streamed_calls[0]["id"], "c1 ");
+
+        let aliased = ToolCall { id: "c2 ".into(), name: "grep".into(), arguments: json!({}), native_type: None };
+        let aliased_item = observe_tool_call(&mut streamed_calls, &mut streaming, &aliased, false, Some("call_synth ")).expect("untrimmed alias card");
+        assert_eq!(aliased_item.id().as_str(), "call:call_synth ");
+        let ThreadItem::ToolCall { run: aliased_run, .. } = aliased_item else { panic!("tool call") };
+        assert_eq!(aliased_run.call_id.as_deref(), Some("c2 "));
+    }
+
+    #[test]
+    fn reconciled_leaked_call_replaces_streamed_calls_entry_without_duplication() {
+        let mut streamed_calls = Vec::new();
+        let mut streaming = Segments::default();
+
+        let leaked = ToolCall { id: "call_leaked_1".into(), name: "read".into(), arguments: json!({ "file_path": "a.rs" }), native_type: None };
+        let leaked_item = observe_tool_call(&mut streamed_calls, &mut streaming, &leaked, false, None).expect("leaked done card");
+        assert_eq!(leaked_item.id().as_str(), "call:call_leaked_1");
+        assert_eq!(streamed_calls.len(), 1);
+        assert_eq!(streaming.calls, 1);
+
+        let native = ToolCall { id: "call_native_1".into(), name: "read".into(), arguments: json!({ "file_path": "a.rs" }), native_type: None };
+        let reconciled_item = observe_tool_call(&mut streamed_calls, &mut streaming, &native, false, Some("call_leaked_1")).expect("reconciled card");
+        assert_eq!(reconciled_item.id().as_str(), "call:call_leaked_1", "live card keeps its initial item id");
+        let ThreadItem::ToolCall { run, .. } = reconciled_item else { panic!("tool call") };
+        assert_eq!(run.call_id.as_deref(), Some("call_native_1"));
+        assert_eq!(streamed_calls.len(), 1, "reconciled call must replace leaked entry in streamed_calls, not duplicate it");
+        assert_eq!(streamed_calls[0]["id"], "call_native_1");
+        assert_eq!(streaming.calls, 1, "reconciled call must not double-increment Segments::called()");
     }
 }
 

@@ -82,9 +82,13 @@ export function useTranscriptHandles({
       // Follow taken back where the view may not stand at the end (the place it was opened at let go, the end moved
       // while a selection held it): the list lands the end it keeps from now on.
       if (takenBack) endPin.request();
-      // A slot held for the followed tail is the reader's geometry now: its
-      // real size lands in this same task, not at the next render.
-      if (!bottom) settleHeldShrinks();
+      // A slot held for the followed tail is the reader's geometry now: clear
+      // any queued end-pin and stale target immediately on release, and land
+      // held shrinks in this same task rather than waiting for the next render.
+      if (!bottom) {
+        endPin.cancel();
+        settleHeldShrinks();
+      }
     };
     setAnchorBottomRef.current = setAnchorBottom;
     return () => {

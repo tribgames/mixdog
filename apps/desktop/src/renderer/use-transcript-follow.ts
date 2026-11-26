@@ -159,8 +159,18 @@ export function useTranscriptFollow({
   const publish = useCallback(
     (next: boolean) => {
       followingRef.current = next;
-      // Follow taken back is what an arrival at the end was for: the next let-go arrives nowhere until the reader moves.
-      if (next) signals.current.arrived = false;
+      // Follow taken back clears prior arrival and stale upward-input windows so a
+      // pre-rearm wheel/key/touch timestamp cannot immediately unpin on a clamp.
+      if (next) {
+        signals.current.arrived = false;
+        signals.current.heldArrival = false;
+        signals.current.arrivedTop = null;
+        signals.current.wheelUpAt = 0;
+        signals.current.keyUpAt = 0;
+        signals.current.touchEndUpAt = 0;
+        signals.current.selectUpAt = 0;
+        signals.current.barAt = 0;
+      }
       // The timeline anchor is part of the same decision, not a consequence of
       // the re-render that follows it. A held selection keeps the end unwritten, and follow says so with it.
       const kept = next && !selectionHolds();

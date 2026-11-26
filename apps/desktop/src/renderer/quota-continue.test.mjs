@@ -192,14 +192,19 @@ test('the quota banner is one line between the island and the composer, with no 
   assert.deepEqual(calls, ['toggle']);
 });
 
-test('a relay surface’s connection line is the same row, right above the composer', async (t) => {
+test('a remote outage renders no connection card above the composer while blocking sends', async (t) => {
   const { root, document } = mount(t);
-  const { RemoteConnectionBanner } = await import('./RemoteConnectionBanner.tsx');
+  const { RemoteConnectionBanner, useRemoteSendBlocked } = await import('./RemoteConnectionBanner.tsx');
   const { clearRemoteConnectionState, setRemoteConnectionState } = await import('./remote-connection-state.ts');
   const page = globalThis.window;
   const realSetTimeout = page.setTimeout;
-  // The ten seconds a short gap is given before the line shows pass at once.
+  // The ten seconds a short gap is given before the outage begins pass at once.
   page.setTimeout = (callback, ms, ...args) => realSetTimeout(callback, ms === 10_000 ? 0 : ms, ...args);
+  let sendBlocked = false;
+  function Probe() {
+    sendBlocked = useRemoteSendBlocked();
+    return null;
+  }
   t.after(() => {
     page.setTimeout = realSetTimeout;
     clearRemoteConnectionState();
@@ -210,6 +215,7 @@ test('a relay surface’s connection line is the same row, right above the compo
         React.Fragment,
         null,
         React.createElement(RemoteConnectionBanner),
+        React.createElement(Probe),
         React.createElement(ComposerDock, dockProps())
       )
     )
@@ -217,12 +223,9 @@ test('a relay surface’s connection line is the same row, right above the compo
   await act(async () => setRemoteConnectionState('reconnecting'));
   await act(() => new Promise((resolve) => realSetTimeout(resolve, 10)));
   const order = [...document.querySelector('.composer-region').children].map((child) => child.className);
-  assert.deepEqual(order, ['composer-island-slot', 'composer-connection-line', 'composer']);
-  const line = document.querySelector('.composer-connection-line');
-  assert.equal(line.dataset.phase, 'connecting');
-  const button = line.querySelector('button');
-  assert.equal(button.textContent, translate('Retry now'));
-  assert.ok(button.classList.contains('composer-island-button-primary'), 'the quota banner’s blue pill');
+  assert.deepEqual(order, ['composer-island-slot', 'composer']);
+  assert.equal(document.querySelector('.composer-connection-line'), null);
+  assert.equal(sendBlocked, true);
 });
 
 test('a reserved resume spins its button and pressing it cancels', async (t) => {

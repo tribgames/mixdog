@@ -81,12 +81,17 @@ pub(crate) fn mark_of(note: &super::frames::Note) -> Option<Mark> {
         // `pushItem` (`transcript-store.mjs:58-79`): a structure change; a user row also flushes immediately (`:75`). A
         // streaming assistant row is the live tail, not a row yet (the fold's `item/started` of an `agentMessage`).
         "item/started" => match params()["item"]["type"].as_str() {
-            Some("userMessage") => Mark { structure: true, immediate: true, now: false },
+            Some("userMessage") | Some("toolCall") => Mark { structure: true, immediate: true, now: false },
             Some("agentMessage") => Mark::default(),
             _ => Mark { structure: true, ..Mark::default() },
         },
         // A user row the core publishes whole (no `item/started` before it) is the same `pushItem`.
-        "item/completed" => Mark { structure: true, immediate: params()["item"]["type"] == "userMessage", now: false },
+        // Withdrawn provisional tool calls also flush promptly so aborted cards vanish without lag.
+        "item/completed" => {
+            let p = params();
+            let immediate = p["item"]["type"] == "userMessage" || p["item"]["meta"]["ext"]["withdrawn"] == true;
+            Mark { structure: true, immediate, now: false }
+        }
         "thread/historyReset" => Mark { structure: true, ..Mark::default() },
         // An editable queued entry (`drain-enqueue.mjs:64`) or a prioritized one (`queue.mjs:104`).
         "thread/queue/changed" => Mark { immediate: true, ..Mark::default() },
@@ -124,5 +129,21 @@ mod tests {
         assert_eq!(frames.mark(Mark { structure: true, ..Mark::default() }, t), None);
         assert_eq!(frames.mark(Mark { now: true, ..Mark::default() }, t), Some(true), "flushEmit publishes at once");
         assert_eq!(frames.due(), None);
+    }
+
+    #[test]
+    fn tool_call_started_flushes_immediately_with_structure_change() {
+        let tool_note = super::super::frames::Note::new("item/started", &serde_json::json!({ "item": { "type": "toolCall", "id": "call:c1" } }));
+        let mark = mark_of(&tool_note).expect("toolCall item/started has a frame mark");
+        assert_eq!(mark, Mark { structure: true, immediate: true, now: false });
+
+        let mut frames = Frames::default();
+        let t = Instant::now();
+        assert_eq!(frames.mark(mark, t), None);
+        assert_eq!(frames.chain_end(), Some(true), "provisional toolCall flushes immediately at chain end");
+        assert_eq!(frames.due(), None);
+
+        let agent_note = super::super::frames::Note::new("item/started", &serde_json::json!({ "item": { "type": "agentMessage", "id": "msg-1" } }));
+        assert_eq!(mark_of(&agent_note), Some(Mark::default()));
     }
 }

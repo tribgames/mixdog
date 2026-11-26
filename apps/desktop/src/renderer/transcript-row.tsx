@@ -286,7 +286,7 @@ function notifyRowStreaming(key: string): void {
   for (const listener of [...(streamingRowListeners.get(key) ?? [])]) listener();
 }
 
-function subscribeRowStreaming(key: string, listener: () => void): () => void {
+export function subscribeRowStreaming(key: string, listener: () => void): () => void {
   if (!key) return () => {};
   let bucket = streamingRowListeners.get(key);
   if (!bucket) {
@@ -300,7 +300,7 @@ function subscribeRowStreaming(key: string, listener: () => void): () => void {
   };
 }
 
-function isRowVisuallyStreaming(key: string): boolean {
+export function isRowVisuallyStreaming(key: string): boolean {
   return Boolean(key && (streamingRowCounts.get(key) ?? 0) > 0);
 }
 

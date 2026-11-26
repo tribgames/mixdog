@@ -1268,6 +1268,13 @@ async fn an_auto_clear_that_outlasts_its_wait_releases_the_command_status_when_t
     assert_eq!((frames[1]["commandBusy"].clone(), frames[1]["commandStatus"].clone()), (json!(false), Value::Null), "the wait gave up and released the status");
     assert!(handle.cell.compacting.load(std::sync::atomic::Ordering::SeqCst), "the compaction itself runs on");
     assert_eq!(*super::testing::lock(&rig.compaction.calls), ["compact auto_clear true"], "it is still parked in the engine");
+    let notices: Vec<_> = rig
+        .feeds
+        .frames(handle.id.as_str())
+        .into_iter()
+        .filter(|(_, method, params)| method == "item/completed" && params["item"]["type"] == "statusRow" && params["item"]["kind"] == "notice")
+        .collect();
+    assert!(notices.is_empty(), "a timed-out idle auto-clear emits no transcript notice: {notices:?}");
     *super::testing::lock(&rig.compaction.hold) = None;
     hold.notify_one();
 }

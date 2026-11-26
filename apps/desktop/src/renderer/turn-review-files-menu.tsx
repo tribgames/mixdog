@@ -18,6 +18,7 @@ import { scrimDismiss } from './scrim-dismiss';
 import { trappedTabIndex } from './list-navigation';
 import { usePaneKey } from './pane-key-context';
 import { IslandPanelHead } from './IslandPanelFoot';
+import { MxIcon } from './MxIcon';
 import { useMobileBack } from './mobile-back';
 import { acquireModalLayer } from './modal-layer';
 import { RowOverflowMenu } from './RowOverflowMenu';
@@ -38,7 +39,7 @@ import { emptyStateHost } from './empty-state-host';
 const MENU_ITEM = "[role='menuitem']:not(:disabled)";
 /** `.turn-review-files-row`'s desktop height (15-composer.css); the open list
  *  learns the real one (the touch row on a phone) from its first row. */
-const FILE_ROW_PX = 26;
+const FILE_ROW_PX = 32;
 /** Delete history and View changes, after the file rows in the menu's order. */
 const FOOT_ITEMS = 2;
 export const runningTurnNotice = () =>
@@ -175,6 +176,7 @@ export function TurnReviewFilesMenu({
   busy = false,
   label,
   title,
+  fileCount,
   files,
   sourcePicker = false,
   emptyText = '',
@@ -190,6 +192,8 @@ export function TurnReviewFilesMenu({
   busy?: boolean;
   label: string;
   title: string;
+  /** Total changed files for the header badge (defaults to `files.size`). */
+  fileCount?: number;
   /** Every changed file with its line counts. */
   files: ReadonlyMap<string, TurnReviewFileEntry>;
   /** A Git root: the header names the source (`label`) and offers its picker. */
@@ -320,10 +324,15 @@ export function TurnReviewFilesMenu({
     // window is) and focuses it in the same commit.
     const scroller = list.current;
     if (scroller) {
-      const top = next * rowHeight;
-      if (top < scroller.scrollTop) scroller.scrollTop = top;
-      else if (top + rowHeight > scroller.scrollTop + scroller.clientHeight)
-        scroller.scrollTop = top + rowHeight - scroller.clientHeight;
+      const style = window.getComputedStyle(scroller);
+      const padTop = Number.parseFloat(style.paddingTop) || 0;
+      const padBottom = Number.parseFloat(style.paddingBottom) || 0;
+      const top = padTop + next * rowHeight;
+      const bottom = top + rowHeight + (next === entries.length - 1 ? padBottom : 0);
+      if (next === 0) {
+        if (scroller.scrollTop > 0) scroller.scrollTop = 0;
+      } else if (top < scroller.scrollTop) scroller.scrollTop = top;
+      else if (bottom > scroller.scrollTop + scroller.clientHeight) scroller.scrollTop = bottom - scroller.clientHeight;
     }
     setFocusRequest(entries[next]?.[0] ?? '');
   };
@@ -381,7 +390,15 @@ export function TurnReviewFilesMenu({
       {open && (
         <section ref={panel} className="composer-island-panel turn-review-files-panel" aria-label={label}>
           <IslandPanelHead
-            chip={children}
+            chip={
+              <>
+                <MxIcon name="file-diff" size={14} className="composer-island-seg-icon" aria-hidden="true" />
+                {t('Changes')}
+                {(fileCount ?? files.size) > 0 && (
+                  <span className="composer-island-head-count">{fileCount ?? files.size}</span>
+                )}
+              </>
+            }
             meta={sourcePicker ? label : undefined}
             metaClassName="turn-review-files-source"
             extra={sourcePicker ? <ChangesSourceMenu /> : undefined}

@@ -35,6 +35,7 @@ enum Key {
 struct ToolEntry {
     key: Key,
     id: String,
+    started_id: String,
     kind: String,
     name: String,
     arguments: String,
@@ -338,12 +339,22 @@ impl ChatDecoder {
             let at = match self.tools.iter().position(|t| t.key == key) {
                 Some(at) => at,
                 None => {
-                    self.tools.push(ToolEntry { key, id: String::new(), kind: "function".into(), name: String::new(), arguments: String::new() });
+                    self.tools.push(ToolEntry {
+                        key,
+                        id: String::new(),
+                        started_id: String::new(),
+                        kind: "function".into(),
+                        name: String::new(),
+                        arguments: String::new(),
+                    });
                     self.tools.len() - 1
                 }
             };
             let entry = &mut self.tools[at];
             if let Some(id) = id {
+                if !entry.started_id.is_empty() && entry.id != id {
+                    out.push(StreamEvent::ToolCallIdRenamed { from: entry.id.clone(), to: id.to_owned() });
+                }
                 entry.id = id.to_owned();
             }
             if let Some(kind) = call.get("type").and_then(JsonValue::as_str).filter(|s| !s.is_empty()) {
@@ -357,12 +368,16 @@ impl ChatDecoder {
                 if entry.id.is_empty() {
                     entry.id = leak::random_id("call_");
                 }
-                out.push(StreamEvent::ToolCallStart { id: entry.id.clone(), name: entry.name.clone() });
+                entry.started_id = entry.id.clone();
+                out.push(StreamEvent::ToolCallStart { id: entry.started_id.clone(), name: entry.name.clone() });
             }
             // Argument fragments are deltas: always appended, never snapshots.
+            // Keep attributing deltas to the call's emitted start id even after a late real id arrives, so interleaved
+            // indexed calls bind their streamed arguments deterministically to their own provisional start.
             if let Some(args) = call.get("function").and_then(|f| f.get("arguments")).and_then(JsonValue::as_str).filter(|s| !s.is_empty()) {
                 entry.arguments.push_str(args);
-                out.push(StreamEvent::ToolCallArgsDelta { id: entry.id.clone(), delta: args.to_owned() });
+                let delta_id = if !entry.started_id.is_empty() { entry.started_id.clone() } else { entry.id.clone() };
+                out.push(StreamEvent::ToolCallArgsDelta { id: delta_id, delta: args.to_owned() });
             }
         }
     }
@@ -698,5 +713,143 @@ mod number_tests {
         assert!(!crate::registry::accounted::input_excludes_cache("openrouter"), "the ledger reads this input as inclusive");
         assert_eq!(usage.input_tokens - usage.cache_read_tokens - usage.cache_write_tokens, 500, "the uncached input");
         assert_eq!(usage.cost, Some(UsdTicks(42_000_000)));
+    }
+
+    #[test]
+    fn compat_interleaved_rename_keeps_args_deltas_bound_to_each_started_id() {
+        let profile = CompatProfile::plain(
+            "gateway",
+            "https://gateway.invalid/v1",
+            crate::providers::compat::profile::CredentialKind::StaticKey { reauth_on_401: false },
+        );
+        let mut decoder = ChatDecoder::new(profile, ProviderId::from("gateway"));
+        let chunks = [
+            json!({
+                "choices": [{
+                    "delta": { "tool_calls": [{ "index": 0, "type": "function", "function": { "name": "grep", "arguments": "{\"path\":\"a\"" } }] },
+                    "finish_reason": null
+                }]
+            }),
+            json!({
+                "choices": [{
+                    "delta": { "tool_calls": [{ "index": 1, "type": "function", "function": { "name": "grep", "arguments": "{\"path\":\"b\"" } }] },
+                    "finish_reason": null
+                }]
+            }),
+            json!({
+                "choices": [{
+                    "delta": { "tool_calls": [{ "index": 1, "id": "call_real_1", "function": { "arguments": "}" } }] },
+                    "finish_reason": null
+                }]
+            }),
+            json!({
+                "choices": [{
+                    "delta": { "tool_calls": [{ "index": 0, "id": "call_real_0", "function": { "arguments": "}" } }] },
+                    "finish_reason": null
+                }]
+            }),
+            json!({ "choices": [{ "delta": {}, "finish_reason": "tool_calls" }] }),
+        ];
+        let mut events = Vec::new();
+        for chunk in &chunks {
+            let line = format!("data: {chunk}\n\n");
+            events.extend(decoder.feed(line.as_bytes()).expect("decode chunk"));
+        }
+        events.extend(decoder.feed(b"data: [DONE]\n\n").expect("decode done"));
+        events.extend(decoder.finish().expect("finish"));
+
+        let starts: Vec<String> = events
+            .iter()
+            .filter_map(|e| match e {
+                StreamEvent::ToolCallStart { id, .. } => Some(id.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(starts.len(), 2);
+        let deltas_for = |target: &str| -> String {
+            events
+                .iter()
+                .filter_map(|e| match e {
+                    StreamEvent::ToolCallArgsDelta { id, delta } if id == target => Some(delta.as_str()),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(deltas_for(&starts[0]), "{\"path\":\"a\"}");
+        assert_eq!(deltas_for(&starts[1]), "{\"path\":\"b\"}");
+    }
+
+    #[test]
+    fn compat_interleaved_identical_args_emits_explicit_rename_events() {
+        let profile = CompatProfile::plain(
+            "gateway",
+            "https://gateway.invalid/v1",
+            crate::providers::compat::profile::CredentialKind::StaticKey { reauth_on_401: false },
+        );
+        let mut decoder = ChatDecoder::new(profile, ProviderId::from("gateway"));
+        let chunks = [
+            // Index 0 allocates slot 0 first via a type-only fragment (no name/id yet).
+            json!({
+                "choices": [{
+                    "delta": { "tool_calls": [{ "index": 0, "type": "function" }] },
+                    "finish_reason": null
+                }]
+            }),
+            // Index 1 starts first with identical `(name, args)`.
+            json!({
+                "choices": [{
+                    "delta": { "tool_calls": [{ "index": 1, "type": "function", "function": { "name": "lookup", "arguments": "{}" } }] },
+                    "finish_reason": null
+                }]
+            }),
+            // Index 0 starts second with identical `(name, args)`.
+            json!({
+                "choices": [{
+                    "delta": { "tool_calls": [{ "index": 0, "function": { "name": "lookup", "arguments": "{}" } }] },
+                    "finish_reason": null
+                }]
+            }),
+            // Both late real provider IDs arrive on subsequent chunks.
+            json!({
+                "choices": [{
+                    "delta": { "tool_calls": [{ "index": 0, "id": "call_real_0" }] },
+                    "finish_reason": null
+                }]
+            }),
+            json!({
+                "choices": [{
+                    "delta": { "tool_calls": [{ "index": 1, "id": "call_real_1" }] },
+                    "finish_reason": null
+                }]
+            }),
+            json!({ "choices": [{ "delta": {}, "finish_reason": "tool_calls" }] }),
+        ];
+        let mut events = Vec::new();
+        for chunk in &chunks {
+            let line = format!("data: {chunk}\n\n");
+            events.extend(decoder.feed(line.as_bytes()).expect("decode chunk"));
+        }
+        events.extend(decoder.feed(b"data: [DONE]\n\n").expect("decode done"));
+        events.extend(decoder.finish().expect("finish"));
+
+        let starts: Vec<String> = events
+            .iter()
+            .filter_map(|e| match e {
+                StreamEvent::ToolCallStart { id, .. } => Some(id.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(starts.len(), 2, "index 1 started first, then index 0");
+        let started_index_1 = &starts[0];
+        let started_index_0 = &starts[1];
+
+        let renames: Vec<(String, String)> = events
+            .iter()
+            .filter_map(|e| match e {
+                StreamEvent::ToolCallIdRenamed { from, to } => Some((from.clone(), to.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(renames, vec![(started_index_0.clone(), "call_real_0".into()), (started_index_1.clone(), "call_real_1".into())]);
     }
 }

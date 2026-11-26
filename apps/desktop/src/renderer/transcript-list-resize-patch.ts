@@ -1,6 +1,7 @@
 import type { MutableRefObject } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { takeParkedGrowthAbove } from './markdown-block-parking';
+import { isActiveResize, onActiveResizeEnd } from './resize-gesture';
 import type { createTranscriptEndPin } from './transcript-end-pin';
 import { createHeldRowShrinks, type HeldRowShrinks } from './transcript-list-held-shrinks';
 import {
@@ -22,17 +23,19 @@ import { useSurfaceActive } from './surface-activity';
 
 type ReadingAnchorState = ReturnType<typeof useReadingAnchor>;
 
+type TranscriptWidthSyncOptions = { dockInset?: boolean };
+
 /** Every mounted transcript's width re-measure (see useTranscriptWidthSync). */
-const transcriptWidthSyncs = new Set<() => void>();
+const transcriptWidthSyncs = new Set<(options?: TranscriptWidthSyncOptions) => void>();
 
 /** Re-measures, in the caller's task, every mounted transcript whose viewport
- *  width changed. */
-export function syncTranscriptWidths(): void {
-  for (const sync of transcriptWidthSyncs) sync();
+ *  width changed (and optionally forces a pre-paint dock inset check). */
+export function syncTranscriptWidths(options?: TranscriptWidthSyncOptions): void {
+  for (const sync of transcriptWidthSyncs) sync(options);
 }
 
 /** Adds one list's re-measure to syncTranscriptWidths; returns its removal. */
-export function registerTranscriptWidthSync(sync: () => void): () => void {
+export function registerTranscriptWidthSync(sync: (options?: TranscriptWidthSyncOptions) => void): () => void {
   transcriptWidthSyncs.add(sync);
   return () => {
     transcriptWidthSyncs.delete(sync);
@@ -43,9 +46,24 @@ export function registerTranscriptWidthSync(sync: () => void): () => void {
  *  width it already holds); returns the end of the watch. */
 export function observeTranscriptWidth(viewport: Element | null, sync: () => void): () => void {
   if (!viewport || typeof ResizeObserver !== 'function') return () => {};
-  const observer = new ResizeObserver(sync);
+  let deferred = false;
+  const observer = new ResizeObserver(() => {
+    if (isActiveResize()) {
+      deferred = true;
+      return;
+    }
+    sync();
+  });
+  const stopResizeWatch = onActiveResizeEnd(() => {
+    if (!deferred) return;
+    deferred = false;
+    sync();
+  });
   observer.observe(viewport);
-  return () => observer.disconnect();
+  return () => {
+    stopResizeWatch();
+    observer.disconnect();
+  };
 }
 
 /** The width-change re-measure of one list: every mounted row is read in one
@@ -64,7 +82,9 @@ export function createTranscriptWidthSync({
   suppressAdjustment,
   endPin,
   anchorHold,
+  readingAnchorHeld,
   restoreReadingAnchor,
+  syncDockInset,
 }: {
   getViewport(): HTMLElement | null;
   getSpacer(): HTMLElement | null;
@@ -79,10 +99,14 @@ export function createTranscriptWidthSync({
   /** Pins in the caller's task: a width change lands the end in the pass that saw it. */
   endPin: { now(): void };
   anchorHold: ReadingAnchorState['anchorHold'];
+  readingAnchorHeld?: () => boolean;
   restoreReadingAnchor(landing?: boolean): void;
-}): () => void {
+  /** Re-measures the floating composer dock inset in the same pass. */
+  syncDockInset?: () => boolean;
+}): (options?: TranscriptWidthSyncOptions) => void {
   let syncedWidth = 0;
-  return () => {
+  let syncedSpacerWidth = 0;
+  return (options) => {
     const element = getViewport();
     const spacer = getSpacer();
     const apply = baseResizeItem.current;
@@ -90,12 +114,22 @@ export function createTranscriptWidthSync({
     const instance = getVirtualizer();
     if (!syncedWidth) syncedWidth = Math.round(instance.scrollRect?.width ?? 0);
     const width = Math.round(element.offsetWidth);
-    if (width === syncedWidth) return;
+    const spacerWidth = Math.round(spacer.offsetWidth);
+    if (width === syncedWidth && spacerWidth === syncedSpacerWidth) {
+      if (options?.dockInset && syncDockInset?.()) {
+        const following = instance.options.anchorTo === 'end' || instance.options.followOnAppend;
+        if (following) endPin.now();
+        else if (readingAnchorHeld?.()) restoreReadingAnchor(true);
+      }
+      return;
+    }
     syncedWidth = width;
+    syncedSpacerWidth = spacerWidth;
     if (width <= 0) return;
     const following = instance.options.anchorTo === 'end' || instance.options.followOnAppend;
     const current = rows();
     const anchor = following ? null : captureReadingAnchor(instance, current, current, scrollInset());
+    const insetChanged = syncDockInset?.() ?? false;
     const mounted = [...spacer.children].filter(
       (row): row is HTMLElement => row instanceof HTMLElement && row.dataset.timelineKey !== undefined
     );
@@ -116,7 +150,7 @@ export function createTranscriptWidthSync({
     } finally {
       suppressAdjustment.current = false;
     }
-    if (!changed) return;
+    if (!changed && !insetChanged) return;
     if (following) {
       endPin.now();
       return;
@@ -166,8 +200,10 @@ function useWidthSyncRegistration({
   pendingResizes,
   baseResizeItem,
   anchorHold,
+  readingAnchorHeld,
   indexForPendingKey,
   restoreReadingAnchor,
+  syncDockInset,
 }: {
   virtualizer: TranscriptVirtualizer;
   viewport: { readonly current: HTMLDivElement | null };
@@ -178,12 +214,28 @@ function useWidthSyncRegistration({
   pendingResizes: MutableRefObject<Map<unknown, { index: number; size: number }>>;
   baseResizeItem: MutableRefObject<((index: number, size: number) => void) | null>;
   anchorHold: ReadingAnchorState['anchorHold'];
+  readingAnchorHeld: ReadingAnchorState['readingAnchorHeld'];
   indexForPendingKey: (key: unknown, hint: number) => number;
   restoreReadingAnchor: ReadingAnchorState['restoreReadingAnchor'];
+  syncDockInset?: () => boolean;
 }) {
   const widthSyncing = useRef(false);
-  const latest = useRef({ virtualizer, endPin, indexForPendingKey, restoreReadingAnchor });
-  latest.current = { virtualizer, endPin, indexForPendingKey, restoreReadingAnchor };
+  const latest = useRef({
+    virtualizer,
+    endPin,
+    indexForPendingKey,
+    readingAnchorHeld,
+    restoreReadingAnchor,
+    syncDockInset,
+  });
+  latest.current = {
+    virtualizer,
+    endPin,
+    indexForPendingKey,
+    readingAnchorHeld,
+    restoreReadingAnchor,
+    syncDockInset,
+  };
   const widthSync = useRef<ReturnType<typeof createTranscriptWidthSync> | null>(null);
   widthSync.current ??= createTranscriptWidthSync({
     getViewport: () => viewport.current,
@@ -197,23 +249,26 @@ function useWidthSyncRegistration({
     suppressAdjustment: widthSyncing,
     endPin: { now: () => latest.current.endPin.now() },
     anchorHold,
+    readingAnchorHeld: () => latest.current.readingAnchorHeld(),
     restoreReadingAnchor: (landing) => latest.current.restoreReadingAnchor(landing),
+    syncDockInset: () => latest.current.syncDockInset?.() ?? false,
   });
   const surfaceActive = useSurfaceActive();
   // The viewport's element is set after the commit that mounts the list ran its effects: the render after it sees it.
   const element = viewport.current;
   useLayoutEffect(() => {
     if (!surfaceActive) return undefined;
-    const sync = () => widthSync.current?.();
+    const sync = (options?: TranscriptWidthSyncOptions) => widthSync.current?.(options);
+    const syncOnResize = () => widthSync.current?.();
     const unregister = registerTranscriptWidthSync(sync);
-    window.addEventListener('resize', sync);
+    window.addEventListener('resize', syncOnResize);
     // Whatever changes the list's width (the sidebar, a split's divider, a panel beside it) is seen on the viewport's
     // own box, in the frame that lays it out: every width change goes through the one pass.
-    const unobserve = observeTranscriptWidth(element, sync);
+    const unobserve = observeTranscriptWidth(element, syncOnResize);
     return () => {
       unregister();
       unobserve();
-      window.removeEventListener('resize', sync);
+      window.removeEventListener('resize', syncOnResize);
     };
   }, [surfaceActive, element]);
   const shownBefore = useRef(surfaceActive);
@@ -289,6 +344,7 @@ export function useVirtualizerResizePatch({
   scrollInset,
   indexForPendingKey,
   restoreReadingAnchor,
+  syncDockInset,
 }: {
   virtualizer: TranscriptVirtualizer;
   viewport: { readonly current: HTMLDivElement | null };
@@ -311,6 +367,7 @@ export function useVirtualizerResizePatch({
   scrollInset: { readonly current: number };
   indexForPendingKey: (key: unknown, hint: number) => number;
   restoreReadingAnchor: ReadingAnchorState['restoreReadingAnchor'];
+  syncDockInset?: () => boolean;
 }) {
   const widthSyncing = useWidthSyncRegistration({
     virtualizer,
@@ -322,8 +379,10 @@ export function useVirtualizerResizePatch({
     pendingResizes,
     baseResizeItem,
     anchorHold,
+    readingAnchorHeld,
     indexForPendingKey,
     restoreReadingAnchor,
+    syncDockInset,
   });
   const patchedVirtualizer = useRef<TranscriptVirtualizer | null>(null);
   const heldShrinks = useRef<HeldRowShrinks | null>(null);

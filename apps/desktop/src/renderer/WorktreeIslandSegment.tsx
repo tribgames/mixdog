@@ -12,7 +12,7 @@ import {
   useBranchMenuData,
   WorktreeCarryDialog,
 } from './branch-menu';
-import type { ComposerIslandFlash } from './ComposerIsland';
+import { type ComposerIslandFlash, splitCountPhrase } from './ComposerIsland';
 import { IslandSegmentPending, useComposerIslandTab } from './composer-island-state';
 import { t } from './i18n';
 import { registerIdleReclaim } from './idle-reclaim';
@@ -470,10 +470,32 @@ export function BranchIslandSegment({
   // Modified files and commits ahead; a zero count is left out, none at all shows nothing.
   const modified = gitStatus?.repository ? gitStatus.files.length + (gitStatus.untrackedOmitted ?? 0) : 0;
   const ahead = gitStatus?.repository ? gitStatus.ahead : 0;
+  const modifiedText = !intent && modified > 0 ? t('Modified {{count}}', { count: modified }) : '';
+  const modifiedParts = modifiedText ? splitCountPhrase(modifiedText, modified) : null;
   const metaParts: string[] = [];
-  if (!intent && modified > 0) metaParts.push(t('Modified {{count}}', { count: modified }));
+  if (modifiedText) metaParts.push(modifiedText);
   if (!intent && ahead > 0) metaParts.push(`↑${ahead}`);
   const meta = metaParts.join(' · ');
+  const metaNode =
+    !intent && (modified > 0 || ahead > 0) ? (
+      <>
+        {modifiedParts ? (
+          <>
+            {modifiedParts.before}
+            <b>{modifiedParts.num}</b>
+            {modifiedParts.after}
+          </>
+        ) : (
+          modifiedText
+        )}
+        {modified > 0 && ahead > 0 ? ' · ' : ''}
+        {ahead > 0 && (
+          <>
+            ↑<b>{ahead}</b>
+          </>
+        )}
+      </>
+    ) : undefined;
 
   const triggerProps: BranchTriggerProps = {
     ref: trigger,
@@ -537,7 +559,7 @@ export function BranchIslandSegment({
           </>
         )
       }
-      meta={meta}
+      meta={metaNode}
       query={query}
       onQuery={setQuery}
       notice={notice}

@@ -198,6 +198,8 @@ struct Routing {
     uncounted: u64,
     /// The session ends once the running turn is over: its route left the preset while the turn ran.
     end_after_turn: bool,
+    /// `detach_with_budget` is finishing unread refusals; keeps `end_after_turn` deferred until refusals finish.
+    detaching: bool,
 }
 
 impl Routing {
@@ -284,6 +286,14 @@ pub struct AgentSession {
     /// Set once the agent connected to the session's tool server; `None` for a session that was handed none. The agent
     /// connects while it opens the session, and again after it when its first attempt took too long.
     connected: Option<Arc<AtomicBool>>,
+    /// Digest of the most recent `tools/list` served to the agent (or the initial surface digest at session open).
+    tools_digest: Option<Arc<Mutex<Option<String>>>>,
+    /// Tools excluded by `Rule::Gemini` schema repair on the most recent `tools/list`.
+    excluded_tools: Option<Arc<Mutex<Vec<mixdog_core_api::domain::provider::ToolExclusionReport>>>>,
+    /// Excluded `(tool_name, reason)` pairs already warned about in this session so unchanged exclusions warn once.
+    warned_exclusions: Mutex<HashSet<(String, String)>>,
+    /// Initial digest of the tool surface at session open (for invalidating cached `tools/list` or `AgentFile`).
+    open_tools_digest: Option<String>,
     told_unconnected: AtomicBool,
     models: Mutex<Models>,
     routing: Mutex<Routing>,
@@ -326,19 +336,31 @@ pub fn digest(text: &str) -> String {
     format!("{hash:016x}")
 }
 
-/// `initialize`: the client offers file reads only. An agent that does not answer within [`INITIALIZE_LIMIT`] fails it.
-pub async fn initialize(connection: &Connection) -> Result<Value, Fault> {
+/// Computes the expected prompt digest for `rules` on `preset` given whether tools are handed over.
+pub(crate) fn prompt_digest_for(preset: &AgentPreset, rules: Option<&str>, has_handed: bool) -> Option<String> {
+    let preference = (has_handed && preset.quirks.append_tool_guidance).then(crate::mcp::preference);
+    let appendix: Vec<&str> = rules.into_iter().chain(preference.as_deref()).filter(|text| !text.trim().is_empty()).collect();
+    (!appendix.is_empty()).then(|| digest(&appendix.join("\n\n")))
+}
+
+/// `initialize`: advertises `clientCapabilities.fs.readTextFile` per `read_text_file`, never writes or terminal.
+pub async fn initialize_with(connection: &Connection, read_text_file: bool) -> Result<Value, Fault> {
     let asked = connection.request(
         "initialize",
         json!({
             "protocolVersion": PROTOCOL_VERSION,
-            "clientCapabilities": { "fs": { "readTextFile": true, "writeTextFile": false }, "terminal": false },
+            "clientCapabilities": { "fs": { "readTextFile": read_text_file, "writeTextFile": false }, "terminal": false },
             "clientInfo": { "name": "mixdog", "title": "Mixdog", "version": env!("CARGO_PKG_VERSION") },
         }),
     );
     mixdog_rt::time::timeout(INITIALIZE_LIMIT, asked)
         .await
         .unwrap_or_else(|_| Err(Fault::Start(format!("it did not answer initialize within {} s", INITIALIZE_LIMIT.as_secs()))))
+}
+
+/// `initialize`: used by sign-in and probes, where `fs.readTextFile` stays off.
+pub async fn initialize(connection: &Connection) -> Result<Value, Fault> {
+    initialize_with(connection, false).await
 }
 
 /// Asks the agent to close its session `session_id`: resolves when the agent answers or the connection exits, and a
@@ -519,6 +541,22 @@ impl RefuseBudget {
         self.stalled
     }
 
+    pub(crate) fn remaining(&self) -> std::time::Duration {
+        self.remaining
+    }
+
+    pub(crate) fn consume(&mut self, elapsed: std::time::Duration) {
+        self.remaining = self.remaining.saturating_sub(elapsed);
+    }
+
+    pub(crate) fn mark_stalled(&mut self, session: &AgentSession, why: &str) {
+        self.remaining = std::time::Duration::ZERO;
+        if !self.stalled {
+            self.stalled = true;
+            session.break_connection(why);
+        }
+    }
+
     pub(crate) async fn refuse(&mut self, session: &AgentSession, id: Value) {
         if self.stalled || session.connection.exited().is_cancelled() {
             return;
@@ -536,6 +574,104 @@ impl RefuseBudget {
             session.break_connection("permission refusal write timed out on stalled stdin");
         }
     }
+
+    pub(crate) async fn wait_write(&mut self, session: &AgentSession, done: tokio::sync::oneshot::Receiver<()>, why: &str) {
+        if self.stalled || session.connection.exited().is_cancelled() {
+            return;
+        }
+        if self.remaining.is_zero() {
+            self.stalled = true;
+            session.break_connection(why);
+            return;
+        }
+        let started = tokio::time::Instant::now();
+        let timed = mixdog_rt::time::timeout(self.remaining, done).await;
+        self.remaining = self.remaining.saturating_sub(started.elapsed());
+        if timed.is_err() {
+            self.stalled = true;
+            session.break_connection(why);
+        }
+    }
+}
+
+/// RAII ownership handle for a registered [`AgentSession`]. Dropping an undisarmed handle calls
+/// [`AgentSession::end`] so transferring or awaiting a session across channels/selects never leaks
+/// a live session or its router task.
+pub(crate) struct OwnedSession(Option<Arc<AgentSession>>);
+
+impl OwnedSession {
+    pub(crate) fn new(session: Arc<AgentSession>) -> Self {
+        Self(Some(session))
+    }
+
+    pub(crate) fn session(&self) -> &Arc<AgentSession> {
+        self.0.as_ref().expect("OwnedSession held until consumed")
+    }
+
+    pub(crate) fn into_inner(mut self) -> Arc<AgentSession> {
+        self.0.take().expect("OwnedSession held until consumed")
+    }
+}
+
+impl Drop for OwnedSession {
+    fn drop(&mut self) {
+        if let Some(session) = self.0.take() {
+            session.end();
+        }
+    }
+}
+
+/// RAII guard for a freshly minted remote session on a [`SharedServer`] between the moment `session/new`
+/// yields a `sessionId` and the moment [`SharedServer::register`] hands ownership to [`OwnedSession`].
+struct OwnedRemoteSession {
+    shared: Arc<SharedServer>,
+    session_id: Option<String>,
+    closes: bool,
+}
+
+impl OwnedRemoteSession {
+    fn new(shared: Arc<SharedServer>, session_id: String, closes: bool) -> Self {
+        Self { shared, session_id: Some(session_id), closes }
+    }
+
+    fn disarm(&mut self) {
+        self.session_id = None;
+    }
+}
+
+impl Drop for OwnedRemoteSession {
+    fn drop(&mut self) {
+        if let Some(session_id) = self.session_id.take() {
+            self.shared.close_unregistered(session_id, self.closes);
+        }
+    }
+}
+
+/// Sends `session/new` on a shared server inside a non-cancellable task that transfers an
+/// [`OwnedRemoteSession`] across a oneshot channel: if the caller times out or cancels before
+/// receiving the reply, any late `session/new` response still closes its remote session instead
+/// of leaking it on a still-alive shared server.
+async fn request_session_new_on_shared(shared: Arc<SharedServer>, params: Value, closes: bool) -> Result<(String, Value, OwnedRemoteSession), Fault> {
+    let connection = shared.connection.clone();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    drop(mixdog_rt::spawn("acp.shared.new", mixdog_rt::TaskClass::Work, async move {
+        if tx.is_closed() {
+            return;
+        }
+        let outcome = match connection.request("session/new", params).await {
+            Ok(answer) => match answer.get("sessionId").and_then(Value::as_str) {
+                Some(id) => {
+                    let id = id.to_owned();
+                    let guard = OwnedRemoteSession::new(shared, id.clone(), closes);
+                    Ok((id, answer, guard))
+                }
+                None => Err(Fault::Start("the agent opened a session without an id".into())),
+            },
+            Err(fault) => Err(fault),
+        };
+        let _ = tx.send(outcome);
+    }));
+    rx.await.unwrap_or_else(|_| Err(Fault::Closed("the shared session open task ended".into())))
 }
 
 impl AgentSession {
@@ -562,11 +698,11 @@ impl AgentSession {
         let launched = launch_without_own_tools(open.preset, open.program, open.cwd.clone(), bare);
         let temp = open.temp.clone().map(|folder| Temp { folder, files: files.clone() });
         let (mut connection, mut incoming) = Connection::start_in(processes.clone(), launched, temp).await?;
-        let mut capabilities = initialize(&connection).await?;
+        let mut capabilities = initialize_with(&connection, open.preset.quirks.fs_read_text_file).await?;
         let (servers, server) = handed_entry(&capabilities, open.handed.as_ref(), started);
         if was_bare && server.is_none() {
             (connection, incoming) = Connection::start(processes, launch(open.preset, open.program, open.cwd.clone())).await?;
-            capabilities = initialize(&connection).await?;
+            capabilities = initialize_with(&connection, open.preset.quirks.fs_read_text_file).await?;
         }
         let on = On {
             connection: connection.clone(),
@@ -577,7 +713,11 @@ impl AgentSession {
             servers,
             replayed: Some(&mut incoming),
         };
-        let (session, _) = Self::open_session(open, on, wake).await?;
+        let (session, _, _) = match Self::open_session(open, on, wake, None).await {
+            Ok(opened) => opened,
+            Err(OpenSharedError::Fault(fault)) => return Err(fault),
+            Err(OpenSharedError::TimedOut) => unreachable!("unbounded per-session open cannot time out"),
+        };
         drop(mixdog_rt::spawn("acp.route", mixdog_rt::TaskClass::Work, route(session.clone(), incoming, server, files, on_exit)));
         Ok(session)
     }
@@ -591,6 +731,18 @@ impl AgentSession {
         on_exit: Box<dyn FnOnce() + Send>,
         open_timeout: Option<std::time::Duration>,
     ) -> Result<Arc<Self>, OpenSharedError> {
+        Self::open_on_shared_owned(lease, open, wake, on_exit, open_timeout).await.map(OwnedSession::into_inner)
+    }
+
+    /// As [`Self::open_on_shared`], returning an RAII [`OwnedSession`] so dropping the returned value before
+    /// registration/adoption ends the session and shuts down its router automatically.
+    pub(crate) async fn open_on_shared_owned(
+        lease: Lease,
+        open: Open<'_>,
+        wake: Wake,
+        on_exit: Box<dyn FnOnce() + Send>,
+        open_timeout: Option<std::time::Duration>,
+    ) -> Result<OwnedSession, OpenSharedError> {
         let shared = lease.server().clone();
         let started = start_tools(open.handed.as_ref()).await;
         let (servers, tools) = handed_entry(&shared.capabilities, open.handed.as_ref(), started);
@@ -603,31 +755,40 @@ impl AgentSession {
             servers,
             replayed: None,
         };
-        let (session, answer) = match open_timeout {
-            Some(limit) if limit.is_zero() => return Err(OpenSharedError::TimedOut),
-            Some(limit) => match mixdog_rt::time::timeout(limit, Self::open_session(open, on, wake)).await {
-                Ok(Ok(opened)) => opened,
-                Ok(Err(fault)) => return Err(OpenSharedError::Fault(fault)),
-                Err(_) => return Err(OpenSharedError::TimedOut),
-            },
-            None => Self::open_session(open, on, wake).await.map_err(OpenSharedError::Fault)?,
-        };
+        let (session, answer, mut remote_guard) = Self::open_session(open, on, wake, open_timeout).await?;
         let first = shared.register(&session);
+        let owned = OwnedSession::new(session.clone());
+        if let Some(guard) = remote_guard.as_mut() {
+            guard.disarm();
+        }
         drop(lease);
         drop(mixdog_rt::spawn("acp.route.shared", mixdog_rt::TaskClass::Work, route_on_shared(session.clone(), tools, on_exit)));
         if first {
             shared.first_answered(&session.preset, &answer).await;
         }
-        Ok(session)
+        Ok(owned)
     }
 
     /// Opens the agent's session in the process `on` names, with Mixdog's prompt and the preset's settings.
-    /// The session, and the agent's answer that opened or reopened it.
-    async fn open_session(open: Open<'_>, on: On<'_>, wake: Wake) -> Result<(Arc<Self>, Value), Fault> {
+    /// Applies `rpc_timeout` only to the remote open RPC (`session/resume`, `session/load`, `session/new`),
+    /// never to local post-open steps such as tool-definition digest lookup.
+    async fn open_session(
+        open: Open<'_>,
+        on: On<'_>,
+        wake: Wake,
+        rpc_timeout: Option<std::time::Duration>,
+    ) -> Result<(Arc<Self>, Value, Option<OwnedRemoteSession>), OpenSharedError> {
         let On { connection, capabilities, host, gone, server, servers, replayed } = on;
         let cwd = open.cwd.as_path().to_string_lossy().into_owned();
         let quirks = &open.preset.quirks;
         let handed = open.handed.filter(|_| server.is_some());
+        let closes = offered(capabilities.pointer("/agentCapabilities/sessionCapabilities/close"));
+        // Compute the tool-definition digest before any remote open RPC so once `remote_open` returns
+        // there are zero `.await` points before `SharedServer::register` and `OwnedSession` construction.
+        let open_tools_digest = match &handed {
+            Some(handed) => handed.current_digest().await,
+            None => None,
+        };
         // Mixdog's prompt for the session, and, with the tools handed over, the word to prefer them where the preset
         // appends it. It goes with every open of the agent's session, a reopen included, as do the agent's settings.
         let preference = (handed.is_some() && quirks.append_tool_guidance).then(crate::mcp::preference);
@@ -653,57 +814,86 @@ impl AgentSession {
             }
             params
         };
-        let mut restarted = false;
-        let mut opened = None;
-        if let Some(stored) = &open.stored {
-            if matches!(&host, Host::Shared(shared) if shared.is_unclosed(stored)) {
-                tracing::warn!(
-                    "[acp] {} could not reopen its session {stored}: its earlier prompt or cancel is still open on the shared server",
-                    open.preset.id
-                );
-                restarted = true;
-            } else {
-                let method = match quirks.reopen {
-                    Reopen::Resume => "session/resume",
-                    Reopen::Load => "session/load",
-                };
-                let params = with_prompt(json!({ "sessionId": stored, "cwd": cwd, "mcpServers": servers }));
-                match connection.request(method, params).await {
-                    Ok(answer) => {
-                        // A load replays the conversation, which the Mixdog session already holds.
-                        if quirks.reopen == Reopen::Load
-                            && let Some(replayed) = replayed
-                        {
-                            drop_replayed(&connection, replayed).await;
+        let shared_host = match &host {
+            Host::Shared(shared) => Some(shared.clone()),
+            Host::Own => None,
+        };
+        let remote_open = async {
+            let mut restarted = false;
+            let mut opened = None;
+            let rules_changed = prompt != open.held;
+            if let Some(stored) = open.stored.as_ref().filter(|_| !rules_changed) {
+                if shared_host.as_ref().is_some_and(|shared| shared.is_unclosed(stored)) {
+                    tracing::warn!(
+                        "[acp] {} could not reopen its session {stored}: its earlier prompt or cancel is still open on the shared server",
+                        open.preset.id
+                    );
+                    restarted = true;
+                } else {
+                    let method = match quirks.reopen {
+                        Reopen::Resume => "session/resume",
+                        Reopen::Load => "session/load",
+                    };
+                    let params = with_prompt(json!({ "sessionId": stored, "cwd": cwd, "mcpServers": servers }));
+                    match connection.request(method, params).await {
+                        Ok(answer) => {
+                            // A load replays the conversation, which the Mixdog session already holds.
+                            if quirks.reopen == Reopen::Load
+                                && let Some(replayed) = replayed
+                            {
+                                drop_replayed(&connection, replayed).await;
+                            }
+                            opened = Some((stored.clone(), answer));
                         }
-                        opened = Some((stored.clone(), answer));
-                    }
-                    // A sign-in that no longer holds is the agent's state: no session is opened in place of the stored one.
-                    Err(Fault::Rpc(error)) if error.code != crate::agents::AUTH_REQUIRED => {
-                        tracing::warn!("[acp] {} could not reopen its session: {}", open.preset.id, error.message);
-                        restarted = true;
-                        if let Some(replayed) = replayed {
-                            drop_replayed(&connection, replayed).await;
+                        // A sign-in that no longer holds is the agent's state: no session is opened in place of the stored one.
+                        Err(Fault::Rpc(error)) if error.code != crate::agents::AUTH_REQUIRED => {
+                            tracing::warn!("[acp] {} could not reopen its session: {}", open.preset.id, error.message);
+                            restarted = true;
+                            if let Some(replayed) = replayed {
+                                drop_replayed(&connection, replayed).await;
+                            }
                         }
+                        Err(fault) => return Err(fault),
                     }
-                    Err(fault) => return Err(fault),
                 }
             }
-        }
-        let opened_fresh = opened.is_none();
-        let (session_id, answer) = match opened {
-            Some(opened) => opened,
-            None => {
-                let answer = connection.request("session/new", with_prompt(json!({ "cwd": cwd, "mcpServers": servers }))).await?;
-                let id =
-                    answer.get("sessionId").and_then(Value::as_str).ok_or_else(|| Fault::Start("the agent opened a session without an id".into()))?.to_owned();
-                (id, answer)
-            }
+            let opened_fresh = opened.is_none();
+            let (session_id, answer, remote_guard) = match opened {
+                Some((id, answer)) => (id, answer, None),
+                None => match shared_host.as_ref() {
+                    Some(shared) => {
+                        let (id, answer, guard) =
+                            request_session_new_on_shared(shared.clone(), with_prompt(json!({ "cwd": cwd, "mcpServers": servers })), closes).await?;
+                        (id, answer, Some(guard))
+                    }
+                    None => {
+                        let answer = connection.request("session/new", with_prompt(json!({ "cwd": cwd, "mcpServers": servers }))).await?;
+                        let id = answer
+                            .get("sessionId")
+                            .and_then(Value::as_str)
+                            .ok_or_else(|| Fault::Start("the agent opened a session without an id".into()))?
+                            .to_owned();
+                        (id, answer, None)
+                    }
+                },
+            };
+            Ok((session_id, answer, remote_guard, restarted, opened_fresh))
+        };
+        let (session_id, answer, remote_guard, restarted, opened_fresh) = match rpc_timeout {
+            Some(limit) if limit.is_zero() => return Err(OpenSharedError::TimedOut),
+            Some(limit) => match mixdog_rt::time::timeout(limit, remote_open).await {
+                Ok(Ok(opened)) => opened,
+                Ok(Err(fault)) => return Err(OpenSharedError::Fault(fault)),
+                Err(_) => return Err(OpenSharedError::TimedOut),
+            },
+            None => remote_open.await.map_err(OpenSharedError::Fault)?,
         };
         // A session that does not hold the prompt yet, in an agent whose system prompt takes none: its next prompt carries it.
         let holds = !opened_fresh && open.stored.as_deref() == Some(session_id.as_str()) && prompt == open.held;
         let unsent = appendix.filter(|_| appended.is_none() && !holds);
         let connected = server.map(ToolServer::initialized);
+        let tools_digest = server.map(ToolServer::served_digest);
+        let excluded_tools = server.map(ToolServer::excluded);
         let session = Arc::new(Self {
             preset: open.preset.clone(),
             connection,
@@ -718,12 +908,16 @@ impl AgentSession {
             prompt,
             images: capabilities.pointer("/agentCapabilities/promptCapabilities/image") == Some(&Value::Bool(true)),
             embedded: capabilities.pointer("/agentCapabilities/promptCapabilities/embeddedContext") == Some(&Value::Bool(true)),
-            closes: offered(capabilities.pointer("/agentCapabilities/sessionCapabilities/close")),
+            closes,
             context: Mutex::default(),
             reports: std::sync::atomic::AtomicU64::new(0),
             reported_reports: std::sync::atomic::AtomicU64::new(0),
             unsent: Mutex::new(unsent),
             connected,
+            tools_digest,
+            excluded_tools,
+            warned_exclusions: Mutex::default(),
+            open_tools_digest,
             told_unconnected: AtomicBool::new(false),
             models: Mutex::new(Models::of(&answer)),
             routing: Mutex::default(),
@@ -733,7 +927,7 @@ impl AgentSession {
             cancels: watch::Sender::new(0),
             wake,
         });
-        Ok((session, answer))
+        Ok((session, answer, remote_guard))
     }
 
     /// Fires once nothing more of the session arrives: its process ended, or it left the shared server.
@@ -933,36 +1127,80 @@ impl AgentSession {
     /// [`Self::detach`], sharing the turn's single [`RefuseBudget`] with any refusal already attempted in `turn::run`.
     pub(crate) async fn detach_with_budget(
         &self,
-        mut stream: mpsc::UnboundedReceiver<Incoming>,
+        stream: mpsc::UnboundedReceiver<Incoming>,
         background: impl IntoIterator<Item = (String, Background)>,
         refuse_budget: &mut RefuseBudget,
     ) {
-        let (unread, end): (Vec<Routed>, bool) = {
+        self.detach_inner(stream, background, refuse_budget, false).await;
+    }
+
+    /// As [`Self::detach_with_budget`], marking the session quiet so every remaining unread request is refused
+    /// before clearing `detaching` and running any deferred [`Self::end`]. Returns `true` if deferred `end()` ran.
+    pub(crate) async fn detach_quiet_with_budget(&self, stream: mpsc::UnboundedReceiver<Incoming>, refuse_budget: &mut RefuseBudget) -> bool {
+        self.detach_inner(stream, [], refuse_budget, true).await
+    }
+
+    async fn detach_inner(
+        &self,
+        mut stream: mpsc::UnboundedReceiver<Incoming>,
+        background: impl IntoIterator<Item = (String, Background)>,
+        refuse_budget: &mut RefuseBudget,
+        quiet: bool,
+    ) -> bool {
+        struct DetachingReset<'a>(&'a AgentSession, bool);
+        impl Drop for DetachingReset<'_> {
+            fn drop(&mut self) {
+                if self.1 {
+                    let end = {
+                        let mut routing = lock(&self.0.routing);
+                        routing.detaching = false;
+                        routing.turn_ended();
+                        std::mem::take(&mut routing.end_after_turn)
+                    };
+                    if end {
+                        self.0.end();
+                    }
+                }
+            }
+        }
+
+        let unread: Vec<Routed> = {
             let mut routing = lock(&self.routing);
+            if quiet {
+                routing.quiet = true;
+            }
             routing.turn = None;
+            routing.detaching = true;
             routing.background.extend(background);
-            let unread = std::iter::from_fn(|| stream.try_recv().ok()).map(|incoming| self.sort(&mut routing, incoming)).collect();
-            (unread, std::mem::take(&mut routing.end_after_turn))
+            std::iter::from_fn(|| stream.try_recv().ok()).map(|incoming| self.sort(&mut routing, incoming)).collect()
         };
+        let mut reset = DetachingReset(self, true);
         for routed in unread {
             match routed {
                 Routed::Refuse(id) => refuse_budget.refuse(self, id).await,
                 other => self.act(other).await,
             }
         }
+        reset.1 = false;
         // Ids carry their turn, so none of this turn's is issued again by a later one; a call left running keeps its
         // id, which the later turn that shows its result must not issue again.
-        lock(&self.routing).turn_ended();
+        let end = {
+            let mut routing = lock(&self.routing);
+            routing.detaching = false;
+            routing.turn_ended();
+            std::mem::take(&mut routing.end_after_turn)
+        };
         if end {
             self.end();
         }
+        end
     }
 
     /// Leaves the session's end ([`Self::end`]) to the end of the turn that runs in it; `false` where none runs, which
     /// leaves it to the caller.
     pub(crate) fn end_after_turn(&self) -> bool {
         let mut routing = lock(&self.routing);
-        routing.end_after_turn = routing.turn.is_some();
+        routing.end_after_turn = routing.turn.is_some() || routing.detaching;
         routing.end_after_turn
     }
 
@@ -1081,11 +1319,7 @@ impl AgentSession {
     /// The agent's latest context report if it has not yet been delivered to a turn, paired with its report count.
     pub fn unreported_context(&self) -> Option<(u64, ContextUse)> {
         let count = self.reports.load(std::sync::atomic::Ordering::SeqCst);
-        if count > self.reported_reports.load(std::sync::atomic::Ordering::SeqCst) {
-            (*lock(&self.context)).map(|context| (count, context))
-        } else {
-            None
-        }
+        if count > self.reported_reports.load(std::sync::atomic::Ordering::SeqCst) { (*lock(&self.context)).map(|context| (count, context)) } else { None }
     }
 
     /// Marks context reports through `count` as delivered so later turns without a new report do not re-emit them.
@@ -1101,6 +1335,32 @@ impl AgentSession {
     /// The agent's last report of its own context; `None` until it made one.
     pub fn context_use(&self) -> Option<ContextUse> {
         *lock(&self.context)
+    }
+
+    /// Digest of the `tools/list` last served to the agent, falling back to the digest captured when the session opened.
+    pub fn served_tools_digest(&self) -> Option<String> {
+        self.tools_digest.as_ref().and_then(|cell| lock(cell).clone()).or_else(|| self.open_tools_digest.clone())
+    }
+
+    /// Any tools excluded by `Rule::Gemini` schema repair on the most recent `tools/list`.
+    pub fn excluded_tools(&self) -> Vec<mixdog_core_api::domain::provider::ToolExclusionReport> {
+        self.excluded_tools.as_ref().map(|cell| lock(cell).clone()).unwrap_or_default()
+    }
+
+    /// Returns newly observed `(name, reason)` tool exclusions that have not yet been warned about in this session.
+    pub fn take_unwarned_exclusions(&self) -> Vec<(String, String)> {
+        let current = self.excluded_tools();
+        if current.is_empty() {
+            return Vec::new();
+        }
+        let mut warned = lock(&self.warned_exclusions);
+        current
+            .into_iter()
+            .filter_map(|report| {
+                let entry = (report.name, report.reason);
+                warned.insert(entry.clone()).then_some(entry)
+            })
+            .collect()
     }
 
     #[cfg(test)]
@@ -1128,6 +1388,10 @@ impl AgentSession {
             reported_reports: std::sync::atomic::AtomicU64::new(0),
             unsent: Mutex::default(),
             connected: None,
+            tools_digest: None,
+            excluded_tools: None,
+            warned_exclusions: Mutex::default(),
+            open_tools_digest: None,
             told_unconnected: AtomicBool::new(false),
             models: Mutex::default(),
             routing: Mutex::default(),
@@ -1279,7 +1543,9 @@ async fn route(
             // A read of the session's own is answered from its folder in a task of its own: what the agent sends next does
             // not wait for the file.
             Incoming::Request { id, method, params } if method == "fs/read_text_file" => {
-                if params.get("sessionId").and_then(Value::as_str) == Some(session.session_id.as_str()) {
+                if !session.preset.quirks.fs_read_text_file {
+                    session.connection.respond(id, Err(not_offered(&method))).await;
+                } else if params.get("sessionId").and_then(Value::as_str) == Some(session.session_id.as_str()) {
                     let (connection, files, cwd) = (session.connection.clone(), files.clone(), session.cwd.clone());
                     let allowed = session.attached_files();
                     drop(mixdog_rt::spawn("acp.read_file", mixdog_rt::TaskClass::Work, async move {
@@ -1537,6 +1803,10 @@ mod tests {
             reported_reports: std::sync::atomic::AtomicU64::new(0),
             unsent: Mutex::default(),
             connected: None,
+            tools_digest: None,
+            excluded_tools: None,
+            warned_exclusions: Mutex::default(),
+            open_tools_digest: None,
             told_unconnected: AtomicBool::new(false),
             models: Mutex::default(),
             routing: Mutex::default(),
@@ -1555,5 +1825,130 @@ mod tests {
         let elapsed = started.elapsed();
         assert!(elapsed < std::time::Duration::from_secs(1), "permission teardown must be bounded per turn, not per request: {elapsed:?}");
         assert_eq!(writes.load(std::sync::atomic::Ordering::SeqCst), 1, "stalled stdin must stop refusing after the single deadline expires");
+    }
+
+    #[tokio::test]
+    async fn route_rejects_fs_read_text_file_when_quirk_disabled() {
+        struct IdleEvents(tokio::sync::Notify);
+
+        #[async_trait]
+        impl mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent> for IdleEvents {
+            async fn next(&mut self) -> Option<mixdog_core_api::domain::process::ProcessEvent> {
+                self.0.notified().await;
+                None
+            }
+        }
+
+        struct RecordingProcesses {
+            written_tx: mpsc::UnboundedSender<Value>,
+            buf: Mutex<String>,
+        }
+
+        #[async_trait]
+        impl ProcessManager for RecordingProcesses {
+            async fn spawn(
+                &self,
+                request: mixdog_core_api::domain::process::SpawnRequest,
+            ) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
+                Ok(mixdog_core_api::domain::process::SpawnedProcess { handle: request.handle, pid: 1 })
+            }
+            fn subscribe(
+                &self,
+                _handle: &mixdog_protocol::ProcessHandle,
+                _from_seq: Option<u64>,
+            ) -> Result<
+                Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>,
+                mixdog_core_api::domain::process::ProcessError,
+            > {
+                Ok(Box::new(IdleEvents(tokio::sync::Notify::new())))
+            }
+            fn subscribe_holding(
+                &self,
+                handle: &mixdog_protocol::ProcessHandle,
+                from_seq: Option<u64>,
+            ) -> Result<
+                Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>,
+                mixdog_core_api::domain::process::ProcessError,
+            > {
+                self.subscribe(handle, from_seq)
+            }
+            async fn write_stdin(
+                &self,
+                _handle: &mixdog_protocol::ProcessHandle,
+                bytes: Vec<u8>,
+            ) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+                let mut buf = self.buf.lock().unwrap();
+                buf.push_str(&String::from_utf8_lossy(&bytes));
+                while let Some(pos) = buf.find('\n') {
+                    let line: String = buf.drain(..=pos).collect();
+                    if let Ok(val) = serde_json::from_str::<Value>(line.trim()) {
+                        let _ = self.written_tx.send(val);
+                    }
+                }
+                Ok(())
+            }
+            fn close_stdin(&self, _handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+                Ok(())
+            }
+            fn resize_pty(
+                &self,
+                _handle: &mixdog_protocol::ProcessHandle,
+                _size: mixdog_core_api::domain::process::PtySize,
+            ) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+                Ok(())
+            }
+            fn kill(&self, _handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+                Ok(())
+            }
+            fn list(&self) -> Vec<mixdog_core_api::domain::process::ProcessInfo> {
+                Vec::new()
+            }
+        }
+
+        struct SecretFiles(Arc<AtomicBool>);
+
+        #[async_trait]
+        impl TextFiles for SecretFiles {
+            async fn read(&self, _path: AbsPath) -> Result<String, String> {
+                self.0.store(true, Ordering::SeqCst);
+                Ok("TOP_SECRET".into())
+            }
+            async fn resolved(&self, path: AbsPath) -> Result<AbsPath, String> {
+                Ok(path)
+            }
+            async fn create(&self, _path: AbsPath, _text: String) -> Result<(), String> {
+                Ok(())
+            }
+        }
+
+        let _ = mixdog_rt::testing::tokens();
+        let (written_tx, mut written_rx) = mpsc::unbounded_channel();
+        let processes: Arc<dyn ProcessManager> = Arc::new(RecordingProcesses { written_tx, buf: Mutex::new(String::new()) });
+        let (connection, _rx) =
+            Connection::start(processes, Launch { program: "fake".into(), args: Vec::new(), env: Vec::new(), env_remove: Vec::new(), cwd: here() })
+                .await
+                .expect("connection");
+        let session = AgentSession::test_session_for(connection);
+        assert!(!session.preset.quirks.fs_read_text_file, "official preset disables fs/read_text_file");
+        let read_called = Arc::new(AtomicBool::new(false));
+        let files: Arc<dyn TextFiles> = Arc::new(SecretFiles(read_called.clone()));
+        let (in_tx, in_rx) = mpsc::unbounded_channel();
+        let router = tokio::spawn(route(session.clone(), in_rx, None, files, Box::new(|| {})));
+
+        let target_path = session.cwd.as_path().join("secret.txt").to_string_lossy().into_owned();
+        in_tx
+            .send(Incoming::Request {
+                id: json!(42),
+                method: "fs/read_text_file".into(),
+                params: json!({ "sessionId": session.session_id, "path": target_path }),
+            })
+            .unwrap();
+        let reply = mixdog_rt::time::timeout(std::time::Duration::from_secs(2), written_rx.recv()).await.expect("router reply").expect("json-rpc response");
+        assert_eq!(reply["id"], 42);
+        assert_eq!(reply["error"]["code"], -32601, "fs/read_text_file must be rejected as not offered: {reply}");
+        assert!(!read_called.load(Ordering::SeqCst), "TextFiles::read must never be called when fs_read_text_file is false");
+
+        drop(in_tx);
+        let _ = router.await;
     }
 }

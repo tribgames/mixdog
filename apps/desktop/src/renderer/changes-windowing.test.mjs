@@ -61,7 +61,7 @@ test('the files menu mounts only the rows near its viewport, whatever the file c
       assert.ok(rows().length < 200, `${count} files mount a window, not every row`);
       assert.equal(rows()[0].getAttribute('aria-setsize'), String(count + 2), 'every file and the two actions');
       // The spacers stand in for every unmounted row at its height.
-      assert.equal(spacerHeight(list) + rows().length * 26, count * 26);
+      assert.equal(spacerHeight(list) + rows().length * 32, count * 32);
     });
   }
   assert.equal(mounted[0], mounted[1], 'the mounted rows do not grow with the file count');
@@ -83,7 +83,7 @@ test('a key press reaches a files-menu row outside the window, and that row open
   assert.equal(last.dataset.index, '8999', 'the last file row, mounted for the key press');
   assert.equal(last.title, 'src/f8999.ts');
   assert.equal(last.getAttribute('aria-posinset'), '9000');
-  assert.ok(list.scrollTop >= 8999 * 26 - 26, 'the list scrolled to it');
+  assert.ok(list.scrollTop >= 8999 * 32 - 32, 'the list scrolled to it');
   await press('Home');
   assert.equal(view.document.activeElement.dataset.index, '0');
   await press('ArrowUp');
@@ -92,6 +92,43 @@ test('a key press reaches a files-menu row outside the window, and that row open
   await press('ArrowUp');
   await act(async () => view.document.activeElement.click());
   assert.deepEqual(opened, ['src/f8999.ts']);
+});
+
+test('keyboard scrolling in the files menu accounts for top padding so ArrowDown never clips a row bottom', async (t) => {
+  const { view, list } = await openMenu(t, 20);
+  list.style.paddingTop = '8px';
+  list.style.paddingBottom = '8px';
+  Object.defineProperty(list, 'clientHeight', { configurable: true, value: 240 });
+  const press = (key) =>
+    act(async () =>
+      view.document.activeElement.dispatchEvent(new view.window.KeyboardEvent('keydown', { key, bubbles: true }))
+    );
+  // Row 0 starts at 8px; row 7 occupies [232, 264], so ArrowDown to index 7 must scroll to at least 24px.
+  for (let i = 0; i < 7; i += 1) await press('ArrowDown');
+  assert.equal(view.document.activeElement.dataset.index, '7');
+  assert.equal(list.scrollTop, 24, 'reveals the full bottom of row 7 including the 8px top inset');
+  // ArrowUp back to row 0 restores scrollTop to 0 (showing the top padding too).
+  for (let i = 0; i < 7; i += 1) await press('ArrowUp');
+  assert.equal(view.document.activeElement.dataset.index, '0');
+  assert.equal(list.scrollTop, 0);
+});
+
+test('returning to row 0 resets scrollTop to 0 even when scrollTop is smaller than top padding', async (t) => {
+  const { view, list } = await openMenu(t, 20);
+  list.style.paddingTop = '8px';
+  list.style.paddingBottom = '8px';
+  Object.defineProperty(list, 'clientHeight', { configurable: true, value: 225 });
+  const press = (key) =>
+    act(async () =>
+      view.document.activeElement.dispatchEvent(new view.window.KeyboardEvent('keydown', { key, bubbles: true }))
+    );
+  // Row 6 occupies [200, 232]; inside a 225px viewport, scrollTop lands at 7px (< 8px top padding).
+  for (let i = 0; i < 6; i += 1) await press('ArrowDown');
+  assert.equal(view.document.activeElement.dataset.index, '6');
+  assert.equal(list.scrollTop, 7);
+  for (let i = 0; i < 6; i += 1) await press('ArrowUp');
+  assert.equal(view.document.activeElement.dataset.index, '0');
+  assert.equal(list.scrollTop, 0, 'returns to 0 instead of remaining stuck at 7px');
 });
 
 // ── The Changes dock ────────────────────────────────────────────────────

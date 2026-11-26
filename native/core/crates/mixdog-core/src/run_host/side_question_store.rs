@@ -272,6 +272,8 @@ impl SideQuestionStore {
 #[async_trait]
 pub trait NextMainRequest: Send + Sync {
     async fn next(&self, thread: &ThreadId) -> Option<SideMaterial>;
+    /// Whether `thread` has a rebuildable request, answered without building one.
+    async fn has_next(&self, thread: &ThreadId) -> bool;
     /// Compacts the idle session's committed history now, as `thread/compact/start` does.
     async fn compact(&self, _thread: &ThreadId) -> Result<(), String> {
         Err("this session cannot be compacted here".to_owned())
@@ -348,7 +350,7 @@ impl SideQuestionService {
 #[async_trait]
 impl SideQuestions for SideQuestionService {
     async fn has_request(&self, thread: &ThreadId) -> bool {
-        self.store.current(thread).is_some() || self.next.next(thread).await.is_some()
+        self.store.current(thread).is_some() || self.next.has_next(thread).await
     }
 
     async fn refusal(&self, thread: &ThreadId) -> Option<String> {
@@ -535,12 +537,18 @@ mod tests {
         async fn next(&self, _: &ThreadId) -> Option<SideMaterial> {
             None
         }
+        async fn has_next(&self, _: &ThreadId) -> bool {
+            false
+        }
     }
     struct Rebuilt(Arc<Recording>);
     #[async_trait]
     impl NextMainRequest for Rebuilt {
         async fn next(&self, _: &ThreadId) -> Option<SideMaterial> {
             Some(material(self.0.clone()))
+        }
+        async fn has_next(&self, _: &ThreadId) -> bool {
+            true
         }
     }
     /// A provider whose first attempt the cache owner refuses as cold; later attempts reach `inner`.
@@ -579,6 +587,9 @@ mod tests {
         async fn next(&self, _: &ThreadId) -> Option<SideMaterial> {
             Some(material(self.0.clone()))
         }
+        async fn has_next(&self, _: &ThreadId) -> bool {
+            true
+        }
         async fn compact(&self, _: &ThreadId) -> Result<(), String> {
             self.1.fetch_add(1, Ordering::SeqCst);
             Ok(())
@@ -616,6 +627,10 @@ mod tests {
         impl NextMainRequest for Rebuild {
             async fn next(&self, _: &ThreadId) -> Option<SideMaterial> {
                 Some(material(self.provider.clone()))
+            }
+
+            async fn has_next(&self, _: &ThreadId) -> bool {
+                true
             }
 
             async fn compact(&self, _: &ThreadId) -> Result<(), String> {
@@ -731,6 +746,9 @@ mod tests {
     impl NextMainRequest for OutsideAgent {
         async fn next(&self, _: &ThreadId) -> Option<SideMaterial> {
             Some(material(self.0.clone()))
+        }
+        async fn has_next(&self, _: &ThreadId) -> bool {
+            true
         }
         async fn outside_refusal(&self, _: &ThreadId) -> Option<String> {
             Some(SIDE_QUESTION_OUTSIDE_AGENT.to_owned())
@@ -928,6 +946,9 @@ mod tests {
                 self.1.fetch_add(1, Ordering::SeqCst);
                 Some(material(self.0.clone()))
             }
+            async fn has_next(&self, _: &ThreadId) -> bool {
+                true
+            }
         }
 
         let store = Arc::new(SideQuestionStore::new());
@@ -955,5 +976,36 @@ mod tests {
         let side = service(&store, next.clone());
         assert_eq!(ask_side_question(&side, &t1, "q", true).await.unwrap(), "rebuilt");
         assert_eq!(next.1.load(Ordering::SeqCst), 1, "rebuilt from committed history");
+    }
+
+    #[tokio::test]
+    async fn has_request_checks_without_building_or_retaining_a_request() {
+        struct SwitchingRebuild {
+            provider: Mutex<Arc<Recording>>,
+            builds: AtomicU64,
+        }
+        #[async_trait]
+        impl NextMainRequest for SwitchingRebuild {
+            async fn next(&self, _: &ThreadId) -> Option<SideMaterial> {
+                self.builds.fetch_add(1, Ordering::SeqCst);
+                Some(material(self.provider.lock().unwrap().clone()))
+            }
+            async fn has_next(&self, _: &ThreadId) -> bool {
+                true
+            }
+        }
+
+        let store = Arc::new(SideQuestionStore::new());
+        let first = Recording::new([MockAttempt::Body(b"t:stale\ndone\n".to_vec())]);
+        let updated = Recording::new([MockAttempt::Body(b"t:fresh\ndone\n".to_vec())]);
+        let next = Arc::new(SwitchingRebuild { provider: Mutex::new(first), builds: AtomicU64::new(0) });
+        let side = service(&store, next.clone());
+
+        assert!(side.has_request(&thread()).await);
+        assert_eq!(next.builds.load(Ordering::SeqCst), 0, "has_request builds nothing");
+
+        *next.provider.lock().unwrap() = updated;
+        assert_eq!(ask_side_question(&side, &thread(), "q", true).await.unwrap(), "fresh");
+        assert_eq!(next.builds.load(Ordering::SeqCst), 1, "send builds freshly from current history");
     }
 }

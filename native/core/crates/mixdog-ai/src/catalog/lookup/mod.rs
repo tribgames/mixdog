@@ -14,6 +14,7 @@ pub use projection::project_models_dev;
 pub use rates::Obj;
 pub use rates::RATE_KEYS;
 pub use registry::ANTIGRAVITY_FALLBACK;
+pub use registry::guess_context_window;
 pub use registry::models_dev_provider_id;
 pub use registry::seed_display_name;
 pub use registry::seed_roster;

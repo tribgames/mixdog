@@ -22,7 +22,9 @@ const {
   usageWithCostVariants,
   textWidths,
   FittedReadout,
+  ReadoutLayoutContext,
 } = await import('./composer-usage-readout.tsx');
+const { SurfaceActiveContext } = await import('./surface-activity.ts');
 
 // The readout measures through one canvas context for the whole module: it
 // records its font sets and measured texts (7px per character).
@@ -452,4 +454,181 @@ test('each coding item carries its full words as tooltip and accessible name', (
   assert.doesNotMatch(html, /<svg/);
   assert.match(html, /42\.1k tokens<span class="composer-readout-sep" aria-hidden="true">·<\/span>/);
   assert.ok(readoutVariants(parts)[1].every((item) => item.icon));
+});
+
+test('a fitted readout re-evaluates synchronously on card placement and surface reveal without waiting for observers', async (t) => {
+  const { createRoot } = await import('react-dom/client');
+  const { act } = React;
+  const widths = new Map();
+  const rect = Object.getOwnPropertyDescriptor(window.Element.prototype, 'getBoundingClientRect');
+  window.Element.prototype.getBoundingClientRect = function () {
+    return { width: widths.get(this) ?? 0, height: 0, top: 0, left: 0, right: 0, bottom: 0 };
+  };
+  // No-op ResizeObserver and MutationObserver prove fitting settles synchronously in useLayoutEffect.
+  globalThis.ResizeObserver = class {
+    observe() {}
+    disconnect() {}
+  };
+  globalThis.MutationObserver = class {
+    observe() {}
+    disconnect() {}
+  };
+  globalThis.getComputedStyle = window.getComputedStyle.bind(window);
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const style = document.createElement('style');
+  style.textContent = '.sync-fit-readout { padding: 0 4px; } .sync-fit-line { padding: 0; }';
+  document.head.append(style);
+  let lineWidth = 0;
+  const line = document.createElement('div');
+  line.className = 'sync-fit-line';
+  Object.defineProperty(line, 'clientWidth', { configurable: true, get: () => lineWidth });
+  document.body.append(line);
+  const root = createRoot(line);
+  t.after(() => {
+    act(() => root.unmount());
+    line.remove();
+    style.remove();
+    Object.defineProperty(window.Element.prototype, 'getBoundingClientRect', rect);
+    delete globalThis.ResizeObserver;
+    delete globalThis.MutationObserver;
+    delete globalThis.getComputedStyle;
+    delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+  });
+  const variants = [[{ text: '42.1k tokens', separator: true }, { text: '48 tok/s' }], [{ text: '42.1k' }]];
+  function View({ surfaceActive, placement, siblingWidth }) {
+    return React.createElement(
+      SurfaceActiveContext.Provider,
+      { value: surfaceActive },
+      React.createElement(
+        ReadoutLayoutContext.Provider,
+        { value: placement },
+        React.createElement(FittedReadout, {
+          variants,
+          onClick() {},
+          title: 'Usage',
+          className: 'sync-fit-readout',
+        }),
+        siblingWidth > 0 &&
+          React.createElement('span', { ref: (node) => node && widths.set(node, siblingWidth) }, 'Controls')
+      )
+    );
+  }
+  const readout = () => line.querySelector('.composer-usage-readout');
+  // Hidden panel (0px): readout hides while recording data-full-width.
+  lineWidth = 0;
+  await act(async () =>
+    root.render(React.createElement(View, { surfaceActive: false, placement: 'line:0:0', siblingWidth: 200 }))
+  );
+  assert.equal(readout().hidden, true);
+  assert.ok(Number(readout().dataset.fullWidth) > 0);
+  // Revealed at 320px with 200px model controls beside it: fits only the compact variant.
+  lineWidth = 320;
+  await act(async () =>
+    root.render(React.createElement(View, { surfaceActive: true, placement: 'line:0:0', siblingWidth: 200 }))
+  );
+  assert.equal(readout().hidden, false);
+  assert.equal(readout().textContent, '42.1k', 'fits compact variant synchronously on reveal');
+  // Card layout moves model controls out of the line (placement flips to detail card): worded form fits synchronously.
+  canvas.measured.length = 0;
+  await act(async () =>
+    root.render(React.createElement(View, { surfaceActive: true, placement: 'detail:0:0', siblingWidth: 0 }))
+  );
+  assert.equal(readout().hidden, false);
+  assert.equal(readout().textContent, '42.1k tokens·48 tok/s', 'expands to worded form synchronously on card switch');
+  assert.deepEqual(canvas.measured, [], 'reuses cached text widths across placement re-fits for unchanged variants');
+});
+
+test('a fitted readout drops obsolete cached text widths when its variant texts change', async (t) => {
+  const { createRoot } = await import('react-dom/client');
+  const { act } = React;
+  globalThis.ResizeObserver = class {
+    observe() {}
+    disconnect() {}
+  };
+  globalThis.MutationObserver = class {
+    observe() {}
+    disconnect() {}
+  };
+  globalThis.getComputedStyle = window.getComputedStyle.bind(window);
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const line = document.createElement('div');
+  Object.defineProperty(line, 'clientWidth', { configurable: true, value: 400 });
+  document.body.append(line);
+  const root = createRoot(line);
+  t.after(() => {
+    act(() => root.unmount());
+    line.remove();
+    delete globalThis.ResizeObserver;
+    delete globalThis.MutationObserver;
+    delete globalThis.getComputedStyle;
+    delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+  });
+  const first = [[{ text: '10.0k tokens' }]];
+  const second = [[{ text: '10.1k tokens' }]];
+  canvas.measured.length = 0;
+  await act(async () =>
+    root.render(React.createElement(FittedReadout, { variants: first, onClick() {}, title: 'Usage', layoutKey: 'a' }))
+  );
+  assert.deepEqual(canvas.measured, ['10.0k tokens']);
+  // Layout-only re-fit with the same variant text reuses the cache.
+  canvas.measured.length = 0;
+  await act(async () =>
+    root.render(React.createElement(FittedReadout, { variants: first, onClick() {}, title: 'Usage', layoutKey: 'b' }))
+  );
+  assert.deepEqual(canvas.measured, []);
+  // Variant text changes: cache is replaced with the new text.
+  await act(async () =>
+    root.render(React.createElement(FittedReadout, { variants: second, onClick() {}, title: 'Usage', layoutKey: 'b' }))
+  );
+  assert.deepEqual(canvas.measured, ['10.1k tokens']);
+  // Returning to the earlier string measures it again, proving it was not retained.
+  canvas.measured.length = 0;
+  await act(async () =>
+    root.render(React.createElement(FittedReadout, { variants: first, onClick() {}, title: 'Usage', layoutKey: 'b' }))
+  );
+  assert.deepEqual(canvas.measured, ['10.0k tokens']);
+});
+
+test('a fitted readout re-measures fresh widths if fonts finish loading while variants are empty', async (t) => {
+  const { createRoot } = await import('react-dom/client');
+  const { act } = React;
+  const fonts = new window.EventTarget();
+  Object.defineProperty(document, 'fonts', { configurable: true, value: fonts });
+  globalThis.ResizeObserver = class {
+    observe() {}
+    disconnect() {}
+  };
+  globalThis.MutationObserver = class {
+    observe() {}
+    disconnect() {}
+  };
+  globalThis.getComputedStyle = window.getComputedStyle.bind(window);
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const line = document.createElement('div');
+  Object.defineProperty(line, 'clientWidth', { configurable: true, value: 400 });
+  document.body.append(line);
+  const root = createRoot(line);
+  t.after(() => {
+    act(() => root.unmount());
+    line.remove();
+    delete document.fonts;
+    delete globalThis.ResizeObserver;
+    delete globalThis.MutationObserver;
+    delete globalThis.getComputedStyle;
+    delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+  });
+  const variants = [[{ text: '42.1k tokens' }]];
+  canvas.measured.length = 0;
+  await act(async () => root.render(React.createElement(FittedReadout, { variants, onClick() {}, title: 'Usage' })));
+  assert.deepEqual(canvas.measured, ['42.1k tokens']);
+  // Variants empty -> component renders null and disconnects its font-load listener.
+  await act(async () =>
+    root.render(React.createElement(FittedReadout, { variants: [], onClick() {}, title: 'Usage' }))
+  );
+  // Font finishes loading while the readout is absent.
+  fonts.dispatchEvent(new window.Event('loadingdone'));
+  // Returning with the same variants must re-measure in the loaded font instead of reusing stale pre-load widths.
+  canvas.measured.length = 0;
+  await act(async () => root.render(React.createElement(FittedReadout, { variants, onClick() {}, title: 'Usage' })));
+  assert.deepEqual(canvas.measured, ['42.1k tokens']);
 });

@@ -15,6 +15,7 @@ use serde_json::Value;
 use super::job_starter::JobStarter;
 use super::job_starter::StartContext;
 use super::preset::SpawnPreset;
+use super::preset::bound_preset_for_session;
 use super::preset::merge_prepared_meta;
 use super::preset::pending_spawn_meta;
 use super::preset::prepared_spawn_meta;
@@ -102,6 +103,12 @@ where
         }
         Err(_) => Err(SPAWN_PREP_TIMED_OUT.into()),
     }
+}
+
+/// Config and preset resolved once for a spawn, shared between the pending card and async prep.
+struct ResolvedSpawnConfig {
+    config: Result<Obj, String>,
+    preset: Option<Result<SpawnPreset, String>>,
 }
 
 /// What a spawn will be, before anything is created.
@@ -212,10 +219,38 @@ impl SpawnFlowImpl {
         }
     }
 
+    /// Resolves config, route candidates, and planned preset once for a spawn.
+    async fn resolve_spawn_config(&self, args: &Value) -> ResolvedSpawnConfig {
+        let config = self.world.load_config().await;
+        let agent = normalize_agent_name(&clean(args.get("agent")));
+        let preset = match &config {
+            Ok(cfg) if !agent.is_empty() => Some(match self.world.route_candidates(cfg, &agent).await {
+                Ok(candidates) => resolve_agent_spawn_preset(cfg, args, &candidates),
+                Err(error) => Err(error),
+            }),
+            _ => None,
+        };
+        ResolvedSpawnConfig { config, preset }
+    }
+
     /// The shared validations (agent, preset, tag, cwd, prompt).
     pub async fn resolve_spawn_plan(&self, args: &Value, caller_cwd: Option<&str>, context: &SpawnContext) -> Result<SpawnPlan, String> {
+        self.resolve_spawn_plan_with_config(args, caller_cwd, context, None).await
+    }
+
+    async fn resolve_spawn_plan_with_config(
+        &self,
+        args: &Value,
+        caller_cwd: Option<&str>,
+        context: &SpawnContext,
+        pre_resolved: Option<ResolvedSpawnConfig>,
+    ) -> Result<SpawnPlan, String> {
         let world = &self.world;
-        let config = world.load_config().await?;
+        let resolved = match pre_resolved {
+            Some(resolved) => resolved,
+            None => self.resolve_spawn_config(args).await,
+        };
+        let config = resolved.config?;
         let agent = normalize_agent_name(&clean(args.get("agent")));
         if agent.is_empty() {
             return Err("agent spawn: agent is required".into());
@@ -237,8 +272,13 @@ impl SpawnFlowImpl {
             assert_bot_chain_target(&agent, &delegation.chain, &delegation.acting, "agent spawn")?;
         }
         let agent_perm = world.agent_permission(&agent).await?;
-        let candidates = world.route_candidates(&config, &agent).await?;
-        let SpawnPreset { preset_name, preset } = resolve_agent_spawn_preset(&config, args, &candidates)?;
+        let SpawnPreset { preset_name, preset } = match resolved.preset {
+            Some(result) => result?,
+            None => {
+                let candidates = world.route_candidates(&config, &agent).await?;
+                resolve_agent_spawn_preset(&config, args, &candidates)?
+            }
+        };
         let explicit = clean(args.get("tag"));
         // The tag is taken under the registry's admission, against the stored worker rows read whole for this spawn: a
         // read that fails ends the spawn here, before a tag is chosen, an explicit one is judged free, or a child is
@@ -345,18 +385,30 @@ impl SpawnFlowImpl {
 
     /// `prepareSpawnInProcess` after `refreshTagsFromSessions`.
     pub async fn prepare_spawn(&self, args: &Value, caller_cwd: Option<&str>, context: &SpawnContext) -> Result<PreparedSpawn, String> {
+        self.prepare_spawn_with_config(args, caller_cwd, context, None).await
+    }
+
+    async fn prepare_spawn_with_config(
+        &self,
+        args: &Value,
+        caller_cwd: Option<&str>,
+        context: &SpawnContext,
+        pre_resolved: Option<ResolvedSpawnConfig>,
+    ) -> Result<PreparedSpawn, String> {
         self.registry.refresh_tags_from_sessions(false, &context.scope()).await?;
         // Shared admission with Lead workspace transitions: no spawn is prepared while the
         // Lead's workspace changes, no transition starts mid-spawn.
         let _leave = self.admission.enter_worker_spawn(&[context.owner_id(), context.caller_id()])?;
-        let plan = self.resolve_spawn_plan(args, caller_cwd, context).await?;
+        let plan = self.resolve_spawn_plan_with_config(args, caller_cwd, context, pre_resolved).await?;
         let spec = self.spawn_session_spec(&plan, args, context);
         let Created { session, effective_cwd } = self.create_spawned_session(&plan, &spec).await?;
+        // Reflect the bound executable route (which may be an admitted fallback) in statusline, tag, and metadata.
+        let bound_preset = bound_preset_for_session(&plan.preset, &session);
         // Agent sessions are built here, not through a Lead's create: mirror its registrations,
         // or the statusline cannot resolve the agent route/model.
         let session_id = session.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
-        self.world.write_statusline_route(&session_id, &plan.preset);
-        let mut descriptor = preset_descriptor(&plan.agent, &plan.preset, &plan.preset_name);
+        self.world.write_statusline_route(&session_id, &bound_preset);
+        let mut descriptor = preset_descriptor(&plan.agent, &bound_preset, &plan.preset_name);
         descriptor.insert("status".into(), "idle".into());
         descriptor.insert("stage".into(), "idle".into());
         self.world.bind_tag(&plan.tag, &session, &descriptor);
@@ -364,14 +416,14 @@ impl SpawnFlowImpl {
         drop(plan.claim);
         drop(_leave);
         if !self.world.canonical_surface() {
-            self.world.prewarm_transport(&clean(plan.preset.get("provider")), &session);
+            self.world.prewarm_transport(&clean(bound_preset.get("provider")), &session);
         }
         Ok(PreparedSpawn {
             args: args.clone(),
             tag: plan.tag,
             session,
             agent: plan.agent,
-            preset: plan.preset,
+            preset: bound_preset,
             preset_name: plan.preset_name,
             worker_cwd: effective_cwd.filter(|c| !c.is_empty()).unwrap_or(plan.worker_cwd),
             prompt: plan.prompt,
@@ -423,9 +475,11 @@ impl SpawnFlowImpl {
         options: SpawnOptions,
     ) -> Result<Arc<JobHandle>, String> {
         let missing = |key: &str| clean(args.get(key)).is_empty();
-        // Best effort: the pending card shows the model even when the caller named none.
-        let resolved = if missing("model") || missing("provider") { self.pending_preset(args).await } else { None };
-        let meta = pending_spawn_meta(args, resolved.as_ref(), options.respawned);
+        // Only resolve config/candidates ahead of job registration when the pending card needs a route lookup;
+        // a fully pinned spawn registers immediately and runs any lookup inside the timed preparation task.
+        let resolved_cfg = if missing("model") || missing("provider") { Some(self.resolve_spawn_config(args).await) } else { None };
+        let resolved = resolved_cfg.as_ref().and_then(|cfg| cfg.preset.as_ref()).and_then(|res| res.as_ref().ok()).map(|s| &s.preset);
+        let meta = pending_spawn_meta(args, resolved, options.respawned);
         let start = StartContext {
             caller_session_id: Some(notify.caller_id()).filter(|c| !c.is_empty()),
             owner_session_id: Some(notify.owner_id()).filter(|c| !c.is_empty()),
@@ -444,7 +498,7 @@ impl SpawnFlowImpl {
                 let (args, caller_cwd, context) = (args.clone(), caller_cwd.clone(), context.clone());
                 within_deadline(
                     SPAWN_PREP_DEADLINE,
-                    async move { preparing.prepare_spawn(&args, Some(&caller_cwd), &context).await },
+                    async move { preparing.prepare_spawn_with_config(&args, Some(&caller_cwd), &context, resolved_cfg).await },
                     move |late: PreparedSpawn| async move { closing.close_prepared_spawn(&late, "agent-spawn-prep-timeout").await },
                 )
                 .await?
@@ -525,14 +579,6 @@ impl SpawnFlowImpl {
             }
             _ => Err(row.error.filter(|e| !e.is_empty()).unwrap_or_else(|| "the agent run failed".into())),
         }
-    }
-
-    /// The preset a pending card shows; an error shows nothing.
-    async fn pending_preset(&self, args: &Value) -> Option<Value> {
-        let config = self.world.loaded_config()?;
-        let agent = normalize_agent_name(&clean(args.get("agent")));
-        let candidates = self.world.route_candidates(&config, &agent).await.ok()?;
-        resolve_agent_spawn_preset(&config, args, &candidates).ok().map(|s| s.preset)
     }
 }
 

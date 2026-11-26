@@ -276,6 +276,7 @@ fn folds(event: &p::StreamEvent) -> bool {
         | E::ReasoningDelta(_)
         | E::ProgressDelta(_)
         | E::ToolCallStart { .. }
+        | E::ToolCallIdRenamed { .. }
         | E::ToolCallArgsDelta { .. }
         | E::ToolCallDone(_)
         | E::Completed { .. }

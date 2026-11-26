@@ -133,22 +133,386 @@ async fn every_account_spent_proves_quota_exhaustion_with_the_last_error() {
 }
 
 #[tokio::test]
-async fn refusals_that_are_not_about_usage_never_block_or_rotate() {
+async fn refusals_that_are_not_about_usage_or_auth_never_block_or_rotate() {
     mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
     let (rotation, s) = rotation(&dir, clock()).await;
-    let mut expired = refusal(ErrorKind::Auth, 401);
-    expired.error.reauth_required = true;
     // The meters of this account show no spent window: a long advised wait alone is not the quota.
     let mut long_wait = refusal(ErrorKind::RateLimited, 429);
     long_wait.error.retry_after = Some(std::time::Duration::from_secs(600));
-    for failed in [refusal(ErrorKind::Overloaded, 529), refusal(ErrorKind::QuotaExhausted, 403), expired, long_wait] {
+    for failed in [refusal(ErrorKind::Overloaded, 529), refusal(ErrorKind::Policy, 403), refusal(ErrorKind::InvalidRequest, 400), long_wait] {
         let script = Script::new(vec![(ID_A, vec![Err(failed)])]);
         let err = rotation.pool_send(PROVIDER, &ctx(), &script).await.unwrap_err();
         assert!(matches!(err.cause, Cause::Provider(_)) && err.quota_exhausted.is_none());
         assert_eq!(script.calls(), [ID_A]);
     }
     assert!(s.pool(PROVIDER).await.unwrap().accounts.iter().all(|a| a.blocks().is_empty()));
+}
+
+#[tokio::test]
+async fn automatic_pool_rotates_on_401_and_403_auth_entitlement_failures() {
+    mixdog_rt::testing::tokens();
+    let mut expired = refusal(ErrorKind::Auth, 401);
+    expired.error.reauth_required = true;
+    let mut service_blocked = refusal(ErrorKind::Permission, 403);
+    service_blocked.error.code = Some("api_key_service_blocked".into());
+    let mut model_blocked = refusal(ErrorKind::Permission, 403);
+    model_blocked.error.code = Some("MODEL_BLOCKED".into());
+    let mut entitlement = refusal(ErrorKind::Entitlement, 403);
+    entitlement.error.code = Some("usage_not_included".into());
+    let cases = [
+        ("401-reauth", Policy::Limit, expired, true),
+        ("403-api-key-service-blocked", Policy::Limit, service_blocked, true),
+        ("403-model-blocked", Policy::Limit, model_blocked, false),
+        ("403-entitlement", Policy::Headroom, entitlement, false),
+        ("403-quota-status", Policy::Limit, refusal(ErrorKind::QuotaExhausted, 403), false),
+    ];
+    for (case, pool_policy, failed, account_wide) in cases {
+        let dir = tempfile::tempdir().unwrap();
+        let pace = clock();
+        let (rotation, s) = rotation(&dir, pace.clone()).await;
+        s.change(PROVIDER, AccountChange { policy: Some(pool_policy), ..AccountChange::default() }).await.unwrap();
+
+        let script = Script::new(vec![(ID_A, vec![Err(failed)]), (ID_B, vec![Ok("answer")])]);
+        let got = rotation.pool_send(PROVIDER, &ctx(), &script).await.unwrap();
+        assert_eq!(got, "answer@22/22", "{case}: healthy sibling must serve the same model");
+        assert_eq!(script.calls(), [ID_A, ID_B], "{case}: must rotate from failing A to healthy B");
+
+        let pool = s.pool(PROVIDER).await.unwrap();
+        let a = pool.account(ID_A).unwrap();
+        assert_eq!(a.blocked_quota, None, "{case}: auth/entitlement failure is not quota evidence");
+        assert_eq!(a.blocked_limit.as_deref(), Some(policy::AUTH_BLOCK_LIMIT), "{case}: auth block recorded");
+        assert_eq!(a.blocked_model.as_deref(), (!account_wide).then_some("grok-4"), "{case}: block scope");
+        let expected_selected = if account_wide { ID_B } else { ID_A };
+        assert_eq!(pool.selected_id.as_deref(), Some(expected_selected), "{case}: account-wide commits B, model-scoped keeps A");
+
+        // A usage reading showing plenty of quota room must NOT lift the auth block.
+        let room = QuotaWindowInput { label: "7D".into(), used_pct: Some(10.0), reset_at: Some(1_900_000_000_000), ..QuotaWindowInput::default() };
+        s.record_usage(PROVIDER, ID_A, vec![room]).await.unwrap();
+        let after_usage = s.pool(PROVIDER).await.unwrap();
+        assert!(policy::account_auth_blocked(after_usage.account(ID_A).unwrap(), pace.now_ms() as i64, "grok-4"), "{case}: auth block survives usage refresh");
+
+        let stages = script.stages.lock().unwrap();
+        assert!(stages.iter().any(|st| matches!(st, Stage::Reconnecting { message, .. } if message.starts_with("Authentication failed"))), "{case}");
+        let changed = stages.iter().any(|st| matches!(st, Stage::AccountChanged { account_id, .. } if account_id == ID_B));
+        assert_eq!(changed, account_wide, "{case}: AccountChanged only for account-wide failover");
+    }
+}
+
+#[tokio::test]
+async fn request_specific_or_generic_403_permission_does_not_rotate_or_block_accounts() {
+    mixdog_rt::testing::tokens();
+    for code in [
+        None,
+        Some("permission_error"),
+        Some("permission_denied"),
+        Some("forbidden"),
+        Some("GITHUB_MULTIPLE_OWNERS"),
+        Some("GITHUB_USER_NO_ACCESS"),
+        Some("GITHUB_APP_NO_ACCESS"),
+        Some("UNSUPPORTED_REGION"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let (rotation, s) = rotation(&dir, clock()).await;
+        let mut failed = refusal(ErrorKind::Permission, 403);
+        failed.error.code = code.map(str::to_owned);
+        let script = Script::new(vec![(ID_A, vec![Err(failed)]), (ID_B, vec![Ok("should-not-run")])]);
+
+        let err = rotation.pool_send(PROVIDER, &ctx(), &script).await.unwrap_err();
+        assert!(matches!(&err.cause, Cause::Provider(e) if e.kind == ErrorKind::Permission && e.code.as_deref() == code), "{code:?}");
+        assert!(err.quota_exhausted.is_none(), "{code:?}");
+        assert_eq!(script.calls(), [ID_A], "{code:?}: generic/request-specific 403 must not rotate");
+        assert!(s.pool(PROVIDER).await.unwrap().accounts.iter().all(|a| a.blocks().is_empty()), "{code:?}: must not block any account");
+    }
+}
+
+#[tokio::test]
+async fn model_scoped_403_does_not_permanently_move_unrelated_models_off_selected_account() {
+    mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let (rotation, s) = rotation(&dir, clock()).await;
+    let mut denied = refusal(ErrorKind::Permission, 403);
+    denied.error.code = Some("MODEL_BLOCKED".into());
+    let first = Script::new(vec![(ID_A, vec![Err(denied)]), (ID_B, vec![Ok("from-b")])]);
+    assert_eq!(rotation.pool_send(PROVIDER, &ctx(), &first).await.unwrap(), "from-b@22/22");
+    assert_eq!(first.calls(), [ID_A, ID_B]);
+    assert_eq!(s.pool(PROVIDER).await.unwrap().selected_id.as_deref(), Some(ID_A), "selected account remains A");
+
+    // Unrelated model stays on A without touching B.
+    let mut other_model = ctx();
+    other_model.model = "grok-3".into();
+    let second = Script::new(vec![(ID_A, vec![Ok("from-a")])]);
+    assert_eq!(rotation.pool_send(PROVIDER, &other_model, &second).await.unwrap(), "from-a@11/11");
+    assert_eq!(second.calls(), [ID_A]);
+
+    // Blocked model continues routing to B while still leaving A selected for other models.
+    let third = Script::new(vec![(ID_B, vec![Ok("still-b")])]);
+    assert_eq!(rotation.pool_send(PROVIDER, &ctx(), &third).await.unwrap(), "still-b@22/22");
+    assert_eq!(third.calls(), [ID_B]);
+    assert_eq!(s.pool(PROVIDER).await.unwrap().selected_id.as_deref(), Some(ID_A));
+}
+
+#[tokio::test]
+async fn account_wide_403_api_key_service_blocked_blocks_account_across_all_models() {
+    mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let pace = clock();
+    let (rotation, s) = rotation(&dir, pace.clone()).await;
+    let mut blocked = refusal(ErrorKind::Permission, 403);
+    blocked.error.code = Some("api_key_service_blocked".into());
+    let first = Script::new(vec![(ID_A, vec![Err(blocked)]), (ID_B, vec![Ok("from-b")])]);
+    assert_eq!(rotation.pool_send(PROVIDER, &ctx(), &first).await.unwrap(), "from-b@22/22");
+    assert_eq!(first.calls(), [ID_A, ID_B]);
+
+    let pool = s.pool(PROVIDER).await.unwrap();
+    let a = pool.account(ID_A).unwrap();
+    let now = pace.now_ms() as i64;
+    assert_eq!(a.blocked_model, None, "account-wide 403 must not scope to a single model");
+    assert!(policy::account_wide_auth_blocked(a, now));
+    assert!(policy::account_exhausted(a, now, "grok-3", true), "disabled account must be blocked for unrelated models too");
+    assert_eq!(pool.selected_id.as_deref(), Some(ID_B), "account-wide block commits healthy sibling B");
+
+    // Sending an unrelated model while A is selected manually? Even if A is checked, B serves directly.
+    let mut other_model = ctx();
+    other_model.model = "grok-3".into();
+    let second = Script::new(vec![(ID_B, vec![Ok("b-other")])]);
+    assert_eq!(rotation.pool_send(PROVIDER, &other_model, &second).await.unwrap(), "b-other@22/22");
+    assert_eq!(second.calls(), [ID_B]);
+}
+
+#[tokio::test]
+async fn manual_policy_never_rotates_or_blocks_on_401_or_403() {
+    mixdog_rt::testing::tokens();
+    let mut expired = refusal(ErrorKind::Auth, 401);
+    expired.error.reauth_required = true;
+    let mut service_blocked = refusal(ErrorKind::Permission, 403);
+    service_blocked.error.code = Some("api_key_service_blocked".into());
+    let mut model_blocked = refusal(ErrorKind::Permission, 403);
+    model_blocked.error.code = Some("MODEL_BLOCKED".into());
+    for failed in [expired, service_blocked, model_blocked, refusal(ErrorKind::Entitlement, 403), refusal(ErrorKind::QuotaExhausted, 403)] {
+        let dir = tempfile::tempdir().unwrap();
+        let pace = clock();
+        let (rotation, s) = rotation(&dir, pace.clone()).await;
+        s.change(PROVIDER, AccountChange { policy: Some(Policy::Manual), ..AccountChange::default() }).await.unwrap();
+
+        let expected_kind = failed.error.kind;
+        let expected_status = failed.error.status;
+        let expected_reauth = failed.error.reauth_required;
+        let mut script = Script::new(vec![(ID_A, vec![Err(failed)]), (ID_B, vec![Ok("should-not-run")])]);
+        script.cooldown = Some(CooldownPolicy { wait_for_cooldown_ms: Some(300_000), ..CooldownPolicy::default() });
+
+        let err = rotation.pool_send(PROVIDER, &ctx(), &script).await.unwrap_err();
+        assert!(matches!(&err.cause, Cause::Provider(e) if e.kind == expected_kind && e.status == expected_status && e.reauth_required == expected_reauth));
+        assert!(err.quota_exhausted.is_none());
+        assert_eq!(script.calls(), [ID_A], "manual policy must stay strictly pinned to A");
+        assert!(pace.waits.lock().unwrap().is_empty(), "manual auth failure must never sleep/wait");
+        assert!(s.pool(PROVIDER).await.unwrap().account(ID_A).unwrap().blocks().is_empty(), "manual auth failure must not lock out A");
+    }
+}
+
+#[tokio::test]
+async fn all_automatic_pool_accounts_failing_auth_terminates_after_trying_each_once() {
+    mixdog_rt::testing::tokens();
+    const ID_C: &str = "33333333-3333-4333-8333-333333333333";
+    let dir = tempfile::tempdir().unwrap();
+    let pace = clock();
+    let (rotation, s) = rotation(&dir, pace.clone()).await;
+    s.register(PROVIDER, ID_C, "C", false).await.unwrap();
+
+    let mut expired_a = refusal(ErrorKind::Auth, 401);
+    expired_a.error.reauth_required = true;
+    let mut expired_b = refusal(ErrorKind::Auth, 401);
+    expired_b.error.reauth_required = true;
+    let mut expired_c = refusal(ErrorKind::Auth, 401);
+    expired_c.error.reauth_required = true;
+    let mut script = Script::new(vec![(ID_A, vec![Err(expired_a)]), (ID_B, vec![Err(expired_b)]), (ID_C, vec![Err(expired_c)])]);
+    // Even with a wait policy enabled (e.g. Antigravity), auth failures must never wait or loop.
+    script.cooldown = Some(CooldownPolicy { rotate_on_rate_limit: true, wait_for_cooldown_ms: Some(300_000), ..CooldownPolicy::default() });
+
+    let err = rotation.pool_send(PROVIDER, &ctx(), &script).await.unwrap_err();
+    assert_eq!(script.calls(), [ID_A, ID_B, ID_C], "each eligible account is tried exactly once");
+    assert!(pace.waits.lock().unwrap().is_empty(), "must not sleep waiting on auth failures");
+    assert!(matches!(&err.cause, Cause::Provider(e) if e.kind == ErrorKind::Auth && e.status == Some(401) && e.reauth_required));
+    assert!(err.quota_exhausted.is_none(), "auth failure must not be misreported as quota exhaustion");
+
+    // Follow-up send while all accounts remain account-wide auth-cooled must surface Auth with reauth_required without looping.
+    let second = Script::new(vec![]);
+    let err2 = rotation.pool_send(PROVIDER, &ctx(), &second).await.unwrap_err();
+    assert!(second.calls().is_empty());
+    assert!(matches!(&err2.cause, Cause::Provider(e) if e.kind == ErrorKind::Auth && e.reauth_required));
+    assert!(err2.quota_exhausted.is_none());
+}
+
+#[tokio::test]
+async fn mixed_model_entitlement_block_and_quota_exhausted_sibling_never_sets_reauth_required() {
+    mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let pace = clock();
+    let now = pace.now_ms() as i64;
+    let reset_at = now + 3_600_000;
+    let (rot, s) = rotation(&dir, pace).await;
+
+    // Account B has a full usage window; Account A only lacks entitlement for grok-4.
+    let full = QuotaWindowInput { label: "7D".into(), used_pct: Some(100.0), reset_at: Some(reset_at), ..QuotaWindowInput::default() };
+    s.record_usage(PROVIDER, ID_B, vec![full]).await.unwrap();
+
+    let mut model_denied = refusal(ErrorKind::Permission, 403);
+    model_denied.error.code = Some("MODEL_BLOCKED".into());
+    let first = Script::new(vec![(ID_A, vec![Err(model_denied)])]);
+    let err1 = rot.pool_send(PROVIDER, &ctx(), &first).await.unwrap_err();
+    assert_eq!(first.calls(), [ID_A]);
+    assert!(matches!(&err1.cause, Cause::Provider(e) if e.kind == ErrorKind::Permission && !e.reauth_required));
+
+    // Follow-up send while A is model-entitlement blocked and B is usage-window exhausted
+    // must NOT falsely claim reauth_required.
+    let second = Script::new(vec![]);
+    let err2 = rot.pool_send(PROVIDER, &ctx(), &second).await.unwrap_err();
+    assert!(second.calls().is_empty());
+    assert!(
+        !matches!(&err2.cause, Cause::Provider(e) if e.reauth_required || e.kind == ErrorKind::Auth),
+        "mixed entitlement + quota exhaustion must never set reauth_required: {:?}",
+        err2.cause
+    );
+    assert!(matches!(err2.cause, Cause::AccountsExhausted { .. }));
+    assert_eq!(err2.quota_exhausted.expect("quota proof from B").reset_at, Some(reset_at));
+
+    // Also verify all-model-entitlement-blocked (A 401 + B model-only 403) does NOT set reauth_required on follow-up.
+    let dir2 = tempfile::tempdir().unwrap();
+    let (rotation2, _) = rotation(&dir2, clock()).await;
+    let mut expired_a = refusal(ErrorKind::Auth, 401);
+    expired_a.error.reauth_required = true;
+    let mut denied_b = refusal(ErrorKind::Permission, 403);
+    denied_b.error.code = Some("PRO_USER_ONLY".into());
+    let turn1 = Script::new(vec![(ID_A, vec![Err(expired_a)]), (ID_B, vec![Err(denied_b)])]);
+    let _ = rotation2.pool_send(PROVIDER, &ctx(), &turn1).await.unwrap_err();
+    let turn2 = Script::new(vec![]);
+    let err3 = rotation2.pool_send(PROVIDER, &ctx(), &turn2).await.unwrap_err();
+    assert!(matches!(&err3.cause, Cause::Provider(e) if e.kind == ErrorKind::Permission && !e.reauth_required));
+    assert!(err3.quota_exhausted.is_none());
+}
+
+#[tokio::test]
+async fn mixed_roster_reauth_required_is_false_regardless_of_attempt_order() {
+    mixdog_rt::testing::tokens();
+
+    // Order 1 (live): A fails with MODEL_BLOCKED (model-only), rotates to B, B fails with 401 (reauth_required = true).
+    // A is still signed in for other models, so the aggregate pool error must NOT set reauth_required = true.
+    let dir1 = tempfile::tempdir().unwrap();
+    let (rot1, _) = rotation(&dir1, clock()).await;
+    let mut model_blocked_a = refusal(ErrorKind::Permission, 403);
+    model_blocked_a.error.code = Some("MODEL_BLOCKED".into());
+    let mut expired_b = refusal(ErrorKind::Auth, 401);
+    expired_b.error.reauth_required = true;
+    let live = Script::new(vec![(ID_A, vec![Err(model_blocked_a)]), (ID_B, vec![Err(expired_b.clone())])]);
+    let err1 = rot1.pool_send(PROVIDER, &ctx(), &live).await.unwrap_err();
+    assert_eq!(live.calls(), [ID_A, ID_B]);
+    assert!(
+        matches!(&err1.cause, Cause::Provider(e) if !e.reauth_required),
+        "live A MODEL_BLOCKED -> B 401 must not surface reauth_required = true: {:?}",
+        err1.cause
+    );
+    assert!(err1.quota_exhausted.is_none());
+
+    // Order 2 (pre-blocked): A is already model-blocked before the send; send tries B, B fails with 401 (reauth_required = true).
+    // Even though only B was attempted in this send, A is still signed in, so reauth_required must be false.
+    let dir2 = tempfile::tempdir().unwrap();
+    let pace2 = clock();
+    let now2 = pace2.now_ms() as i64;
+    let (rot2, s2) = rotation(&dir2, pace2.clone()).await;
+    s2.with_clock(pace2)
+        .block(PROVIDER, ID_A, now2 + 300_000, "grok-4", BlockOptions { limit: policy::AUTH_BLOCK_LIMIT.into(), ..BlockOptions::default() })
+        .await
+        .unwrap();
+    let pre_blocked = Script::new(vec![(ID_B, vec![Err(expired_b.clone())])]);
+    let err2 = rot2.pool_send(PROVIDER, &ctx(), &pre_blocked).await.unwrap_err();
+    assert_eq!(pre_blocked.calls(), [ID_B]);
+    assert!(
+        matches!(&err2.cause, Cause::Provider(e) if !e.reauth_required),
+        "pre-blocked A -> B 401 must not surface reauth_required = true: {:?}",
+        err2.cause
+    );
+    assert!(err2.quota_exhausted.is_none());
+
+    // Order 3 (pre-exhausted): A is usage-window exhausted before the send; send tries B, B fails with 401 (reauth_required = true).
+    let dir3 = tempfile::tempdir().unwrap();
+    let pace3 = clock();
+    let now3 = pace3.now_ms() as i64;
+    let (rot3, s3) = rotation(&dir3, pace3.clone()).await;
+    let full = QuotaWindowInput { label: "7D".into(), used_pct: Some(100.0), reset_at: Some(now3 + 3_600_000), ..QuotaWindowInput::default() };
+    s3.with_clock(pace3).record_usage(PROVIDER, ID_A, vec![full]).await.unwrap();
+    let pre_exhausted = Script::new(vec![(ID_B, vec![Err(expired_b)])]);
+    let err3 = rot3.pool_send(PROVIDER, &ctx(), &pre_exhausted).await.unwrap_err();
+    assert_eq!(pre_exhausted.calls(), [ID_B]);
+    assert!(
+        matches!(&err3.cause, Cause::Provider(e) if !e.reauth_required),
+        "usage-exhausted A -> B 401 must not surface reauth_required = true: {:?}",
+        err3.cause
+    );
+    assert!(err3.quota_exhausted.is_none());
+}
+
+#[tokio::test]
+async fn all_wide_auth_reauth_required_is_true_regardless_of_attempt_order() {
+    mixdog_rt::testing::tokens();
+
+    let mut expired_401 = refusal(ErrorKind::Auth, 401);
+    expired_401.error.reauth_required = true;
+    let mut blocked_403 = refusal(ErrorKind::Permission, 403);
+    blocked_403.error.code = Some("api_key_service_blocked".into());
+    blocked_403.error.reauth_required = false;
+
+    // Order 1: A fails with 401 (reauth_required = true), rotates to B, B fails with 403 api_key_service_blocked (reauth_required = false).
+    let dir1 = tempfile::tempdir().unwrap();
+    let (rot1, _) = rotation(&dir1, clock()).await;
+    let s1 = Script::new(vec![(ID_A, vec![Err(expired_401.clone())]), (ID_B, vec![Err(blocked_403.clone())])]);
+    let err1 = rot1.pool_send(PROVIDER, &ctx(), &s1).await.unwrap_err();
+    assert_eq!(s1.calls(), [ID_A, ID_B]);
+    assert!(
+        matches!(&err1.cause, Cause::Provider(e) if e.reauth_required),
+        "A(401) -> B(api_key_service_blocked) must set reauth_required = true: {:?}",
+        err1.cause
+    );
+    let follow1 = Script::new(vec![]);
+    let err1_follow = rot1.pool_send(PROVIDER, &ctx(), &follow1).await.unwrap_err();
+    assert!(follow1.calls().is_empty());
+    assert!(
+        matches!(&err1_follow.cause, Cause::Provider(e) if e.reauth_required),
+        "follow-up send after A(401) -> B(api_key_service_blocked) must match reauth_required = true: {:?}",
+        err1_follow.cause
+    );
+
+    // Order 2: A fails with 403 api_key_service_blocked (reauth_required = false), rotates to B, B fails with 401 (reauth_required = true).
+    let dir2 = tempfile::tempdir().unwrap();
+    let (rot2, _) = rotation(&dir2, clock()).await;
+    let s2 = Script::new(vec![(ID_A, vec![Err(blocked_403)]), (ID_B, vec![Err(expired_401)])]);
+    let err2 = rot2.pool_send(PROVIDER, &ctx(), &s2).await.unwrap_err();
+    assert_eq!(s2.calls(), [ID_A, ID_B]);
+    assert!(
+        matches!(&err2.cause, Cause::Provider(e) if e.reauth_required),
+        "A(api_key_service_blocked) -> B(401) must set reauth_required = true: {:?}",
+        err2.cause
+    );
+    let follow2 = Script::new(vec![]);
+    let err2_follow = rot2.pool_send(PROVIDER, &ctx(), &follow2).await.unwrap_err();
+    assert!(follow2.calls().is_empty());
+    assert!(
+        matches!(&err2_follow.cause, Cause::Provider(e) if e.reauth_required),
+        "follow-up send after A(api_key_service_blocked) -> B(401) must match reauth_required = true: {:?}",
+        err2_follow.cause
+    );
+}
+
+#[tokio::test]
+async fn auth_failure_after_visible_output_never_rotates() {
+    mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let (rotation, _) = rotation(&dir, clock()).await;
+    let mut failed = refusal(ErrorKind::Auth, 401);
+    failed.emitted = true;
+    let script = Script::new(vec![(ID_A, vec![Err(failed)]), (ID_B, vec![Ok("should-not-run")])]);
+    let err = rotation.pool_send(PROVIDER, &ctx(), &script).await.unwrap_err();
+    assert!(matches!(&err.cause, Cause::Provider(e) if e.kind == ErrorKind::Auth));
+    assert_eq!(script.calls(), [ID_A], "must not replay after visible output");
 }
 
 #[tokio::test]

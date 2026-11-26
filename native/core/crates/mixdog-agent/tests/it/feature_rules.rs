@@ -119,3 +119,159 @@ fn a_spawn_with_no_route_to_run_on_fails_naming_what_is_missing() {
     let unassigned = resolve_agent_spawn_preset(config, &json!({ "agent": "worker" }), &[]).unwrap_err();
     assert_eq!(unassigned, "agent: agent \"worker\" has no Main model assignment");
 }
+
+#[test]
+fn a_workflow_agent_assigned_a_preset_name_resolves_that_preset_instead_of_main() {
+    let config = json!({
+        "default": "main-preset",
+        "presets": [
+            { "id": "main-preset", "name": "MAIN", "provider": "anthropic", "model": "opus", "effort": "high" },
+            {
+                "id": "light",
+                "name": "LIGHT",
+                "provider": "openai",
+                "model": "gpt-mini",
+                "effort": "low",
+                "fast": true,
+                "fallbacks": [{ "provider": "google", "model": "gemini-flash" }]
+            },
+            { "id": "opus-high", "name": "OPUS HIGH", "provider": "anthropic", "model": "opus", "effort": "high" }
+        ]
+    });
+    let config = config.as_object().unwrap();
+    let spawn = resolve_agent_spawn_preset(config, &json!({ "agent": "worker" }), &[json!("light")]).unwrap();
+    assert_eq!(spawn.preset_name, json!("AGENT WORKER"));
+    assert_eq!(
+        (&spawn.preset["provider"], &spawn.preset["model"], &spawn.preset["effort"], &spawn.preset["fast"]),
+        (&json!("openai"), &json!("gpt-mini"), &json!("low"), &json!(true))
+    );
+    assert_eq!(spawn.preset["fallbackSource"], json!({ "preset": "light" }));
+    assert_eq!(spawn.preset["fallbacks"][0]["provider"], json!("google"));
+    assert_eq!(spawn.preset["fallbacks"][0]["model"], json!("gemini-flash"));
+
+    let alias = resolve_agent_spawn_preset(config, &json!({ "agent": "worker" }), &[json!("opus-xhigh")]).unwrap();
+    assert_eq!((&alias.preset["provider"], &alias.preset["model"], &alias.preset["effort"]), (&json!("anthropic"), &json!("opus"), &json!("xhigh")));
+    assert_eq!(alias.preset["fallbackSource"], json!({ "preset": "opus-high" }));
+}
+
+#[test]
+fn a_workflow_agent_assigned_a_shipped_default_preset_resolves_it_instead_of_main() {
+    let config = json!({
+        "default": "main-preset",
+        "presets": [
+            { "id": "main-preset", "name": "MAIN", "provider": "openai", "model": "gpt-main", "effort": "low" }
+        ]
+    });
+    let config = config.as_object().unwrap();
+    let spawn = resolve_agent_spawn_preset(config, &json!({ "agent": "worker" }), &[json!("sonnet-high")]).unwrap();
+    assert_eq!(spawn.preset_name, json!("AGENT WORKER"));
+    assert_eq!(spawn.preset["provider"], json!("anthropic-oauth"));
+    assert_eq!(spawn.preset["effort"], json!("high"));
+    assert_ne!(spawn.preset["model"], json!("gpt-main"));
+    assert_eq!(spawn.preset["fallbackSource"], json!({ "preset": "sonnet-high" }));
+}
+
+#[test]
+fn a_synthesized_preset_records_its_backing_stored_preset_in_fallback_source() {
+    let config = json!({
+        "presets": [
+            {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "provider": "anthropic",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "fallbacks": [{ "provider": "openai", "model": "gpt-5" }]
+            }
+        ]
+    });
+    let config = config.as_object().unwrap();
+    let via_agent = resolve_agent_spawn_preset(config, &json!({ "agent": "worker" }), &[json!("opus-xhigh")]).unwrap();
+    assert_eq!(via_agent.preset["effort"], json!("xhigh"));
+    assert_eq!(via_agent.preset["fallbackSource"], json!({ "preset": "opus-high" }));
+    assert_eq!(via_agent.preset["fallbacks"][0]["model"], json!("gpt-5"));
+
+    let via_named = resolve_agent_spawn_preset(config, &json!({ "agent": "worker", "preset": "opus-xhigh" }), &[]).unwrap();
+    assert_eq!(via_named.preset["effort"], json!("xhigh"));
+    assert_eq!(via_named.preset["fallbackSource"], json!({ "preset": "opus-high" }));
+    assert_eq!(via_named.preset["fallbacks"][0]["model"], json!("gpt-5"));
+}
+
+#[test]
+fn an_incomplete_stored_preset_does_not_shadow_a_valid_shipped_default() {
+    let config = json!({
+        "default": "main-preset",
+        "presets": [
+            { "id": "main-preset", "name": "MAIN", "provider": "openai", "model": "gpt-main", "effort": "low" },
+            { "id": "sonnet-high", "name": "SONNET HIGH" },
+            { "id": "broken-custom", "name": "BROKEN CUSTOM" }
+        ]
+    });
+    let config = config.as_object().unwrap();
+
+    // Agent assignment pointing to `sonnet-high` resolves the valid shipped default instead of Main.
+    let spawn = resolve_agent_spawn_preset(config, &json!({ "agent": "worker" }), &[json!("sonnet-high")]).unwrap();
+    assert_eq!(spawn.preset_name, json!("AGENT WORKER"));
+    assert_eq!(spawn.preset["provider"], json!("anthropic-oauth"));
+    assert_eq!(spawn.preset["effort"], json!("high"));
+    assert_ne!(spawn.preset["model"], json!("gpt-main"));
+    assert_eq!(spawn.preset["fallbackSource"], json!({ "preset": "sonnet-high" }));
+
+    // Explicit `preset: "sonnet-high"` also resolves the valid shipped default.
+    let named = resolve_agent_spawn_preset(config, &json!({ "agent": "worker", "preset": "sonnet-high" }), &[]).unwrap();
+    assert_eq!(named.preset["provider"], json!("anthropic-oauth"));
+    assert_eq!(named.preset["effort"], json!("high"));
+
+    // An incomplete custom preset with no shipped default still reports incomplete route.
+    let err = resolve_agent_spawn_preset(config, &json!({ "agent": "worker", "preset": "broken-custom" }), &[]).unwrap_err();
+    assert_eq!(err, "agent: preset \"broken-custom\" has no complete route");
+}
+
+#[test]
+fn a_renamed_complete_stored_override_shadows_the_shipped_default_and_never_resurrects_its_old_name() {
+    let config = json!({
+        "default": "main-preset",
+        "presets": [
+            { "id": "main-preset", "name": "MAIN", "provider": "openai", "model": "gpt-main", "effort": "low" },
+            { "id": "sonnet-high", "name": "CUSTOM SONNET", "provider": "openai", "model": "gpt-override", "effort": "medium" }
+        ]
+    });
+    let config = config.as_object().unwrap();
+
+    // Looking up by ID or by the renamed display name resolves the stored override.
+    let by_id = resolve_agent_spawn_preset(config, &json!({ "agent": "worker", "preset": "sonnet-high" }), &[]).unwrap();
+    assert_eq!((&by_id.preset["provider"], &by_id.preset["model"]), (&json!("openai"), &json!("gpt-override")));
+    let by_new_name = resolve_agent_spawn_preset(config, &json!({ "agent": "worker", "preset": "CUSTOM SONNET" }), &[]).unwrap();
+    assert_eq!((&by_new_name.preset["provider"], &by_new_name.preset["model"]), (&json!("openai"), &json!("gpt-override")));
+
+    // Looking up the old shipped display name `SONNET HIGH` must NOT resurrect the shadowed shipped `sonnet-high` route.
+    let err = resolve_agent_spawn_preset(config, &json!({ "agent": "worker", "preset": "SONNET HIGH" }), &[]).unwrap_err();
+    assert_eq!(err, "agent: preset \"SONNET HIGH\" not found");
+
+    // An agent candidate pointing to the old shipped display name also must not resurrect shipped `sonnet-high`.
+    let via_agent = resolve_agent_spawn_preset(config, &json!({ "agent": "worker" }), &[json!("SONNET HIGH")]).unwrap();
+    assert_eq!((&via_agent.preset["provider"], &via_agent.preset["model"]), (&json!("openai"), &json!("gpt-main")));
+}
+
+#[test]
+fn stored_preset_id_deduplication_is_exact_case_like_core_config() {
+    let config = json!({
+        "default": "main-preset",
+        "presets": [
+            { "id": "main-preset", "name": "MAIN", "provider": "openai", "model": "gpt-main", "effort": "low" },
+            { "id": "SONNET-HIGH", "name": "CUSTOM", "provider": "openai", "model": "gpt-custom", "effort": "medium" }
+        ]
+    });
+    let config = config.as_object().unwrap();
+
+    // Exact-case dedup matches `mixdog-core-config::workflow::presets`: stored `SONNET-HIGH`
+    // does not suppress shipped `sonnet-high` (display name `SONNET HIGH`).
+    let custom = resolve_agent_spawn_preset(config, &json!({ "agent": "worker", "preset": "CUSTOM" }), &[]).unwrap();
+    assert_eq!((&custom.preset["provider"], &custom.preset["model"]), (&json!("openai"), &json!("gpt-custom")));
+    assert_eq!(custom.preset["fallbackSource"], json!({ "preset": "SONNET-HIGH" }));
+
+    let shipped = resolve_agent_spawn_preset(config, &json!({ "agent": "worker", "preset": "SONNET HIGH" }), &[]).unwrap();
+    assert_eq!(shipped.preset["provider"], json!("anthropic-oauth"));
+    assert_eq!(shipped.preset["effort"], json!("high"));
+    assert_eq!(shipped.preset["fallbackSource"], json!({ "preset": "sonnet-high" }));
+}

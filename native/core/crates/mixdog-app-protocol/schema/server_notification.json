@@ -1961,6 +1961,29 @@
           "type": "object"
         },
         {
+          "description": "A compat indexed tool call that started under a synthesized id received its provider id on a later chunk (`StreamEvent::ToolCallIdRenamed`).",
+          "properties": {
+            "from": {
+              "type": "string"
+            },
+            "to": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "toolCallIdRenamed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "from",
+            "to",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
           "properties": {
             "delta": {
               "type": "string"

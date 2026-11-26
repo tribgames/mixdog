@@ -172,6 +172,9 @@
 :is(.context-surface-view, .session-rail-context) [data-context-key="host"] {
   --ctx-color: var(--mx-chart-gold);
 }
+:is(.context-surface-view, .session-rail-context) [data-context-key="used"] {
+  --ctx-color: var(--mx-text-accent);
+}
 :is(.context-surface-view, .session-rail-context) [data-context-key="free"] {
   --ctx-color: var(--mx-chart-grey);
 }
@@ -474,7 +477,8 @@
   cursor: pointer;
 }
 .context-block-map i[data-context-key="free"],
-.context-block-map i[data-context-key="host"] {
+.context-block-map i[data-context-key="host"],
+.context-block-map i[data-context-key="used"] {
   cursor: default;
 }
 .context-block-map[data-hover="true"] i[data-muted="true"] {

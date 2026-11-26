@@ -121,13 +121,22 @@ async function mountTurnPane(
     section: (path) => q(`.session-diff-section[data-session-diff-path="${path}"]`),
     paths: () =>
       [...view.document.querySelectorAll('.session-diff-section')].map((section) => section.dataset.sessionDiffPath),
-    changesActive: () => q('[data-session-diff-changes-tab]')?.classList.contains('is-active') === true,
+    changesActive: () => {
+      const tab = q('[data-session-diff-changes-tab]');
+      return tab ? tab.classList.contains('is-active') : q('[data-session-diff-tab]') === null;
+    },
     back: () => click('.session-diff-turn-scope button'),
   };
 }
 
 test('a card file shows that file of the turn, read alone; View changes then shows every file of the turn', async (t) => {
   const view = await mountTurnPane(t);
+  assert.equal(
+    view.q('[data-session-diff-changes-tab]'),
+    null,
+    'redundant Changes tab header is omitted when no file tabs are open'
+  );
+  assert.ok(view.q('.session-diff-header.session-diff-toolbar .session-diff-source-select'));
   assert.deepEqual(view.paths(), ['other.ts']);
   await view.open(PLAN);
   assert.deepEqual(view.reads, [{ checkpointId: 'cp' }, { checkpointId: 'cp', patch: true, file: PLAN }]);

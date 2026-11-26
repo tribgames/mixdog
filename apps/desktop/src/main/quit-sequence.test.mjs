@@ -243,6 +243,44 @@ test('a teardown that never settles still exits once its bound passes, after the
   assert.deepEqual(events, ['teardown:hung', 'timeout', 'exit']);
 });
 
+test('an async teardown timeout hook completes before exit even if teardown settles mid-kill', async () => {
+  const events = [];
+  let finishTeardown;
+  let finishTimeoutHook;
+  const sequence = createDesktopQuitSequence({
+    windows: () => [],
+    teardown: () =>
+      new Promise((resolve) => {
+        events.push('teardown:start');
+        finishTeardown = () => {
+          events.push('teardown:resolved');
+          resolve();
+        };
+      }),
+    exit: () => events.push('exit'),
+    relaunch: () => {},
+    teardownTimeoutMs: 20,
+    onTeardownTimeout: () =>
+      new Promise((resolve) => {
+        events.push('timeout:start');
+        finishTimeoutHook = () => {
+          events.push('timeout:done');
+          resolve();
+        };
+      }),
+  });
+  const quit = sequence.begin();
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.deepEqual(events, ['teardown:start', 'timeout:start']);
+  // Teardown finishing mid-kill (e.g. parent PID exited before grandchildren) must not exit before timeout hook finishes.
+  finishTeardown();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ['teardown:start', 'timeout:start', 'teardown:resolved']);
+  finishTimeoutHook();
+  await quit;
+  assert.deepEqual(events, ['teardown:start', 'timeout:start', 'teardown:resolved', 'timeout:done', 'exit']);
+});
+
 test('a teardown that settles within its bound never fires the timeout hook', async () => {
   const events = [];
   const sequence = createDesktopQuitSequence({

@@ -53,11 +53,12 @@ import { CodeDiff } from './transcript-diff';
 import { TurnChangesContext, useToolTurn } from './TurnChangesCard';
 import { requestSessionDiffTurn } from './session-diff-focus';
 import { CopyControl } from './transcript-primitives';
+import { StreamingMarkdownFallbackContext } from './StreamingMarkdownBody';
 import {
   capPresentation,
   previewOutputLines,
+  resolveToolActivityPreviewState,
   toolActivityLooksMarkdown,
-  toolActivityPreviewMode,
   type ToolActivityPreviewMode,
   type ToolActivityPresentation,
 } from './transcript-tool-preview';
@@ -652,11 +653,14 @@ function structuredKindLabel(kind: string): string {
 }
 
 export function ToolActivityRichBody({ text, fallbackClassName }: { text: string; fallbackClassName: string }) {
+  const fallback = <pre className={fallbackClassName}>{text}</pre>;
   return (
     <div className="markdown tool-activity-markdown">
-      <Suspense fallback={<pre className={fallbackClassName}>{text}</pre>}>
-        <ToolMarkdownBody text={text} copyControl={CopyControl} />
-      </Suspense>
+      <StreamingMarkdownFallbackContext.Provider value={fallback}>
+        <Suspense fallback={fallback}>
+          <ToolMarkdownBody text={text} copyControl={CopyControl} />
+        </Suspense>
+      </StreamingMarkdownFallbackContext.Provider>
     </div>
   );
 }
@@ -916,8 +920,9 @@ function renderToolActivityReplacement(presentation: ToolActivityPresentation, f
 /** A tool's own result: file rows, JSON, a rendered answer, or plain text. */
 function renderToolActivityOutput(
   presentation: ToolActivityPresentation,
-  outputText = presentation.outputText,
-  full = presentation
+  outputText: string,
+  full: ToolActivityPresentation,
+  richOutput: boolean
 ) {
   const className = 'tool-activity-item-section tool-activity-item-result-block';
   if (presentation.entries.length > 0) {
@@ -937,7 +942,7 @@ function renderToolActivityOutput(
       </ToolPanel>
     );
   }
-  if (!presentation.outputLiteral && toolActivityLooksMarkdown(full.outputText)) {
+  if (richOutput) {
     return (
       <ToolPanel className={className} bare copyValue={full.outputText}>
         <ToolActivityRichBody text={presentation.outputText} fallbackClassName="tool-activity-item-output" />
@@ -1002,10 +1007,11 @@ function renderToolActivityDetails(
   full: ToolActivityPresentation,
   contentId: string,
   onShowMore: (() => void) | null,
-  onOpenDiff: (() => void) | null = null,
-  footer: ReactNode = null
+  onOpenDiff: (() => void) | null,
+  footer: ReactNode,
+  mode: ToolActivityPreviewMode | null,
+  richOutput: boolean
 ) {
-  const mode = onShowMore ? toolActivityPreviewMode(full) : null;
   const capped = mode === 'height' ? capPresentation(full) : null;
   const presentation = capped ? capped.view : full;
   const output = mode === 'lines' ? previewOutputLines(full.outputText) : { text: presentation.outputText, hidden: 0 };
@@ -1068,7 +1074,7 @@ function renderToolActivityDetails(
         {presentation.outputText &&
           !presentation.command &&
           presentation.sections.length === 0 &&
-          renderToolActivityOutput(presentation, output.text, full)}
+          renderToolActivityOutput(presentation, output.text, full, richOutput)}
         {presentation.outputNotice && <p className="tool-activity-item-note">{presentation.outputNotice}</p>}
       </ToolActivityPreview>
     </div>
@@ -1210,6 +1216,8 @@ function ToolActivityItem({
     () => (fullOutput.copyPending ? { load: fullOutput.load, failed: fullOutput.failed } : null),
     [fullOutput.copyPending, fullOutput.load, fullOutput.failed]
   );
+  const resolvedPreview =
+    rendered && presentation.hasDetails ? resolveToolActivityPreviewState(presentation, !chosen) : null;
 
   return (
     <article
@@ -1228,14 +1236,15 @@ function ToolActivityItem({
         startedAt: toolItemStartedAt(item),
       })}
       <ToolCopyGateContext.Provider value={copyGate}>
-        {rendered &&
-          presentation.hasDetails &&
+        {resolvedPreview &&
           renderToolActivityDetails(
             presentation,
             contentId,
             chosen ? null : keepOpen,
             openDiff,
-            <FullToolOutputButton output={fullOutput} />
+            <FullToolOutputButton output={fullOutput} />,
+            resolvedPreview.mode,
+            resolvedPreview.richOutput
           )}
       </ToolCopyGateContext.Provider>
     </article>

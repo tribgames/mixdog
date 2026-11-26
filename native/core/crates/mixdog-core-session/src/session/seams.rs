@@ -205,6 +205,9 @@ pub trait SensitiveMarks: Send + Sync + 'static {
     /// for `to` and on along `to`'s own carries (`SensitiveStore::carry`).
     fn carry(&self, _from: &ThreadId, _to: &ThreadId) {}
 
+    /// Drops all in-memory state and carry edges for a purged `thread` (collapsing transitive edges).
+    fn forget_session(&self, _thread: &ThreadId) {}
+
     /// The one listener told every thread that gained a value carried from another; `false` when one is set already.
     fn on_carried(&self, _listener: Box<dyn Fn(&ThreadId) + Send + Sync>) -> bool {
         false

@@ -315,6 +315,18 @@ pub async fn primary_route(session: &Value, config: &Obj, bots: &dyn BotRoutes) 
 mod tests {
     use super::*;
 
+    struct NoBots;
+
+    #[async_trait::async_trait]
+    impl BotRoutes for NoBots {
+        async fn bot_route(&self, _: &str) -> Result<Option<Option<Value>>, RouteReadUnavailable> {
+            Ok(None)
+        }
+        async fn stored_bot_route(&self, _: &str) -> Result<Option<Value>, RouteReadUnavailable> {
+            Ok(None)
+        }
+    }
+
     /// A session resolves from its reserved id and its owner fields; an agent-owned or agent-only one is coding; an invalid `ownerAgentId` is no agent.
     #[test]
     fn a_session_resolves_from_its_id_and_owner_fields() {
@@ -324,6 +336,50 @@ mod tests {
         assert_eq!(resolve_session_mode(&json!({ "id": "sess_x" })), (CODING_MODE, MIXY_AGENT_ID.to_owned()));
         assert_eq!(resolve_session_mode(&json!({ "id": "sess_home_botty", "owner": "agent" })), (CODING_MODE, String::new()));
         assert_eq!(resolve_session_mode(&json!({ "id": "sess_x", "visibility": "agent-only", "ownerAgentId": "b" })), (CODING_MODE, String::new()));
+    }
+
+    #[tokio::test]
+    async fn preset_fallback_source_prefers_exact_case_id_over_case_insensitive_match() {
+        let config: Obj = serde_json::from_value(json!({
+            "presets": [
+                {
+                    "id": "WORKER",
+                    "name": "WORKER",
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "fallbacks": [{ "provider": "anthropic", "model": "claude-upper" }]
+                },
+                {
+                    "id": "worker",
+                    "name": "worker",
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "fallbacks": [{ "provider": "gemini", "model": "gemini-lower" }]
+                }
+            ]
+        }))
+        .unwrap();
+        let session = json!({
+            "id": "sess_worker",
+            "owner": "agent",
+            "provider": "openai",
+            "model": "gpt-5",
+            "routeFallbackSource": { "preset": "worker" }
+        });
+        let (fallbacks, from_settings) = live_route_fallbacks(&session, &config, &NoBots).await.unwrap();
+        assert!(from_settings);
+        assert_eq!(fallbacks, vec![json!({ "provider": "gemini", "model": "gemini-lower" })]);
+
+        let upper_session = json!({
+            "id": "sess_upper",
+            "owner": "agent",
+            "provider": "openai",
+            "model": "gpt-5",
+            "routeFallbackSource": { "preset": "WORKER" }
+        });
+        let (upper_fallbacks, upper_from_settings) = live_route_fallbacks(&upper_session, &config, &NoBots).await.unwrap();
+        assert!(upper_from_settings);
+        assert_eq!(upper_fallbacks, vec![json!({ "provider": "anthropic", "model": "claude-upper" })]);
     }
 }
 

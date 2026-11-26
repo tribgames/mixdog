@@ -276,6 +276,11 @@ html[data-mixdog-mobile-tabs] .branch-menu-item {
   font-size: var(--mx-font-supporting);
   white-space: nowrap;
 }
+.composer-island .composer-island-panel-foot.branch-menu-foot .composer-island-button {
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
+}
 .composer-island-panel-foot.branch-menu-foot .composer-island-button[data-icon-only] {
   width: 28px;
   justify-content: center;
@@ -339,13 +344,18 @@ html[data-mixdog-mobile-tabs] .composer-island-panel-foot.branch-menu-foot .comp
   display: flex;
   flex-direction: column;
 }
-.branch-menu-body > .branch-menu-search {
-  height: 30px;
-  flex-basis: 30px;
-  margin-bottom: 4px;
-  padding: 0 10px;
-  border-radius: var(--mx-radius-md);
-  font-size: var(--mx-font-minor);
+.composer-island .composer-island-branch-panel .branch-menu-search-frame {
+  flex: 0 0 auto;
+  min-height: 32px;
+  margin: 0 0 6px;
+}
+.composer-island .composer-island-branch-panel .branch-menu-search-frame > .branch-menu-search {
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
+}
+html[data-mixdog-mobile-tabs] .composer-island .composer-island-branch-panel .branch-menu-search-frame {
+  min-height: var(--mx-touch, 44px);
 }
 .branch-menu-body > .branch-menu-list {
   max-height: min(320px, 40dvh);
@@ -373,6 +383,65 @@ html[data-mixdog-mobile-tabs] .composer-island .composer-island-branch-panel .br
 }
 .composer-island .composer-island-branch-panel :is(.branch-menu-label, .branch-menu-item) {
   padding-inline: 6px;
+}
+.composer-island .composer-island-branch-panel .branch-menu-label {
+  height: 28px;
+  gap: 4px;
+  margin: 6px 0 2px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-card-header-surface);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-medium);
+  line-height: var(--mx-line-meta);
+}
+.composer-island .composer-island-branch-panel .branch-menu-label:first-child {
+  margin-top: 0;
+}
+.composer-island .composer-island-branch-panel .branch-menu-label:has(> .branch-menu-group-toggle) {
+  padding-inline: 0;
+}
+.composer-island .composer-island-branch-panel .branch-menu-label > .branch-menu-group-toggle {
+  padding-inline: 6px;
+}
+.composer-island .composer-island-branch-panel .branch-menu-label:has(> .branch-menu-group-toggle):hover {
+  background: var(--mx-hover);
+}
+html[data-mixdog-mobile-tabs]
+  .composer-island
+  .composer-island-branch-panel
+  .branch-menu-label:has(> .branch-menu-group-toggle) {
+  height: auto;
+  min-height: 40px;
+  align-items: stretch;
+}
+html[data-mixdog-mobile-tabs]
+  .composer-island
+  .composer-island-branch-panel
+  .branch-menu-label
+  > .branch-menu-group-toggle {
+  min-height: 40px;
+  align-self: stretch;
+}
+.composer-island .composer-island-branch-panel :is(.branch-menu-notice, .branch-menu-empty) {
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
+}
+.composer-island .composer-island-branch-panel .branch-menu-group-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-island .composer-island-branch-panel .branch-menu-group-count {
+  margin-inline-start: auto;
+  flex: none;
+  color: var(--mx-row-title-ink);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-medium);
+  line-height: var(--mx-line-meta);
+  font-variant-numeric: tabular-nums;
 }
 /* No list read yet (the segment reads it ahead, so this is rare): the list
    holds its full height while loading rather than growing from one line. The
@@ -415,8 +484,15 @@ html[data-mixdog-mobile-tabs] .composer-island .composer-island-branch-panel .br
 .composer-island-branch-panel .branch-row-shell:hover > .branch-menu-item:not([aria-disabled="true"]) {
   color: var(--mx-row-title-ink-active);
 }
+.composer-island .composer-island-branch-panel .branch-menu-item[data-mark="current"] {
+  font-weight: var(--mx-weight-medium);
+}
 .composer-island-branch-panel .branch-menu-item > small {
   line-height: var(--mx-line-meta);
+}
+.composer-island .composer-island-branch-panel .branch-menu-item > small {
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
 }
 .composer-island-branch-panel .branch-menu-label {
   font-weight: var(--mx-weight-label);

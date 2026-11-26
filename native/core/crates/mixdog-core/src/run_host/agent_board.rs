@@ -57,8 +57,15 @@ impl ModelCatalog for ModelListCatalog {
 
     async fn agent_provider(&self, agent: &str) -> Option<String> {
         let config = self.models.config.agent();
-        let candidate = route_candidates(&config, agent, &*self.bots).await.ok()?.into_iter().next()?;
-        let route = if candidate.is_object() { candidate } else { mixdog_core_config::config::agent_routes::route_of(&config, &candidate)? };
+        let candidates = route_candidates(&config, agent, &*self.bots).await.ok()?;
+        let route = candidates.iter().find_map(|candidate| {
+            if candidate.is_object() {
+                mixdog_agent::agent_tool::flow::preset::normalize_agent_route(Some(candidate)).map(Value::Object)
+            } else {
+                mixdog_core_config::config::agent_routes::route_of(&config, candidate)
+                    .or_else(|| mixdog_agent::agent_tool::flow::preset::resolve_agent_route_candidate(&config, candidate))
+            }
+        })?;
         route.get("provider").and_then(Value::as_str).map(str::trim).filter(|p| !p.is_empty()).map(str::to_owned)
     }
 

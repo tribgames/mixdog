@@ -243,12 +243,15 @@ impl RunCarry {
 }
 
 /// Retry state of the five rows, each advanced only by the decider.
+/// All rows share one sequence-wide retry counter so escalating across rows
+/// never resets the tightened fallback budget or `MAX_RETRIES_HARD_CAP`.
 pub(crate) struct RetryStates {
     request: RetryState,
     midstream: RetryState,
     transport: RetryState,
     connection: RetryState,
     recovery: RetryState,
+    sequence_retries: u32,
 }
 
 impl RetryStates {
@@ -259,6 +262,7 @@ impl RetryStates {
             transport: RetryState::new(RetryClass::Transport, model),
             connection: RetryState::new(RetryClass::Connection, model),
             recovery: RetryState::new(RetryClass::Recovery, model),
+            sequence_retries: 0,
         }
     }
 
@@ -272,7 +276,19 @@ impl RetryStates {
         }
     }
 
+    pub(crate) fn sequence_retries(&self) -> u32 {
+        self.sequence_retries
+    }
+
+    pub(crate) fn record_sequence_retry(&mut self) {
+        self.sequence_retries = self.sequence_retries.saturating_add(1);
+        self.share_sequence_retries();
+    }
+
     pub(crate) fn store(&mut self, state: RetryState) {
+        let prev_base = self.get(state.class()).count(None).retries;
+        let base_delta = state.count(None).retries.saturating_sub(prev_base);
+        self.sequence_retries = self.sequence_retries.max(mixdog_ai::retry::sequence_retries(&state)).max(self.sequence_retries.saturating_add(base_delta));
         match state.class() {
             RetryClass::Request => self.request = state,
             RetryClass::Midstream => self.midstream = state,
@@ -281,6 +297,7 @@ impl RetryStates {
             RetryClass::Recovery => self.recovery = state,
         }
         self.share_overloads();
+        self.share_sequence_retries();
     }
 
     /// One counter of consecutive overloads per logical send, whether the overload refused the request or ended a
@@ -295,6 +312,17 @@ impl RetryStates {
         let target = self.request.consecutive_overloads().max(self.midstream.consecutive_overloads());
         behind(&mut self.request, target);
         behind(&mut self.midstream, target);
+    }
+
+    /// Shares the single send-sequence retry counter across all five rows so escalating from one row to another
+    /// (e.g. `Request` -> `Connection`) carries over the total retries granted so far.
+    fn share_sequence_retries(&mut self) {
+        let target = self.sequence_retries;
+        for state in [&mut self.request, &mut self.midstream, &mut self.transport, &mut self.connection, &mut self.recovery] {
+            if mixdog_ai::retry::sequence_retries(state) < target {
+                *state = mixdog_ai::retry::with_sequence_retries(state, target);
+            }
+        }
     }
 }
 
@@ -501,6 +529,8 @@ pub struct Run {
     pub(crate) context: crate::boundary::ContextReading,
     pub(crate) no_tool: NoToolState,
     pub(crate) carry: RunCarry,
+    /// Shared repeat guards used by concurrent [`crate::handed::HandedCalls`] lanes so skip/record mutate under one lock.
+    pub(crate) shared_repeat: Option<Arc<std::sync::Mutex<crate::tools::RepeatGuards>>>,
     pub(crate) quiet_compact_retry_used: bool,
     pub(crate) eager: std::collections::HashMap<String, tokio::task::JoinHandle<crate::tools::Executed>>,
     /// What each streamed call and the batch tell each other about the call's group retry and its place at the file lock.
@@ -677,6 +707,7 @@ impl Run {
             cache_break_keys: std::collections::HashSet::new(),
             no_tool: NoToolState::default(),
             carry,
+            shared_repeat: None,
             quiet_compact_retry_used: false,
             eager: std::collections::HashMap::new(),
             eager_settles: std::collections::HashMap::new(),
@@ -706,6 +737,29 @@ impl Run {
     /// Sets the effort judge after construction (tests; hosts set RunEnv).
     pub fn set_step_judge(&mut self, judge: Arc<dyn crate::step_effort::StepEffortJudge>) {
         self.env.step_judge = Some(judge);
+    }
+
+    pub(crate) fn with_shared_repeat(mut self, repeat: Arc<std::sync::Mutex<crate::tools::RepeatGuards>>) -> Self {
+        self.shared_repeat = Some(repeat);
+        self
+    }
+
+    pub(crate) fn with_repeat<R>(&mut self, f: impl FnOnce(&mut crate::tools::RepeatGuards) -> R) -> R {
+        if let Some(shared) = &self.shared_repeat {
+            let mut guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            f(&mut guard)
+        } else {
+            f(&mut self.carry.repeat)
+        }
+    }
+
+    pub(crate) fn with_repeat_ref<R>(&self, f: impl FnOnce(&crate::tools::RepeatGuards) -> R) -> R {
+        if let Some(shared) = &self.shared_repeat {
+            let guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            f(&guard)
+        } else {
+            f(&self.carry.repeat)
+        }
     }
 
     /// Sets the artifact store after construction (tests; hosts set `RunEnv`).
@@ -779,7 +833,7 @@ impl Run {
         self.provider.begin_loop();
         let seeded = self.config.effort.as_ref().and_then(|wiring| wiring.route.seed.as_ref()).map(|seed| seed.effort.clone());
         self.emit(RunEvent::TurnEffort(seeded));
-        match self.drive().await {
+        match self.drive_boxed().await {
             Ok(()) => Ok(self.finish()),
             Err(error) => Err(RunFailure {
                 error,
@@ -791,13 +845,23 @@ impl Run {
         }
     }
 
+    #[inline(never)]
+    fn drive_boxed(&mut self) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), AgentError>> + Send + '_>> {
+        Box::pin(self.drive())
+    }
+
+    #[inline(never)]
+    fn send_provider_request_boxed(&mut self) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<crate::send::SendResult, AgentError>> + Send + '_>> {
+        Box::pin(self.send_provider_request())
+    }
+
     async fn drive(&mut self) -> Result<(), AgentError> {
         loop {
             self.begin_iteration().await?;
             if let Some(ticket) = self.unsaved.take() {
                 self.until_durable(ticket).await?;
             }
-            let response = match self.send_provider_request().await? {
+            let response = match self.send_provider_request_boxed().await? {
                 crate::send::SendResult::RetryRound => continue,
                 crate::send::SendResult::Proceed(response) => *response,
             };
@@ -1079,5 +1143,30 @@ mod tail_ttl_tests {
         assert_eq!(CacheReadings::messages_ttl(&header("anthropic", Some("none"))), None);
         assert_eq!(CacheReadings::messages_ttl(&header("openrouter", None)), None, "a gateway without a stamped strategy writes no tail");
         assert_eq!(CacheReadings::messages_ttl(&header("openai", Some("1h"))), None, "OpenAI writes no tail breakpoint");
+    }
+}
+
+#[cfg(test)]
+mod retry_states_tests {
+    use mixdog_core_api::domain::provider::{DeliveryState, ProviderError, TransportFault};
+    use mixdog_core_api::domain::retry::{JitterSamples, RetryClass, RetryDecider, RetryPolicy, Verdict};
+
+    use super::RetryStates;
+
+    #[test]
+    fn storing_request_retries_carries_sequence_count_to_connection_without_changing_row_base() {
+        let mut states = RetryStates::new("m");
+        let policy = RetryPolicy::codex_default();
+        let error = ProviderError::transport(TransportFault::Connect { os_code: None }, DeliveryState::NotSent);
+        let samples = JitterSamples { step: 0.5, advice: 0.5 };
+
+        let decision = mixdog_ai::retry::StandardRetryDecider.verdict(&error, states.get(RetryClass::Request), &policy, samples);
+        assert!(matches!(decision.verdict, Verdict::Retry { .. }));
+        states.store(decision.next);
+
+        assert_eq!(states.sequence_retries(), 1);
+        assert_eq!(states.get(RetryClass::Request).count(None).retries, 1);
+        assert_eq!(states.get(RetryClass::Connection).count(None).retries, 0);
+        assert_eq!(mixdog_ai::retry::sequence_retries(states.get(RetryClass::Connection)), 1);
     }
 }

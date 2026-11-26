@@ -100,6 +100,10 @@ export function rowOf(item: Obj): Obj | null {
     const { [DIVIDERS_AFTER]: _dividers, historyPosition: _position, ...ext } = extOf(item, m);
     if (item.type === 'toolCall') delete ext.toolMeta; // toolRow validates both typed and legacy metadata
     Object.assign(row, ext);
+    if (row.turnId === undefined) {
+      const turnId = text(m.turnId) || text(item.turnId);
+      if (turnId) row.turnId = turnId;
+    }
   }
   const position = text(asObj(m.ext).historyPosition) || undefined;
   return setHistoryPositions(row, position, position);
@@ -283,6 +287,7 @@ function importedAssistantRows(item: Obj, m: Obj): Obj[] | undefined {
         imported: true,
         expanded: false,
         ...(finite(m.at) ? { at: m.at, startedAt: m.at, completedAt: m.at } : {}),
+        ...(typeof assistant.turnId === 'string' && assistant.turnId ? { turnId: assistant.turnId } : {}),
         ...(assistant.archived === true ? { archived: true } : {}),
       });
     }
@@ -713,7 +718,7 @@ export function* mergeToolRowsSteps(
 ): Generator<void, Obj[], void> {
   const merged: Obj[] = resume?.rows ?? [];
   const marks: number[] = resume?.marks ?? [];
-  let run: { bucket: string; live: boolean; members: [RunMember, ...RunMember[]] } | null = null;
+  let run: { bucket: string; live: boolean; turnId: string; members: [RunMember, ...RunMember[]] } | null = null;
   // A run of any length aggregates in steps too: one step per `ROWS_PER_STEP` of its members.
   function* flushRun(): Generator<void, void, void> {
     if (!run) return;
@@ -771,12 +776,19 @@ export function* mergeToolRowsSteps(
       merged.push(card);
       continue;
     }
-    if (run && run.bucket === bucket && run.live === live) {
+    const itemTurnId = typeof item.turnId === 'string' ? item.turnId : '';
+    if (
+      run &&
+      run.bucket === bucket &&
+      run.live === live &&
+      (!run.turnId || !itemTurnId || run.turnId === itemTurnId)
+    ) {
+      if (!run.turnId && itemTurnId) run.turnId = itemTurnId;
       run.members.push({ item, category });
       continue;
     }
     yield* flushRun();
-    run = { bucket, live, members: [{ item, category }] };
+    run = { bucket, live, turnId: itemTurnId, members: [{ item, category }] };
   }
   yield* flushRun();
   let lastOther = merged.length - 1;
@@ -879,6 +891,9 @@ function* aggregateRowSteps(members: NonEmptyRunMembers, live: boolean): Generat
   }
   const loadingTargets = yield* node.aggregateLoadingTargetsSteps(calls);
   const first = members[0].item;
+  const turnId = members
+    .map((member) => (typeof member.item.turnId === 'string' ? member.item.turnId : ''))
+    .find(Boolean);
   // Ownership belongs to the individual call, not to an aggregate that can contain different owners; so does how it ended.
   function* restoreMemberMetadata(toolMembers: Obj[]): Generator<void, Obj[], void> {
     for (const [i, member] of toolMembers.entries()) {
@@ -912,6 +927,7 @@ function* aggregateRowSteps(members: NonEmptyRunMembers, live: boolean): Generat
       isError: false,
       expanded: false,
       headerFinalized: false,
+      ...(turnId ? { turnId } : {}),
       ...(first.startedAt != null ? { startedAt: first.startedAt } : {}),
       deferredDisplayReady: true,
     };
@@ -963,6 +979,7 @@ function* aggregateRowSteps(members: NonEmptyRunMembers, live: boolean): Generat
     expanded: false,
     headerFinalized: true,
     ...displayMeta,
+    ...(turnId ? { turnId } : {}),
     ...(first.startedAt != null ? { startedAt: first.startedAt } : {}),
     ...(last.completedAt != null ? { completedAt: last.completedAt } : {}),
   };

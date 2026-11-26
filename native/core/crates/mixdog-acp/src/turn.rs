@@ -29,6 +29,7 @@ use mixdog_core_run::run_host::progress::StreamKind;
 use mixdog_core_session::session::ItemCommit;
 use mixdog_core_session::session::run::RunError;
 use mixdog_core_session::session::run::new_item_id;
+use mixdog_core_session::session::transcript_writer::TurnTranscript;
 use mixdog_protocol::ApprovalRemember;
 use mixdog_protocol::ApprovalResolution;
 use mixdog_protocol::ItemId;
@@ -115,6 +116,10 @@ pub struct TurnContext {
     pub attachments: Option<Arc<dyn crate::runs::Attachments>>,
     /// Where the pictures the agent shows are kept; `None` for a turn whose pictures are shown nowhere.
     pub pictures: Option<Pictures>,
+    /// The session's conversation transcript writer for mid-turn assistant text and human steers.
+    pub transcript: Option<TurnTranscript>,
+    /// Set once the turn emits any visible output (text, reasoning, tool call, image card, or visible row).
+    pub output_produced: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
 
 /// Where the pictures an agent shows are kept, and what reads a file it names as one.
@@ -160,11 +165,7 @@ fn local_file_path(raw: &str) -> String {
     }
     let decoded = String::from_utf8_lossy(&decoded_bytes).into_owned();
     let bytes = decoded.as_bytes();
-    if bytes.len() >= 3 && bytes[0] == b'/' && bytes[1].is_ascii_alphabetic() && bytes[2] == b':' {
-        decoded[1..].to_owned()
-    } else {
-        decoded
-    }
+    if bytes.len() >= 3 && bytes[0] == b'/' && bytes[1].is_ascii_alphabetic() && bytes[2] == b':' { decoded[1..].to_owned() } else { decoded }
 }
 
 impl Pictures {
@@ -318,7 +319,13 @@ struct LaunchedAnswer {
 /// its answer is delivered with mid-turn steers once all concurrent calls finish.
 struct LaunchedResult {
     row: ItemCommit,
+    /// Loaded `<skill>` bodies returned by `Skill` / `skill_view` calls, committed as sourced `Source::Skill` rows.
+    skill_bodies: Vec<String>,
     reply: Option<LaunchedAnswer>,
+}
+
+fn is_skill_call(name: &str, arguments: &Value) -> bool {
+    matches!(name, "Skill" | "skill_view") || (name == "call_tool" && matches!(arguments.get("name").and_then(Value::as_str), Some("Skill" | "skill_view")))
 }
 
 /// A call the agent made of a Mixdog tool, run as a task of its own beside the turn's other work: the agent's other
@@ -357,21 +364,28 @@ impl Launch {
             () = until(due.answer) => Err(None),
             () = release.cancelled() => Err(None),
         };
-        let (row, answer, handed_off, aborted) = match over {
-            Ok(outcome) => (rows::tool_message(new_item_id(), &outcome.message), crate::mcp::rendered(&outcome), false, false),
+        let (row, skill_bodies, answer, handed_off, aborted) = match over {
+            Ok(outcome) => {
+                let skill_bodies = if is_skill_call(&ask.name, &ask.arguments) {
+                    outcome.follow_ups.iter().filter(|text| text.trim_start().starts_with("<skill>")).cloned().collect()
+                } else {
+                    Vec::new()
+                };
+                (rows::tool_message(new_item_id(), &outcome.message), skill_bodies, crate::mcp::rendered(&outcome), false, false)
+            }
             Err(Some(text)) => {
                 drop(running);
-                (rows::tool_result(new_item_id(), &id, text.to_owned(), true, None), crate::mcp::result_text(text.to_owned(), true), false, true)
+                (rows::tool_result(new_item_id(), &id, text.to_owned(), true, None), Vec::new(), crate::mcp::result_text(text.to_owned(), true), false, true)
             }
             Err(None) => {
                 calls.let_go(&id).await;
                 let task = keep(&handover, &cwd, &ask.name, (calls, id.clone()), running);
                 session.keep_call(ask.name.clone(), ask.arguments.clone(), task.clone());
                 let text = crate::mcp::kept(&ask.name, &task);
-                (rows::tool_result(new_item_id(), &id, text.clone(), false, None), crate::mcp::result_text(text, false), true, false)
+                (rows::tool_result(new_item_id(), &id, text.clone(), false, None), Vec::new(), crate::mcp::result_text(text, false), true, false)
             }
         };
-        let _ = ended.send(LaunchedResult { row, reply: Some(LaunchedAnswer { ask, answer, due, handed_off, aborted }) });
+        let _ = ended.send(LaunchedResult { row, skill_bodies, reply: Some(LaunchedAnswer { ask, answer, due, handed_off, aborted }) });
     }
 }
 
@@ -487,6 +501,8 @@ struct Reply<'a> {
     reports: HashSet<String>,
     /// The names of the tools the session's server lists, as last read in this turn.
     listed: Option<Vec<String>>,
+    /// The `tools/list` digest observed when `listed` was populated.
+    tools_digest: Option<String>,
     /// Everything the agent said in the turn.
     said: String,
     differ: LineDiffer,
@@ -496,6 +512,10 @@ struct Reply<'a> {
     window: Option<u64>,
     /// The occupancy the session was last told the agent's context holds.
     occupancy: Option<u64>,
+    /// Whether the mid-turn compaction cliff warning has been emitted in this turn.
+    cliff_warned: bool,
+    /// One-shot advisory attached to the next MCP tool answer when context approaches the internal cliff.
+    cliff_advisory: Option<String>,
     /// The cost the agent reported in `usage_update` during this turn.
     cost: Option<UsdTicks>,
     /// The last text chunk, held back while it has the form of the agent's notice of a failure of its own: the prompt's
@@ -625,7 +645,9 @@ impl Reply<'_> {
             None => false,
         };
         let unreported = self.session.unreported_context();
-        if let Some((count, context)) = unreported {
+        if let Some((count, mut context)) = unreported {
+            let active_model = self.session.models().current;
+            context.size = self.session.preset.quirks.effective_context_window_for(&self.context.model, active_model.as_deref(), context.size);
             self.seen_context = Some((count, context));
             if self.window != Some(context.size) {
                 self.window = Some(context.size);
@@ -644,6 +666,23 @@ impl Reply<'_> {
                     ..TurnUsage::default()
                 };
                 self.surface.context_update(usage).await?;
+            }
+            let effective = self.context.selected_window.map_or(context.size, |selected| selected.min(context.size));
+            if !self.cliff_warned
+                && let Some(cliff) = self.session.preset.quirks.mid_turn_compaction_cliff(effective)
+                && context.used >= cliff
+            {
+                self.cliff_warned = true;
+                let pct = ((context.used as f64 / effective.max(1) as f64) * 100.0).round() as u64;
+                let notice = format!(
+                    "{} context reached ~{pct}% ({} / {} tokens): approaching the agent's internal compaction cliff.",
+                    self.session.preset.label, context.used, effective
+                );
+                let _ = self.surface.notice(notice, true).await;
+                self.cliff_advisory = Some(format!(
+                    "[mixdog-runtime] Context usage is high ({} / {} tokens, ~{pct}%). Wrap up the current step concisely or hand off cleanly before the agent compacts mid-turn.",
+                    context.used, effective
+                ));
             }
         } else if cost_changed {
             let usage = TurnUsage { cost: self.cost, model: self.context.model.clone(), started_at_ms: (self.context.now_ms)(), ..TurnUsage::default() };
@@ -666,12 +705,24 @@ impl Reply<'_> {
         }
     }
 
+    fn mark_output(&self) {
+        if let Some(flag) = &self.context.output_produced {
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
     /// Commits an assistant row of `text` and the `calls` it makes. The row holds what the progress record held of the
     /// reply, and text it holds is the turn's last word so far.
     async fn commit_assistant(&mut self, surface: &dyn TurnSurface, item: ItemId, text: &str, calls: Vec<(String, String, Value)>) -> Result<(), RunError> {
+        self.mark_output();
         self.draft.message_committed();
         if !text.trim().is_empty() {
             self.last_text = text.to_owned();
+            if !calls.is_empty()
+                && let Some(transcript) = &self.context.transcript
+            {
+                transcript.assistant_text(text);
+            }
         }
         surface.commit(rows::assistant(item, text, calls)).await
     }
@@ -704,18 +755,19 @@ impl Reply<'_> {
 
     /// An item is opened by the first chunk that shows something, so none is left open with nothing to commit.
     async fn text(&mut self, chunk: &str) -> Result<(), RunError> {
+        self.said.push_str(chunk);
+        if self.text.is_none() && chunk.trim().is_empty() {
+            self.blank.push_str(chunk);
+            return Ok(());
+        }
+        self.mark_output();
         self.context.mark(|progress, now| progress.stream_delta(StreamKind::Text, now));
         self.mark(CallMark::Streaming).await;
         self.model_time.chunk((self.context.now_ms)());
-        self.said.push_str(chunk);
         let shown = match &mut self.text {
             Some((_, text)) => {
                 text.push_str(chunk);
                 chunk.to_owned()
-            }
-            None if chunk.trim().is_empty() => {
-                self.blank.push_str(chunk);
-                return Ok(());
             }
             None => {
                 self.end_reasoning().await?;
@@ -985,9 +1037,13 @@ impl Reply<'_> {
         let named = server_and_tool("/_meta/mcp/server", "/_meta/mcp/tool").or_else(|| server_and_tool("/rawInput/ServerName", "/rawInput/ToolName"));
         let name = call.get("name").and_then(Value::as_str);
         let format = self.session.preset.quirks.mcp_tool_name.as_deref();
+        let mcp_prefix = format!("mcp_{}_", crate::mcp::SERVER_NAME);
         let is_listed = |listed: &[String]| match &named {
-            // The agent names the server: that name alone decides.
-            Some(tool) => tool.as_ref().is_some_and(|tool| listed.contains(tool)),
+            // The agent names the server: that name alone decides (accepting both bare and `mcp_mixdog_`-prefixed names).
+            Some(tool) => tool.as_ref().is_some_and(|tool| {
+                let bare = tool.strip_prefix(&mcp_prefix).unwrap_or(tool.as_str());
+                listed.iter().any(|entry| entry == tool || entry == bare)
+            }),
             None => match (name, format) {
                 (Some(name), Some(format)) => listed.iter().any(|tool| format.replace("{server}", crate::mcp::SERVER_NAME).replace("{tool}", tool) == name),
                 _ => false,
@@ -1004,6 +1060,11 @@ impl Reply<'_> {
         };
         if !names_server {
             return false;
+        }
+        let current_digest = self.session.served_tools_digest();
+        if self.tools_digest != current_digest {
+            self.tools_digest = current_digest;
+            self.listed = None;
         }
         if self.listed.as_deref().is_some_and(is_listed) {
             return true;
@@ -1039,8 +1100,19 @@ impl Reply<'_> {
     /// atomically claimed and committed BEFORE `ask.answer.send` so a concurrently stopped submission is never
     /// delivered to the agent without being recorded, while a racing Stop or `due` expiration during attachment
     /// resolution leaves queued entries untouched.
-    async fn deliver_answer(&self, ask: ToolAsk, base: Value, due: Due, handed_off: bool) -> Result<(), RunError> {
+    async fn deliver_answer(&mut self, ask: ToolAsk, mut base: Value, due: Due, handed_off: bool) -> Result<(), RunError> {
         let name = ask.name;
+        if !handed_off
+            && !ask.answer.is_closed()
+            && let Some(advisory) = self.cliff_advisory.take()
+        {
+            let block = json!({ "type": "text", "text": advisory });
+            if let Some(blocks) = base.get_mut("content").and_then(Value::as_array_mut) {
+                blocks.push(block);
+            } else {
+                base["content"] = Value::Array(vec![block]);
+            }
+        }
         let send_answer = |answer_tx: tokio::sync::oneshot::Sender<Value>, answer: Value| {
             let sent = answer_tx.send(answer).is_ok();
             if !sent {
@@ -1147,6 +1219,19 @@ impl Reply<'_> {
         for path in attached_paths {
             self.session.allow_attached(&path);
         }
+        if let Some(transcript) = &self.context.transcript {
+            for entry in &claimed {
+                if !entry.task_notification {
+                    let content = match &entry.content {
+                        mixdog_core_api::domain::provider::Content::Text(text) => Value::String(text.to_string()),
+                        mixdog_core_api::domain::provider::Content::Parts(parts) => {
+                            Value::Array(parts.iter().map(mixdog_agent::message_row::part_row).collect())
+                        }
+                    };
+                    transcript.user(&content);
+                }
+            }
+        }
         let mut answer = base;
         if let Some(blocks) = answer.get_mut("content").and_then(Value::as_array_mut) {
             blocks.append(&mut steer_blocks);
@@ -1170,6 +1255,11 @@ impl Reply<'_> {
             ask.refuse("This session hands out no tools.");
             return Ok(());
         };
+        if let Some(ex) = self.session.excluded_tools().into_iter().find(|ex| ex.name == ask.name) {
+            let why = format!("{} is excluded from this session because its schema is incompatible ({}).", ask.name, ex.reason);
+            ask.refuse(&why);
+            return Ok(());
+        }
         // The agent is handed the session's surface as it is now, and nothing beyond it.
         let definitions = tokio::select! {
             biased;
@@ -1184,11 +1274,17 @@ impl Reply<'_> {
             definitions = handed.tools.definitions(&handed.thread) => definitions,
         };
         match definitions {
-            Ok(tools) if tools.iter().any(|tool| tool.name == ask.name) => {}
-            Ok(_) => {
-                let why = format!("{} is not a tool of this session.", ask.name);
-                ask.refuse(&why);
-                return Ok(());
+            Ok(tools) => {
+                let Some(tool) = tools.iter().find(|tool| tool.name == ask.name) else {
+                    let why = format!("{} is not a tool of this session.", ask.name);
+                    ask.refuse(&why);
+                    return Ok(());
+                };
+                if let Err(reason) = crate::mcp::check_tool_schema_for_gemini(tool) {
+                    let why = format!("{} is excluded from this session because its schema is incompatible ({reason}).", ask.name);
+                    ask.refuse(&why);
+                    return Ok(());
+                }
             }
             Err(message) => {
                 ask.refuse(&message);
@@ -1240,7 +1336,15 @@ impl Reply<'_> {
     async fn launch_ended(&mut self, finished: LaunchedResult) -> Result<(), RunError> {
         self.running -= 1;
         self.context.mark(|progress, now| progress.tool_call(None, now));
-        let stored = self.commit_result(finished.row).await;
+        let mut stored = self.commit_result(finished.row).await;
+        if stored.is_ok() {
+            for body in finished.skill_bodies {
+                if let Err(err) = self.commit_result(rows::skill_body(new_item_id(), body)).await {
+                    stored = Err(err);
+                    break;
+                }
+            }
+        }
         self.mark_after_call().await;
         let Some(reply) = finished.reply else {
             return stored;
@@ -1265,6 +1369,9 @@ impl Reply<'_> {
             self.running = self.running.saturating_sub(1);
             self.result_told(finished.row.body.get("uiDiff").and_then(Value::as_str).map(str::to_owned));
             let _ = surface.commit(finished.row).await;
+            for body in finished.skill_bodies {
+                let _ = surface.commit(rows::skill_body(new_item_id(), body)).await;
+            }
             if let Some(reply) = finished.reply {
                 let _ = reply.ask.answer.send(reply.answer);
             }
@@ -1275,6 +1382,9 @@ impl Reply<'_> {
     /// its way refuses it on the turn's own surface; the surface that outlives the turn's token takes it then, so a
     /// stored call is never left without its result.
     async fn commit_result(&self, row: ItemCommit) -> Result<(), RunError> {
+        if row.visible {
+            self.mark_output();
+        }
         self.result_told(row.body.get("uiDiff").and_then(Value::as_str).map(str::to_owned));
         if self.context.cancel.is_cancelled() {
             return self.surface.closing().commit(row).await;
@@ -1363,7 +1473,7 @@ impl Reply<'_> {
                             Some(written) => rows::tool_message(new_item_id(), &written.message),
                             None => rows::tool_result(new_item_id(), &id, text, false, None),
                         };
-                        let _ = ended.send(LaunchedResult { row, reply: None });
+                        let _ = ended.send(LaunchedResult { row, skill_bodies: Vec::new(), reply: None });
                     }),
                 ));
                 Ok(())
@@ -1409,13 +1519,12 @@ impl Reply<'_> {
                 Some(text) => self.text(text).await,
                 None => self.content_chunk(update.get("content")).await,
             },
-            "agent_thought_chunk" => match chunk()
-                .map(str::to_owned)
-                .or_else(|| update.get("content").and_then(|c| rows::block_text(c).or_else(|| rows::image_fallback_text(c))))
-            {
-                Some(text) => self.thought(&text).await,
-                None => Ok(()),
-            },
+            "agent_thought_chunk" => {
+                match chunk().map(str::to_owned).or_else(|| update.get("content").and_then(|c| rows::block_text(c).or_else(|| rows::image_fallback_text(c)))) {
+                    Some(text) => self.thought(&text).await,
+                    None => Ok(()),
+                }
+            }
             "tool_call" | "tool_call_update" => self.call(update).await.map(drop),
             "plan" => self.plan(update).await,
             "usage_update" => self.context_reported(update).await,
@@ -1528,19 +1637,47 @@ impl Reply<'_> {
         Ok(outcome(chosen_option(&resolution, &options, lasting_only)))
     }
 
+    /// Surfaces a one-time notice per session for any tools excluded by `Rule::Gemini` schema repair on this session's MCP server.
+    async fn report_tool_exclusions(&mut self) {
+        let fresh = self.session.take_unwarned_exclusions();
+        if fresh.is_empty() {
+            return;
+        }
+        let summary = fresh.iter().map(|(name, reason)| format!("{name} ({reason})")).collect::<Vec<_>>().join(", ");
+        let _ = self.surface.notice(format!("Excluded incompatible tool(s) from {}: {summary}.", self.session.preset.label), true).await;
+    }
+
     /// Closes what the reply left open on `surface`; `open_calls` is the result a call still running gets. The
-    /// calls it closed that way are returned by the agent's id of each.
-    async fn close(&mut self, surface: &dyn TurnSurface, open_calls: (&str, bool)) -> Vec<(String, Background)> {
-        // A surface that is gone has nobody to show the rest to; the rows that land are the ones the session took.
-        if let Some((item, text)) = self.reasoning.take() {
-            let _ = surface.reasoning_completed(item, text).await;
+    /// calls it closed that way are returned by the agent's id of each. Every close step is attempted even after an
+    /// earlier write failure, and the first error (if any) is returned so normal completion can fail honestly instead
+    /// of silently dropping the terminal reply.
+    async fn close(&mut self, surface: &dyn TurnSurface, open_calls: (&str, bool)) -> Result<Vec<(String, Background)>, RunError> {
+        let mut first_err: Option<RunError> = None;
+        if let Some((item, text)) = self.reasoning.take()
+            && let Err(err) = surface.reasoning_completed(item, text).await
+            && first_err.is_none()
+        {
+            first_err = Some(err);
         }
         let open: Vec<String> = self.order.iter().filter(|id| self.calls.get(*id).is_some_and(|call| !call.closed)).cloned().collect();
         for id in &open {
-            let _ = self.close_call(surface, id, Some(open_calls)).await;
+            if let Err(err) = self.close_call(surface, id, Some(open_calls)).await
+                && first_err.is_none()
+            {
+                first_err = Some(err);
+            }
         }
-        let _ = self.end_text(surface).await;
-        open.into_iter().filter_map(|agent_id| self.calls.remove(&agent_id).map(|call| (agent_id, Background { id: call.id, tool: call.tool }))).collect()
+        if let Err(err) = self.end_text(surface).await
+            && first_err.is_none()
+        {
+            first_err = Some(err);
+        }
+        let background =
+            open.into_iter().filter_map(|agent_id| self.calls.remove(&agent_id).map(|call| (agent_id, Background { id: call.id, tool: call.tool }))).collect();
+        match first_err {
+            Some(err) => Err(err),
+            None => Ok(background),
+        }
     }
 }
 
@@ -1602,9 +1739,7 @@ pub(crate) const SESSION_NOT_FOUND: i64 = -32002;
 /// agent's session is gone is [`SESSION_NOT_FOUND`], whatever code the agent gave it.
 fn failure(quirks: &crate::preset::Quirks, message: String, data: Option<String>, code: Option<i64>) -> TurnEnd {
     let says = |markers: &[String]| {
-        markers
-            .iter()
-            .any(|marker| message.contains(marker.as_str()) || data.as_deref().is_some_and(|detail| detail.contains(marker.as_str())))
+        markers.iter().any(|marker| message.contains(marker.as_str()) || data.as_deref().is_some_and(|detail| detail.contains(marker.as_str())))
     };
     let code = if says(&quirks.signed_out_failures) {
         Some(crate::agents::AUTH_REQUIRED)
@@ -1773,11 +1908,14 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
         shown: HashSet::new(),
         reports: HashSet::new(),
         listed: None,
+        tools_digest: session.served_tools_digest(),
         said: String::new(),
         differ: LineDiffer::new(),
         seen_context: None,
         window: None,
         occupancy: None,
+        cliff_warned: false,
+        cliff_advisory: None,
         cost: None,
         held: None,
         draft: Draft::default(),
@@ -1832,7 +1970,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
         session.cancel(prompt);
         let closing = surface.closing();
         reply.launches_ended(closing.as_ref(), &stop, &mut launched_rows).await;
-        reply.close(closing.as_ref(), ("Cancelled", true)).await;
+        let _ = reply.close(closing.as_ref(), ("Cancelled", true)).await;
         session.detach_with_budget(stream, Vec::new(), &mut refuse_budget).await;
         context.mark(|progress, now| progress.settle("done", now, false));
         return TurnEnd::Interrupted;
@@ -1869,34 +2007,88 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             None => {
                 let due = reply.draft.due();
                 let running = reply.running > 0;
-                tokio::select! {
-                    biased;
-                    () = context.cancel.cancelled() => break Ended::Stopped,
-                    Some(row) = launched_rows.recv() => {
-                        if reply.launch_ended(row).await.is_err() {
-                            break Ended::Surface;
-                        }
-                        continue;
+                let slot = (!running && !replying).then(|| context.calls.as_ref().and_then(|c| c.slot())).flatten();
+                if let Some(slot) = slot {
+                    enum IdleEvent {
+                        Incoming(Incoming),
+                        Ended(Ended),
+                        WriteDraft,
                     }
-                    Some(Ok(())) = async {
-                        if running {
-                            Some(progress_rx.as_mut()?.changed().await)
-                        } else {
-                            std::future::pending().await
-                        }
-                    } => {
-                        reply.calls_progress(progress_rx.as_ref()).await;
-                        continue;
+                    let mut idle: Option<IdleEvent> = None;
+                    let idle_slot = &mut idle;
+                    let cancel = &context.cancel;
+                    let yielded = slot
+                        .run_yielded(
+                            Box::pin(async {
+                                tokio::select! {
+                                    biased;
+                                    () = cancel.cancelled() => {
+                                        *idle_slot = Some(IdleEvent::Ended(Ended::Stopped));
+                                        false
+                                    }
+                                    next = stream.recv() => match next {
+                                        Some(incoming) => {
+                                            *idle_slot = Some(IdleEvent::Incoming(incoming));
+                                            true
+                                        }
+                                        None => {
+                                            *idle_slot = Some(IdleEvent::Ended(Ended::Gone));
+                                            false
+                                        }
+                                    },
+                                    () = until(due) => {
+                                        *idle_slot = Some(IdleEvent::WriteDraft);
+                                        true
+                                    }
+                                }
+                            }),
+                            None,
+                        )
+                        .await;
+                    if yielded.is_err() {
+                        break Ended::Stopped;
                     }
-                    next = stream.recv() => match next {
-                        Some(incoming) => incoming,
-                        None => break Ended::Gone,
-                    },
-                    () = until(due) => {
-                        if reply.write_draft(true).await.is_err() {
-                            break Ended::Surface;
+                    match idle {
+                        Some(IdleEvent::Incoming(incoming)) => incoming,
+                        Some(IdleEvent::Ended(ended)) => break ended,
+                        Some(IdleEvent::WriteDraft) => {
+                            if reply.write_draft(true).await.is_err() {
+                                break Ended::Surface;
+                            }
+                            continue;
                         }
-                        continue;
+                        None => break Ended::Stopped,
+                    }
+                } else {
+                    tokio::select! {
+                        biased;
+                        () = context.cancel.cancelled() => break Ended::Stopped,
+                        Some(row) = launched_rows.recv() => {
+                            if reply.launch_ended(row).await.is_err() {
+                                break Ended::Surface;
+                            }
+                            continue;
+                        }
+                        Some(Ok(())) = async {
+                            if running {
+                                Some(progress_rx.as_mut()?.changed().await)
+                            } else {
+                                std::future::pending().await
+                            }
+                        } => {
+                            reply.calls_progress(progress_rx.as_ref()).await;
+                            continue;
+                        }
+                        next = stream.recv() => match next {
+                            Some(incoming) => incoming,
+                            None => break Ended::Gone,
+                        },
+                        () = until(due) => {
+                            if reply.write_draft(true).await.is_err() {
+                                break Ended::Surface;
+                            }
+                            continue;
+                        }
                     }
                 }
             }
@@ -1948,8 +2140,9 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
     let end = match ended {
         Ended::Agent(Some(Err(error))) => {
             reply.launches_ended(surface.as_ref(), &stop, &mut launched_rows).await;
+            reply.report_tool_exclusions().await;
             let _ = reply.show_held().await;
-            reply.close(surface.as_ref(), ("The agent's turn failed before this call ended.", true)).await;
+            let _ = reply.close(surface.as_ref(), ("The agent's turn failed before this call ended.", true)).await;
             session.detach_with_budget(stream, Vec::new(), &mut refuse_budget).await;
             let timing = timing_of(started_at_ms, &reply.model_time, (context.now_ms)());
             if let Some(usage) = usage_of(&Value::Null, reported, reply.cost, &context, timing, tool_calls) {
@@ -1973,20 +2166,24 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             };
             let stop_reason = answer.as_ref().and_then(|answer| answer.get("stopReason").and_then(Value::as_str)).map(str::to_owned);
             let short = cut_short(stop_reason.as_deref());
+            reply.report_tool_exclusions().await;
             // A call still open when the agent closes its turn normally is work it keeps running in its own process;
             // on a refusal, token/request limit, or failure notice, open calls are closed with why it stopped.
-            let background = if let Some(why) = short {
+            let (background, close_err) = if let Some(why) = short {
                 reply.launches_ended(surface.as_ref(), &stop, &mut launched_rows).await;
                 let text = format!("{} stopped before this call ended ({why}).", session.preset.label);
-                reply.close(surface.as_ref(), (&text, true)).await;
-                Vec::new()
+                let close_err = reply.close(surface.as_ref(), (&text, true)).await.err();
+                (Vec::new(), close_err)
             } else if notice.is_some() {
                 reply.launches_ended(surface.as_ref(), &stop, &mut launched_rows).await;
-                reply.close(surface.as_ref(), ("The agent's turn failed before this call ended.", true)).await;
-                Vec::new()
+                let _ = reply.close(surface.as_ref(), ("The agent's turn failed before this call ended.", true)).await;
+                (Vec::new(), None)
             } else {
                 reply.launches_ended(surface.as_ref(), &release, &mut launched_rows).await;
-                reply.close(surface.as_ref(), ("Still running in the agent's background.", false)).await
+                match reply.close(surface.as_ref(), ("Still running in the agent's background.", false)).await {
+                    Ok(background) => (background, None),
+                    Err(err) => (Vec::new(), Some(err)),
+                }
             };
             session.detach_with_budget(stream, background, &mut refuse_budget).await;
             let answer = answer.unwrap_or(Value::Null);
@@ -2000,11 +2197,12 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
                 let said = said.to_lowercase();
                 quirks.account_refusals.iter().any(|refusal| said.contains(&refusal.to_lowercase()))
             };
-            match notice {
-                Some(notice) if refuses(&notice) => TurnEnd::Refused { message: notice },
-                Some(notice) => failure(quirks, notice, None, None),
-                None if tool_calls == 0 && refuses(&reply.said) => TurnEnd::Refused { message: reply.said.trim().to_owned() },
-                None => {
+            match (notice, close_err) {
+                (Some(notice), _) if refuses(&notice) => TurnEnd::Refused { message: notice },
+                (Some(notice), _) => failure(quirks, notice, None, None),
+                (None, Some(err)) => TurnEnd::Failed { message: format!("The turn's final reply could not be saved: {err:?}"), code: None, reported: false },
+                (None, None) if tool_calls == 0 && refuses(&reply.said) => TurnEnd::Refused { message: reply.said.trim().to_owned() },
+                (None, None) => {
                     if let Some(why) = short {
                         let _ = surface.notice(format!("{} stopped early: {why}.", session.preset.label), true).await;
                     }
@@ -2015,7 +2213,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
         Ended::Gone => {
             reply.launches_ended(surface.as_ref(), &stop, &mut launched_rows).await;
             let _ = reply.show_held().await;
-            reply.close(surface.as_ref(), ("The agent's process ended before this call did.", true)).await;
+            let _ = reply.close(surface.as_ref(), ("The agent's process ended before this call did.", true)).await;
             session.detach_with_budget(stream, Vec::new(), &mut refuse_budget).await;
             TurnEnd::Failed { message: session.closed().to_string(), code: None, reported: false }
         }
@@ -2024,7 +2222,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             let answer = answer.and_then(Result::ok).unwrap_or(Value::Null);
             let closing = surface.closing();
             reply.launches_ended(closing.as_ref(), &stop, &mut launched_rows).await;
-            reply.close(closing.as_ref(), ("Cancelled", true)).await;
+            let _ = reply.close(closing.as_ref(), ("Cancelled", true)).await;
             session.detach_with_budget(stream, Vec::new(), &mut refuse_budget).await;
             let timing = timing_of(started_at_ms, &reply.model_time, (context.now_ms)());
             if let Some(usage) = usage_of(&answer, reported, reply.cost, &context, timing, tool_calls) {
@@ -2038,7 +2236,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             session.cancel(prompt);
             let closing = surface.closing();
             reply.launches_ended(closing.as_ref(), &stop, &mut launched_rows).await;
-            reply.close(closing.as_ref(), ("Cancelled", true)).await;
+            let _ = reply.close(closing.as_ref(), ("Cancelled", true)).await;
             session.detach_with_budget(stream, Vec::new(), &mut refuse_budget).await;
             let timing = timing_of(started_at_ms, &reply.model_time, (context.now_ms)());
             if let Some(usage) = usage_of(&Value::Null, reported, reply.cost, &context, timing, tool_calls) {
@@ -2283,6 +2481,7 @@ mod tests {
             self.total_writes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if self.pass_immediately {
                 self.delivered.lock().unwrap().push(line);
+                self.write_started.notify_waiters();
                 return Ok(());
             }
             self.active_writes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -2439,6 +2638,8 @@ mod tests {
             selected_window: None,
             attachments: None,
             pictures: None,
+            transcript: None,
+            output_produced: None,
         }
     }
 
@@ -2733,7 +2934,7 @@ mod tests {
         });
         let context = test_context(cancel);
         let (launched, _launched_rx) = tokio::sync::mpsc::unbounded_channel();
-        let reply = Reply {
+        let mut reply = Reply {
             session: &session,
             surface,
             context: &context,
@@ -2759,11 +2960,14 @@ mod tests {
             shown: HashSet::new(),
             reports: HashSet::new(),
             listed: None,
+            tools_digest: None,
             said: String::new(),
             differ: LineDiffer::new(),
             seen_context: None,
             window: None,
             occupancy: None,
+            cliff_warned: false,
+            cliff_advisory: None,
             cost: None,
             held: None,
             draft: Draft::default(),
@@ -2796,7 +3000,7 @@ mod tests {
             }),
         });
         let context2 = test_context(CancellationToken::new());
-        let reply2 = Reply { surface: surface2, context: &context2, ..reply };
+        let mut reply2 = Reply { surface: surface2, context: &context2, ..reply };
         let (answer_tx2, answer_rx2) = tokio::sync::oneshot::channel();
         let ask2 = ToolAsk { name: "read".into(), arguments: json!({}), received: tokio::time::Instant::now(), answer: answer_tx2 };
         let started = tokio::time::Instant::now();
@@ -2960,5 +3164,209 @@ mod tests {
             at: 0,
         };
         assert_eq!(chosen_option(&refused, &options, false).as_deref(), Some("deny_forever"));
+    }
+
+    #[tokio::test]
+    async fn leading_blank_whitespace_does_not_mark_output_or_stream_delta_until_visible_text() {
+        let _ = mixdog_rt::testing::tokens();
+
+        #[derive(Clone)]
+        struct RecordingSurface {
+            deltas: Arc<std::sync::Mutex<Vec<String>>>,
+            marks: Arc<std::sync::Mutex<Vec<CallMark>>>,
+            on_context_update: Arc<dyn Fn() + Send + Sync>,
+        }
+
+        #[async_trait::async_trait]
+        impl TurnSurface for RecordingSurface {
+            async fn item_started(&self, _: ThreadItem) -> Result<(), RunError> {
+                Ok(())
+            }
+            async fn delta(&self, _: ItemId, chunk: String) -> Result<(), RunError> {
+                self.deltas.lock().unwrap().push(chunk);
+                Ok(())
+            }
+            async fn text_settled(&self, _: ItemId) -> Result<(), RunError> {
+                Ok(())
+            }
+            async fn reasoning_delta(&self, _: ItemId, _: String) -> Result<(), RunError> {
+                Ok(())
+            }
+            async fn reasoning_completed(&self, _: ItemId, _: String) -> Result<(), RunError> {
+                Ok(())
+            }
+            async fn commit(&self, _: mixdog_core_session::session::ItemCommit) -> Result<(), RunError> {
+                Ok(())
+            }
+            async fn notice(&self, _: String, _: bool) -> Result<(), RunError> {
+                Ok(())
+            }
+            async fn usage(&self, _: TurnUsage) -> Result<(), RunError> {
+                Ok(())
+            }
+            async fn context_update(&self, _: TurnUsage) -> Result<(), RunError> {
+                (self.on_context_update)();
+                Ok(())
+            }
+            async fn draft(&self, _: Value) -> Result<(), RunError> {
+                Ok(())
+            }
+            async fn save_header(&self, _: HeaderChange) -> Result<(), RunError> {
+                Ok(())
+            }
+            async fn approve(&self, _: ApprovalAsk) -> ApprovalResolution {
+                ApprovalResolution::Unavailable { at: 0 }
+            }
+            async fn stage(&self, _: &str) -> Result<(), RunError> {
+                Ok(())
+            }
+            async fn compact_event(&self, _: crate::surface::CompactEvent) -> Result<(), RunError> {
+                Ok(())
+            }
+            async fn call_mark(&self, mark: CallMark) -> Result<(), RunError> {
+                self.marks.lock().unwrap().push(mark);
+                Ok(())
+            }
+            fn call_epoch(&self) -> u64 {
+                0
+            }
+            fn closing(&self) -> Arc<dyn TurnSurface> {
+                Arc::new(self.clone())
+            }
+        }
+
+        let make_session = || async {
+            let write_started = Arc::new(tokio::sync::Notify::new());
+            let processes: Arc<dyn mixdog_core_api::domain::process::ProcessManager> = Arc::new(GatedStdinProcesses {
+                active_writes: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                total_writes: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                write_started: write_started.clone(),
+                drain_gate: Arc::new(tokio::sync::Notify::new()),
+                delivered: Arc::new(std::sync::Mutex::new(Vec::new())),
+                killed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                kill_notify: Arc::new(tokio::sync::Notify::new()),
+                block_all: false,
+                pass_immediately: true,
+            });
+            let cwd = mixdog_core_api::domain::common::AbsPath::new(std::env::current_dir().expect("cwd")).expect("abs cwd");
+            let (connection, _incoming) = crate::connection::Connection::start(
+                processes,
+                crate::connection::Launch { program: "fake".into(), args: Vec::new(), env: Vec::new(), env_remove: Vec::new(), cwd },
+            )
+            .await
+            .expect("connection");
+            (AgentSession::test_session_for(connection), write_started)
+        };
+
+        let blank_chunk = |text: &str| Incoming::Notification {
+            method: "session/update".into(),
+            params: json!({
+                "update": { "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": text } }
+            }),
+        };
+
+        // (a) Blank-only chunk followed by an eligible refusal must not mark visible output or text stream delta.
+        {
+            let (session, write_started) = make_session().await;
+            let feed_session = session.clone();
+            let feed_wait = write_started.notified_owned();
+            let feeder = tokio::spawn(async move {
+                feed_wait.await;
+                feed_session.take(blank_chunk("  \n\t "));
+                feed_session
+                    .take(Incoming::Response { id: 1, result: Err(RpcError { code: -32000, message: "usage limit reached".into(), data: Value::Null }) });
+            });
+            let deltas = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let marks = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let surface: Arc<dyn TurnSurface> = Arc::new(RecordingSurface { deltas: deltas.clone(), marks: marks.clone(), on_context_update: Arc::new(|| {}) });
+            let mut prog = RunProgress::default();
+            prog.ask_start(1_000);
+            let (progress_tx, progress_rx) = watch::channel(prog);
+            let output_produced = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let mut ctx = test_context(CancellationToken::new());
+            ctx.progress = Some(progress_tx);
+            ctx.output_produced = Some(output_produced.clone());
+
+            let end = run(&session, surface, Ask::Prompt(vec![json!({ "type": "text", "text": "hi" })]), ctx).await;
+            feeder.await.expect("feeder");
+            assert!(matches!(end, TurnEnd::Failed { .. } | TurnEnd::Refused { .. }), "expected refusal/failure, got {end:?}");
+            assert!(!output_produced.load(std::sync::atomic::Ordering::SeqCst), "blank-only chunk must not mark output_produced");
+            let snap = progress_rx.borrow().snapshot(2_000).expect("progress snapshot");
+            assert_eq!(snap.last_visible_text_at, 0, "blank-only chunk must not stamp last_visible_text_at");
+            assert!(!snap.has_first_semantic, "blank-only chunk must not set has_first_semantic");
+            assert!(!marks.lock().unwrap().contains(&CallMark::Streaming), "blank-only chunk must not emit CallMark::Streaming");
+            assert!(deltas.lock().unwrap().is_empty());
+        }
+
+        // (b) Blank-only chunk followed by Stop must also leave output_produced and text stream delta unset.
+        {
+            let (session, write_started) = make_session().await;
+            let feed_session = session.clone();
+            let feed_wait = write_started.notified_owned();
+            let feeder = tokio::spawn(async move {
+                feed_wait.await;
+                feed_session.take(blank_chunk("\n   "));
+                feed_session.take(Incoming::Notification {
+                    method: "session/update".into(),
+                    params: json!({ "update": { "sessionUpdate": "usage_update", "used": 100, "size": 100000 } }),
+                });
+            });
+            let cancel = CancellationToken::new();
+            let cancel_on_usage = cancel.clone();
+            let deltas = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let marks = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let surface: Arc<dyn TurnSurface> =
+                Arc::new(RecordingSurface { deltas: deltas.clone(), marks: marks.clone(), on_context_update: Arc::new(move || cancel_on_usage.cancel()) });
+            let mut prog = RunProgress::default();
+            prog.ask_start(1_000);
+            let (progress_tx, progress_rx) = watch::channel(prog);
+            let output_produced = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let mut ctx = test_context(cancel);
+            ctx.progress = Some(progress_tx);
+            ctx.output_produced = Some(output_produced.clone());
+
+            let end = run(&session, surface, Ask::Prompt(vec![json!({ "type": "text", "text": "hi" })]), ctx).await;
+            feeder.await.expect("feeder");
+            assert_eq!(end, TurnEnd::Interrupted);
+            assert!(!output_produced.load(std::sync::atomic::Ordering::SeqCst), "blank-only chunk before Stop must not mark output_produced");
+            let snap = progress_rx.borrow().snapshot(2_000).expect("progress snapshot");
+            assert_eq!(snap.last_visible_text_at, 0, "blank-only chunk before Stop must not stamp last_visible_text_at");
+            assert!(!snap.has_first_semantic, "blank-only chunk before Stop must not set has_first_semantic");
+            assert!(!marks.lock().unwrap().contains(&CallMark::Streaming));
+            assert!(deltas.lock().unwrap().is_empty());
+        }
+
+        // (c) Blank-only chunk followed by real visible text preserves leading whitespace and marks output.
+        {
+            let (session, write_started) = make_session().await;
+            let feed_session = session.clone();
+            let feed_wait = write_started.notified_owned();
+            let feeder = tokio::spawn(async move {
+                feed_wait.await;
+                feed_session.take(blank_chunk("  \n"));
+                feed_session.take(blank_chunk("hello"));
+                feed_session.take(Incoming::Response { id: 1, result: Ok(json!({ "stopReason": "end_turn" })) });
+            });
+            let deltas = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let marks = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let surface: Arc<dyn TurnSurface> = Arc::new(RecordingSurface { deltas: deltas.clone(), marks: marks.clone(), on_context_update: Arc::new(|| {}) });
+            let mut prog = RunProgress::default();
+            prog.ask_start(1_000);
+            let (progress_tx, progress_rx) = watch::channel(prog);
+            let output_produced = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let mut ctx = test_context(CancellationToken::new());
+            ctx.progress = Some(progress_tx);
+            ctx.output_produced = Some(output_produced.clone());
+
+            let end = run(&session, surface, Ask::Prompt(vec![json!({ "type": "text", "text": "hi" })]), ctx).await;
+            feeder.await.expect("feeder");
+            assert!(matches!(end, TurnEnd::Completed { .. }), "expected normal completion, got {end:?}");
+            assert!(output_produced.load(std::sync::atomic::Ordering::SeqCst), "real text after blank chunk must mark output_produced");
+            let snap = progress_rx.borrow().snapshot(2_000).expect("progress snapshot");
+            assert!(snap.last_visible_text_at > 0, "real text must stamp last_visible_text_at");
+            assert!(snap.has_first_semantic, "real text must set has_first_semantic");
+            assert!(marks.lock().unwrap().contains(&CallMark::Streaming));
+            assert_eq!(*deltas.lock().unwrap(), vec!["  \nhello".to_owned()]);
+        }
     }
 }

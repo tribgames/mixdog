@@ -515,8 +515,8 @@ mod tests {
             crate::acp_tools::builtin_presets()
         }
 
-        fn reports(&self, _: &AgentPreset) -> bool {
-            self.signed_in.load(Ordering::SeqCst)
+        fn reports(&self, preset: &AgentPreset) -> bool {
+            preset.id == "antigravity-cli" && self.signed_in.load(Ordering::SeqCst)
         }
 
         async fn read(&self, _: &AgentPreset) -> Option<Result<Value, String>> {

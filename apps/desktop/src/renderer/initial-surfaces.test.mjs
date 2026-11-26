@@ -172,6 +172,7 @@ for (const navigation of ['close', 'tab', 'project', 'remount']) {
   test(`Source Control paints cached rows at once and replaces them with fresh status after ${navigation}`, async (t) => {
     const view = harness(t, { globalTimers: true });
     const { UtilityDock, prewarmUtilityDockGitState } = await import('./UtilityDock.tsx');
+    const { purgeDockGitState } = await import('./utility-dock-git-state.ts');
     const requests = [];
     window.mixdogDesktop.gitStatus = (projectPath) => {
       const request = Promise.withResolvers();
@@ -250,16 +251,25 @@ for (const navigation of ['close', 'tab', 'project', 'remount']) {
     }
     const before = requests.length;
     await render(next);
-    if (navigation === 'remount') {
-      // The last viewer left, so its status snapshot went with it.
-      const pane = firstPaint.querySelector('.utility-dock-pane[data-tab="source-control"]');
-      assert.ok(pane.querySelector('[aria-busy="true"]'));
-      assert.doesNotMatch(pane.textContent, /current\.ts/);
-    } else assertCached(navigation === 'project' ? /cached-old\.ts/ : /current\.ts/);
+    assertCached(navigation === 'project' ? /cached-old\.ts/ : /current\.ts/);
     assert.equal(requests.length, before + 1);
     await view.settle(() => requests.at(-1).resolve(status('latest.ts')));
     assert.match(view.host.textContent, /latest\.ts/);
     assert.doesNotMatch(view.host.textContent, /cached-old\.ts|current\.ts/);
+
+    if (navigation === 'remount') {
+      // Explicit purge clears the bounded LRU entry, so the next mount starts busy without stale rows.
+      await view.render(null);
+      purgeDockGitState(projectPath);
+      const afterPurge = requests.length;
+      await render(next);
+      const pane = firstPaint.querySelector('.utility-dock-pane[data-tab="source-control"]');
+      assert.ok(pane.querySelector('[aria-busy="true"]'));
+      assert.doesNotMatch(pane.textContent, /latest\.ts/);
+      assert.equal(requests.length, afterPurge + 1);
+      await view.settle(() => requests.at(-1).resolve(status('after-purge.ts')));
+      assert.match(view.host.textContent, /after-purge\.ts/);
+    }
 
     if (navigation === 'close') {
       await render({ ...props, open: false });
@@ -703,12 +713,12 @@ test('native boot keeps the mounted content inert until its ready frame, with bo
   );
 });
 
-test('remote boot cannot bypass connection or hydration and offers a working retry', async (t) => {
+test('remote boot cannot bypass connection or hydration and renders no connection card', async (t) => {
   const view = harness(t);
   window.mixdogRemoteServer = 'https://mixdog.test';
   const { DesktopBootGate } = await import('./PaneSurfaceGate.tsx');
   const { _resetBootMetricsForTest } = await import('./boot-metrics.ts');
-  const { setRemoteConnectionState, REMOTE_WAKE_EVENT } = await import('./remote-connection-state.ts');
+  const { setRemoteConnectionState } = await import('./remote-connection-state.ts');
   _resetBootMetricsForTest();
   // biome-ignore lint/a11y/useButtonType: DOM fixture element, never submitted.
   const content = React.createElement('button', { id: 'task' }, 'Restored task');
@@ -720,16 +730,8 @@ test('remote boot cannot bypass connection or hydration and offers a working ret
   await view.advance(1_200);
   await view.advance(30_000);
   assert.ok(original.closest('[inert]'), 'elapsed time cannot reveal an offline workspace');
-  let retries = 0;
-  window.addEventListener(REMOTE_WAKE_EVENT, () => {
-    retries++;
-  });
-  // The cold boot's wait is the connection line with a retry, never an endless mark (#134).
-  const retry = view.host.querySelector('.desktop-boot-cover .composer-connection-line button');
-  assert.ok(retry, 'initial connection failure must offer retry outside the inert workspace');
-  assert.equal(retry.textContent, 'Retry now');
-  await view.settle(() => retry.click());
-  assert.equal(retries, 1);
+  assert.equal(view.host.querySelector('.desktop-boot-cover .composer-connection-line'), null);
+  assert.equal(view.host.querySelector('.desktop-boot-cover .remote-boot-line'), null);
   await view.settle(() => setRemoteConnectionState('syncing'));
   await view.advance(30_000);
   assert.ok(original.closest('[inert]'), 'an open socket is not completed synchronization');

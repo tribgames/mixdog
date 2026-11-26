@@ -165,20 +165,23 @@ export function SessionDiffTurnView({
     [openPath, root, cwd]
   );
 
+  const hasTabs = openTabs.length > 0 || (fileTabs?.tabs.length ?? 0) > 0;
   const header = !headerControlsExternal && (
     <SessionDiffHeader
       tabStrip={
-        <SessionDiffTabStrip
-          pendingPath=""
-          showChanges={tabs.listOpen}
-          focusRow={focus}
-          tabRows={openTabs}
-          fileTabs={fileTabs}
-          onShowAllFiles={() => setTabs(withOpened(tabs, null))}
-          onCloseChanges={closeList}
-          onOpenDiffTab={openTab}
-          onCloseDiffTab={closeTab}
-        />
+        hasTabs ? (
+          <SessionDiffTabStrip
+            pendingPath=""
+            showChanges={tabs.listOpen}
+            focusRow={focus}
+            tabRows={openTabs}
+            fileTabs={fileTabs}
+            onShowAllFiles={() => setTabs(withOpened(tabs, null))}
+            onCloseChanges={closeList}
+            onOpenDiffTab={openTab}
+            onCloseDiffTab={closeTab}
+          />
+        ) : null
       }
       source={<TurnScopeLabel onBack={leave} />}
       scope={

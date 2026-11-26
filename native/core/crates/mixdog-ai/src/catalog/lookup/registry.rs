@@ -51,7 +51,7 @@ fn row_of(provider: &str) -> Option<Row> {
         "grok-oauth" => Row { models_dev: Some("xai"), same_endpoint: false, limits_authoritative: true, ..BASE },
         "muse-code-oauth" => Row { models_dev: Some("meta"), limits_authoritative: true, seed: Some(Seed::Muse), ..BASE },
         "mimo-oauth" => Row { models_dev: Some("xiaomi"), same_endpoint: false, limits_authoritative: true, seed: Some(Seed::Mimo), ..BASE },
-        "antigravity-oauth" => Row { relay: true, ladder_final: true, ..BASE },
+        "antigravity-oauth" | "acp-antigravity" | "acp-antigravity-cli" => Row { relay: true, ladder_final: true, ..BASE },
         "command-code-oauth" => Row { relay: true, limits_authoritative: true, ..BASE },
         "cursor-oauth" | "devin-oauth" | "cursor-api" | "opencode-go" => Row { relay: true, ..BASE },
         "opencode-go-oauth" => Row { models_dev: Some("opencode-go"), relay: true, limits_authoritative: true, ..BASE },
@@ -98,6 +98,9 @@ pub static PRICING_OVERRIDES: LazyLock<Value> = LazyLock::new(|| {
         r#"{
   "gemini-3-flash": {"litellm_provider": "gemini", "input_cost_per_token": 5e-7, "output_cost_per_token": 3e-6, "cache_read_input_token_cost": 5e-8, "mode": "chat", "supports_vision": true, "supports_function_calling": true, "supports_prompt_caching": true},
   "gemini-3.1-pro": {"litellm_provider": "gemini", "input_cost_per_token": 2e-6, "input_cost_per_token_above_200k_tokens": 4e-6, "output_cost_per_token": 1.2e-5, "output_cost_per_token_above_200k_tokens": 1.8e-5, "cache_read_input_token_cost": 2e-7, "cache_read_input_token_cost_above_200k_tokens": 4e-7, "mode": "chat", "supports_vision": true, "supports_function_calling": true, "supports_prompt_caching": true},
+  "gemini-4-neon": {"litellm_provider": "gemini", "max_input_tokens": 256000, "max_output_tokens": 65536, "mode": "chat", "supports_vision": true, "supports_function_calling": true, "supports_prompt_caching": true},
+  "gemini-4-argon": {"litellm_provider": "gemini", "max_input_tokens": 256000, "max_output_tokens": 65536, "mode": "chat", "supports_vision": true, "supports_function_calling": true, "supports_prompt_caching": true},
+  "gemini-4-hydrogen": {"litellm_provider": "gemini", "max_input_tokens": 256000, "max_output_tokens": 65536, "mode": "chat", "supports_vision": true, "supports_function_calling": true, "supports_prompt_caching": true},
   "deepseek-flash": {"litellm_provider": "deepseek", "input_cost_per_token": 3e-7, "output_cost_per_token": 1.2e-6, "cache_read_input_token_cost": 6e-9, "off_peak_multiplier": 0.5, "max_input_tokens": 1000000, "max_output_tokens": 384000, "mode": "chat", "supports_vision": true, "supports_function_calling": true, "supports_prompt_caching": true},
   "deepseek-v4-flash": {"litellm_provider": "deepseek", "input_cost_per_token": 3e-7, "output_cost_per_token": 1.2e-6, "cache_read_input_token_cost": 6e-9, "off_peak_multiplier": 0.5, "max_input_tokens": 1000000, "max_output_tokens": 384000, "mode": "chat", "supports_function_calling": true, "supports_prompt_caching": true},
   "deepseek-v4-pro": {"litellm_provider": "deepseek", "input_cost_per_token": 1.32e-6, "output_cost_per_token": 3.96e-6, "cache_read_input_token_cost": 4.4e-8, "off_peak_multiplier": 0.5, "max_input_tokens": 1000000, "max_output_tokens": 384000, "mode": "chat", "supports_function_calling": true, "supports_prompt_caching": true}
@@ -141,16 +144,45 @@ pub fn priced_variant(provider: &str, id: &str) -> Option<Variant> {
     Some(Variant { base: id[..id.len().min(version)].into(), rate_multiplier: 1.0, row_multiplier: None })
 }
 
+/// Actual usable context window cap for Antigravity ACP models and `gemini-4-*` models, reflecting the real
+/// server-side limits (256,000 for Gemini/Claude on Antigravity ACP and `gemini-4-*`; 128,000 for `gpt-oss-*`).
+pub fn guess_context_window(model: &str, provider: &str) -> Option<u64> {
+    let m = mixdog_js::js_trim(model).to_ascii_lowercase();
+    let p = mixdog_js::js_trim(provider).to_ascii_lowercase();
+    if m.is_empty() {
+        return None;
+    }
+    let is_acp_antigravity = matches!(p.as_str(), "acp-antigravity" | "acp-antigravity-cli");
+    if is_acp_antigravity {
+        if m.starts_with("gpt-oss") {
+            return Some(128_000);
+        }
+        if m.starts_with("gemini-") || m.starts_with("claude-") {
+            return Some(256_000);
+        }
+    }
+    if m.starts_with("gemini-4-") {
+        return Some(256_000);
+    }
+    None
+}
+
 /// `VERIFIED_CORRECTIONS[provider][model]`.
 pub fn metadata_correction(provider: &str, model: &str) -> Option<Obj> {
     let key = mixdog_js::js_trim(provider).to_lowercase();
-    if key != "muse-code-oauth" || model != "muse-spark-1.3-contributor" {
-        return None;
+    if key == "muse-code-oauth" && model == "muse-spark-1.3-contributor" {
+        let levels = json!(["minimal", "low", "medium", "high", "xhigh", "max"]);
+        let mut out = Obj::new();
+        out.insert("reasoningOptions".into(), json!([{"type": "effort", "values": levels}]));
+        return Some(out);
     }
-    let levels = json!(["minimal", "low", "medium", "high", "xhigh", "max"]);
-    let mut out = Obj::new();
-    out.insert("reasoningOptions".into(), json!([{"type": "effort", "values": levels}]));
-    Some(out)
+    if let Some(cap) = guess_context_window(model, &key) {
+        let mut out = Obj::new();
+        out.insert("contextWindow".into(), json!(cap));
+        out.insert("maxContextWindow".into(), json!(cap));
+        return Some(out);
+    }
+    None
 }
 
 // ── seeds ──────────────────────────────────────────────────────────────────

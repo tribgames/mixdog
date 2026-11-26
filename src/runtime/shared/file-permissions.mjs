@@ -10,7 +10,7 @@ let cachedUserSid = null;
 // child_process.execFile is used.
 function execFileAsync(file, args, options) {
   return new Promise((done, fail) => {
-    execFile(file, args, options, (error, stdout, stderr) => {
+    execFile(file, args, { windowsHide: true, ...options }, (error, stdout, stderr) => {
       if (error) fail(Object.assign(error, { stdout, stderr }));
       else done({ stdout, stderr });
     });

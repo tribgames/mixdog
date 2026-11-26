@@ -24,9 +24,11 @@ pub const DEFAULT_READY_TIMEOUT: Duration = Duration::from_millis(15_000);
 /// How often discovery is read while waiting.
 pub const POLL: Duration = Duration::from_millis(50);
 
-/// `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW`: what `windowsHide` plus `detached` give a spawn in Node.
+/// `CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW`: its own process group and hidden console so closing the launcher's
+/// terminal neither signals nor stops the core, and descendants inherit the hidden console instead of allocating a
+/// visible one (`DETACHED_PROCESS` would leave the core with no console).
 #[cfg(windows)]
-const DETACHED_FLAGS: u32 = 0x0000_0008 | 0x0000_0200 | 0x0800_0000;
+const DETACHED_FLAGS: u32 = 0x0000_0200 | 0x0800_0000;
 /// `CREATE_NO_WINDOW`: a core that ends with its launcher (the desktop app) is an ordinary child with no console window.
 #[cfg(windows)]
 const CHILD_FLAGS: u32 = 0x0800_0000;
@@ -102,8 +104,8 @@ pub trait CoreHost: Sync {
     fn launch(&self) -> Result<SpawnCapture, EnsureError>;
 }
 
-/// A detached core leaves this process's console and process group (Windows: no console and no window) or session (Unix), so it
-/// outlives it; a core a launcher owns is an ordinary child with no window.
+/// A detached core leaves this process's console and process group (Windows: its own hidden console and process group) or
+/// session (Unix), so it outlives it; a core a launcher owns is an ordinary child with no window.
 #[cfg(windows)]
 fn detach(command: &mut Command, detached: bool) {
     std::os::windows::process::CommandExt::creation_flags(command, if detached { DETACHED_FLAGS } else { CHILD_FLAGS });

@@ -1608,7 +1608,7 @@ async function stopLocalCore(): Promise<void> {
       await diagnostics?.flush();
       if (!outcome.exited) {
         console.error(`The Mixdog core did not stop within ${outcome.timeoutMs}ms of the quit; it is ended now.`);
-        forceEndCore(core);
+        await forceEndCore(core);
       }
     },
   });
@@ -1627,12 +1627,12 @@ const quitSequence = createDesktopQuitSequence({
   // A teardown step that never settles (a detach or a stop waiting on a hung core) must not keep the quitting app, its core and
   // the single-instance lock alive: the next launch would wait on them behind a black window.
   teardownTimeoutMs: DESKTOP_QUIT_TEARDOWN_TIMEOUT_MS,
-  onTeardownTimeout: () => {
+  onTeardownTimeout: async () => {
     diagnostics?.write('desktop-quit-teardown-timeout', {
       timeoutMs: DESKTOP_QUIT_TEARDOWN_TIMEOUT_MS,
       corePid: localCoreProcess?.pid ?? null,
     });
-    forceEndCore(localCoreProcess);
+    await forceEndCore(localCoreProcess);
   },
   exit: () => {
     quitAfterDispose = true;

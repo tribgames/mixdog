@@ -299,19 +299,13 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
       });
       const context = `${width}px empty=${empty}`;
       assert.equal(view.fontLoaded, true, context);
-      // The Goal title reads at the v2 mockup's bold 15/21 line.
-      assert.deepEqual([view.title.size, view.title.weight, view.title.line], ['15px', '600', '21px'], context);
+      // The Goal title reads on the panel item ramp (14/500/20); supporting copy reads on the meta ramp (13/400/16).
+      assert.deepEqual([view.title.size, view.title.weight, view.title.line], ['14px', '500', '20px'], context);
       for (const entry of [view.title, ...view.supporting, ...view.tasks]) {
         assert.ok(entry.family.startsWith('"Pretendard Variable"'), `${context}: shared Korean and Latin family`);
       }
       for (const entry of view.supporting) {
-        // The tab's time keeps the segment's 14/20 line in muted ink; the objective is 13/19, the rest 13/18.
-        const expected = entry.time
-          ? ['14px', '400', '20px']
-          : entry.objective
-            ? ['13px', '400', '19px']
-            : ['13px', '400', '18px'];
-        assert.deepEqual([entry.size, entry.weight, entry.line], expected, context);
+        assert.deepEqual([entry.size, entry.weight, entry.line], ['13px', '400', '16px'], context);
         assert.notEqual(entry.color, view.title.color, `${context}: supporting text is visually secondary`);
       }
       for (const entry of view.tasks) {

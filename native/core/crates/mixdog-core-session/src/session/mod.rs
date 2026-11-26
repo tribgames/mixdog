@@ -421,6 +421,52 @@ impl TurnStarts for LateTurnStarts {
     }
 }
 
+/// The wake of a worker session (`owner: "agent"`) that a background completion was queued for while it was idle: the
+/// agent tool runs it as a task of the worker's owner, whose turn takes the queued completions as its input.
+pub trait WorkerWakes: Send + Sync {
+    /// Whether the agent tool takes the wake of `thread`, holding `handoff` while the wake is under way; `false` leaves the
+    /// session to wake itself.
+    fn wake(&self, thread: &mixdog_core_api::ids::ThreadId, handoff: WakeHandoff) -> bool;
+}
+
+/// A worker's wake handed to the agent tool. Let go before a turn of the session started (the wake's job could not start,
+/// or ended before its turn), it leaves the session free to hand on its next wake; once a turn started it changes nothing.
+pub struct WakeHandoff {
+    out: Arc<std::sync::atomic::AtomicU64>,
+    number: u64,
+}
+
+impl WakeHandoff {
+    /// Hand-off `number` of the session whose hand-off out is `out`, marked out now.
+    fn mark(out: Arc<std::sync::atomic::AtomicU64>, number: u64) -> Self {
+        out.store(number, std::sync::atomic::Ordering::SeqCst);
+        Self { out, number }
+    }
+}
+
+impl Drop for WakeHandoff {
+    fn drop(&mut self) {
+        let _ = self.out.compare_exchange(self.number, 0, std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// [`WorkerWakes`] bound once the agent tool is assembled over the sessions. Unbound, a worker wakes itself.
+#[derive(Default)]
+pub struct LateWorkerWakes(std::sync::OnceLock<Arc<dyn WorkerWakes>>);
+
+impl LateWorkerWakes {
+    /// Binds the agent tool's wakes; a second bind is refused.
+    pub fn bind(&self, wakes: Arc<dyn WorkerWakes>) -> Result<(), Arc<dyn WorkerWakes>> {
+        self.0.set(wakes)
+    }
+}
+
+impl WorkerWakes for LateWorkerWakes {
+    fn wake(&self, thread: &mixdog_core_api::ids::ThreadId, handoff: WakeHandoff) -> bool {
+        self.0.get().is_some_and(|wakes| wakes.wake(thread, handoff))
+    }
+}
+
 /// The lane tokens sessions use (RL §3, §13): open reads, encodes and decodes, durability.
 #[derive(Clone, Copy, Debug)]
 pub struct SessionLanes {
@@ -545,6 +591,8 @@ pub struct SessionDeps {
     pub clock: Arc<dyn Clock>,
     /// Told of every turn start (today's `onSessionTurnStart`).
     pub turn_starts: Arc<dyn TurnStarts>,
+    /// Takes the wake of an idle worker a completion was queued for ([`WorkerWakes`]).
+    pub worker_wakes: Arc<dyn WorkerWakes>,
     /// The core's hold on new turn starts (the lifecycle's `hold_gate`, [`StartHold`]). A core with no lifecycle never holds.
     pub start_hold: tokio::sync::watch::Receiver<StartHold>,
     /// The core lifecycle's count of the busy sessions ([`CoreWork`]).

@@ -24,6 +24,7 @@ pub mod registry;
 pub mod routes;
 pub mod rows;
 pub mod runs;
+pub mod search;
 pub mod session;
 mod shared;
 pub mod surface;

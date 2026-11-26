@@ -148,7 +148,9 @@ const PROBE = `
   let tableId = '';
   window.tableBlock = () => {
     const frame = document.querySelector('.markdown-table-frame');
-    if (frame) tableId = frame.getAttribute('data-md-unit') ?? '';
+    if (frame) {
+      tableId = frame.getAttribute('data-md-unit') ?? frame.closest('[data-md-unit]')?.getAttribute('data-md-unit') ?? '';
+    }
     return frame ?? document.querySelector('[data-md-parked="' + tableId + '"]');
   };
   window.tableTop = () => window.tableBlock().getBoundingClientRect().top - window.viewport().getBoundingClientRect().top;

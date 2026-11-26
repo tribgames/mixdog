@@ -3,9 +3,11 @@
 import { Check, File, FileDiff, Play } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { textWidths } from './composer-usage-readout';
+import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
 import { GIT_ROWS, useIslandGitStatus } from './IslandGitSegment';
 import { t } from './i18n';
 import { type IslandGitAction, useIslandGitRequest } from './island-git-request';
+import { isActiveResize, onActiveResizeEnd } from './resize-gesture';
 import {
   DEFAULT_SESSION_CHANGES_SOURCE,
   sessionChangesSourceLabel,
@@ -41,16 +43,35 @@ function FilePath({ dir, name }: { dir: string; name: string }) {
     if (!path || !nameBox || !dir) return undefined;
     const segments = dir.split('/').filter(Boolean);
     const forms = segments.map((_, drop) => (drop ? `…/${segments.slice(drop).join('/')}/` : dir));
+    const frameKey = {};
+    let deferred = false;
     const fit = () => {
       const style = getComputedStyle(path);
       const font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
       const room = path.clientWidth - nameBox.getBoundingClientRect().width;
-      setShown(forms.find((form) => folderWidth(font, form) <= room) ?? '…/');
+      const next = forms.find((form) => folderWidth(font, form) <= room) ?? '…/';
+      setShown((current) => (current === next ? current : next));
+    };
+    const onResize = () => {
+      if (isActiveResize()) {
+        deferred = true;
+        return;
+      }
+      scheduleLayoutFrame(frameKey, fit);
     };
     fit();
-    const observer = new ResizeObserver(fit);
+    const observer = new ResizeObserver(onResize);
     observer.observe(path);
-    return () => observer.disconnect();
+    const stopResizeEnd = onActiveResizeEnd(() => {
+      if (!deferred) return;
+      deferred = false;
+      scheduleLayoutFrame(frameKey, fit);
+    });
+    return () => {
+      observer.disconnect();
+      stopResizeEnd();
+      cancelLayoutFrame(frameKey);
+    };
   }, [dir]);
   return (
     <span ref={ref} className="turn-review-files-path">
@@ -81,14 +102,13 @@ function FileRow({ path, entry, onOpen }: { path: string; entry: TurnReviewFileE
 
 export function ChangesSection({
   view,
-  cwd,
   open,
   onToggle,
   onOpenChanges,
   onOpenChangeFile,
 }: {
   view: TurnReviewSegmentView;
-  /** The session's checkout: its commits not yet pushed keep the category. */
+  /** The session's checkout. */
   cwd: string;
   open: boolean;
   onToggle(): void;
@@ -97,11 +117,7 @@ export function ChangesSection({
 }) {
   const source = useSessionChangesSource();
   const nonDefault = source !== DEFAULT_SESSION_CHANGES_SOURCE;
-  const empty = view.fileCount === 0 && !nonDefault;
-  const status = useIslandGitStatus(empty ? cwd : '');
-  // An empty default source has nothing to show unless the branch is ahead (its picker then
-  // reaches the branch's files); another source stays so its picker can switch back.
-  if (empty && !(status?.repository && status.ahead > 0)) return null;
+  if (view.fileCount === 0) return null;
   const files = railChangedFiles(view.files);
   const fileRows = files.map(([path, entry]) => (
     <FileRow

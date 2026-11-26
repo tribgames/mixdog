@@ -200,10 +200,12 @@ struct Accounted {
 #[async_trait]
 impl TurnSurface for Accounted {
     async fn item_started(&self, item: ThreadItem) -> Result<(), RunError> {
+        self.report.mark_output();
         self.inner.item_started(item).await
     }
 
     async fn delta(&self, item: ItemId, text: String) -> Result<(), RunError> {
+        self.report.mark_output();
         self.inner.delta(item, text).await
     }
 
@@ -212,14 +214,19 @@ impl TurnSurface for Accounted {
     }
 
     async fn reasoning_delta(&self, item: ItemId, text: String) -> Result<(), RunError> {
+        self.report.mark_output();
         self.inner.reasoning_delta(item, text).await
     }
 
     async fn reasoning_completed(&self, item: ItemId, text: String) -> Result<(), RunError> {
+        self.report.mark_output();
         self.inner.reasoning_completed(item, text).await
     }
 
     async fn commit(&self, item: ItemCommit) -> Result<(), RunError> {
+        if item.visible {
+            self.report.mark_output();
+        }
         self.inner.commit(item).await
     }
 
@@ -430,6 +437,7 @@ impl OutsideAgents for AgentTurns {
         let Some(preset) = self.preset_of(&header).cloned() else {
             return RunOutcome::Failed(TurnError { message: "The session's route names no agent.".to_owned(), data: Value::Null, provider_error: None });
         };
+        let output_produced = report.output_produced.clone();
         let surface = Accounted {
             inner: Arc::new(port),
             ledger: self.ledger.clone(),
@@ -455,6 +463,7 @@ impl OutsideAgents for AgentTurns {
                 Arc::new(move |ui_diff: Option<String>| told(&mixdog_agent::agent_tool::flow::seams::ToolResultMessage { ui_diff }))
                     as mixdog_acp::turn::ToolResultHook
             }),
+            output_produced: Some(output_produced),
         };
         mixdog_acp::runs::drive(&self.agents, &preset, self.now_ms.clone(), begun).await
     }
@@ -923,7 +932,10 @@ mod tests {
         let count = u16::try_from(files.len()).expect("a few files");
         let (size, offset) = (u32::try_from(central.len()).expect("a small zip"), u32::try_from(zip.len()).expect("a small zip"));
         zip.extend(central);
-        zip.extend([&0x0605_4b50_u32.to_le_bytes()[..], &[0; 4], &count.to_le_bytes(), &count.to_le_bytes(), &size.to_le_bytes(), &offset.to_le_bytes(), &[0; 2]].concat());
+        zip.extend(
+            [&0x0605_4b50_u32.to_le_bytes()[..], &[0; 4], &count.to_le_bytes(), &count.to_le_bytes(), &size.to_le_bytes(), &offset.to_le_bytes(), &[0; 2]]
+                .concat(),
+        );
         zip
     }
 
@@ -958,16 +970,21 @@ mod tests {
         let (cmd, helper) = ("agy_acp_server.exe", "localharness_external.exe");
         let dir = tempfile::tempdir().expect("a folder");
         let (archive, sha256, served) = serve(stored_zip(&[(cmd, b"server")])).await;
-        let missing = local_downloads(STALL_TIMEOUT).unpack(&build_at(archive.clone(), sha256, &[helper]), &dir.path().join("archive"), &dir.path().join("a"), unpacking()).await;
+        let missing = local_downloads(STALL_TIMEOUT)
+            .unpack(&build_at(archive.clone(), sha256, &[helper]), &dir.path().join("archive"), &dir.path().join("a"), unpacking())
+            .await;
         assert_eq!(missing, Err(format!("the archive of {archive} holds no {helper}")));
         served.await.expect("the server");
         let (archive, sha256, served) = serve(stored_zip(&[(helper, b"harness")])).await;
-        let missing = local_downloads(STALL_TIMEOUT).unpack(&build_at(archive.clone(), sha256, &[helper]), &dir.path().join("archive"), &dir.path().join("b"), unpacking()).await;
+        let missing = local_downloads(STALL_TIMEOUT)
+            .unpack(&build_at(archive.clone(), sha256, &[helper]), &dir.path().join("archive"), &dir.path().join("b"), unpacking())
+            .await;
         assert_eq!(missing, Err(format!("the archive of {archive} holds no {cmd}")));
         served.await.expect("the server");
 
         let (archive, sha256, served) = serve(stored_zip(&[(cmd, b"server"), (helper, b"harness")])).await;
-        let whole = local_downloads(STALL_TIMEOUT).unpack(&build_at(archive, sha256, &[helper]), &dir.path().join("archive"), &dir.path().join("c"), unpacking()).await;
+        let whole =
+            local_downloads(STALL_TIMEOUT).unpack(&build_at(archive, sha256, &[helper]), &dir.path().join("archive"), &dir.path().join("c"), unpacking()).await;
         assert_eq!(whole, Ok(()));
         served.await.expect("the server");
         #[cfg(unix)]
@@ -1235,7 +1252,15 @@ mod tests {
             ..TurnUsage::default()
         };
 
-        let mut earlier = route.row(&usage("gemini-4-neon"), at, &pricing).expect("tokens").expect("a row");
+        struct Unpriced;
+        impl UsagePricing for Unpriced {
+            fn price_usage(&self, args: &mixdog_ai::catalog::UsageArgs) -> mixdog_ai::catalog::PricedUsage {
+                let mut rates = serde_json::Map::new();
+                rates.insert("requestedModel".into(), args.requested_model.clone().map_or(Value::Null, Value::from));
+                mixdog_ai::catalog::PricedUsage { input: args.input_tokens, cost_usd: None, rates }
+            }
+        }
+        let mut earlier = route.row(&usage("gemini-4-neon"), at, &Unpriced).expect("tokens").expect("a row");
         earlier.kind = "api".to_owned();
         assert_eq!(earlier.cost_source, "unpriced", "{earlier:?}");
         sink.record_queued(earlier).await.expect("the earlier row is stored");
@@ -1398,12 +1423,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("a data folder");
         let catalog = warm_catalog(dir.path()).await;
         let pricing = mixdog_ai::catalog::CatalogPricing(catalog);
-        let route = LedgerRoute {
-            provider: "custom-api".into(),
-            session_id: "sess-1".into(),
-            owner_session_id: None,
-            source_type: String::new(),
-        };
+        let route = LedgerRoute { provider: "custom-api".into(), session_id: "sess-1".into(), owner_session_id: None, source_type: String::new() };
         let usage = TurnUsage {
             input_tokens: 200,
             output_tokens: 100,

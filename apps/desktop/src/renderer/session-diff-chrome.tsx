@@ -32,7 +32,7 @@ export function SessionDiffHeader({
   refreshDisabled,
   onRefresh,
 }: {
-  tabStrip: ReactNode;
+  tabStrip?: ReactNode;
   source: ReactNode;
   scope: ReactNode;
   actions: DockAction[];
@@ -40,6 +40,35 @@ export function SessionDiffHeader({
   refreshDisabled: boolean;
   onRefresh(): void;
 }) {
+  const refreshButton = (
+    <button
+      type="button"
+      className="browser-pane-nav-button session-diff-refresh"
+      aria-label={t('Refresh')}
+      data-tooltip={t('Refresh')}
+      disabled={refreshDisabled}
+      onClick={onRefresh}
+    >
+      <RefreshCw size={15} aria-hidden="true" />
+    </button>
+  );
+  if (!tabStrip) {
+    return (
+      <DockHeaderRow
+        className="session-diff-header session-diff-toolbar"
+        ariaLabel={t('Changes')}
+        onClose={onClose}
+        left={
+          <>
+            {source}
+            {scope}
+          </>
+        }
+        controlsLead={refreshButton}
+        actions={actions}
+      />
+    );
+  }
   return (
     <>
       <DockHeaderRow
@@ -52,16 +81,7 @@ export function SessionDiffHeader({
       <div className="browser-pane-toolbar session-diff-toolbar">
         {source}
         {scope}
-        <button
-          type="button"
-          className="browser-pane-nav-button session-diff-refresh"
-          aria-label={t('Refresh')}
-          data-tooltip={t('Refresh')}
-          disabled={refreshDisabled}
-          onClick={onRefresh}
-        >
-          <RefreshCw size={15} aria-hidden="true" />
-        </button>
+        {refreshButton}
       </div>
     </>
   );

@@ -37,12 +37,13 @@ export type SessionRailFit = { width: number; reserve: number; presentation: Pan
  *  conversation gives up on its right for it, and its `presentation`. Beside
  *  the conversation while the conversation keeps its floor: the panel takes
  *  what the conversation leaves it there, never under its own minimum, which
- *  its rows need and which is above the ladder's floor. Nothing
- *  moves (`reserve` 0) while the transcript scroller, giving up the panel's
- *  band on both sides (session-rail.css --session-rail-over), still holds the
- *  column the pane gives its rows; with less the conversation re-centres
- *  left of it. Without that room it floats over the conversation at its own
- *  width, and in a pane too narrow for that it takes all of it. */
+ *  its rows need and which is above the ladder's floor. While the reading
+ *  column clears the panel (`cellWidth - 2 * taken >= paneReadingColumn`),
+ *  `reserve` stays 0; once the panel overlaps the centred column, `reserve`
+ *  grows continuously by twice the overlap (shifting the centred column left
+ *  by the exact overlap) until the left margin is exhausted and `reserve`
+ *  reaches `taken`. Without that room it floats over the conversation at its
+ *  own width, and in a pane too narrow for that it takes all of it. */
 export function sessionRailFit({ cellWidth, railPref }: { cellWidth: number; railPref: number }): SessionRailFit {
   const { presentation, avail } = paneSidePresentation({
     cellWidth,
@@ -57,7 +58,11 @@ export function sessionRailFit({ cellWidth, railPref }: { cellWidth: number; rai
   }
   const width = Math.max(SESSION_RAIL_MIN_WIDTH, Math.min(pref, paneSideRoom(cellWidth, SESSION_RAIL_GAP)));
   const taken = width + SESSION_RAIL_GAP;
-  const reserve = cellWidth - 2 * taken >= paneReadingColumn(cellWidth) ? 0 : taken;
+  // Padding-right R on the workspace shifts a centred column left by R/2.
+  // Shift only by the exact overlap between the rail-closed column right edge
+  // and the rail's left edge, capping at `taken` once the left margin runs out.
+  const overlap = taken - (cellWidth - paneReadingColumn(cellWidth)) / 2;
+  const reserve = Math.round(Math.min(taken, Math.max(0, 2 * overlap)));
   return { width, reserve, presentation };
 }
 

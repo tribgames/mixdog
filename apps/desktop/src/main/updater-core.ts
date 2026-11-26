@@ -346,6 +346,7 @@ export function ctlWaitExit(mixdogd: string): CoreUpdateGateDeps['waitExit'] {
       execFile(
         mixdogd,
         ['ctl', 'wait-exit', '--pid', String(pid), '--start-time', processStartTime],
+        { windowsHide: true },
         (error, _out, stderr) =>
           error ? reject(new Error(`mixdogd ctl wait-exit failed: ${stderr.trim() || error.message}`)) : resolve()
       );

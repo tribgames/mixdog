@@ -443,8 +443,15 @@ pub enum RunEvent {
     TurnEffort(Option<String>),
     /// `onProviderSendStarted` (`send-phase.mjs:183`): the loop sends the transcript, once per send whatever its retries.
     ProviderSendStarted,
-    /// `onAssistantToolCallObserved` (`send-phase.mjs:140`): the provider streamed a complete tool call.
-    ToolCallObserved(ToolCall),
+    /// `onAssistantToolCallObserved` (`send-phase.mjs:140`): a tool call observed on the stream — either a
+    /// provisional start (`provisional: true`, arguments still streaming) or a completed call (`provisional: false`).
+    /// When a compat decoder renames a synthesized start id on completion, `replaces` carries the prior resolved id
+    /// so the live card updates in place instead of leaving an orphan.
+    ToolCallObserved {
+        call: ToolCall,
+        provisional: bool,
+        replaces: Option<String>,
+    },
     /// `onToolPhaseStarted` / `onToolPhaseCompleted` (`tool-phase.mjs:54`, `:95`): the batch's calls run once the
     /// assistant message that carries them is committed, and are all settled.
     ToolPhase(ToolPhase),

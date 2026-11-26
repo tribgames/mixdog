@@ -4331,6 +4331,70 @@ async fn an_expired_history_that_cannot_shrink_is_resent_without_a_notice() {
     assert!(!h.observer.events().iter().any(|e| matches!(e, RunEvent::Stage(Stage::Notice { .. }))));
 }
 
+/// Records every [`Resolution`] handed back by `cold_pass`.
+#[derive(Default)]
+struct RecordingOwnsRewrite(Mutex<Vec<mixdog_core_api::domain::cache_tail::Resolution>>);
+
+impl mixdog_core_api::domain::cache_tail::TailGate for RecordingOwnsRewrite {
+    fn admit<'a>(
+        &'a self,
+        _: mixdog_core_api::domain::cache_tail::Admission<'a>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = mixdog_core_api::domain::cache_tail::Verdict> + Send + 'a>> {
+        unreachable!("the scripted provider asks no gate")
+    }
+    fn settle(&self, _: &mixdog_core_api::domain::cache_tail::Permit, _: Option<mixdog_core_api::domain::cache_tail::Counters>) {}
+    fn claim(&self, _: mixdog_core_api::domain::cache_tail::ColdRequest) -> mixdog_core_api::domain::cache_tail::Claim {
+        mixdog_core_api::domain::cache_tail::Claim::Owner
+    }
+    fn resolve(&self, _: u64, resolution: mixdog_core_api::domain::cache_tail::Resolution) -> Option<mixdog_core_api::domain::cache_tail::Unreduced> {
+        self.0.lock().unwrap().push(resolution);
+        None
+    }
+    fn rebuilt(&self) -> u64 {
+        2
+    }
+    fn snapshot(&self) -> Option<serde_json::Value> {
+        None
+    }
+    fn generation(&self) -> u64 {
+        2
+    }
+    fn wait_for(&self, _: u64) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+        unreachable!("the run owns the rewrite")
+    }
+}
+
+/// Prompt-cache expiry outcomes that resend the transcript unchanged (no sizing, skipped/no-op compaction, or
+/// agent-mode's quiet compaction failure) never emit a user-visible `Stage::Notice`.
+#[tokio::test]
+async fn expired_cache_noop_and_quiet_failure_decisions_emit_no_transcript_notice() {
+    use mixdog_core_api::domain::cache_tail::{Cold, ColdRequest, Resolution, TailGateHandle, TailRefusal};
+    let expired = || TailRefusal::Rebuild(ColdRequest { ticket: 1, cold: Cold::Expired });
+    let four = || vec![system_message("rules"), AgentMessage::user("m0"), AgentMessage::user("m1"), AgentMessage::user("latest")];
+    let cases = [
+        ("no sizing", None, None, false, Resolution::NoSizing),
+        ("skipped compaction", Some(compact_settings()), Some(Compactor100 { skip: true, ..Default::default() }), false, Resolution::Irreducible),
+        ("quiet compaction failure", Some(compact_settings()), Some(Compactor100 { fail: true, ..Default::default() }), true, Resolution::Failed),
+    ];
+    for (label, compact, compactor, agent_mode, expected_resolution) in cases {
+        let mut h = Harness::new(vec![Attempt::Reject(ProviderError::tail_refused(expired())), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+        h.compactor = compactor.map(Arc::new);
+        let gate = Arc::new(RecordingOwnsRewrite::default());
+        let mut cfg = config();
+        cfg.compact = compact;
+        cfg.agent_mode = agent_mode;
+        cfg.options.tail_gate = Some(TailGateHandle(gate.clone()));
+        cfg.options.tail_generation = Some(1);
+        finish(h.run(cfg, vec![Echo::tool()], four())).await;
+        assert_eq!(*gate.0.lock().unwrap(), vec![expected_resolution], "{label}");
+        let sent = h.provider.requests();
+        assert_eq!(sent.len(), 2, "{label}");
+        assert_eq!(wire_dump(&sent[1]), ["System:rules", "User:m0", "User:m1", "User:latest"], "{label}");
+        let notices: Vec<_> = h.observer.events().into_iter().filter(|e| matches!(e, RunEvent::Stage(Stage::Notice { .. }))).collect();
+        assert!(notices.is_empty(), "{label}: unexpected transcript notice(s): {notices:?}");
+    }
+}
+
 /// Migrates at the second boundary only: after the first send settled, so the loop holds a guard of the old system prompt.
 struct MigrateAfterSendMcp(AtomicU64);
 

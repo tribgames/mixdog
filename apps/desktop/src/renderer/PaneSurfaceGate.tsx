@@ -7,7 +7,6 @@ import { useLocalCoreLink, useLocalCoreLinkFailure } from './local-core-link';
 import { ownScrollWrites } from './own-scroll-writes';
 import { DesktopBootFailure, DesktopLoadingSurface } from './RendererRecovery';
 import { t } from './i18n';
-import { RemoteConnectionBanner } from './RemoteConnectionBanner';
 import { currentRemoteConnectionState, subscribeRemoteConnectionState } from './remote-connection-state';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 
@@ -364,7 +363,6 @@ export function DesktopBootGate({
           {/* Every start ends in the workspace or here: the update's quit, a start that failed (main's confirmed failure, or this
               window's own first open that gave up) with why and a way out, or the wait with what the core is doing. */}
           {bootCoverBody}
-          {remote && <RemoteConnectionBanner boot />}
         </div>
       )}
     </div>

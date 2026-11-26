@@ -153,6 +153,8 @@ export async function invokeTurnChanges(capability: TurnChangesCapability, args:
 // reports, so a mutation bumps the session's epoch and every card refetches.
 const epochs = new Map<string, number>();
 const epochListeners = new Set<() => void>();
+const checkpointVersions = new Map<string, number>();
+const checkpointListeners = new Set<() => void>();
 
 function turnChangesEpoch(sessionId: string): number {
   return epochs.get(sessionId) ?? 0;
@@ -169,12 +171,35 @@ export function bumpTurnChangesEpoch(sessionId: string): number {
 /** A deleted session's epoch goes with it. */
 export function releaseTurnChangesEpoch(sessionId: string): void {
   epochs.delete(sessionId);
+  const prefix = `${sessionId}\u0000`;
+  for (const key of checkpointVersions.keys()) {
+    if (key.startsWith(prefix)) checkpointVersions.delete(key);
+  }
 }
 
 function subscribeEpochs(listener: () => void) {
   epochListeners.add(listener);
   return () => {
     epochListeners.delete(listener);
+  };
+}
+
+function checkpointVersion(sessionId: string, checkpointId: string): number {
+  return checkpointVersions.get(turnChangesKey(sessionId, checkpointId)) ?? 0;
+}
+
+function bumpCheckpointVersion(sessionId: string, checkpointId: string): number {
+  const key = turnChangesKey(sessionId, checkpointId);
+  const next = (checkpointVersions.get(key) ?? 0) + 1;
+  checkpointVersions.set(key, next);
+  for (const listener of checkpointListeners) listener();
+  return next;
+}
+
+function subscribeCheckpointVersions(listener: () => void) {
+  checkpointListeners.add(listener);
+  return () => {
+    checkpointListeners.delete(listener);
   };
 }
 
@@ -256,6 +281,7 @@ export function resetTurnChangesCache() {
   replyCache.clear();
   readsInFlight.clear();
   epochs.clear();
+  checkpointVersions.clear();
 }
 
 export function useTurnChanges({
@@ -270,9 +296,13 @@ export function useTurnChanges({
   enabled: boolean;
 }) {
   const epoch = useTurnChangesEpoch(sessionId);
-  // Bumped by `invalidate`: a refused mutation drops the cached reply so the
-  // card rereads the runtime's current revision.
-  const [reads, setReads] = useState(0);
+  // Shared per (session, checkpoint) so every consumer (TurnChangesCard,
+  // useTurnPreviews, TurnChangesUndo) rereads together on retry/invalidation.
+  const reads = useSyncExternalStore(
+    subscribeCheckpointVersions,
+    () => checkpointVersion(sessionId, checkpointId),
+    () => checkpointVersion(sessionId, checkpointId)
+  );
   const readKey = (readEpoch: number) =>
     `${turnChangesKey(sessionId, checkpointId)}\u0000${boundary}\u0000${readEpoch}\u0000${reads}`;
   const key = readKey(epoch);
@@ -343,7 +373,7 @@ export function useTurnChanges({
    *  stays on screen until the read answers. */
   const invalidate = () => {
     replyCache.delete(turnChangesKey(sessionId, checkpointId));
-    setReads((value) => value + 1);
+    bumpCheckpointVersion(sessionId, checkpointId);
   };
   // Of the read asked for now, until it answers: a newer boundary, epoch or `invalidate` is read again.
   const answered = state.key === key && state.reply !== null;

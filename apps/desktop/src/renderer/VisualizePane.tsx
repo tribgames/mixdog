@@ -29,6 +29,7 @@ import { serveFrameZoom, withFrameZoomBridge } from './visualize-frame-zoom';
 import { useMediaSessionEpoch } from './remote-file-preview';
 import { serveBlockedNetwork, withBlockedNetwork, withBlockedNetworkReporter } from './visualize-blocked-network';
 import { DockHeaderRow } from './pane-dock-chrome';
+import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
 import { markTabStripFades, scrollTabStripByWheel } from './tab-strip-fades';
 import { InlinePaneContent } from './VisualizeInline';
 import { useVisualizePanelExtras } from './VisualizePanelExtras';
@@ -47,6 +48,7 @@ import {
   setVisualizePanelOnScreen,
   useVisualizeState,
   useVisualizeUpdatedTabs,
+  VISUALIZE_SIDE_BY_SIDE_MIN_WIDTH,
   visualizeHeaderActions,
   visualizePanesStacked,
   visualizeTabTooltip,
@@ -1150,19 +1152,37 @@ function useVisualizeStripReveal(active: boolean, tabId: string, stripTabs: numb
   return strip;
 }
 
-/** The element's width, kept current while it is mounted (0 without one). */
+function visualizeWidthBucket(px: number): number {
+  if (px <= 0) return 0;
+  return px < VISUALIZE_SIDE_BY_SIDE_MIN_WIDTH ? 1 : VISUALIZE_SIDE_BY_SIDE_MIN_WIDTH;
+}
+
+/** Quantizes an element's width to the stacked-pane breakpoint so horizontal
+ *  drag resizing does not re-render VisualizePane on every pixel. */
 function useElementWidth(element: HTMLElement | null): number {
   const [width, setWidth] = useState(0);
   useLayoutEffect(() => {
     if (!element) return;
-    setWidth(element.getBoundingClientRect().width);
+    setWidth(visualizeWidthBucket(element.getBoundingClientRect().width));
     if (typeof ResizeObserver === 'undefined') return;
+    const frameKey = {};
+    let pending: number | null = null;
     const observer = new ResizeObserver((entries) => {
       const next = entries.at(-1)?.contentRect.width;
-      if (next !== undefined) setWidth(next);
+      if (next === undefined) return;
+      pending = visualizeWidthBucket(next);
+      scheduleLayoutFrame(frameKey, () => {
+        if (pending === null) return;
+        const measured = pending;
+        pending = null;
+        setWidth((current) => (current === measured ? current : measured));
+      });
     });
     observer.observe(element);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      cancelLayoutFrame(frameKey);
+    };
   }, [element]);
   return width;
 }
@@ -1173,18 +1193,32 @@ function useReportPanelSize(element: HTMLElement | null, active: boolean) {
   useEffect(() => {
     const report = window.mixdogDesktop?.visualizePanelSize;
     if (!active || !element || !report || typeof ResizeObserver === 'undefined') return;
+    let lastW = 0;
+    let lastH = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const send = (box: { width: number; height: number }) => {
-      if (box.width >= 1 && box.height >= 1) {
-        void report({ width: Math.round(box.width), height: Math.round(box.height) }).catch(() => undefined);
-      }
+      const width = Math.round(box.width);
+      const height = Math.round(box.height);
+      if (width < 1 || height < 1 || (width === lastW && height === lastH)) return;
+      lastW = width;
+      lastH = height;
+      void report({ width, height }).catch(() => undefined);
     };
     send(element.getBoundingClientRect());
     const observer = new ResizeObserver((entries) => {
       const box = entries.at(-1)?.contentRect;
-      if (box) send(box);
+      if (!box) return;
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        send(box);
+      }, 120);
     });
     observer.observe(element);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (timer !== null) clearTimeout(timer);
+    };
   }, [element, active]);
 }
 

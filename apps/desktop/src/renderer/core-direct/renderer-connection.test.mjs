@@ -582,3 +582,31 @@ test('refresh watchFeed that fails awaiting connection reopen drops stale route 
     'ordinary watchFeed resubscribes instead of hitting an orphaned route'
   );
 });
+
+test('close clears onEvent listeners so they are not retained or invoked after restart', async () => {
+  let opens = 0;
+  const firstClient = fakeClient();
+  const secondClient = fakeClient();
+  const connection = createRendererConnection({
+    open: async () => {
+      opens += 1;
+      return opens === 1 ? firstClient : secondClient;
+    },
+  });
+  await connection.start();
+
+  const seenBeforeClose = [];
+  connection.onEvent((event) => seenBeforeClose.push(event));
+  firstClient.emit({ type: 'notification', notification: { method: 'ping/before', params: {} } });
+  assert.equal(seenBeforeClose.length, 1);
+
+  await connection.close();
+  await connection.start();
+
+  const seenAfterRestart = [];
+  connection.onEvent((event) => seenAfterRestart.push(event));
+  secondClient.emit({ type: 'notification', notification: { method: 'ping/after', params: {} } });
+
+  assert.equal(seenBeforeClose.length, 1, 'listener registered before close must be cleared by close()');
+  assert.equal(seenAfterRestart.length, 1, 'listener registered after restart receives events');
+});

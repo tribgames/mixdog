@@ -227,9 +227,12 @@ async fn the_default_row_is_left_out_when_the_main_model_cannot_search() {
 #[tokio::test]
 async fn no_enabled_search_provider_is_an_empty_list() {
     let mut world = main_world();
+    world.route = json!({"provider": "deepseek", "model": "deepseek-chat"});
+    world.main_capable = false;
     world.providers = vec![("openai-oauth".to_owned(), json!({"enabled": false})), enabled("deepseek")];
-    let (catalog, _) = catalog_of(world);
+    let (catalog, probe) = catalog_of(world);
     assert!(catalog.collect(true).await.unwrap().is_empty());
+    assert!(probe.listed.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -362,11 +365,7 @@ fn a_custom_providers_declared_fields_win_over_the_catalog_metadata() {
 
 #[tokio::test]
 async fn forced_refresh_with_no_enabled_catalog_providers_still_offers_follows_main_for_capable_acp_main() {
-    let world = World {
-        route: json!({ "provider": "acp-antigravity", "model": "gemini-3-flash" }),
-        main_capable: true,
-        ..World::default()
-    };
+    let world = World { route: json!({ "provider": "acp-antigravity", "model": "gemini-3-flash" }), main_capable: true, ..World::default() };
     let (catalog, _) = catalog_of(world);
     let unforced = catalog.collect(false).await.unwrap();
     let forced = catalog.collect(true).await.unwrap();

@@ -60,6 +60,8 @@ fn run_interpreter(program: &Path, entry: &Path, electron: bool, script: &Path, 
     } else {
         command.env_remove("ELECTRON_RUN_AS_NODE");
     }
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {

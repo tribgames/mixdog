@@ -263,3 +263,222 @@ test('a settled coding reply does not shrink back to lastStreamingText or lose i
   assert.ok(document.querySelector('.response-footer'), 'Completed footer remains visible after cache reclaim');
   assert.equal(worker.sent.length, sentBeforeRerender, 'no redundant worker parse dispatched on unchanged text');
 });
+
+test('a non-fenced streaming tail crossing the 64 KiB cap stays visible instead of collapsing to empty', async (t) => {
+  const { document, render, worker } = await mount(t);
+  const { MAX_STREAMING_UNSTABLE_MARKDOWN_CHARS } = await import('./streaming-markdown');
+  // Start just above sync parse bound (so worker parse is pending, no tail AST landed yet)
+  // and grow past the 64 KiB live parse cutoff without closing the paragraph.
+  const beforeCap = `Paragraph start ${'word '.repeat(SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS / 2)}`;
+  assert.ok(beforeCap.length > SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS);
+  assert.ok(beforeCap.length < MAX_STREAMING_UNSTABLE_MARKDOWN_CHARS);
+  await render(beforeCap, true);
+  assert.ok(document.querySelector('p.markdown-plain'), 'waiting prose renders before the 64 KiB cap');
+  const sentBeforeCap = worker.sent.length;
+
+  const pastCap = `${beforeCap}${'more '.repeat(Math.ceil((MAX_STREAMING_UNSTABLE_MARKDOWN_CHARS - beforeCap.length + 512) / 5))}`;
+  assert.ok(pastCap.length > MAX_STREAMING_UNSTABLE_MARKDOWN_CHARS);
+  await render(pastCap, true);
+  const plain = document.querySelector('p.markdown-plain');
+  assert.ok(plain, 'non-fenced tail stays visible past the 64 KiB parse cap');
+  assert.ok(plain.textContent.length >= pastCap.length, 'full waiting text remains rendered');
+  assert.equal(document.querySelector('[data-transcript-pending]'), null, 'capped tail stops awaiting live parse');
+  assert.equal(worker.sent.length, sentBeforeCap, 'no new live parse work dispatched past 64 KiB');
+});
+
+test('an initially empty blockquote tail crossing 64 KiB falls back to visible waiting prose instead of dropping to empty', async (t) => {
+  const { document, render } = await mount(t);
+  await render('Intro\n\n> ', true);
+  assert.equal(document.querySelector('p')?.textContent, 'Intro');
+
+  const hugeTail = `Intro\n\n> ${'word '.repeat(14_000)}`;
+  assert.ok(hugeTail.length > 70_000);
+  await render(hugeTail, true);
+  const plain = document.querySelector('p.markdown-plain');
+  assert.ok(plain, 'non-fenced tail stays visible after an initially empty blockquote parse crosses 64 KiB');
+  assert.ok(plain.textContent.length >= 70_000, 'full 70k tail text remains rendered');
+});
+
+test('MarkdownDocumentView normalizes leading-whitespace slotKeys and preserves the outer DOM box across waiting-to-parsed swaps', async (t) => {
+  const { root, document } = installTestDom(t, { rootId: 'root' });
+  const { MarkdownDocumentView } = await import('./MarkdownDocumentView');
+  const { LiveMarkdownDocument, markdownPagesOf, unitsOf } = await import('./markdown-document');
+  const { SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS } = await import('./markdown-worker-client');
+  installFakeMarkdownWorker(t);
+
+  // Leading whitespace: waiting unit and parsed AST unit share the same normalized slotKey.
+  const paddedSource = `  plain **prose** ${'w'.repeat(SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS)}`;
+  const liveDoc = new LiveMarkdownDocument(() => {});
+  const waitingPages = liveDoc.update(paddedSource);
+  let waitingLeaf = waitingPages;
+  while (waitingLeaf && 'items' in waitingLeaf) waitingLeaf = waitingLeaf.items[0];
+  const parsedAst = parseMarkdownToHast(paddedSource);
+  const parsedUnits = unitsOf(parsedAst, 0, 0, paddedSource.length);
+  assert.equal(waitingLeaf.slotKey, '@2', 'waiting unit normalizes slotKey past leading spaces');
+  assert.equal(parsedUnits[0].slotKey, '@2', 'parsed unit starts at the same content offset');
+
+  await act(async () =>
+    root.render(
+      React.createElement(MarkdownDocumentView, {
+        root: markdownPagesOf([waitingLeaf]),
+        fadeTimeline: null,
+        copyControl: () => null,
+      })
+    )
+  );
+  const outerBefore = document.querySelector('.markdown-unit');
+  assert.ok(outerBefore, 'renders stable outer unit box while waiting');
+  assert.ok(outerBefore.querySelector('p.markdown-plain'), 'shows waiting prose inside outer unit');
+
+  await act(async () =>
+    root.render(
+      React.createElement(MarkdownDocumentView, {
+        root: markdownPagesOf(parsedUnits),
+        fadeTimeline: null,
+        copyControl: () => null,
+      })
+    )
+  );
+  const outerAfter = document.querySelector('.markdown-unit');
+  assert.equal(outerAfter, outerBefore, 'outer DOM box stays connected and identical across UnitWaiting -> UnitBody');
+  assert.equal(outerAfter.isConnected, true);
+  assert.equal(outerAfter.querySelector('strong')?.textContent, 'prose');
+
+  const initialAst = parseMarkdownToHast('First **version**');
+  const initialUnits = unitsOf(initialAst, 0, 0, 'First **version**'.length);
+  assert.equal(initialUnits[0].slotKey, '@0');
+
+  await act(async () =>
+    root.render(
+      React.createElement(MarkdownDocumentView, {
+        root: markdownPagesOf(initialUnits),
+        fadeTimeline: null,
+        copyControl: () => null,
+      })
+    )
+  );
+  const outerForRoleSwap = document.querySelector('.markdown-unit');
+  const strong = document.querySelector('strong');
+  assert.equal(strong?.textContent, 'version');
+
+  // Waiting unit at the same source position must keep the prior parsed block visible.
+  await act(async () =>
+    root.render(
+      React.createElement(MarkdownDocumentView, {
+        root: markdownPagesOf([
+          {
+            key: 'wait@0',
+            slotKey: '@0',
+            node: null,
+            base: 0,
+            from: 0,
+            end: 20,
+            held: false,
+            text: '## Heading replacement',
+            pending: true,
+          },
+        ]),
+        fadeTimeline: null,
+        copyControl: () => null,
+      })
+    )
+  );
+  assert.equal(
+    document.querySelector('.markdown-unit'),
+    outerForRoleSwap,
+    'outer box stays mounted while awaiting replacement'
+  );
+  assert.equal(document.querySelector('strong'), strong, 'prior parsed block stays mounted while replacement parses');
+  assert.equal(document.querySelector('p.markdown-plain'), null, 'does not downgrade to raw plain text');
+  assert.ok(document.querySelector('[data-transcript-pending]'), 'marks replacement parse pending');
+
+  // Replacement AST with a different role at the same offset swaps in cleanly.
+  const nextAst = parseMarkdownToHast('## Heading replacement');
+  const nextUnits = unitsOf(nextAst, 0, 0, '## Heading replacement'.length);
+  assert.equal(nextUnits[0].slotKey, '@0');
+  await act(async () =>
+    root.render(
+      React.createElement(MarkdownDocumentView, {
+        root: markdownPagesOf(nextUnits),
+        fadeTimeline: null,
+        copyControl: () => null,
+      })
+    )
+  );
+  assert.equal(document.querySelector('.markdown-unit'), outerForRoleSwap, 'outer box stays identical on role swap');
+  assert.equal(document.querySelector('h2')?.textContent, 'Heading replacement');
+  assert.equal(document.querySelector('[data-transcript-pending]'), null);
+});
+
+test('a nonempty prior tail AST growing past the 64 KiB cap shows current tail text instead of freezing on the stale partial AST', async (t) => {
+  const { document, render } = await mount(t);
+  await render('Start', true);
+  assert.equal(document.querySelector('p')?.textContent, 'Start', 'initial tail AST renders Start');
+
+  const extended = `Start ${'x'.repeat(70_003)}`;
+  assert.equal(extended.length, 70_009);
+  await render(extended, true);
+  const plain = document.querySelector('p.markdown-plain');
+  assert.ok(plain, 'capped tail replaces stale partial AST with current tail text');
+  assert.equal(plain.textContent.length, extended.length, 'full 70,009-char tail is visible');
+  assert.equal(
+    document.querySelector('[data-transcript-pending]'),
+    null,
+    'no pending marker once live parse is capped'
+  );
+
+  const outerAtCap = document.querySelector('.markdown-unit');
+  const extendedMore = `${extended} tail`;
+  await render(extendedMore, true);
+  assert.equal(document.querySelector('.markdown-unit'), outerAtCap, 'subsequent capped chunks update in place');
+  assert.equal(document.querySelector('p.markdown-plain')?.textContent.length, extendedMore.length);
+});
+
+test('indented code blocks with 4 spaces or a tab keep identical slotKey and outer DOM box from waiting to parsed', async (t) => {
+  const { root, document } = installTestDom(t, { rootId: 'root' });
+  const { MarkdownDocumentView } = await import('./MarkdownDocumentView');
+  const { LiveMarkdownDocument, markdownPagesOf, unitsOf } = await import('./markdown-document');
+  const { SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS } = await import('./markdown-worker-client');
+  installFakeMarkdownWorker(t);
+
+  for (const [label, prefix] of [
+    ['4-space indented code block', '    '],
+    ['tab-indented code block', '\t'],
+  ]) {
+    const source = `${prefix}const value = "${'a'.repeat(SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS)}";`;
+    const liveDoc = new LiveMarkdownDocument(() => {});
+    const waitingPages = liveDoc.update(source);
+    let waitingLeaf = waitingPages;
+    while (waitingLeaf && 'items' in waitingLeaf) waitingLeaf = waitingLeaf.items[0];
+    const parsedAst = parseMarkdownToHast(source);
+    const parsedUnits = unitsOf(parsedAst, 0, 0, source.length);
+    assert.equal(waitingLeaf.slotKey, '@0', `${label}: waiting slotKey starts at indentation offset @0`);
+    assert.equal(parsedUnits[0].slotKey, '@0', `${label}: parsed slotKey starts at indentation offset @0`);
+
+    await act(async () =>
+      root.render(
+        React.createElement(MarkdownDocumentView, {
+          root: markdownPagesOf([waitingLeaf]),
+          fadeTimeline: null,
+          copyControl: () => null,
+        })
+      )
+    );
+    const outerBefore = document.querySelector('.markdown-unit');
+    assert.ok(outerBefore, `${label}: renders outer unit while waiting`);
+
+    await act(async () =>
+      root.render(
+        React.createElement(MarkdownDocumentView, {
+          root: markdownPagesOf(parsedUnits),
+          fadeTimeline: null,
+          copyControl: () => null,
+        })
+      )
+    );
+    const outerAfter = document.querySelector('.markdown-unit');
+    assert.equal(outerAfter, outerBefore, `${label}: outer DOM box stays identical on parse completion`);
+    assert.ok(outerAfter.querySelector('pre code'), `${label}: renders parsed indented code block`);
+    await act(async () => root.render(null));
+  }
+});

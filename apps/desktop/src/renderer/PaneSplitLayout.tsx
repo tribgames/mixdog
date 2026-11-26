@@ -2,6 +2,7 @@ import type React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
+import { beginActiveResize, endActiveResize } from './resize-gesture';
 import {
   clampPaneRatio,
   clampPaneRatioForSizes,
@@ -41,6 +42,7 @@ function PaneResizeHandle({
       const initialSecondFlex = secondCell instanceof HTMLElement ? secondCell.style.flex : '';
       cleanupRef.current?.();
       setDragging(true);
+      beginActiveResize();
       handle.setPointerCapture(event.pointerId);
       const isRow = direction === 'row';
       const rect = container.getBoundingClientRect();
@@ -67,10 +69,12 @@ function PaneResizeHandle({
         handle.removeEventListener('pointerup', stop);
         handle.removeEventListener('pointercancel', dispose);
         handle.removeEventListener('lostpointercapture', dispose);
+        window.removeEventListener('blur', dispose);
         cancelLayoutFrame(previewFrameKey.current);
         container.style.removeProperty('--pane-split-ratio');
         if (firstCell instanceof HTMLElement) firstCell.style.flex = initialFirstFlex;
         if (secondCell instanceof HTMLElement) secondCell.style.flex = initialSecondFlex;
+        endActiveResize();
         setDragging(false);
         try {
           if (handle.hasPointerCapture(event.pointerId)) {
@@ -88,6 +92,7 @@ function PaneResizeHandle({
       handle.addEventListener('pointerup', stop);
       handle.addEventListener('pointercancel', dispose);
       handle.addEventListener('lostpointercapture', dispose);
+      window.addEventListener('blur', dispose);
       cleanupRef.current = dispose;
     },
     [direction, firstMinimum, onRatioChange, secondMinimum]

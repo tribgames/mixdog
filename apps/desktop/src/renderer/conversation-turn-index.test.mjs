@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createTurnIndexer } from './conversation-turn-index.ts';
+import { createTurnIndexer, turnCardsRevealed } from './conversation-turn-index.ts';
 import { noteCarried } from './list-carry.ts';
 import { linkedLocalPaths } from './markdown-plugins.ts';
 import { visualizedTargets, visualizeTurnEndAt } from './visualize-card-model.ts';
@@ -356,4 +356,156 @@ test('incremental indexing of a completion wake whose tool row arrives before it
   const liveNext = incremental.turnIndexOf(nextRows);
   const coldNext = createTurnIndexer(visualizedTargets).turnIndexOf(nextRows);
   assert.deepEqual(liveNext.get('attempt:3').surfacedBefore, coldNext.get('attempt:3').surfacedBefore);
+});
+
+test('cardOwnerRow and turnCardsRevealed gate cards to one accepted turn-end owner and hold unclosed or active turns', () => {
+  const { turnIndexOf } = createTurnIndexer(visualizedTargets);
+  const toolOpen = open('o1', 'site/a.html', 'v1', 2);
+
+  // Unclosed tool-only tail (no turndone, no Error): not closed, no card owner, never revealed.
+  const openToolTail = [userRow('t1', 1), toolRow('t1', 'tool1', [toolOpen])];
+  const openTurn = turnIndexOf(openToolTail).get('t1');
+  assert.equal(openTurn.closed, false);
+  assert.equal(openTurn.cardOwnerRow, -1);
+  assert.equal(turnCardsRevealed(openTurn, 1, { trailingTurnRunning: false }), false);
+
+  // Standalone tool-ending turndone: cardOwnerRow is the turndone row and reveals once idle.
+  const toolDone = {
+    _tag: 'AssistantPart',
+    key: 'done1',
+    turnKey: 't1',
+    item: { kind: 'turndone', id: 'd1', status: 'done', at: 5 },
+  };
+  const toolClosedRows = [...openToolTail, toolDone];
+  const toolClosedTurn = turnIndexOf(toolClosedRows).get('t1');
+  assert.equal(toolClosedTurn.closed, true);
+  assert.equal(toolClosedTurn.cardOwnerRow, 2);
+  assert.equal(toolClosedTurn.trailing, true);
+  assert.equal(turnCardsRevealed(toolClosedTurn, 1, { trailingTurnRunning: false }), false);
+  assert.equal(turnCardsRevealed(toolClosedTurn, 2, { trailingTurnRunning: true }), false);
+  assert.equal(turnCardsRevealed(toolClosedTurn, 2, { trailingTurnRunning: false }), true);
+
+  // Historical completed turn stays revealed while a later trailing turn runs.
+  const nextRunningRows = [
+    ...toolClosedRows,
+    userRow('t2', 10),
+    { _tag: 'Thinking', key: 'th2', turnKey: 't2', active: true },
+  ];
+  const withNext = turnIndexOf(nextRunningRows);
+  assert.equal(withNext.get('t1').trailing, false);
+  assert.equal(withNext.get('t2').trailing, true);
+  assert.equal(
+    turnCardsRevealed(withNext.get('t1'), 2, { trailingTurnRunning: true }),
+    true,
+    'historical turn stays revealed while next turn runs'
+  );
+
+  // Markerless terminal Error row owns cards once idle.
+  const errRows = [
+    userRow('t3', 20),
+    toolRow('t3', 'tool3', [open('o3', 'site/err.html', 'v3', 21)]),
+    {
+      _tag: 'Error',
+      key: 'err3',
+      turnKey: 't3',
+      item: { kind: 'error', id: 'e3', text: 'boom', at: 22 },
+      failures: [],
+    },
+  ];
+  const errTurn = turnIndexOf(errRows).get('t3');
+  assert.equal(errTurn.closed, true);
+  assert.equal(errTurn.cardOwnerRow, 2);
+  assert.equal(turnCardsRevealed(errTurn, 2, { trailingTurnRunning: true }), false);
+  assert.equal(turnCardsRevealed(errTurn, 2, { trailingTurnRunning: false }), true);
+});
+
+test('two consecutive turndone turns with distinct checkpointIds keep separate pinned owners even while a later turn streams', () => {
+  const { turnIndexOf } = createTurnIndexer(visualizedTargets);
+  const gap = (turnKey, key) => ({ _tag: 'TurnGap', key, turnKey });
+  const cp1Closed = { checkpointId: 'cp1', boundary: 'd1', trailing: false };
+  const cp1Trailing = { checkpointId: 'cp1', boundary: 'd1', trailing: true };
+  const cp2Trailing = { checkpointId: 'cp2', boundary: 'd2', trailing: true };
+  const firstOpen = open('o1', 'site/first.html', 'v1', 2);
+  const secondOpen = open('o2', 'site/second.html', 'v2', 12);
+
+  // While the wake turn is still streaming (no visible user prompt between them),
+  // the earlier turndone keeps its own card owner revealed.
+  const streamingWakeRows = [
+    {
+      _tag: 'UserMessage',
+      key: 'u1',
+      turnKey: 'attempt:1',
+      item: { kind: 'user', id: 'u1', checkpointId: 'cp1', text: 'start', at: 1 },
+    },
+    toolRow('attempt:1', 'tool1', [firstOpen]),
+    {
+      ...replyRow('attempt:1', 'First turn complete.', 5, cp1Trailing),
+      completion: { kind: 'turndone', id: 'd1', status: 'done', checkpointId: 'cp1' },
+    },
+    gap('segment:wake', 'gap:wake'),
+    toolRow('segment:wake', 'tool2', [secondOpen]),
+    { _tag: 'Thinking', key: 'thinking:wake', turnKey: 'segment:wake', active: true },
+  ];
+  const midIndex = turnIndexOf(streamingWakeRows);
+  assert.notEqual(midIndex.get('attempt:1'), midIndex.get('segment:wake'));
+  assert.equal(midIndex.get('attempt:1').running, false);
+  assert.equal(midIndex.get('attempt:1').cardOwnerRow, 2);
+  assert.equal(
+    turnCardsRevealed(midIndex.get('attempt:1'), 2, { trailingTurnRunning: false, trailingCheckpointShown: true }),
+    true,
+    'earlier completed turn stays revealed while wake streams'
+  );
+  assert.equal(midIndex.get('segment:wake').cardOwnerRow, -1);
+  assert.equal(
+    turnCardsRevealed(midIndex.get('segment:wake'), 4, { trailingTurnRunning: false, trailingCheckpointShown: true }),
+    false,
+    'streaming wake turn has no card owner yet'
+  );
+
+  // Once the wake closes with its own distinct checkpointId (still no visible user prompt between them),
+  // both turns remain separate TurnIndexEntries and each owns its own row.
+  const bothDoneRows = [
+    {
+      _tag: 'UserMessage',
+      key: 'u1',
+      turnKey: 'attempt:1',
+      item: { kind: 'user', id: 'u1', checkpointId: 'cp1', text: 'start', at: 1 },
+    },
+    toolRow('attempt:1', 'tool1', [firstOpen]),
+    {
+      ...replyRow('attempt:1', 'First turn complete.', 5, cp1Closed),
+      completion: { kind: 'turndone', id: 'd1', status: 'done', checkpointId: 'cp1' },
+    },
+    gap('attempt:2', 'gap:2'),
+    toolRow('attempt:2', 'tool2', [secondOpen]),
+    {
+      ...replyRow('attempt:2', 'Wake turn complete.', 15, cp2Trailing),
+      completion: { kind: 'turndone', id: 'd2', status: 'done', checkpointId: 'cp2' },
+    },
+  ];
+  const doneIndex = turnIndexOf(bothDoneRows);
+  const turn1 = doneIndex.get('attempt:1');
+  const turn2 = doneIndex.get('attempt:2');
+  assert.notEqual(turn1, turn2, 'distinct checkpointIds stay separate turns');
+  assert.equal(turn1.cardOwnerRow, 2);
+  assert.equal(turn2.cardOwnerRow, 5);
+  assert.equal(turn1.changes, cp1Closed);
+  assert.equal(turn2.changes, cp2Trailing);
+  assert.deepEqual(turn1.visualized(), ['site/first.html']);
+  assert.deepEqual(turn2.visualized(), ['site/second.html']);
+  assert.equal(
+    turnCardsRevealed(turn1, 2, { trailingTurnRunning: true, trailingCheckpointShown: false }),
+    true,
+    'earlier turndone stays revealed while later distinct turndone winds down'
+  );
+  assert.equal(
+    turnCardsRevealed(turn2, 5, { trailingTurnRunning: true, trailingCheckpointShown: false }),
+    false,
+    'later distinct turndone waits while trailing turn still winds down'
+  );
+  assert.equal(
+    turnCardsRevealed(turn2, 5, { trailingTurnRunning: false, trailingCheckpointShown: true }),
+    true,
+    'later distinct turndone reveals on its own row once idle'
+  );
 });

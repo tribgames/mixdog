@@ -102,11 +102,10 @@ pub(super) struct Freezing {
 pub struct Tracker {
     pub(super) meta: TrackerMeta,
     sealed: AtomicBool,
+    closing: AtomicBool,
     discarded: AtomicBool,
     contended: AtomicBool,
-    // Bumped when a completion wake reopens the sealed turn, so a seal that started before the
-    // reopen cannot mark the reopened turn sealed.
-    seal_epoch: AtomicU64,
+    baseline_ready: tokio::sync::watch::Receiver<bool>,
     snapshot: Mutex<Option<Arc<dyn WorktreeBase>>>,
     freezing: Mutex<Option<Freezing>>,
     pub(super) state: Mutex<TrackerState>,
@@ -114,16 +113,34 @@ pub struct Tracker {
 
 impl Tracker {
     pub(super) fn new(meta: TrackerMeta) -> Arc<Self> {
+        let (_tx, baseline_ready) = tokio::sync::watch::channel(true);
         Arc::new(Self {
             meta,
             sealed: AtomicBool::new(false),
+            closing: AtomicBool::new(false),
             discarded: AtomicBool::new(false),
             contended: AtomicBool::new(false),
-            seal_epoch: AtomicU64::new(0),
+            baseline_ready,
             snapshot: Mutex::new(None),
             freezing: Mutex::new(None),
             state: Mutex::new(TrackerState::new()),
         })
+    }
+
+    pub(super) fn new_pending_baseline(meta: TrackerMeta) -> (Arc<Self>, tokio::sync::watch::Sender<bool>) {
+        let (tx, baseline_ready) = tokio::sync::watch::channel(false);
+        let tracker = Arc::new(Self {
+            meta,
+            sealed: AtomicBool::new(false),
+            closing: AtomicBool::new(false),
+            discarded: AtomicBool::new(false),
+            contended: AtomicBool::new(false),
+            baseline_ready,
+            snapshot: Mutex::new(None),
+            freezing: Mutex::new(None),
+            state: Mutex::new(TrackerState::new()),
+        });
+        (tracker, tx)
     }
 
     pub(super) fn sealed(&self) -> bool {
@@ -132,14 +149,18 @@ impl Tracker {
     pub(super) fn set_sealed(&self, value: bool) {
         self.sealed.store(value, Ordering::SeqCst);
     }
+    pub(super) fn closing(&self) -> bool {
+        self.closing.load(Ordering::SeqCst)
+    }
     pub(super) fn discarded(&self) -> bool {
         self.discarded.load(Ordering::SeqCst)
     }
     pub(super) fn contended(&self) -> bool {
         self.contended.load(Ordering::SeqCst)
     }
-    pub(super) fn seal_epoch(&self) -> u64 {
-        self.seal_epoch.load(Ordering::SeqCst)
+    pub(super) async fn wait_baseline(&self) {
+        let mut rx = self.baseline_ready.clone();
+        let _ = rx.wait_for(|ready| *ready).await;
     }
     pub(super) fn snapshot(&self) -> Option<Arc<dyn WorktreeBase>> {
         self.snapshot.lock().unwrap_or_else(|e| e.into_inner()).clone()
@@ -195,6 +216,9 @@ pub(super) struct Reg {
     pub unknown_states: HashMap<String, IndexSet<String>>,
     // Owner session → worker key → completed worker review waiting for the owner's next turn.
     pub parked: IndexMap<String, IndexMap<String, Review>>,
+    // Owner session → checkpoints closed before their `open_turn_snapshot` ran (e.g., while
+    // `begin_turn` waited on `serialize_mutation`).
+    pub closed_before_open: IndexMap<String, IndexSet<String>>,
     // Owner session → how many times its change history was deleted.
     pub epochs: HashMap<String, u64>,
 }
@@ -353,7 +377,8 @@ impl Inner {
         let tracker = match reg.trackers.get(id) {
             Some(tracker) => tracker.clone(),
             None => {
-                let tracker = Tracker::new(TrackerMeta::default());
+                let owner_epoch = reg.epochs.get(id).copied().unwrap_or(0);
+                let tracker = Tracker::new(TrackerMeta { owner_epoch, ..TrackerMeta::default() });
                 reg.trackers.insert(id.to_owned(), tracker.clone());
                 tracker
             }
@@ -474,6 +499,7 @@ impl Inner {
         while reg.turns.len() > TURN_CACHE_MAX {
             let Some(oldest) = reg.turns.keys().next().cloned() else { break };
             reg.turns.shift_remove(&oldest);
+            reg.closed_before_open.shift_remove(&oldest);
             Self::drop_parked(reg, &oldest);
             let doomed: Vec<String> = reg
                 .trackers
@@ -497,6 +523,11 @@ impl Inner {
             let Some(oldest) = reg.parked.keys().next().cloned() else { break };
             Self::drop_parked(reg, &oldest);
         }
+        while reg.closed_before_open.len() > TURN_CACHE_MAX {
+            if reg.closed_before_open.shift_remove_index(0).is_none() {
+                break;
+            }
+        }
     }
 
     /// A whole-worktree baseline cannot attribute concurrent mutations to either of two live turns
@@ -519,41 +550,48 @@ impl Inner {
         }
     }
 
-    /// A completion wake belongs to the user turn that launched its workers. It reopens that
-    /// turn's review instead of replacing it.
-    fn continue_turn_snapshot(reg: &mut Reg, owner: &str) -> bool {
-        let Some(turn) = reg.turns.get(owner) else { return false };
-        let generation = turn.generation;
-        let Some(tracker) = reg.trackers.get(owner).cloned() else { return false };
-        if tracker.meta.owner_generation != generation {
-            return false;
+    fn tracker_discarded_in(reg: &Reg, owner: &str, tracker: &Tracker) -> bool {
+        if tracker.discarded() {
+            return true;
         }
-        let turn = reg.turns.shift_remove(owner).expect("turn");
-        reg.turns.insert(owner.to_owned(), turn);
-        tracker.set_sealed(false);
-        tracker.seal_epoch.fetch_add(1, Ordering::SeqCst);
-        Self::mark_worktree_contention(reg, owner, &tracker);
-        Self::adopt_parked(reg, owner, &tracker);
-        true
+        let stale = reg.epochs.get(owner).copied().unwrap_or(0) != tracker.meta.owner_epoch;
+        if stale {
+            tracker.discarded.store(true, Ordering::SeqCst);
+        }
+        stale
     }
 
-    /// The synchronous half of a turn start: reopen (completion wake) or install the turn's
-    /// tracker. The tracker is returned only for a new turn, whose Git baseline the caller
-    /// captures next.
+    pub(super) fn tracker_discarded(&self, owner: &str, tracker: &Tracker) -> bool {
+        if tracker.discarded() {
+            return true;
+        }
+        Self::tracker_discarded_in(&self.reg(), owner, tracker)
+    }
+
+    /// The synchronous half of a turn start: install a fresh tracker for this turn. Its Git
+    /// baseline is captured next by the caller.
     fn open_turn_snapshot(
         self: &Arc<Self>,
         worktree: &str,
         owner: &str,
         open: &mixdog_core_api::turn_review::TurnOpen,
-    ) -> (mixdog_core_api::turn_review::TurnToken, Option<Arc<Tracker>>) {
+    ) -> (mixdog_core_api::turn_review::TurnToken, Arc<Tracker>, tokio::sync::watch::Sender<bool>) {
         use mixdog_core_api::turn_review::TurnToken;
         let mut reg = self.reg();
-        if open.continue_turn && Self::continue_turn_snapshot(&mut reg, owner) {
-            let reopened = reg.trackers.get(owner).expect("reopened tracker");
-            return (TurnToken { generation: reopened.meta.owner_generation, checkpoint_id: reopened.meta.checkpoint_id.clone() }, None);
-        }
         let generation = reg.turns.get(owner).map_or(0, |t| t.generation) + 1;
+        let owner_epoch = reg.epochs.get(owner).copied().unwrap_or(0);
         let checkpoint_id = clean(&open.checkpoint_id).to_owned();
+        let already_closed = if !checkpoint_id.is_empty()
+            && let Some(closed) = reg.closed_before_open.get_mut(owner)
+        {
+            let found = closed.shift_remove(&checkpoint_id);
+            if closed.is_empty() {
+                reg.closed_before_open.shift_remove(owner);
+            }
+            found
+        } else {
+            false
+        };
         // A turn replaced before it sealed (an abort whose delayed cleanup has not run yet) still
         // keeps its edits as a record. Its capture is queued ahead of this turn's baseline.
         if let Some(prior) = reg.trackers.get(owner).cloned()
@@ -562,24 +600,59 @@ impl Inner {
         {
             // `void sealTurn(...)`: the seal runs on its own.
             let step = self.seal_begin(&mut reg, owner, &prior);
-            mixdog_rt::spawn("turn_review.seal_prior", mixdog_rt::TaskClass::Work, self.seal_finish(owner.to_owned(), prior, step));
+            mixdog_rt::spawn("turn_review.seal_prior", mixdog_rt::TaskClass::Work, self.seal_finish(step));
         }
         // Workers still running keep their bound trackers across the new turn: their edits join
         // whichever turn is running when they complete.
         reg.turns.shift_remove(owner);
         reg.turns.insert(owner.to_owned(), Turn { generation, checkpoint_id: checkpoint_id.clone(), agents: IndexMap::new() });
-        let tracker = Tracker::new(TrackerMeta {
+        let (tracker, baseline_tx) = Tracker::new_pending_baseline(TrackerMeta {
             owner_session_id: None,
             owner_generation: generation,
+            owner_epoch,
             checkpoint_id: checkpoint_id.clone(),
             worktree_request: path_key(worktree),
             worktree_root: nodepath::resolve_host(&[if clean(worktree).is_empty() { "." } else { clean(worktree) }]),
         });
+        if already_closed {
+            tracker.closing.store(true, Ordering::SeqCst);
+        }
         reg.trackers.insert(owner.to_owned(), tracker.clone());
         Self::trim_turn_cache(&mut reg);
         Self::mark_worktree_contention(&reg, owner, &tracker);
-        Self::adopt_parked(&mut reg, owner, &tracker);
-        (TurnToken { generation, checkpoint_id }, Some(tracker))
+        if !already_closed {
+            Self::adopt_parked(&mut reg, owner, &tracker);
+        }
+        (TurnToken { generation, checkpoint_id }, tracker, baseline_tx)
+    }
+
+    /// Synchronously marks `checkpoint_id` as closing before its async seal runs so workers
+    /// completing after the turn ended park for the next turn instead of joining the ended one.
+    pub(super) fn close_turn(&self, session_id: &str, checkpoint_id: &str) {
+        if self.cfg.disabled {
+            return;
+        }
+        let owner = clean(session_id);
+        let checkpoint = clean(checkpoint_id);
+        if owner.is_empty() || checkpoint.is_empty() {
+            return;
+        }
+        let mut reg = self.reg();
+        if let Some(tracker) = reg.trackers.get(owner)
+            && tracker.meta.checkpoint_id == checkpoint
+        {
+            tracker.closing.store(true, Ordering::SeqCst);
+            return;
+        }
+        let mut closed = reg.closed_before_open.shift_remove(owner).unwrap_or_default();
+        closed.insert(checkpoint.to_owned());
+        while closed.len() > TURN_CACHE_MAX {
+            if closed.shift_remove_index(0).is_none() {
+                break;
+            }
+        }
+        reg.closed_before_open.insert(owner.to_owned(), closed);
+        Self::trim_turn_cache(&mut reg);
     }
 
     pub(super) async fn begin_turn(
@@ -596,40 +669,52 @@ impl Inner {
         // mutation, and a mutation queued after this start re-checks under the lock and finds the
         // turn running.
         let busy = self.mutations.is_busy(&owner);
-        let (token, tracker) = if busy {
+        let (token, tracker, baseline_tx) = if busy {
             let inner = self.clone();
             let (worktree, owner2) = (worktree.to_owned(), owner.clone());
             self.serialize_mutation(&owner, async move { inner.open_turn_snapshot(&worktree, &owner2, &open) }).await
         } else {
             self.open_turn_snapshot(worktree, &owner, &open)
         };
-        let Some(tracker) = tracker else { return Some(token) };
         let snapshot = self.worktrees.create(worktree).await;
-        let current = self.tracker_of(&owner);
-        if current.is_some_and(|t| Arc::ptr_eq(&t, &tracker)) {
+        let (live, is_current) = {
+            let reg = self.reg();
+            let discarded = Self::tracker_discarded_in(&reg, &owner, &tracker);
+            let is_current = reg.trackers.get(&owner).is_some_and(|t| Arc::ptr_eq(t, &tracker));
+            let still_sealing = tracker.freezing().is_some();
+            (!discarded && (is_current || still_sealing), is_current)
+        };
+        if live {
             let has_root = snapshot.as_ref().is_some_and(|s| !s.root().is_empty());
             let start = snapshot.as_ref().map(|s| (s.root(), s.baseline_tree())).filter(|(root, tree)| !root.is_empty() && !tree.is_empty());
             *tracker.snapshot.lock().unwrap_or_else(|e| e.into_inner()) = snapshot;
-            if has_root {
-                Self::mark_worktree_contention(&self.reg(), &owner, &tracker);
+            if has_root && is_current {
+                let reg = self.reg();
+                if !Self::tracker_discarded_in(&reg, &owner, &tracker) {
+                    Self::mark_worktree_contention(&reg, &owner, &tracker);
+                }
             }
             if let Some((root, tree)) = start {
-                self.record_bases(&owner, &token.checkpoint_id, root, tree).await;
+                self.record_bases(&owner, &tracker, &token.checkpoint_id, root, tree).await;
             }
         }
+        let _ = baseline_tx.send(true);
         Some(token)
     }
 
     /// Where this turn's review (and, at the thread's first turn, its session review) starts: the
     /// tree of the worktree the snapshot just captured.
-    async fn record_bases(&self, owner: &str, checkpoint_id: &str, root: String, tree: String) {
+    async fn record_bases(&self, owner: &str, tracker: &Tracker, checkpoint_id: &str, root: String, tree: String) {
+        if self.tracker_discarded(owner, tracker) {
+            return;
+        }
         let thread = ThreadId::from(owner);
         let (cwd, base) = (PathBuf::from(root), ObjectId(tree));
         let checkpoint = clean(checkpoint_id);
         if !checkpoint.is_empty() {
             self.bases.record(&thread, ReviewScope::Turn, Some(checkpoint), cwd.clone(), base.clone());
         }
-        if self.bases.base(&thread, ReviewScope::Session, None).await.is_none() {
+        if self.bases.base(&thread, ReviewScope::Session, None).await.is_none() && !self.tracker_discarded(owner, tracker) {
             self.bases.record(&thread, ReviewScope::Session, None, cwd, base);
         }
     }
@@ -771,8 +856,8 @@ impl Inner {
         true
     }
 
-    /// A turn that just opened (or reopened) takes the worker reviews that completed while its
-    /// Lead had no running turn.
+    /// A turn that just opened takes the worker reviews that completed while its Lead had no
+    /// running turn.
     fn adopt_parked(reg: &mut Reg, owner: &str, tracker: &Arc<Tracker>) {
         let Some(parked) = reg.parked.shift_remove(owner) else { return };
         let Some(turn) = reg.turns.get_mut(owner) else {
@@ -822,18 +907,22 @@ impl Inner {
         })
     }
 
-    /// The Lead turn is running: not sealed, not sealing.
+    /// The Lead turn is running: not sealed, not closing, not sealing.
     fn turn_running(turn: Option<&Turn>, tracker: Option<&Arc<Tracker>>) -> bool {
         match (turn, tracker) {
             (Some(turn), Some(tracker)) => {
-                tracker.meta.owner_generation == turn.generation && !tracker.sealed() && tracker.freezing().is_none() && !tracker.discarded()
+                tracker.meta.owner_generation == turn.generation
+                    && !tracker.sealed()
+                    && !tracker.closing()
+                    && tracker.freezing().is_none()
+                    && !tracker.discarded()
             }
             _ => false,
         }
     }
 
     /// Hand a finished worker's own edits (its tracker, else its apply_patch diffs) to its Lead:
-    /// into the Lead turn running now, or parked for the Lead's next turn to open or reopen.
+    /// into the Lead turn running now, or parked for the Lead's next turn.
     pub(super) fn complete_agent_review(&self, handle: &AgentHandle, patches: &[String]) -> bool {
         if handle.completed.swap(true, Ordering::SeqCst) {
             return false;
@@ -910,7 +999,7 @@ impl Inner {
     pub(super) async fn persist_turn_snapshot_record(&self, owner: &str, tracker: &Tracker) {
         let Some(snapshot) = tracker.snapshot() else { return };
         let (root, baseline_tree) = (snapshot.root(), snapshot.baseline_tree());
-        if owner.is_empty() || tracker.discarded() || baseline_tree.is_empty() || root.is_empty() {
+        if owner.is_empty() || self.tracker_discarded(owner, tracker) || baseline_tree.is_empty() || root.is_empty() {
             return;
         }
         let owned: Vec<String> = owned_paths_under(&root, &tracker.lock().owned_paths).into_iter().collect();
@@ -1000,25 +1089,24 @@ impl Inner {
 
     /// Seal a Lead turn: capture the worktree one last time, persist the review baseline and
     /// freeze the change record. Single-flight per tracker; a seal requested while another runs
-    /// waits for it and then seals again only if a completion wake reopened the turn meanwhile.
+    /// waits for it.
     pub(super) fn seal(self: &Arc<Self>, owner: String, tracker: Arc<Tracker>) -> BoxFuture<'static, ()> {
         let step = {
             let mut reg = self.reg();
             self.seal_begin(&mut reg, &owner, &tracker)
         };
-        self.seal_finish(owner, tracker, step)
+        self.seal_finish(step)
     }
 
     /// The synchronous half of a seal: it reads the turn's workers and registers the seal in
     /// flight at the moment it is asked for, before any turn replaces them.
     pub(super) fn seal_begin(self: &Arc<Self>, reg: &mut Reg, owner: &str, tracker: &Arc<Tracker>) -> SealStep {
-        if tracker.discarded() {
+        if Self::tracker_discarded_in(reg, owner, tracker) {
             return SealStep::Done;
         }
         if let Some(freezing) = tracker.freezing() {
             return SealStep::Wait(freezing.done);
         }
-        let epoch = tracker.seal_epoch();
         let agents = Self::attributed_agents_in(reg, owner, tracker);
         let key = pending_key(owner, &tracker.meta.checkpoint_id);
         *reg.pending_freezes.entry(key.clone()).or_insert(0) += 1;
@@ -1029,14 +1117,17 @@ impl Inner {
         let run_tracker = tracker.clone();
         let owner = owner.to_owned();
         mixdog_rt::spawn("turn_review.seal", mixdog_rt::TaskClass::Work, async move {
-            if let Some(snapshot) = run_tracker.snapshot() {
-                snapshot.refresh(true).await;
-            }
-            if !run_tracker.discarded() && run_tracker.seal_epoch() == epoch {
-                run_tracker.set_sealed(true);
-                run_inner.persist_turn_snapshot_record(&owner, &run_tracker).await;
-                if !run_tracker.discarded() {
-                    let _ = run_inner.freeze_turn_changes(&owner, &run_tracker, agents).await;
+            run_tracker.wait_baseline().await;
+            if !run_inner.tracker_discarded(&owner, &run_tracker) {
+                if let Some(snapshot) = run_tracker.snapshot() {
+                    snapshot.refresh(true).await;
+                }
+                if !run_inner.tracker_discarded(&owner, &run_tracker) {
+                    run_tracker.set_sealed(true);
+                    run_inner.persist_turn_snapshot_record(&owner, &run_tracker).await;
+                    if !run_inner.tracker_discarded(&owner, &run_tracker) {
+                        let _ = run_inner.freeze_turn_changes(&owner, &run_tracker, agents).await;
+                    }
                 }
             }
             run_inner.release_freeze(&run_tracker, id, &key);
@@ -1066,20 +1157,11 @@ impl Inner {
         }
     }
 
-    pub(super) fn seal_finish(self: &Arc<Self>, owner: String, tracker: Arc<Tracker>, step: SealStep) -> BoxFuture<'static, ()> {
-        let inner = self.clone();
+    pub(super) fn seal_finish(&self, step: SealStep) -> BoxFuture<'static, ()> {
         async move {
             match step {
                 SealStep::Done => {}
-                SealStep::Started(done) => wait_done(done).await,
-                // A seal requested while another runs waits for it and then seals again only if a
-                // completion wake reopened the turn meanwhile.
-                SealStep::Wait(done) => {
-                    wait_done(done).await;
-                    if !tracker.sealed() {
-                        inner.seal(owner, tracker).await;
-                    }
-                }
+                SealStep::Started(done) | SealStep::Wait(done) => wait_done(done).await,
             }
         }
         .boxed()
@@ -1118,6 +1200,7 @@ impl Inner {
             }
         }
         reg.turns.shift_remove(owner);
+        reg.closed_before_open.shift_remove(owner);
         let prefix = format!("{owner}\0");
         reg.unknown_states.retain(|key, _| !key.starts_with(&prefix));
     }

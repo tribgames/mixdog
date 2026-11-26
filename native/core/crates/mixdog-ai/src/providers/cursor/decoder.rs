@@ -1270,6 +1270,34 @@ mod tests {
         assert_eq!(calls_of(&second), vec![call("call-2", "a")]);
     }
 
+    #[test]
+    fn cursor_leaked_duplicate_suppresses_orphan_native_start() {
+        let mut decoder = lookup_decoder().with_known_tools(["lookup".to_owned()].into());
+        let leaked = r#"<invoke name="lookup"><parameter name="key">a</parameter></invoke>"#;
+        let mut events = decoder.feed(&update(1, |t| t.string(1, leaked))).expect("decodes");
+        events.extend(decoder.feed(&[listing(1), mcp_call(1, "a")].concat()).expect("decodes"));
+
+        let starts: Vec<_> = events.iter().filter(|e| matches!(e, StreamEvent::ToolCallStart { .. })).collect();
+        assert!(starts.is_empty(), "suppressed native duplicate must not emit an orphan ToolCallStart: {events:?}");
+        let dones: Vec<&ToolCall> = events
+            .iter()
+            .filter_map(|e| match e {
+                StreamEvent::ToolCallDone(call) => Some(call),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(dones.len(), 1, "only the leaked duplicate dispatches ToolCallDone: {dones:?}");
+        assert!(dones[0].id.contains("_leaked_"));
+        let returned: Vec<(String, Value)> = events
+            .iter()
+            .find_map(|e| match e {
+                StreamEvent::ReturnedCalls(calls) => Some(calls.iter().map(|c| (c.id.clone(), c.arguments.clone())).collect()),
+                _ => None,
+            })
+            .expect("ReturnedCalls must carry the deduped native call");
+        assert_eq!(returned, vec![call("call-1", "a")]);
+    }
+
     /// Token deltas with nothing to show are the model working; the service's heartbeat is liveness and no event.
     #[test]
     fn a_token_delta_is_progress_and_a_heartbeat_is_only_liveness() {
@@ -2416,12 +2444,12 @@ impl CursorDecoder {
             }
         }
         for call in pending {
-            events.push(StreamEvent::ItemStart { kind: ItemKind::Tool, phase: None });
-            events.push(StreamEvent::ToolCallStart { id: call.tool_call_id.clone(), name: call.tool_name.clone() });
             self.exposure.tool_dispatched = true;
-            let done = ToolCall { id: call.tool_call_id, name: call.tool_name, arguments: call.arguments, native_type: None };
+            let done = ToolCall { id: call.tool_call_id.clone(), name: call.tool_name.clone(), arguments: call.arguments, native_type: None };
             announced.push(done.clone());
             if self.dedupe.should_dispatch(&done.name, &done.arguments, &done.id) {
+                events.push(StreamEvent::ItemStart { kind: ItemKind::Tool, phase: None });
+                events.push(StreamEvent::ToolCallStart { id: call.tool_call_id, name: call.tool_name });
                 events.push(StreamEvent::ToolCallDone(done));
             }
         }

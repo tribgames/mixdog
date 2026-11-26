@@ -48,10 +48,8 @@ pub struct TurnToken {
 /// How a turn opens its review.
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
 pub struct TurnOpen {
-    /// The first submitted row's id: the turn's checkpoint.
+    /// The turn's own checkpoint id (submission id, or the turn's input item id).
     pub checkpoint_id: String,
-    /// A completion wake reopens the current turn instead of starting one.
-    pub continue_turn: bool,
 }
 
 /// What a worker's review hands its owner when it completes: the patches its tool results carried
@@ -150,6 +148,10 @@ pub trait TurnReviewApi: Send + Sync {
     // ── turn lifecycle ─────────────────────────────────────────────────────
 
     async fn begin_turn(&self, worktree: &str, session_id: &str, open: TurnOpen) -> Option<TurnToken>;
+
+    /// Synchronously marks `checkpoint_id` as closing before its async seal runs so late worker
+    /// completions park for the next turn instead of joining the ended one.
+    fn close_turn(&self, _session_id: &str, _checkpoint_id: &str) {}
 
     /// Seals the turn (`completeTurnSnapshot`); `expected` makes a delayed call a no-op once a
     /// newer turn began.

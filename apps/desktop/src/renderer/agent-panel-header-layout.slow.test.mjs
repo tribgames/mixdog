@@ -268,7 +268,8 @@ const PAGE = `
         range.selectNodeContents(text);
         const t = range.getBoundingClientRect();
         const visible = { left: t.left, right: Math.min(t.right, box(text).right), top: t.top, bottom: t.bottom };
-        for (const column of [right, box(item.querySelector('.agent-row-steps'))]) {
+        const steps = item.querySelector('.agent-row-steps');
+        for (const column of steps ? [right, box(steps)] : [right]) {
           if (overlap(visible, column)) rowOverlaps.push('text ' + name(text));
         }
       }
@@ -281,10 +282,10 @@ const PAGE = `
             .map((node) => (node.className?.baseVal ?? node.className) + ' ' + Math.round(box(node).height) + '/' + Math.round(box(node).width)).join('; ') + ']');
       }
     }
-    // The step figures, each in its row's step column, on the name's line.
+    // The step figures, each inside its row's trailing meta cluster, on the name's line.
     const marks = [...panel.querySelectorAll('.agent-row-steps')].filter((node) => node.textContent).map((node) => {
       const mark = box(node);
-      const nameBox = box(node.parentElement.querySelector('.agent-pool-name'));
+      const nameBox = box(node.closest('.agent-pool-row').querySelector('.agent-pool-name'));
       return Math.abs((mark.top + mark.bottom) / 2 - (nameBox.top + nameBox.bottom) / 2) <= 3;
     });
     // The rows' rings: each a 16px slot centred on its line's text, on one left line.
@@ -318,10 +319,20 @@ const PAGE = `
       return read;
     };
     const regular = token('fontWeight', 'var(--mx-weight-regular)');
+    const medium = token('fontWeight', 'var(--mx-weight-medium)');
     const type = {
-      heavy: [...panel.querySelectorAll('.composer-island-agent-item :is(.agent-activity-elapsed, .agent-row-steps)')]
+      heavy: [
+        ...panel.querySelectorAll(
+          '.composer-island-agent-item :is(.agent-activity-elapsed, .agent-row-steps:not([data-active="true"]))'
+        ),
+      ]
         .filter((node) => getComputedStyle(node).fontWeight !== regular)
-        .map(name),
+        .map(name)
+        .concat(
+          [...panel.querySelectorAll('.composer-island-agent-item .agent-row-steps[data-active="true"]')]
+            .filter((node) => getComputedStyle(node).fontWeight !== medium)
+            .map(name)
+        ),
     };
     const list = panel.querySelector('.composer-island-jobs');
     const shown = box(list);
@@ -424,12 +435,12 @@ function problems(label, m, phone) {
   expect(m.brands.length === 0, `rings not a 16px slot on one left line (w/left/offset): ${m.brands}`);
   expect(m.type.heavy.length === 0, `states, clocks or step marks not regular: ${m.type.heavy}`);
   expect(m.type.summary === null, `the usage line is not supporting, regular, muted: ${m.type.summary}`);
-  // The head 40px and the foot 44px on a desktop pane (on a phone the touch targets set them).
+  // The banded head 42px, body inset 8px, and banded foot 44px on a desktop pane (on a phone touch targets set them).
   expect(
-    Math.abs(m.spacing.top) <= 0.5 &&
+    Math.abs(m.spacing.top - 8) <= 0.5 &&
       Math.abs(m.spacing.foot - 4) <= 0.5 &&
-      (phone || (m.spacing.headHeight === 40 && m.spacing.footHeight === 44)),
-    `the head 40px, the list under it, the foot 44px and 4px under the last row: ${JSON.stringify(m.spacing)}`
+      (phone || (m.spacing.headHeight === 42 && m.spacing.footHeight === 44)),
+    `the head 42px, the list 8px under it, the foot 44px and 4px under the last row: ${JSON.stringify(m.spacing)}`
   );
   expect(m.pageOverflow <= 0, `the page overflows by ${m.pageOverflow}px`);
   expect(m.panel.overflow <= 0 && m.head.overflow <= 0, `panel/header overflow ${m.panel.overflow}/${m.head.overflow}`);
@@ -438,8 +449,8 @@ function problems(label, m, phone) {
   expect(m.namesEllipsize, 'row titles ellipsize');
   expect(m.marks.length === 3 && m.marks.every(Boolean), `step figures off their names' line: ${m.marks}`);
   expect(
-    m.rules.head === 0 && m.rules.list.length === 0 && m.rules.footBorder === 0 && m.rules.footRule,
-    `rules: one above the foot between the insets, none else: ${JSON.stringify(m.rules)}`
+    m.rules.head === 1 && m.rules.list.length === 0 && m.rules.footBorder === 1 && !m.rules.footRule,
+    `rules: full-width header and footer bands, none in the list: ${JSON.stringify(m.rules)}`
   );
   expect(m.cutRows.length === 0 && m.moreBelow, `the list ends mid-row or without its shadow: ${m.cutRows}`);
   expect(m.summary.overflow <= 0 && m.summary.overlaps.length === 0, `footer overflow/overlap ${m.summary.overlaps}`);
@@ -685,7 +696,7 @@ test("the foot's usage line and Clean up share one row at every pane width, Clea
   assert.deepEqual(errors, []);
 });
 
-test("on a 412px phone, agents whose usage is a floor get their figures on one line, never a placeholder, the cache hit dropped first and the cost next", async () => {
+test('on a 412px phone, agents whose usage is a floor get their figures on one line, never a placeholder, the cache hit dropped first and the cost next', async () => {
   const tab = await sized(0);
   await tab.setViewport({ width: 412, height: 915, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   await tab.evaluate(() => window.__reported(true));

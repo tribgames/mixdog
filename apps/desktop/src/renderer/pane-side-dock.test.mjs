@@ -373,7 +373,13 @@ test('a dock moves only to a pane tabbing its owner that has no dock for it, in 
   assert.equal(paneDockHandoverTarget({ L1: owned, L2: theirs }, sessions, 's1', 'L1'), '');
   const dirty = () => true;
   const prompted = (docks) =>
-    dirtySideFilesClosedWith(docks.L1, 's1', true, (o) => paneDockHandoverTarget(docks, sessions, o, 'L1') !== '', dirty);
+    dirtySideFilesClosedWith(
+      docks.L1,
+      's1',
+      true,
+      (o) => paneDockHandoverTarget(docks, sessions, o, 'L1') !== '',
+      dirty
+    );
   assert.equal(prompted({ L1: owned, L2: closed() }).length, 0);
   assert.equal(prompted({ L1: owned, L2: theirs }).length, 1);
 });
@@ -2482,24 +2488,81 @@ test("a new pane's first painted frame has the dock and the session panel laid o
     (cell) => cell.querySelector('.pane-side-dock').dataset.overlay
   );
   assert.deepEqual(overlay, { frames: ['true'], settled: 'true' });
-  // 1,300px: a 300px panel, and the conversation re-centred left of its 308px band (sessionRailFit).
-  const rail = await firstFrame(1300, { ...resizableDockProps(closed()), sessionId: 's1' }, (cell) =>
-    cell.style.getPropertyValue('--session-rail-reserve')
-  );
-  assert.deepEqual(rail, { frames: ['308px'], settled: '308px' });
+  // 1,300px: a 300px panel (308px band); continuous overlap reserve = 2 * (308 - (1300 - 848) / 2) = 164px.
+  const rail = await firstFrame(1300, { ...resizableDockProps(closed()), sessionId: 's1' }, (cell) => [
+    cell.style.getPropertyValue('--session-rail-reserve'),
+    cell.style.getPropertyValue('--session-rail-over'),
+  ]);
+  assert.deepEqual(rail, { frames: [['164px', '144px']], settled: ['164px', '144px'] });
 });
 
-test('panel resize (rendered): a touch drag on the handle previews and commits like the mouse', async () => {
+test('panel resize (rendered): a touch drag on the handle previews, toggles data-resizing, and commits like the mouse', async () => {
   const dock = mountResizableDock({ stored: { [PANEL_WIDTH_KEY]: 400 }, pointerType: 'touch' });
   try {
     const panel = { ...closed(), open: true };
     await act(async () => dock.root.render(React.createElement(PaneSideDock, resizableDockProps(panel))));
     await dock.down(1000);
+    assert.equal(
+      document.documentElement.dataset.resizing,
+      'true',
+      'active drag marks root for transition suppression'
+    );
     await dock.move(920);
     assert.equal(dock.renderedWidth(), '480px', 'the finger drags the edge live');
     assert.equal(dock.stored(PANEL_WIDTH_KEY), '400', 'preview never persists');
     await dock.up(920);
+    assert.equal(document.documentElement.dataset.resizing, undefined, 'releasing drag clears root marker');
     assert.equal(dock.stored(PANEL_WIDTH_KEY), '480', 'lifting the finger commits');
+  } finally {
+    await act(async () => dock.root.unmount());
+    dock.restore();
+  }
+});
+
+test('agent-session side panel enforces the main workspace minimum horizontal width (360px)', async () => {
+  const { PANE_SIDE_DOCK_AGENT_SESSION_MIN_WIDTH } = await import('./pane-side-dock-model.ts');
+  const { DESKTOP_WORKSPACE_MIN_WIDTH } = await import('../shared/window-layout.ts');
+  assert.equal(PANE_SIDE_DOCK_AGENT_SESSION_MIN_WIDTH, DESKTOP_WORKSPACE_MIN_WIDTH);
+  const dock = mountResizableDock({ cellWidth: 1400, stored: { [PANEL_WIDTH_KEY]: 300 } });
+  try {
+    const entry = { open: true, view: 'agent-session', surface: '', diff: null };
+    await act(async () =>
+      dock.root.render(
+        React.createElement(PaneSideDock, resizableDockProps(entry, [['agent-session'], ['source-control']]))
+      )
+    );
+    assert.equal(dock.renderedWidth(), `${DESKTOP_WORKSPACE_MIN_WIDTH}px`, 'agent session panel clamps up to 360px');
+    await dock.down(1000);
+    await dock.move(1150);
+    assert.equal(dock.renderedWidth(), `${DESKTOP_WORKSPACE_MIN_WIDTH}px`, 'dragging narrower stops at 360px');
+    await dock.up(1150);
+  } finally {
+    await act(async () => dock.root.unmount());
+    dock.restore();
+  }
+});
+
+test('paired diff dock drag across inline/overlay boundary previews overlay and both column widths coherently', async () => {
+  // Cell 1200px, room = 1200 - 360 - 4 = 836px. Start inline with panel=400, diff=400 (sum 800 <= 836).
+  const dock = mountResizableDock({
+    cellWidth: 1200,
+    stored: { [PANEL_WIDTH_KEY]: 400, 'mixdog.desktop.pane-side-dock-diff-width.v1': 400 },
+  });
+  try {
+    const entry = { open: true, view: 'source-control', surface: 'diff', diff: diffA };
+    await act(async () => dock.root.render(React.createElement(PaneSideDock, resizableDockProps(entry))));
+    const host = document.querySelector('.pane-side-dock');
+    const diffCol = document.querySelector('.pane-dock-diff-column');
+    assert.equal(host.dataset.overlay, 'false', 'starts inline while panel+diff fits beside conversation');
+    // Drag panel handle left by 100px -> panel desired 500, sum 900 > 836 -> crosses into overlay.
+    await dock.down(1000);
+    await dock.move(900);
+    assert.equal(host.dataset.overlay, 'true', 'crossing inline floor flips data-overlay during drag preview');
+    assert.equal(dock.renderedWidth(), '500px', 'panel width previews cleanly');
+    assert.equal(diffCol.style.getPropertyValue('--pane-dock-diff-width'), '400px', 'diff column width stays coherent');
+    await dock.up(900);
+    assert.equal(host.dataset.overlay, 'true', 'pointerup matches preview without snapping');
+    assert.equal(dock.renderedWidth(), '500px');
   } finally {
     await act(async () => dock.root.unmount());
     dock.restore();

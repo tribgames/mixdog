@@ -1,3 +1,14 @@
+/* Suppress CSS transitions and iframe/webview hit-testing during active
+   horizontal/vertical drag resizing so pointermove stays at 60fps. */
+html[data-resizing="true"],
+html[data-resizing="true"] * {
+  transition-duration: 0s !important;
+}
+html[data-resizing="true"] iframe,
+html[data-resizing="true"] webview {
+  pointer-events: none !important;
+}
+
 /* Split-pane workspace chrome. Kept out of desktop.css so the pane layout is
    self-contained and the shell integration lands as one import. */
 .pane-split {
@@ -748,6 +759,7 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-side-dock-heade
   /* The content wrapper still clips its children; the resize edge must not
      be clipped by the panel itself. */
   overflow: visible;
+  min-width: min(var(--workbench-side-panel-min-width), 100%);
   /* Width is fully MEASURED by the dock host: the unit
      always leaves the conversation its floor, so no band cap is needed. */
   max-width: none;

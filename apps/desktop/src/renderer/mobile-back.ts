@@ -534,7 +534,12 @@ function handleArmedBackPop(priorSentinelStack: SentinelEntry[], wasTop: Sentine
   }
 }
 
-function handleDisarmedBackPop(wasTop: SentinelEntry, landedSeq: number | null, previousSeq: number | null): void {
+function handleDisarmedBackPop(
+  wasTop: SentinelEntry,
+  landedSeq: number | null,
+  previousSeq: number | null,
+  priorTopHistoryLength: number | null
+): void {
   if (hasAnySentinelMarker(history.state)) {
     // A sequenceless legacy entry is proven behind us ONLY when stepping
     // directly off a sentinel pushed in this boot (which truncated forward
@@ -562,7 +567,7 @@ function handleDisarmedBackPop(wasTop: SentinelEntry, landedSeq: number | null, 
   // Unmarked state (e.g. `/app` or a fragment navigation like `/app#details`):
   // only forward Back to `/previous` when this was a real Back traversal onto
   // the same URL, never when a fragment link grew history or changed URL/hash.
-  const grewHistory = topHistoryLength !== null && history.length > topHistoryLength;
+  const grewHistory = priorTopHistoryLength !== null && history.length > priorTopHistoryLength;
   const hrefNow = currentHref();
   const urlChanged = wasTop.href !== null && hrefNow !== null && hrefNow !== wasTop.href;
   sentinelStack.length = 0;
@@ -616,11 +621,12 @@ function onPopState(): void {
 
   if (wasTop !== null) {
     const priorSentinelStack = sentinelStack.slice();
+    const priorTopHistoryLength = topHistoryLength;
     reconcileSentinelStack(landed);
     if (stack.length > 0) {
       handleArmedBackPop(priorSentinelStack, wasTop, landed);
     } else {
-      handleDisarmedBackPop(wasTop, landedSeq, previousSeq);
+      handleDisarmedBackPop(wasTop, landedSeq, previousSeq, priorTopHistoryLength);
     }
     return;
   }

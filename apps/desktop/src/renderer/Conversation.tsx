@@ -11,6 +11,7 @@ import { useConversationPaintHandoff } from './conversation-pane-paint-handoff';
 
 import type { ConversationProps } from './conversation-pane-props';
 import { useConversationTimeline } from './use-conversation-timeline';
+import { turnRowsRevealOf } from './conversation-turn-index';
 import { trailingTurnRuns, useConversationLinkSurfaces } from './use-conversation-link-surfaces';
 import { runningTurnKeyOf } from './turn-preview-model';
 import { useConversationApprovals } from './use-conversation-approvals';
@@ -137,13 +138,16 @@ export function Conversation(props: ConversationProps) {
     questionCard: readOnly ? null : approvals.questionCard,
     agentMode,
   });
+  const reveal = turnRowsRevealOf(timeline.transcriptRows);
   const links = useConversationLinkSurfaces(props, {
     // Per-turn changed-files cards. A read-only view mounts none: their
     // Undo/Reapply mutate the session.
     turnChangesSessionId: draftMode || readOnly ? '' : routeSessionId,
     turnChangesBusy: Boolean(snapshot.busy || snapshot.commandBusy),
-    turnChangesRunning: trailingTurnRuns(snapshot.busy, pendingItems.length, timeline.pastLastEnd),
-    trailingCheckpointShown: timeline.trailingCheckpointShown,
+    turnChangesRunning: reveal
+      ? reveal.trailingTurnRunning
+      : trailingTurnRuns(snapshot.busy, pendingItems.length, timeline.pastLastEnd),
+    trailingCheckpointShown: reveal ? reveal.trailingCheckpointShown : timeline.trailingCheckpointShown,
     // With no prompt pending, the last settled item is the running turn's, unless it is the end of the turn before.
     runningTurnKey: trailingTurnRuns(snapshot.busy, pendingItems.length, timeline.turnPastEnd)
       ? runningTurnKeyOf(settledItems, timeline.liveTurnKeys, timeline.liveTurnKeys.at(-1) ?? '')

@@ -2182,6 +2182,7 @@ async fn turn_world_routed(
         compactors,
         hops: Box::new({
             let registry_dir = workspace.path().join("catalog");
+            let provider_id = provider.id().as_str().to_owned();
             move |directory, route_facts| {
                 let io = mixdog_ai::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
                 let metadata = mixdog_ai::catalog::ModelsDevSource::new(Arc::new(Offline), registry_dir, io);
@@ -2215,7 +2216,13 @@ async fn turn_world_routed(
                             )
                         }
                         None => (
-                            Arc::new(serde_json::Map::new) as mixdog_core_run::run_host::hop_host::ConfigSnapshot,
+                            Arc::new(move || {
+                                let mut providers = serde_json::Map::new();
+                                providers.insert(provider_id.clone(), json!({ "enabled": true, "apiKey": "sk-test" }));
+                                let mut cfg = serde_json::Map::new();
+                                cfg.insert("providers".into(), Value::Object(providers));
+                                cfg
+                            }) as mixdog_core_run::run_host::hop_host::ConfigSnapshot,
                             Arc::new(OpenHopSessions) as Arc<dyn mixdog_core_run::run_host::hop_host::HopSessions>,
                         ),
                     };

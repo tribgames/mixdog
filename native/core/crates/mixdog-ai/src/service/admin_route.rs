@@ -181,11 +181,16 @@ pub fn model_settings_for(config: &Obj, provider: &str, model: &str) -> Obj {
 
 /// `findPreset`.
 pub fn find_preset<'a>(config: &'a Obj, key: Option<&Value>) -> Option<&'a Value> {
-    let wanted = clean(key).to_lowercase();
-    if wanted.is_empty() {
+    let raw = clean(key);
+    if raw.is_empty() {
         return None;
     }
-    config.get("presets")?.as_array()?.iter().find(|p| clean(p.get("id")).to_lowercase() == wanted || clean(p.get("name")).to_lowercase() == wanted)
+    let presets = config.get("presets")?.as_array()?;
+    if let Some(exact) = presets.iter().find(|p| clean(p.get("id")) == raw) {
+        return Some(exact);
+    }
+    let wanted = raw.to_lowercase();
+    presets.iter().find(|p| clean(p.get("id")).to_lowercase() == wanted || clean(p.get("name")).to_lowercase() == wanted)
 }
 
 /// `fastPreferenceFor(config, provider, model)`.
@@ -351,6 +356,13 @@ pub fn resolve_route(config: &Obj, request: &Obj, is_known: &dyn Fn(&str, &Obj) 
         }
         if let Some(t) = tokens {
             route.insert("contextTokens".into(), jnum(t));
+        } else if context_tokens == Some(&Value::Null) && percent.is_none() {
+            route.insert("contextTokens".into(), Value::Null);
+        }
+        for key in ["routeFallbacks", "routeFallbackSource"] {
+            if let Some(v) = request.get(key) {
+                route.insert(key.into(), v.clone());
+            }
         }
         route
     };
@@ -610,6 +622,8 @@ pub fn refresh_route_fields(
     };
     if let Some(tokens) = context_tokens.filter(|t| *t != 0.0) {
         route.insert("contextTokens".into(), jnum(tokens));
+    } else if target.get("contextTokens").is_some_and(Value::is_null) && !route.contains_key("contextPercent") {
+        route.insert("contextTokens".into(), Value::Null);
     }
     if let Some(window) = selected {
         route.insert("selectedContextWindow".into(), jnum(window));
@@ -896,4 +910,63 @@ pub fn persist_adopted_model_settings(
         return Ok(None);
     }
     persist_lead_route(config, &Value::Object(route.clone()))
+}
+
+#[cfg(test)]
+mod admin_route_tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn obj(v: Value) -> Obj {
+        v.as_object().cloned().expect("object")
+    }
+
+    #[test]
+    fn find_preset_prefers_exact_case_id_before_case_insensitive_fallback() {
+        let config = obj(json!({
+            "presets": [
+                { "id": "WORKER", "name": "WORKER", "provider": "openai", "model": "gpt-upper" },
+                { "id": "worker", "name": "worker", "provider": "anthropic", "model": "claude-lower" }
+            ]
+        }));
+        assert_eq!(find_preset(&config, Some(&json!("worker"))).and_then(|p| p.get("model")), Some(&json!("claude-lower")));
+        assert_eq!(find_preset(&config, Some(&json!("WORKER"))).and_then(|p| p.get("model")), Some(&json!("gpt-upper")));
+        assert_eq!(find_preset(&config, Some(&json!("Worker"))).and_then(|p| p.get("model")), Some(&json!("gpt-upper")));
+    }
+
+    #[test]
+    fn resolve_route_preserves_route_fallbacks_source_and_explicit_null_context_tokens() {
+        let config = obj(json!({
+            "modelSettings": {
+                "openai/gpt-5": { "contextTokens": 100000 }
+            }
+        }));
+        let request = obj(json!({
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": null,
+            "routeFallbacks": [{ "provider": "anthropic", "model": "claude-sonnet" }],
+            "routeFallbackSource": { "preset": "worker" }
+        }));
+        let pass1 = resolve_route(&config, &request, &|_, _| true).unwrap();
+        assert_eq!(pass1.get("contextTokens"), Some(&Value::Null));
+        assert_eq!(pass1.get("routeFallbacks"), Some(&json!([{ "provider": "anthropic", "model": "claude-sonnet" }])));
+        assert_eq!(pass1.get("routeFallbackSource"), Some(&json!({ "preset": "worker" })));
+
+        let pass2 = resolve_route(&config, &pass1, &|_, _| true).unwrap();
+        assert_eq!(pass2.get("contextTokens"), Some(&Value::Null));
+        assert_eq!(pass2.get("routeFallbacks"), Some(&json!([{ "provider": "anthropic", "model": "claude-sonnet" }])));
+        assert_eq!(pass2.get("routeFallbackSource"), Some(&json!({ "preset": "worker" })));
+
+        let clear = obj(json!({
+            "provider": "openai",
+            "model": "gpt-5",
+            "routeFallbacks": [],
+            "routeFallbackSource": null
+        }));
+        let cleared = resolve_route(&config, &clear, &|_, _| true).unwrap();
+        assert_eq!(cleared.get("routeFallbacks"), Some(&json!([])));
+        assert_eq!(cleared.get("routeFallbackSource"), Some(&Value::Null));
+    }
 }
