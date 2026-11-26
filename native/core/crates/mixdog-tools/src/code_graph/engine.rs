@@ -12,8 +12,8 @@ use mixdog_graph_host::wire;
 use mixdog_graph_host::worker::{EXIT_FAILED, Handler, Rejection, serve_stdio};
 use mixdog_protocol::JsonValue;
 
-pub use super::cache::{DiskCatalog, Timings, change_identities};
 use super::cache::{self, GraphCache};
+pub use super::cache::{DiskCatalog, Timings, change_identities};
 use super::{args, dispatch, federation, output, roots};
 
 /// The tool's answer, with its warnings, pagination and output budget applied.

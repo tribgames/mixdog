@@ -452,7 +452,8 @@ fn keep(
     artifacts: Option<Arc<dyn mixdog_agent::offload::ArtifactStore>>,
     running: Running,
 ) -> String {
-    let (supports_images, max_raw_bytes, max_inline_text_bytes) = (image_output.supports_images, image_output.max_raw_bytes, image_output.max_inline_text_bytes);
+    let (supports_images, max_raw_bytes, max_inline_text_bytes) =
+        (image_output.supports_images, image_output.max_raw_bytes, image_output.max_inline_text_bytes);
     let call = mixdog_rt::spawn("acp.kept-call", TaskClass::Work, mixdog_rt::carry_task_locals(running));
     let stop = call.abort_handle();
     let render: Arc<dyn Fn(&Value) -> String + Send + Sync> = Arc::new(|result: &Value| result["content"].as_str().unwrap_or_default().to_owned());
@@ -1437,7 +1438,8 @@ impl Reply<'_> {
         let Some(calls) = self.context.calls.clone() else {
             let outcome = crate::mcp::unrun(&id, "This turn runs no Mixdog tools.");
             let stored = self.commit_result(rows::tool_message(new_item_id(), &outcome.message)).await;
-            let answer = crate::mcp::rendered(&outcome, &ask.name, image_output_for(self.session, self.context.fit.as_ref()), &crate::runs::NoAttachments, None).await;
+            let answer =
+                crate::mcp::rendered(&outcome, &ask.name, image_output_for(self.session, self.context.fit.as_ref()), &crate::runs::NoAttachments, None).await;
             if stored.is_err() {
                 let _ = ask.answer.send(answer);
                 return stored;

@@ -151,14 +151,26 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "type ForgetHook = Box<dyn FnMut(&str) -> Option<Result<(), String>> + Send>;",
         "the fault-injection hooks above",
     ),
-    ("mixdog-core-session/src/session/mark_journal.rs", "type PendingIoHook = Box<dyn FnMut(&Path) -> Result<(), String> + Send>;", "the fault-injection hooks above"),
-    ("mixdog-core-session/src/session/mark_journal.rs", "pub(crate) fn set_pending_io_hook(&self, hook: Option<PendingIoHook>) {", "the fault-injection hooks above"),
+    (
+        "mixdog-core-session/src/session/mark_journal.rs",
+        "type PendingIoHook = Box<dyn FnMut(&Path) -> Result<(), String> + Send>;",
+        "the fault-injection hooks above",
+    ),
+    (
+        "mixdog-core-session/src/session/mark_journal.rs",
+        "pub(crate) fn set_pending_io_hook(&self, hook: Option<PendingIoHook>) {",
+        "the fault-injection hooks above",
+    ),
     (
         "mixdog-core-session/src/session/mark_journal.rs",
         "pub(crate) fn take_published_paths(&self) -> Vec<PathBuf> {",
         "a reader of the files the journal published, for the inline mark_journal tests alone: under `test-support` it would be unused",
     ),
-    ("mixdog-core-session/src/session/mark_journal.rs", "pub(crate) fn take_pending_dir_reads(&self) -> usize {", "the reader above, of the pending-folder reads"),
+    (
+        "mixdog-core-session/src/session/mark_journal.rs",
+        "pub(crate) fn take_pending_dir_reads(&self) -> usize {",
+        "the reader above, of the pending-folder reads",
+    ),
     ("mixdog-core-session/src/session/mark_journal.rs", "self.test_hooks.publishes.lock()", "the readers above"),
     ("mixdog-core-session/src/session/mark_journal.rs", "self.test_hooks.pending_dir_reads.fetch_add(", "the readers above"),
     (

@@ -211,8 +211,9 @@ async fn a_picture_is_scaled_to_a_thumbnail_or_handed_over_bounded() {
     let (width, height) = image::load_from_memory(&bytes).unwrap().to_rgb8().dimensions();
     assert_eq!((width, height), (320, 240));
     // A small picture keeps its size.
-    let small =
-        base64::engine::general_purpose::STANDARD.decode(thumbnail_of(&Local, &jpeg(40, 30), 0).await.unwrap().strip_prefix("data:image/jpeg;base64,").unwrap()).unwrap();
+    let small = base64::engine::general_purpose::STANDARD
+        .decode(thumbnail_of(&Local, &jpeg(40, 30), 0).await.unwrap().strip_prefix("data:image/jpeg;base64,").unwrap())
+        .unwrap();
     assert_eq!(image::load_from_memory(&small).unwrap().to_rgb8().dimensions(), (40, 30));
     // What does not decode is handed over as it is while it fits the bound, else nothing.
     let png = [&[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a][..], b"not really a png"].concat();

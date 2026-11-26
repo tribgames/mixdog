@@ -34,7 +34,12 @@ async fn the_registered_helper_answers_a_query_and_exits_on_close() {
     let (host, driver) = GraphHost::new(HostConfig::new(command, BOUND));
     let driver = tokio::spawn(driver);
 
-    let query = Query { session_cwd: project.clone(), args: serde_json::json!({ "mode": "find_symbol", "symbols": "add" }), registered: Vec::new(), selected: Vec::new() };
+    let query = Query {
+        session_cwd: project.clone(),
+        args: serde_json::json!({ "mode": "find_symbol", "symbols": "add" }),
+        registered: Vec::new(),
+        selected: Vec::new(),
+    };
     let answer = within(host.query(query, &CancellationToken::new())).await.expect("the helper's answer");
     assert!(answer.text.contains("src/math.mjs:1-3") && answer.text.contains("export function add(a, b) {"), "{}", answer.text);
     assert!(answer.complete && answer.dependency_roots.is_some(), "{answer:?}");

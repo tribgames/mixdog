@@ -1861,9 +1861,8 @@ fn a_refused_call_still_emits_its_row() {
     let dir = tempfile::tempdir().unwrap();
     let tool = tool_over(&dir, NoTrust);
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-    let (outcome, rows) = capturing(|| {
-        runtime.block_on(async { tool.answer(root.clone(), &serde_json::json!({ "mode": "nope" }), &mixdog_rt::CancellationToken::new()).await })
-    });
+    let (outcome, rows) =
+        capturing(|| runtime.block_on(async { tool.answer(root.clone(), &serde_json::json!({ "mode": "nope" }), &mixdog_rt::CancellationToken::new()).await }));
     assert!(outcome.is_err());
     let calls: Vec<_> = rows.iter().filter(|r| r.get("event").is_some_and(|e| e == "call")).collect();
     assert_eq!(calls.len(), 1, "{rows:?}");
@@ -2290,7 +2289,13 @@ fn seen_by_engine(engine: &super::engine::GraphEngine, cwd: &Path, args: Value, 
 }
 
 /// What the tool answers `args` with, and what the engine answers the same call with.
-async fn tool_and_engine(tool: &super::CodeGraphTool, engine: &super::engine::GraphEngine, cwd: &Path, args: Value, registered: &[std::path::PathBuf]) -> (Seen, Seen) {
+async fn tool_and_engine(
+    tool: &super::CodeGraphTool,
+    engine: &super::engine::GraphEngine,
+    cwd: &Path,
+    args: Value,
+    registered: &[std::path::PathBuf],
+) -> (Seen, Seen) {
     (seen_by_tool(tool, cwd, args.clone()).await, seen_by_engine(engine, cwd, args, registered))
 }
 
@@ -2334,7 +2339,9 @@ async fn the_engine_answers_each_mode_with_the_tools_text_roots_and_completeness
 async fn a_federated_answer_from_the_engine_is_the_tools() {
     let tmp = tempfile::tempdir().unwrap();
     let multi = tmp.path().join("multi");
-    for (name, rel, text) in [("alpha", "src/a.mjs", "export function shared() {\n  return 1;\n}\n"), ("beta", "lib/b.mjs", "export function shared() {\n  return 2;\n}\n")] {
+    for (name, rel, text) in
+        [("alpha", "src/a.mjs", "export function shared() {\n  return 1;\n}\n"), ("beta", "lib/b.mjs", "export function shared() {\n  return 2;\n}\n")]
+    {
         fs::create_dir_all(multi.join(name).join(rel).parent().unwrap()).unwrap();
         fs::write(multi.join(name).join("package.json"), "{}").unwrap();
         fs::write(multi.join(name).join(rel), text).unwrap();

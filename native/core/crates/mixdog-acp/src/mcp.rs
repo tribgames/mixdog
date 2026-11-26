@@ -1361,12 +1361,7 @@ mod tests {
         let bounded = rendered(
             &handed,
             "computer",
-            ImageOutput {
-                supports_images: true,
-                max_raw_bytes: Some(tight_limit),
-                max_inline_text_bytes: None,
-                fit: &InProcessFit,
-            },
+            ImageOutput { supports_images: true, max_raw_bytes: Some(tight_limit), max_inline_text_bytes: None, fit: &InProcessFit },
             &attachments,
             None,
         )
@@ -1496,8 +1491,7 @@ mod tests {
         ]);
 
         let limit = mixdog_imaging::policy::IMAGE_TARGET_RAW_SIZE;
-        let output =
-            ImageOutput { supports_images: false, max_raw_bytes: Some(limit), max_inline_text_bytes: None, fit: &InProcessFit };
+        let output = ImageOutput { supports_images: false, max_raw_bytes: Some(limit), max_inline_text_bytes: None, fit: &InProcessFit };
         let out = rendered(&handed, "read", output, &attachments, None).await;
         let blocks = out["content"].as_array().expect("content array");
         assert!(blocks.iter().all(|b| b["type"] == "text"), "no image blocks for text-only agent: {blocks:?}");
@@ -1616,8 +1610,7 @@ mod tests {
         // 40 blocks of 1,500 bytes each = 60 KB, every block individually under MIN_OFFLOADABLE_TEXT_BYTES (2,000 B).
         let parts: Vec<ContentPart> = (0..40).map(|i| ContentPart::Text(format!("block-{i:02}: {}", "x".repeat(1_490)), None)).collect();
         let handed = handed_parts(parts);
-        let output =
-            ImageOutput { supports_images: true, max_raw_bytes: None, max_inline_text_bytes: Some(limit), fit: &InProcessFit };
+        let output = ImageOutput { supports_images: true, max_raw_bytes: None, max_inline_text_bytes: Some(limit), fit: &InProcessFit };
 
         // With a working store, small blocks consolidate into one saved artifact file with a clear page-read pointer.
         let store = MemoryArtifactStore(Mutex::default());

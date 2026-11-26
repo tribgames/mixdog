@@ -195,7 +195,8 @@ mod tests {
                 Err(ExtError::UnknownWorker)
             }
         }
-        let error = HostExtractor::new(Arc::new(Down)).extract(Url::parse("https://e.com/").unwrap(), "x".to_owned(), "text/plain".to_owned()).await.unwrap_err();
+        let error =
+            HostExtractor::new(Arc::new(Down)).extract(Url::parse("https://e.com/").unwrap(), "x".to_owned(), "text/plain".to_owned()).await.unwrap_err();
         assert_eq!((error.kind, error.message.as_str()), (FetchKind::Network, "content extraction failed"));
     }
 }
