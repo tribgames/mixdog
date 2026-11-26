@@ -19,6 +19,12 @@ sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain 1.99.1
 export PATH=$HOME/.cargo/bin:$PATH
 export RUSTFLAGS="-C link-arg=-Wl,--build-id=sha1"
 export CARGO_TARGET_DIR=/tmp/target
+# The prebuilt static libvpx is published per Ubuntu release, which this container is not: the oldest one is named.
+# A symbol it needed past glibc 2.28 would fail the link here.
+case "$(uname -m)" in
+x86_64) export LIBVPX_TARGET=ubuntu-22.04_x86_64 ;;
+aarch64) export LIBVPX_TARGET=ubuntu-22.04_arm64 ;;
+esac
 if [ -x /usr/local/bin/sccache ] && /usr/local/bin/sccache --version; then
 	export RUSTC_WRAPPER=/usr/local/bin/sccache
 else
