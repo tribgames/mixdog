@@ -1504,6 +1504,10 @@ impl Run {
         let decision = or_cancelled(&self.cancel, route.advance(error.clone(), running.as_ref())).await.ok_or(AgentError::Aborted)?;
         let switch = match decision {
             RouteDecision::Switch(switch) => switch,
+            RouteDecision::Outside(outside) => {
+                self.emit(RunEvent::Stage(Stage::Notice { message: outside.notice.clone(), tone: Tone::Info }));
+                return Err(AgentError::Outside(outside));
+            }
             // The error as given: after a chain that ran out it names every model tried.
             RouteDecision::Surface(surface) => return Ok(Route::Surface(Box::new(surface.error))),
             RouteDecision::Fail(message) => return Err(AgentError::RouteFailed(message)),

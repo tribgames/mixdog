@@ -538,8 +538,8 @@ async fn begin(
                 lead.push(format!(
                     "# The conversation before this session\nThis session continues a conversation held in Mixdog. Mixdog summarized it; take what follows as what was said and done before the request below.\n\n{summary}"
                 ));
-                // The summary shows as a provider's compaction does, by the divider of what it stored; only a session
-                // that could not be reopened is told of.
+                // An automatic compaction shows as a provider's does, by the divider of what it stored;
+                // a fresh hand-over emits no notice, only a restarted session that could not be reopened does.
                 if !automatic && session.restarted {
                     let notice = format!("{} could not reopen its earlier session: the conversation above was summarized for the new one.", preset.label);
                     let _ = surface.notice(notice, false).await;

@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use mixdog_agent::effort::EffortWiring;
 pub use mixdog_agent::env::{ChainSurface, RouteDecision, UsageSegment};
-use mixdog_agent::env::{RouteFallback, RouteSwitch, RouteSwitchRequest};
+use mixdog_agent::env::{RouteFallback, RouteOutside, RouteSwitch, RouteSwitchRequest};
 pub use mixdog_agent::recovery::{strip_provider_replay, strip_provider_replay_messages};
 use mixdog_agent::text_only::TextOnlyInput;
 use mixdog_ai::retry::classify::kind_from_code;
@@ -147,6 +147,14 @@ pub enum RouteEligibility {
     Unknown,
 }
 
+/// Who runs a turn on a route.
+pub enum Runner {
+    /// The provider a run of the loop sends on.
+    Loop(Arc<dyn ProviderAdapter>),
+    /// An agent outside the loop: a turn on the route is the agent's to run.
+    Agent,
+}
+
 /// What the hop needs from the session, the config and the provider registry.
 #[async_trait]
 pub trait HopHost: Send + Sync {
@@ -164,12 +172,19 @@ pub trait HopHost: Send + Sync {
     fn bots(&self) -> &dyn BotRoutes;
     /// `displayModelName(model, provider)`; empty when it has no display name.
     fn model_label(&self, provider: &str, model: &str) -> String;
+    /// Display name of `provider` when disambiguating colliding model labels across providers.
+    fn provider_label(&self, provider: &str) -> String {
+        mixdog_ai::service::error_text::provider_display_name(provider)
+    }
     /// `presentErrorText(error)`.
     fn error_text(&self, error: &ProviderError) -> String;
-    /// `initProviders(ensureProviderEnabled(config, provider))` then `getProvider`; `None` when
-    /// the provider is not available. `Err` is what `initProviders` throws (its message escapes
-    /// the hop as it is).
-    async fn provider(&self, provider: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, String>;
+    /// Who runs a turn on a route of `provider`: for a provider, `initProviders(ensureProviderEnabled(config, provider))`
+    /// then `getProvider`; a route an agent outside the loop serves is the agent's, and nothing is readied for it. `None`
+    /// when the provider is not available. `Err` is what `initProviders` throws (its message escapes the hop as it is).
+    async fn runner(&self, provider: &str) -> Result<Option<Runner>, String>;
+    /// Whether the agent that serves the routes of `provider` can take a turn on `model` now; `Err` is what the agent
+    /// says of why not.
+    async fn agent_ready(&self, provider: &str, model: &str) -> Result<(), String>;
     /// Why `provider` is not available: the cause its readiness recorded, and whether the user switched it off.
     async fn unavailable_cause(&self, _provider: &str) -> (Option<String>, bool) {
         (None, false)
@@ -293,6 +308,28 @@ impl RouteHop {
         if shown.is_empty() { format!("{provider}/{model}") } else { shown }
     }
 
+    fn disambiguated_label(&self, route: &Value, plain: String) -> String {
+        let provider = text(route.get("provider"));
+        if provider.is_empty() {
+            return plain;
+        }
+        let prefix = self.host.provider_label(&provider);
+        if prefix.is_empty() || plain == prefix || plain.starts_with(&format!("{prefix} · ")) || plain.starts_with(&format!("{provider}/")) {
+            return plain;
+        }
+        format!("{prefix} · {plain}")
+    }
+
+    fn pair_labels(&self, from: &Value, to: &Value) -> (String, String) {
+        let from_label = self.label(from);
+        let to_label = self.label(to);
+        if from_label == to_label && text(from.get("provider")) != text(to.get("provider")) {
+            (self.disambiguated_label(from, from_label), self.disambiguated_label(to, to_label))
+        } else {
+            (from_label, to_label)
+        }
+    }
+
     /// `routeFailure`.
     fn failure(&self, route: &Value, error: &ProviderError) -> Value {
         json!({
@@ -312,9 +349,16 @@ impl RouteHop {
         };
         let mut attempts = tried.clone();
         attempts.push(self.failure(session, &error));
-        let lines = attempts.iter().map(|a| format!("{}: {}", self.label(a), text(a.get("error")))).collect::<Vec<_>>().join("; ");
+        let all_routes: Vec<&Value> = attempts.iter().chain(skipped).collect();
+        let labels: Vec<String> = all_routes.iter().map(|r| self.label(r)).collect();
+        let providers: Vec<String> = all_routes.iter().map(|r| text(r.get("provider"))).collect();
+        let shown = |i: usize| {
+            let collides = labels.iter().zip(&providers).enumerate().any(|(j, (lbl, prov))| j != i && *lbl == labels[i] && *prov != providers[i]);
+            if collides { self.disambiguated_label(all_routes[i], labels[i].clone()) } else { labels[i].clone() }
+        };
+        let lines = attempts.iter().enumerate().map(|(i, a)| format!("{}: {}", shown(i), text(a.get("error")))).collect::<Vec<_>>().join("; ");
         let head = match skipped {
-            Some(next) => format!("Fallback chain stopped before {} (its context window is not larger) — tried", self.label(next)),
+            Some(_) => format!("Fallback chain stopped before {} (its context window is not larger) — tried", shown(attempts.len())),
             None => "Every model in the fallback chain failed —".to_owned(),
         };
         error.message = format!("{}\n{head} {lines}", error.message);
@@ -322,26 +366,44 @@ impl RouteHop {
         ChainSurface { error, attempts, stopped_before }
     }
 
-    /// The provider of a route, readied: `Ok(None)` when it is not available, a provider the user switched off (asked
-    /// before any initialization or registered adapter) and a provider no family serves (a removed custom provider,
-    /// [`is_unserved`]) included. `Err` is any other readiness failure.
-    async fn lookup(&self, provider: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, String> {
+    /// Who runs a turn on a route of `provider`, readied: `Ok(None)` when it is not available, a provider the user switched
+    /// off (asked before any initialization or registered adapter) and a provider no family serves (a removed custom
+    /// provider, [`is_unserved`]) included. `Err` is any other readiness failure.
+    async fn runner(&self, provider: &str) -> Result<Option<Runner>, String> {
         if mixdog_ai::service::admin_route::provider_switched_off(&self.host.config(), provider) {
             return Ok(None);
         }
-        match self.host.provider(provider).await {
+        match self.host.runner(provider).await {
             Err(message) if is_unserved(provider, &message) => Ok(None),
             looked => looked,
         }
     }
 
-    /// The session's recorded failures that still hold: a `provider_unavailable` entry whose provider is available now is
+    /// The provider a run of the loop takes on a route of `provider` ([`Self::runner`]): a route an agent serves has none.
+    async fn lookup(&self, provider: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, String> {
+        Ok(match self.runner(provider).await? {
+            Some(Runner::Loop(adapter)) => Some(adapter),
+            Some(Runner::Agent) | None => None,
+        })
+    }
+
+    /// Whether a turn on a route of `provider` and `model` has who runs it now: its provider is available, or its agent
+    /// can run that model.
+    async fn present(&self, provider: &str, model: &str) -> bool {
+        match self.runner(provider).await {
+            Ok(Some(Runner::Loop(_))) => true,
+            Ok(Some(Runner::Agent)) => self.host.agent_ready(provider, model).await.is_ok(),
+            Ok(None) | Err(_) => false,
+        }
+    }
+
+    /// The session's recorded failures that still hold: a `provider_unavailable` entry whose route has who runs it now is
     /// left out.
     async fn standing_failures(&self, session: &Value) -> Vec<Value> {
         let mut standing = Vec::new();
         for failure in session.get("routeFallbackFailures").and_then(Value::as_array).into_iter().flatten() {
             let absent = failure.get("kind").and_then(Value::as_str) == Some(PROVIDER_UNAVAILABLE);
-            if !absent || !matches!(self.lookup(&text(failure.get("provider"))).await, Ok(Some(_))) {
+            if !absent || !self.present(&text(failure.get("provider")), &text(failure.get("model"))).await {
                 standing.push(failure.clone());
             }
         }
@@ -357,9 +419,9 @@ impl RouteHop {
         window.unwrap_or(0) > current.filter(|w| *w > 0).or(fallback).unwrap_or(0)
     }
 
-    /// The first route of `chain` that `tried` has not run and whose provider is there: a candidate that is absent
-    /// (switched off, removed, not available) is passed over, as at preflight, and recorded nowhere. `Err` is a genuine
-    /// readiness failure.
+    /// The first route of `chain` that `tried` has not run and that has who runs it: its provider is there, or its agent
+    /// can run. A candidate that is absent (switched off, removed, not available, an agent that cannot run now) is passed
+    /// over, as at preflight, and recorded nowhere. `Err` is a genuine readiness failure.
     async fn next_present(&self, tried: &Value, chain: &[Value]) -> Result<Candidate, String> {
         let mut passed = tried.clone();
         let mut absent = Vec::new();
@@ -368,10 +430,16 @@ impl RouteHop {
             let Some(next) = chain.get(index) else {
                 return Ok(if absent.is_empty() { Candidate::None } else { Candidate::Absent(absent) });
             };
-            if let Some(provider) = self.lookup(&text(next.get("provider"))).await? {
-                return Ok(Candidate::Present(index, provider));
+            let provider = text(next.get("provider"));
+            let model = text(next.get("model"));
+            match self.runner(&provider).await? {
+                Some(Runner::Loop(adapter)) => return Ok(Candidate::Present(index, Runner::Loop(adapter))),
+                Some(Runner::Agent) => match self.host.agent_ready(&provider, &model).await {
+                    Ok(()) => return Ok(Candidate::Present(index, Runner::Agent)),
+                    Err(refusal) => absent.push(Skipped { index, refusal: Some(refusal) }),
+                },
+                None => absent.push(Skipped { index, refusal: None }),
             }
-            absent.push(index);
             match passed.get_mut("routeFallbackFailures").and_then(Value::as_array_mut) {
                 Some(failures) => failures.push(next.clone()),
                 None => passed["routeFallbackFailures"] = Value::Array(vec![next.clone()]),
@@ -410,12 +478,20 @@ fn has_checkpoint(session: &Value) -> bool {
 
 /// The next route a mid-turn hop may take ([`RouteHop::next_present`]).
 enum Candidate {
-    /// The chain index of the first present route, and its readied provider.
-    Present(usize, Arc<dyn ProviderAdapter>),
-    /// Only absent routes are left; the chain indexes of all of them, in order.
-    Absent(Vec<usize>),
+    /// The chain index of the first present route, and who runs it there.
+    Present(usize, Runner),
+    /// Only absent routes are left: all of them, in order.
+    Absent(Vec<Skipped>),
     /// No route is left to try.
     None,
+}
+
+/// An absent route a hop passed over.
+struct Skipped {
+    /// Its chain index.
+    index: usize,
+    /// What the agent that serves it says of why it cannot run; `None` for a route whose provider is not available.
+    refusal: Option<String>,
 }
 
 fn plain(error: ProviderError) -> RouteDecision {
@@ -469,22 +545,29 @@ impl RouteHop {
         if verdict == RouteVerdict::Stay {
             return plain(error);
         }
-        // The candidate is the first route still to try whose provider is there; nothing is written before it is found. With
+        // The candidate is the first route still to try whose provider is there, or whose agent can run: the run leaves the
+        // loop for an agent's route as it moves to a provider's. Nothing is written before it is found. With
         // none left but absent ones the chain ends as Node's did on its next route: a hop fails with that route's absence,
         // and an overflow stops before it.
-        let (index, provider) = match self.next_present(&tried, &chain).await {
-            Ok(Candidate::Present(index, provider)) => (index, provider),
+        let (index, runner) = match self.next_present(&tried, &chain).await {
+            Ok(Candidate::Present(index, runner)) => (index, runner),
             Ok(Candidate::None) => return RouteDecision::Surface(Box::new(self.annotate(&tried, error, None))),
             Ok(Candidate::Absent(skipped)) if verdict == RouteVerdict::Context => {
-                return RouteDecision::Surface(Box::new(self.annotate(&tried, error, Some(&chain[skipped[0]]))));
+                return RouteDecision::Surface(Box::new(self.annotate(&tried, error, Some(&chain[skipped[0].index]))));
             }
-            // The failure stays the turn's error; every fallback that could not take over is named beside it with its reason.
+            // The failure stays the turn's error; every fallback that could not take over is named beside it with its reason:
+            // an agent's in its own words.
             Ok(Candidate::Absent(skipped)) => {
                 let mut surfaced = error;
-                for index in skipped {
-                    let provider = text(chain[index].get("provider"));
-                    let (cause, switched_off) = self.host.unavailable_cause(&provider).await;
-                    let reason = mixdog_ai::service::error_text::provider_unavailable_text(&provider, cause.as_deref(), switched_off);
+                for Skipped { index, refusal } in skipped {
+                    let reason = match refusal {
+                        Some(refusal) => refusal,
+                        None => {
+                            let provider = text(chain[index].get("provider"));
+                            let (cause, switched_off) = self.host.unavailable_cause(&provider).await;
+                            mixdog_ai::service::error_text::provider_unavailable_text(&provider, cause.as_deref(), switched_off)
+                        }
+                    };
                     surfaced.message = format!("{}\nSkipped fallback {}: {reason}", surfaced.message, self.label(&chain[index]));
                 }
                 return plain(surfaced);
@@ -503,17 +586,35 @@ impl RouteHop {
         } else {
             Some(Value::Object(route_leaf(Some(&session))))
         };
-        let notice = notice_text(&self.label(&session), &self.label(next), error.kind);
+        let (from, to) = self.pair_labels(&session, next);
+        let notice = notice_text(&from, &to, error.kind);
         let mut failures = standing;
         failures.push(failed);
         let write = HopWrite { chain: chain.clone(), primary, index: index + 1, failures, checkpoint_route_changed: has_checkpoint(&session) };
         if error.kind != ErrorKind::QuotaExhausted {
             self.failed_here.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(session.clone());
         }
-        match self.seat(next, provider, write, notice).await {
-            Ok(switch) => RouteDecision::Switch(switch),
-            Err(message) => RouteDecision::Fail(message),
-        }
+        let decided = match runner {
+            Runner::Loop(provider) => self.seat(next, provider, write, notice).await.map(RouteDecision::Switch),
+            Runner::Agent => self.outside(next, write, notice).await.map(|outside| RouteDecision::Outside(Box::new(outside))),
+        };
+        decided.unwrap_or_else(RouteDecision::Fail)
+    }
+
+    /// Writes the session onto `next`, a route an agent outside the loop serves, with `write` in one update: the turn goes
+    /// on on that agent, on the header written. Only an explicit user window cap on `next` is written as
+    /// `selectedContextWindow`; never a catalog guess, which would clamp the window the agent reports.
+    async fn outside(&self, next: &Value, write: HopWrite, notice: String) -> Result<RouteOutside, String> {
+        let selected = next
+            .get("selectedContextWindow")
+            .or_else(|| next.get("contextTokens"))
+            .and_then(Value::as_f64)
+            .filter(|w| w.is_finite() && *w >= 1.0)
+            .map(|w| w.floor() as u64);
+        let Some(updated) = self.host.apply_hop(route_fields(next, selected), write).await? else {
+            return Err("agent session closed during model fallback".to_owned());
+        };
+        Ok(RouteOutside { header: updated.as_object().cloned().unwrap_or_default(), notice })
     }
 
     /// The session's provider is not available at turn preflight (`refusal` says so). Nothing was sent, so every other
@@ -558,7 +659,8 @@ impl RouteHop {
             failures,
             checkpoint_route_changed: has_checkpoint(&session),
         };
-        let notice = notice_text(&self.label(&session), &self.label(next), ErrorKind::Transient);
+        let (from, to) = self.pair_labels(&session, next);
+        let notice = notice_text(&from, &to, ErrorKind::Transient);
         self.book_usage(&session, None);
         self.failed_here.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(session.clone());
         let switch = self.seat(next, provider, write, notice).await?;
@@ -708,10 +810,11 @@ impl RouteHop {
         let next = &order[index];
         let next_provider = text(next.get("provider"));
         let Ok(Some(provider)) = self.lookup(&next_provider).await else { return Ok(None) };
+        let (from, to) = self.pair_labels(&session, next);
         let notice = if index < current {
-            format!("{} is available again — switched back from {}.", self.label(next), self.label(&session))
+            format!("{to} is available again — switched back from {from}.")
         } else {
-            notice_text(&self.label(&session), &self.label(next), ErrorKind::QuotaExhausted)
+            notice_text(&from, &to, ErrorKind::QuotaExhausted)
         };
         // The routes the session still has behind it are the history of what failed: the one it now stands on proved
         // itself, so it leaves the list unless it is the primary, whose entry is what marks the diversion.
@@ -794,6 +897,10 @@ mod reconsider_tests {
         gone: Vec<&'static str>,
         /// Providers whose readiness fails, with the failure.
         init_errors: Vec<(&'static str, String)>,
+        /// Providers whose routes an agent outside the loop serves, with what the agent says of whether it can run.
+        agents: Vec<(&'static str, Result<(), String>)>,
+        /// Optional provider display-label overrides (e.g. ACP preset labels).
+        provider_labels: HashMap<&'static str, &'static str>,
         /// What the next writes fail with in a step after the session write (the wire pin, the tool surface), in order;
         /// the writes after them succeed.
         failing: Mutex<std::collections::VecDeque<&'static str>>,
@@ -816,14 +923,26 @@ mod reconsider_tests {
         fn model_label(&self, _: &str, model: &str) -> String {
             model.to_owned()
         }
+        fn provider_label(&self, provider: &str) -> String {
+            self.provider_labels
+                .get(provider)
+                .map(|label| (*label).to_owned())
+                .unwrap_or_else(|| mixdog_ai::service::error_text::provider_display_name(provider))
+        }
         fn error_text(&self, error: &ProviderError) -> String {
             error.message.clone()
         }
-        async fn provider(&self, provider: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, String> {
+        async fn runner(&self, provider: &str) -> Result<Option<Runner>, String> {
             if let Some((_, message)) = self.init_errors.iter().find(|(name, _)| *name == provider) {
                 return Err(message.clone());
             }
-            Ok((!self.gone.contains(&provider)).then(|| Arc::new(MockProvider::new([])) as Arc<dyn ProviderAdapter>))
+            if self.agents.iter().any(|(name, _)| *name == provider) {
+                return Ok(Some(Runner::Agent));
+            }
+            Ok((!self.gone.contains(&provider)).then(|| Runner::Loop(Arc::new(MockProvider::new([])))))
+        }
+        async fn agent_ready(&self, provider: &str, _model: &str) -> Result<(), String> {
+            self.agents.iter().find(|(name, _)| *name == provider).map(|(_, ready)| ready.clone()).expect("an agent's route")
         }
         fn raw_context_window(&self, _: &str, _: &str, _: &Value) -> Option<u64> {
             None
@@ -879,6 +998,8 @@ mod reconsider_tests {
             writes: Mutex::default(),
             gone: gone.to_vec(),
             init_errors: Vec::new(),
+            agents: Vec::new(),
+            provider_labels: HashMap::new(),
             failing: Mutex::new(failing.iter().copied().collect()),
         }
     }
@@ -1114,6 +1235,50 @@ mod reconsider_tests {
         assert_eq!(host.writes.lock().unwrap().len(), 1);
     }
 
+    fn quota_out() -> ProviderError {
+        let mut error = ProviderError::new(ErrorKind::QuotaExhausted, mixdog_core_api::domain::provider::DeliveryState::NotSent);
+        error.message = "All connected accounts have exhausted their quota.".into();
+        error
+    }
+
+    /// A failure that moves on (every account of the primary out before anything was sent) lands on a fallback an agent
+    /// outside the loop serves as on a provider's: the session is written onto it in one update with the failure recorded,
+    /// and the run is told to leave the loop for that route, with the switch to tell.
+    #[tokio::test]
+    async fn a_failure_that_moves_on_hands_the_turn_to_a_fallback_an_agent_serves() {
+        let mut host = stub(fresh(), &[], &[]);
+        host.agents = vec![("openai-oauth", Ok(()))];
+        let (route, host) = hop_over(host);
+        let RouteDecision::Outside(outside) = route.decide(quota_out(), None).await else { panic!("the agent takes the turn") };
+        assert_eq!((outside.header["provider"].as_str(), outside.header["model"].as_str()), (Some("openai-oauth"), Some("astra")));
+        assert_eq!(outside.notice, "fable usage limit reached — switched to astra.");
+        let writes = host.writes.lock().unwrap();
+        assert_eq!((writes.len(), writes[0].1.index), (1, 1));
+        let failures: Vec<(&str, &str)> = writes[0].1.failures.iter().map(|f| (f["model"].as_str().unwrap(), f["kind"].as_str().unwrap())).collect();
+        assert_eq!(failures, [("fable", "quota_exhausted")]);
+    }
+
+    /// A fallback whose agent cannot run now is skipped as an absent provider is, named with what the agent says of its
+    /// state; a later route that is there still takes the turn.
+    #[tokio::test]
+    async fn a_fallback_whose_agent_cannot_run_is_skipped_with_the_agents_own_state() {
+        let refusal = "Antigravity is signed out. Sign in to it in Settings.";
+        let mut host = stub(fresh(), &["google"], &[]);
+        host.agents = vec![("openai-oauth", Err(refusal.to_owned()))];
+        let (route, host) = hop_over(host);
+        let RouteDecision::Surface(surface) = route.decide(quota_out(), None).await else { panic!("the failure surfaces") };
+        let lines: Vec<&str> = surface.error.message.lines().collect();
+        let skipped = format!("Skipped fallback astra: {refusal}");
+        assert_eq!(lines[..2], ["All connected accounts have exhausted their quota.", skipped.as_str()], "{lines:?}");
+        assert!(host.writes.lock().unwrap().is_empty());
+
+        let mut host = stub(fresh(), &[], &[]);
+        host.agents = vec![("openai-oauth", Err(refusal.to_owned()))];
+        let (route, _) = hop_over(host);
+        let RouteDecision::Switch(switch) = route.decide(quota_out(), None).await else { panic!("the later provider takes the turn") };
+        assert_eq!(switch.model, "gem");
+    }
+
     /// Only the reason of the current diversion counts: an older unavailable or quota entry of the primary does not bring the
     /// session back once the primary's newest failure is one the evidence does not speak to.
     #[tokio::test]
@@ -1203,6 +1368,94 @@ mod reconsider_tests {
         let (held_hop, host) = hop(held, &[("fable", Eligible), ("astra", Eligible)]);
         assert!(held_hop.reconsider(None).await.unwrap().is_none());
         assert!(host.writes.lock().unwrap().is_empty());
+    }
+
+    /// Hopping between two providers that share the same plain model display label disambiguates both sides as
+    /// `<Provider> · <Model>` in `decide`, `outside`, `unavailable`, `reconsider`, and `annotate`, while leaving
+    /// non-colliding cross-model notices unchanged.
+    #[tokio::test]
+    async fn colliding_model_labels_across_providers_are_disambiguated_in_notices_and_annotate() {
+        let same_model_config = json!({
+            "default": "workflow-lead",
+            "presets": [{
+                "id": "workflow-lead",
+                "provider": "anthropic-oauth",
+                "model": "Claude Opus 5.5",
+                "fallbacks": [
+                    { "provider": "cursor-oauth", "model": "Claude Opus 5.5" },
+                    { "provider": "acp-antigravity-cli", "model": "Claude Opus 5.5" },
+                    { "provider": "openai-oauth", "model": "GPT-6.2-Astra" },
+                ],
+            }],
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        let make_host = |session: Value, gone: &[&'static str]| {
+            let mut host = stub(session, gone, &[]);
+            host.config = same_model_config.clone();
+            host.agents = vec![("acp-antigravity-cli", Ok(()))];
+            host.provider_labels = HashMap::from([("acp-antigravity-cli", "Antigravity")]);
+            host
+        };
+
+        // 1. decide (loop -> loop) with colliding model label across providers.
+        let primary = json!({ "id": "sess_x", "agent": "mixy", "provider": "anthropic-oauth", "model": "Claude Opus 5.5" });
+        let (route, _) = hop_over(make_host(primary.clone(), &[]));
+        let RouteDecision::Switch(switch) = route.decide(quota_out(), None).await else { panic!("hop to cursor-oauth") };
+        assert_eq!(switch.notice, "Anthropic OAuth · Claude Opus 5.5 usage limit reached — switched to Cursor OAuth · Claude Opus 5.5.");
+
+        // 2. decide -> outside (loop -> ACP agent) with colliding model label across providers.
+        let (route, _) = hop_over(make_host(primary.clone(), &["cursor-oauth"]));
+        let RouteDecision::Outside(outside) = route.decide(quota_out(), None).await else { panic!("hop to ACP agent") };
+        assert_eq!(outside.notice, "Anthropic OAuth · Claude Opus 5.5 usage limit reached — switched to Antigravity · Claude Opus 5.5.");
+
+        // 3. unavailable (preflight hop) with colliding model label across providers.
+        let (route, _) = hop_over(make_host(primary.clone(), &["anthropic-oauth"]));
+        assert!(route.unavailable("signed out").await.unwrap().is_some());
+        let switch = route.reconsider(None).await.unwrap().expect("pending preflight switch");
+        assert_eq!(switch.notice, "Anthropic OAuth · Claude Opus 5.5 unavailable — switched to Cursor OAuth · Claude Opus 5.5.");
+
+        // 4. reconsider switching back with colliding model label across providers.
+        let diverted = json!({
+            "id": "sess_x",
+            "agent": "mixy",
+            "provider": "cursor-oauth",
+            "model": "Claude Opus 5.5",
+            "routeFallbackPrimary": { "provider": "anthropic-oauth", "model": "Claude Opus 5.5" },
+            "routeFallbackFailures": [{ "provider": "anthropic-oauth", "model": "Claude Opus 5.5", "kind": "quota_exhausted", "error": "out" }],
+        });
+        let mut host = make_host(diverted, &[]);
+        host.evidence = HashMap::from([("Claude Opus 5.5", Eligible)]);
+        let (route, _) = hop_over(host);
+        let switch = route.reconsider(None).await.unwrap().expect("switch back to primary");
+        assert_eq!(switch.notice, "Anthropic OAuth · Claude Opus 5.5 is available again — switched back from Cursor OAuth · Claude Opus 5.5.");
+
+        // 5. annotate disambiguates colliding providers while leaving distinct model labels plain.
+        let exhausted = json!({
+            "id": "sess_x",
+            "agent": "mixy",
+            "provider": "openai-oauth",
+            "model": "GPT-6.2-Astra",
+            "routeFallbackPrimary": { "provider": "anthropic-oauth", "model": "Claude Opus 5.5" },
+            "routeFallbackFailures": [
+                { "provider": "anthropic-oauth", "model": "Claude Opus 5.5", "kind": "quota_exhausted", "error": "quota A" },
+                { "provider": "cursor-oauth", "model": "Claude Opus 5.5", "kind": "quota_exhausted", "error": "quota B" },
+                { "provider": "acp-antigravity-cli", "model": "Claude Opus 5.5", "kind": "quota_exhausted", "error": "quota C" },
+            ],
+        });
+        let (route, _) = hop_over(make_host(exhausted, &[]));
+        let RouteDecision::Surface(surface) = route.decide(quota_out(), None).await else { panic!("exhausted chain surfaces") };
+        assert!(
+            surface.error.message.contains("Anthropic OAuth · Claude Opus 5.5: quota A; Cursor OAuth · Claude Opus 5.5: quota B; Antigravity · Claude Opus 5.5: quota C; GPT-6.2-Astra:"),
+            "{}",
+            surface.error.message
+        );
+
+        // 6. Cross-model hop keeps plain labels unchanged.
+        let (route, _) = hop_over(make_host(primary, &["cursor-oauth", "acp-antigravity-cli"]));
+        let RouteDecision::Switch(switch) = route.decide(quota_out(), None).await else { panic!("hop to GPT-6.2-Astra") };
+        assert_eq!(switch.notice, "Claude Opus 5.5 usage limit reached — switched to GPT-6.2-Astra.");
     }
 }
 

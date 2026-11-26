@@ -82,6 +82,19 @@ impl RouteFacts for AgentRouteFacts {
         }
     }
 
+    async fn ensure_route_ready(&self, config: &Map<String, Value>, provider: &str, model: &str) -> Result<(), String> {
+        match self.agents.preset_of_route(provider) {
+            Some(preset) => {
+                let model = if model.is_empty() { crate::agents::DEFAULT_MODEL } else { model };
+                if let Some(why) = self.agents.refuses_model(preset, model) {
+                    return Err(why);
+                }
+                self.ensure_ready(config, provider).await
+            }
+            None => self.inner.ensure_route_ready(config, provider, model).await,
+        }
+    }
+
     fn model_meta(&self, provider: &str, model: &str) -> Value {
         match self.agents.preset_of_route(provider) {
             Some(preset) => {

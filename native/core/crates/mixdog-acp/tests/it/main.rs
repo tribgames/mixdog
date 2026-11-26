@@ -1987,6 +1987,24 @@ async fn a_route_on_an_agent_is_saved_as_a_providers_and_picked_only_while_the_a
     assert!(world.agents.picker_rows().iter().all(|row| row.get("sessionOnly").is_none()));
 }
 
+#[tokio::test]
+async fn route_facts_refuses_an_out_of_scope_agent_model_during_readiness() {
+    let world = World::build(&[], |preset, _| {
+        preset.quirks.model_scope = mixdog_acp::preset::ModelScope::OnlyPrefixes(vec!["gem-".into()]);
+        preset.quirks.runs_default = false;
+    });
+    world.checked().await;
+    let facts = AgentRouteFacts { inner: Arc::new(AnyCatalog), agents: world.agents.clone() };
+    let config = serde_json::Map::new();
+    let refused = facts
+        .ensure_route_ready(&config, "acp-antigravity-cli", "claude-opus-5-5")
+        .await
+        .expect_err("out-of-scope model must be refused during readiness");
+    assert!(refused.contains("claude-opus-5-5"), "{refused}");
+    assert!(facts.ensure_route_ready(&config, "acp-antigravity-cli", "").await.is_err());
+    assert_eq!(facts.ensure_route_ready(&config, "acp-antigravity-cli", "gem-pro").await, Ok(()));
+}
+
 /// The settings value names the plan the agent reports for the signed-in account, and the agent is signed out with
 /// the protocol's `logout`: its running session ends and it reads signed out until a sign-in.
 #[tokio::test]

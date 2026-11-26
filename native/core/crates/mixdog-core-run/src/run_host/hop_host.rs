@@ -28,7 +28,7 @@ use serde_json::{Value, json};
 
 use super::model_display::display_model_name;
 use super::route_chain::BotRoutes;
-use super::route_fallback::{HopHost, HopWrite, RouteEligibility};
+use super::route_fallback::{HopHost, HopWrite, RouteEligibility, Runner};
 use super::session_context_meta::session_context_meta;
 use mixdog_core_ports::ports::domain_sessions::Obj;
 use mixdog_core_ports::ports::route_facts::{RouteFacts, RouteSender};
@@ -232,15 +232,37 @@ impl HopHost for RegistryHopHost {
         display_model_name(model, "")
     }
 
+    fn provider_label(&self, provider: &str) -> String {
+        let meta = self.deps.facts.model_meta(provider, "");
+        if let Some(label) = meta.get("agentLabel").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+            return label.to_owned();
+        }
+        if meta.get("runner").and_then(Value::as_str) == Some("acp")
+            && let Some(display) = meta.get("display").and_then(Value::as_str).filter(|s| !s.is_empty())
+        {
+            return display.split(" · ").next().unwrap_or(display).to_owned();
+        }
+        mixdog_ai::service::error_text::provider_display_name(provider)
+    }
+
     fn error_text(&self, error: &ProviderError) -> String {
         (self.deps.errors)(error)
     }
 
-    /// `await initProviders(...)` (`route-fallback.mjs:78,107`) has no catch: its error escapes. A route an agent
-    /// serves has no provider a run in the loop can take, so the hop passes over it as over one that is not there.
-    async fn provider(&self, provider: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, String> {
+    /// `await initProviders(...)` (`route-fallback.mjs:78,107`) has no catch: its error escapes. A route an agent serves
+    /// is the agent's: its facts answer it before anything is initialized.
+    async fn runner(&self, provider: &str) -> Result<Option<Runner>, String> {
         let providers = ensure_provider_enabled(&self.config(), provider);
-        Ok(self.deps.facts.sender(Some(&providers), provider).await?.and_then(RouteSender::adapter))
+        Ok(self.deps.facts.sender(Some(&providers), provider).await?.map(|sender| match sender {
+            RouteSender::Provider(adapter) => Runner::Loop(adapter),
+            RouteSender::Agent(_) => Runner::Agent,
+        }))
+    }
+
+    /// The agent's readiness as a pick of its route reads it: model admission, and once the check of its program that
+    /// runs, or that this starts, has ended, whether a turn on it can start, and in the agent's words why not.
+    async fn agent_ready(&self, provider: &str, model: &str) -> Result<(), String> {
+        self.deps.facts.ensure_route_ready(&self.config(), provider, model).await
     }
 
     async fn unavailable_cause(&self, provider: &str) -> (Option<String>, bool) {
@@ -248,7 +270,20 @@ impl HopHost for RegistryHopHost {
     }
 
     fn raw_context_window(&self, provider: &str, model: &str, route: &Value) -> Option<u64> {
-        let meta = session_context_meta(&self.deps.catalog, provider, model, route)?;
+        let model_meta = self.deps.facts.model_meta(provider, model);
+        let mut seed = route.clone();
+        if let Some(window_meta) = self.deps.facts.window_meta(provider, model, &model_meta) {
+            let reported = ["maxContextWindow", "contextWindow", "max_context_window", "context_window"]
+                .iter()
+                .find_map(|key| window_meta.get(*key).and_then(Value::as_f64).filter(|w| w.is_finite() && *w >= 1.0).map(|w| w.floor() as u64));
+            if let Some(reported) = reported
+                && let Some(obj) = seed.as_object_mut()
+                && obj.get("rawContextWindow").and_then(Value::as_f64).is_none_or(|w| !w.is_finite() || w < 1.0)
+            {
+                obj.insert("rawContextWindow".into(), json!(reported));
+            }
+        }
+        let meta = session_context_meta(&self.deps.catalog, provider, model, &seed)?;
         meta.raw_context_window.as_f64().filter(|w| *w > 0.0).map(|w| w as u64)
     }
 
