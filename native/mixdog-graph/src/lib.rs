@@ -37,6 +37,67 @@ pub fn walk_classified_files<T>(root: &Path, classify: impl Fn(&Path) -> Option<
     Ok(candidates)
 }
 
+/// Every file under `root` that `classify` assigns a language, collected in parallel
+/// with each entry's metadata (reading directory-entry metadata directly without a
+/// second stat on Windows). Directories matching `skip_dir` (other than `root`) are
+/// pruned during traversal. Uses the same walker configuration as [`walk_classified_files`].
+pub fn walk_classified_files_with_meta<T: Send>(
+    root: &Path,
+    classify: impl Fn(&Path) -> Option<T> + Sync,
+    skip_dir: impl Fn(&Path) -> bool + Sync,
+) -> Result<Vec<(PathBuf, T, std::fs::Metadata)>, String> {
+    use std::sync::Mutex;
+
+    struct Flush<'a, T> {
+        local: Vec<(PathBuf, T, std::fs::Metadata)>,
+        out: &'a Mutex<Vec<(PathBuf, T, std::fs::Metadata)>>,
+    }
+
+    impl<T> Drop for Flush<'_, T> {
+        fn drop(&mut self) {
+            if !self.local.is_empty() {
+                self.out.lock().unwrap_or_else(std::sync::PoisonError::into_inner).append(&mut self.local);
+            }
+        }
+    }
+
+    let out: Mutex<Vec<(PathBuf, T, std::fs::Metadata)>> = Mutex::new(Vec::new());
+    let first_err: Mutex<Option<String>> = Mutex::new(None);
+    ignore::WalkBuilder::new(root).standard_filters(true).hidden(false).build_parallel().run(|| {
+        let mut flush = Flush { local: Vec::new(), out: &out };
+        let first_err = &first_err;
+        let classify = &classify;
+        let skip_dir = &skip_dir;
+        Box::new(move |entry| match entry {
+            Ok(dir_entry) => {
+                if dir_entry.depth() > 0 && dir_entry.file_type().is_some_and(|kind| kind.is_dir()) && skip_dir(dir_entry.path()) {
+                    return ignore::WalkState::Skip;
+                }
+                if dir_entry.file_type().is_some_and(|kind| kind.is_file()) {
+                    let path = dir_entry.path();
+                    if let Some(lang) = classify(path) {
+                        if let Ok(meta) = dir_entry.metadata() {
+                            flush.local.push((path.to_path_buf(), lang, meta));
+                        }
+                    }
+                }
+                ignore::WalkState::Continue
+            }
+            Err(err) => {
+                let mut slot = first_err.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if slot.is_none() {
+                    *slot = Some(format!("walk failed under {}: {err}", root.display()));
+                }
+                ignore::WalkState::Quit
+            }
+        })
+    });
+    if let Some(err) = first_err.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner) {
+        return Err(err);
+    }
+    Ok(out.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner))
+}
+
 /// Write one JSON line per item. Every serialization and write failure is
 /// fatal and names the failing `noun` and index: a dropped line would leave
 /// the caller with a silently short list and exit code 0.

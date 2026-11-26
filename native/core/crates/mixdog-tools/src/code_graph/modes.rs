@@ -5,9 +5,7 @@ use std::{cmp::Ordering, collections::HashMap, path::Path};
 
 use super::args::Args;
 use super::graph::{Graph, Node};
-use super::hits::{
-    FindOptions, Hit, compare_native_declarations, declaration_outside_scope, find_hits, find_symbol_across_graph, native_hit, pick_declaration,
-};
+use super::hits::{FindOptions, Hit, compare_native_declarations, find_hits, find_symbol_across_graph, native_hit, pick_declaration};
 use super::outline::outline_rows;
 use super::refs::{Scope, TransitiveOptions, format_callees, format_callers, format_references, format_transitive_callers, importer_references};
 use super::symbols::Sym;
@@ -25,6 +23,7 @@ pub(super) struct Ctx<'a> {
     pub rel: Option<String>,
     pub node: Option<&'a Node>,
     pub scope_prefix: Option<String>,
+    pub needs_full_graph: Option<&'a std::cell::Cell<bool>>,
 }
 
 impl Ctx<'_> {
@@ -602,6 +601,9 @@ fn search_keyword(ctx: &Ctx<'_>, keyword: &str, limit: usize) -> String {
     }
     let total = by_name.len();
     if total == 0 {
+        if let Some(flag) = ctx.needs_full_graph {
+            flag.set(true);
+        }
         let scope_label = ctx.rel.clone().or_else(|| ctx.scope_prefix.clone()).map(|s| format!(" scope={s}")).unwrap_or_default();
         return format!(
             "(no symbol keyword matches in cwd={}{scope_label})\ngraph: nodes={}{}",
@@ -658,8 +660,6 @@ pub(super) fn find_symbol(ctx: &Ctx<'_>) -> Result<String, String> {
         .ok_or_else(|| "find_symbol: provide \"symbols\" to locate declarations, or use mode:\"symbols\" with \"files\" for a file outline.".to_string())?;
     let limit = ctx.args.limit.unwrap_or(20.0).clamp(1.0, 50.0) as usize;
     let file_rel = ctx.rel.as_deref();
-    let in_scope = |rel: &str| file_rel.is_none_or(|f| rel == f);
-    let outside = if file_rel.is_some() { declaration_outside_scope(ctx.graph, &symbol, ctx.language(), &in_scope) } else { None };
     Ok(find_symbol_across_graph(
         ctx.graph,
         &symbol,
@@ -669,7 +669,8 @@ pub(super) fn find_symbol(ctx: &Ctx<'_>) -> Result<String, String> {
             limit,
             file_rel,
             body: ctx.args.body != Some(false),
-            outside,
+            check_outside: file_rel.is_some(),
+            needs_full_graph: ctx.needs_full_graph,
             scope_note: (ctx.cwd != ctx.default_cwd).then(|| ctx.cwd_text()),
         },
     ))
@@ -700,7 +701,8 @@ pub(super) fn references(ctx: &Ctx<'_>) -> Result<String, String> {
             limit: 1,
             file_rel: ctx.rel.as_deref(),
             body: ctx.args.body == Some(true),
-            outside: None,
+            check_outside: false,
+            needs_full_graph: None,
             // Node's references mode passes no `defaultCwd`, so its declaration never notes a scope.
             scope_note: None,
         },

@@ -275,23 +275,26 @@ fn an_evicted_graph_still_in_use_counts_against_the_budget() {
     assert_eq!(cache.held_roots().len(), 1, "the budget is free again once the last owner let go");
 }
 
-/// A source that no longer matches its graph on the retry too fails the call: empty reads would drop results.
+/// A source that changes during a call re-parses only that file; a source that keeps failing verification
+/// past retries is omitted as unverified with a completeness warning instead of failing with "run it again".
 #[test]
-fn a_source_that_changes_under_both_attempts_fails_the_call() {
+fn a_source_that_changes_during_a_call_reparses_instead_of_failing() {
     let (_tmp, root) = project_with_sentinel();
     let input = serde_json::json!({ "mode": "references", "symbol": "a" });
     super::graph::FORCED_MISMATCHES.with(|n| n.set(1));
     let retried = run_with(input.clone(), &root);
-    assert!(retried.text.contains("src/b.mjs"), "one changed read is answered by the retry: {}", retried.text);
+    assert!(retried.complete && retried.text.contains("src/b.mjs"), "one changed read is answered by re-parsing that file: {}", retried.text);
     assert_eq!(super::graph::FORCED_MISMATCHES.with(std::cell::Cell::get), 0, "the references mode reads sources");
-    // Another project, every read of which finds its file changed: no retry can verify it.
+    // Another project, every read of which finds its file changed: omits unverified files rather than failing.
     let (_other, root) = project_with_sentinel();
     super::graph::FORCED_MISMATCHES.with(|n| n.set(1000));
     let (_dir, cache) = no_cache();
     let env = dispatch::Env { trust: &no_roots(), cache: &cache, session_cwd: &root };
-    let failed = dispatch::run(&Args::parse(&input), &root, &env);
+    let degraded = dispatch::run(&Args::parse(&input), &root, &env).expect("continuous mismatch degrades to unverified warning");
     super::graph::FORCED_MISMATCHES.with(|n| n.set(0));
-    assert!(failed.err().is_some_and(|e| e.contains("changed while the query ran")));
+    assert!(!degraded.complete && !degraded.warnings.is_empty(), "{}", degraded.text);
+    let wrapped = super::output::wrap(degraded.text, &degraded.warnings, &Args::parse(&input));
+    assert!(wrapped.starts_with("[warning] graph incomplete"), "{wrapped}");
 }
 
 #[test]
@@ -400,6 +403,23 @@ fn the_heap_budget_and_entry_count_evict_the_oldest_graph() {
     cache.graph(&one, &[]).unwrap();
     cache.graph(&two, &[]).unwrap();
     assert_eq!(cache.held_roots(), vec![super::roots::path_key(&two)], "the entry count bounds the cache");
+}
+
+/// A graph over the held budget that a call still uses is what the next call of its root takes, not a second parse beside
+/// it; once no call uses it, it is gone.
+#[test]
+fn a_declined_graph_still_in_use_is_shared_by_the_next_call_of_its_root() {
+    let (_t, one) = project_with_sentinel();
+    let (_dir, cache) = no_cache();
+    let cache = cache.with_graph_budget(6, 1);
+    let first = cache.graph(&one, &[]).unwrap();
+    let second = cache.graph(&one, &[]).unwrap();
+    assert!(cache.held_roots().is_empty(), "over the held budget: not retained");
+    assert!(std::sync::Arc::ptr_eq(&first.graph, &second.graph));
+    assert_eq!(cache.builds(), 1);
+    drop((first, second));
+    cache.graph(&one, &[]).unwrap();
+    assert_eq!(cache.builds(), 2, "a declined graph no call uses is not kept");
 }
 
 /// The resolver reads manifests, so editing only one must not return the edges built from the old one.
@@ -1247,17 +1267,29 @@ fn project_with_an_unindexable_file() -> (tempfile::TempDir, std::path::PathBuf)
     (tmp, root)
 }
 
-/// An answer is exempt from the parse warnings only when it used an independently verified one-file graph.
+/// File-scoped queries avoid loading unrelated unindexable files only when the requested files
+/// completely determine the answer; whenever project-wide context is needed they fall back to the
+/// full graph and preserve both its answer and its parse warnings.
 #[test]
 fn an_answer_is_exempt_from_parse_warnings_only_when_it_used_a_verified_one_file_graph() {
     let (_tmp, root) = project_with_an_unindexable_file();
     let (_dir, cache) = no_cache();
     let outline = ask(&cache, &root, serde_json::json!({ "mode": "symbols", "file": "src/a.mjs" }));
     assert!(outline.warnings.is_empty() && outline.complete, "a one-file outline is answered from that file alone");
-    let find = ask(&cache, &root, serde_json::json!({ "mode": "find_symbol", "symbol": "a", "file": "src/a.mjs" }));
-    assert!(!find.warnings.is_empty() && !find.complete, "find_symbol uses the whole graph, which holds the unindexed file");
     let several = ask(&cache, &root, serde_json::json!({ "mode": "symbols", "files": ["src/a.mjs", "src/b.mjs"] }));
-    assert!(!several.warnings.is_empty() && !several.complete, "several files use the whole graph");
+    assert!(several.warnings.is_empty() && several.complete, "multi-file symbols parses only those files");
+    let declared_here = ask(&cache, &root, serde_json::json!({ "mode": "find_symbol", "symbol": "a", "file": "src/a.mjs" }));
+    assert!(declared_here.warnings.is_empty() && declared_here.complete, "a declaration in the requested file needs only that file");
+    let declared_outside = ask(&cache, &root, serde_json::json!({ "mode": "find_symbol", "symbol": "a", "file": "src/b.mjs" }));
+    assert!(declared_outside.text.contains("declared outside the requested files: src/a.mjs:1"), "{}", declared_outside.text);
+    assert!(!declared_outside.warnings.is_empty() && !declared_outside.complete, "outside-scope declaration uses the whole graph");
+    let missing = ask(&cache, &root, serde_json::json!({ "mode": "find_symbol", "symbol": "missing", "file": "src/a.mjs" }));
+    assert!(missing.text.contains("graph: nodes=3"), "{}", missing.text);
+    assert!(!missing.warnings.is_empty() && !missing.complete, "no-match find_symbol uses the whole graph");
+    let unscoped = ask(&cache, &root, serde_json::json!({ "mode": "find_symbol", "symbol": "a" }));
+    assert!(!unscoped.warnings.is_empty() && !unscoped.complete, "unscoped find_symbol uses the whole graph");
+    let imports = ask(&cache, &root, serde_json::json!({ "mode": "imports", "file": "src/a.mjs" }));
+    assert!(!imports.warnings.is_empty() && !imports.complete, "imports uses the whole graph");
 }
 
 // ---- file identity: link-resolved, one function for notices, roots and inventory entries ----
@@ -2024,4 +2056,192 @@ fn forgetting_a_root_removes_its_lock_and_ledger_entries() {
     assert_eq!(cache.tracked_roots(), 3, "the scoped build of a root has its own lock");
     cache.forget(&one);
     assert_eq!((cache.tracked_roots(), cache.ledger_len()), (1, 1), "the root's lock, scoped locks and ledger paths are gone");
+}
+
+#[test]
+fn file_scoped_find_symbol_and_multi_file_symbols_do_not_walk_the_project() {
+    let (_tmp, root) = project_with_sentinel();
+    fs::write(root.join("src/c.mjs"), "export function c_fn() { return 3; }\n").unwrap();
+    fs::write(root.join("src/other.mjs"), "export function unrelated() { return 4; }\n").unwrap();
+    let (_dir, cache) = no_cache();
+    let inv_before = super::graph::INVENTORIES.with(std::cell::Cell::get);
+    let parsed_before = parsed();
+
+    let single = ask(&cache, &root, serde_json::json!({ "mode": "symbols", "file": "src/a.mjs" }));
+    assert!(single.complete && single.text.contains("a (L1)"), "{}", single.text);
+    assert_eq!(super::graph::INVENTORIES.with(std::cell::Cell::get) - inv_before, 0);
+    assert_eq!(parsed() - parsed_before, 1);
+
+    let multi = ask(&cache, &root, serde_json::json!({ "mode": "symbols", "files": ["src/a.mjs", "src/b.mjs", "src/c.mjs"] }));
+    assert!(multi.complete && multi.text.contains("c_fn"), "{}", multi.text);
+    assert_eq!(super::graph::INVENTORIES.with(std::cell::Cell::get) - inv_before, 0, "multi-file symbols must not walk the project");
+    assert_eq!(parsed() - parsed_before, 4, "only the three requested files were parsed");
+
+    let scoped_find = ask(&cache, &root, serde_json::json!({ "mode": "find_symbol", "file": "src/c.mjs", "symbol": "c_fn" }));
+    assert!(scoped_find.complete && scoped_find.text.contains("export function c_fn()"), "{}", scoped_find.text);
+    assert_eq!(super::graph::INVENTORIES.with(std::cell::Cell::get) - inv_before, 0, "file-scoped find_symbol must not walk the project");
+    assert_eq!(parsed() - parsed_before, 5, "only the requested file was parsed");
+    assert_eq!(cache.builds(), 0);
+    assert!(cache.held_roots().is_empty());
+}
+
+#[test]
+fn unscoped_query_on_loaded_graph_does_not_read_and_hash_every_source_file() {
+    let (_tmp, root) = project_with_sentinel();
+    for i in 0..20 {
+        fs::write(root.join(format!("src/f{i:02}.mjs")), format!("export function fn_{i:02}() {{ return {i}; }}\n")).unwrap();
+    }
+    let (_dir, cache) = no_cache();
+    cache.graph(&root, &[]).unwrap();
+    assert_eq!(cache.builds(), 1);
+
+    let verified_before = super::graph::VERIFIED_READS.with(std::cell::Cell::get);
+    let parsed_before = parsed();
+    let overview = ask(&cache, &root, serde_json::json!({ "mode": "overview" }));
+    assert!(overview.complete && overview.text.contains("files\t22"), "{}", overview.text);
+    assert_eq!(super::graph::VERIFIED_READS.with(std::cell::Cell::get) - verified_before, 0, "overview must not hash source files");
+    assert_eq!(parsed() - parsed_before, 0);
+
+    let search = ask(&cache, &root, serde_json::json!({ "mode": "symbol_search", "symbol": "fn_07" }));
+    assert!(search.complete && search.text.contains("fn_07"), "{}", search.text);
+    assert_eq!(super::graph::VERIFIED_READS.with(std::cell::Cell::get) - verified_before, 0, "symbol_search must not hash source files");
+
+    let found = ask(&cache, &root, serde_json::json!({ "mode": "find_symbol", "symbol": "fn_07" }));
+    assert!(found.complete && found.text.contains("export function fn_07()"), "{}", found.text);
+    let reads = super::graph::VERIFIED_READS.with(std::cell::Cell::get) - verified_before;
+    assert!(reads <= 3, "find_symbol should read only the matched file, not all 22 files (got {reads})");
+    assert_eq!(cache.builds(), 1, "loaded graph was reused without rebuilding");
+}
+
+#[test]
+fn a_file_changing_during_a_call_reparses_only_that_file_without_failing() {
+    let (_tmp, root) = project_with_sentinel();
+    fs::write(root.join("src/c.mjs"), "export const c = 3;\n").unwrap();
+    let (_dir, cache) = no_cache();
+    cache.graph(&root, &[]).unwrap();
+
+    // Same-stamp rewrite while the graph is already loaded: reconcile reuses the graph,
+    // references detects the digest mismatch when reading src/b.mjs, and re-parses only src/b.mjs.
+    let edited = "import { a } from './a.mjs';\nexport const z = a;\n";
+    same_size_rewrite(&root.join("src/b.mjs"), edited);
+    let inv_before = super::graph::INVENTORIES.with(std::cell::Cell::get);
+    let parsed_before = parsed();
+    let answer = ask(&cache, &root, serde_json::json!({ "mode": "references", "symbol": "a" }));
+    assert!(answer.complete && answer.text.contains("export const z = a;"), "{}", answer.text);
+    assert_eq!(super::graph::INVENTORIES.with(std::cell::Cell::get) - inv_before, 1, "re-parsing the stale file must not re-walk the project");
+    assert_eq!(parsed() - parsed_before, 1, "only the changed file was re-parsed");
+
+    // A file changing between the file-scoped build and body read re-parses only that file and succeeds.
+    let inv_before = super::graph::INVENTORIES.with(std::cell::Cell::get);
+    super::graph::FORCED_MISMATCHES.with(|n| n.set(1));
+    let scoped = ask(&cache, &root, serde_json::json!({ "mode": "find_symbol", "file": "src/a.mjs", "symbol": "a" }));
+    assert!(scoped.complete && scoped.text.contains("export const a = 1;"), "{}", scoped.text);
+    assert_eq!(super::graph::INVENTORIES.with(std::cell::Cell::get) - inv_before, 0, "file-scoped re-parse must not walk the project");
+
+    // A file mutating mid-read during single-file symbols is omitted as unverified instead of failing with "run it again".
+    grow_while_read(root.join("src/a.mjs"), false);
+    let unstable = ask(&cache, &root, serde_json::json!({ "mode": "symbols", "file": "src/a.mjs" }));
+    stop_growing();
+    assert!(!unstable.complete && unstable.text.contains("changed while it was being read"), "{}", unstable.text);
+}
+
+#[test]
+fn file_scoped_find_symbol_and_search_preserve_full_graph_answers_when_scope_does_not_suffice() {
+    let (_tmp, root) = project_with_sentinel();
+    let (_dir, cache) = no_cache();
+
+    // `a` is imported in `src/b.mjs` and declared in `src/a.mjs`: must report the outside declaration, not "global/builtin".
+    let imported = ask(&cache, &root, serde_json::json!({ "mode": "find_symbol", "symbol": "a", "file": "src/b.mjs" }));
+    assert!(imported.complete, "{}", imported.text);
+    assert!(imported.text.contains("declared outside the requested files: src/a.mjs:1"), "{}", imported.text);
+    assert!(!imported.text.contains("likely a global/builtin"), "{}", imported.text);
+
+    // No-match find_symbol and symbol_search must report the real project node count, not `nodes=1`.
+    let missing_find = ask(&cache, &root, serde_json::json!({ "mode": "find_symbol", "symbol": "nonexistent", "file": "src/a.mjs" }));
+    assert!(missing_find.text.contains("graph: nodes=2"), "{}", missing_find.text);
+    let missing_search = ask(&cache, &root, serde_json::json!({ "mode": "symbol_search", "symbol": "nonexistent", "file": "src/a.mjs" }));
+    assert!(missing_search.text.contains("graph: nodes=2"), "{}", missing_search.text);
+
+    // When `symbol_search` matches in the requested file, it avoids walking the project.
+    let (_dir2, fresh_cache) = no_cache();
+    let inv_before = super::graph::INVENTORIES.with(std::cell::Cell::get);
+    let hit_search = ask(&fresh_cache, &root, serde_json::json!({ "mode": "symbol_search", "symbol": "a", "file": "src/a.mjs" }));
+    assert!(hit_search.complete && hit_search.text.contains("src/a.mjs:1"), "{}", hit_search.text);
+    assert_eq!(super::graph::INVENTORIES.with(std::cell::Cell::get) - inv_before, 0);
+}
+
+#[test]
+fn manifest_changes_during_a_call_relink_once_and_disclose_continued_changes_without_spinning() {
+    let (_tmp, root) = project_with_sentinel();
+    for (rel, text) in [
+        ("tsconfig.json", r#"{"compilerOptions":{"baseUrl":".","paths":{"@lib/*":["src/a/*"]}}}"#),
+        ("src/use.ts", "import { x } from '@lib/x';\nexport const y = x;\n"),
+        ("src/a/x.ts", "export const x = 1;\n"),
+        ("src/b/x.ts", "export const x = 2;\n"),
+    ] {
+        let path = root.join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    }
+    let (_dir, cache) = no_cache();
+    let imports_query = serde_json::json!({ "mode": "imports", "file": "src/use.ts" });
+    assert_eq!(ask(&cache, &root, imports_query.clone()).text.lines().next(), Some("src/a/x.ts"));
+
+    // 1) Manifest changes once while the query runs: relinks once and serves fresh, complete edges.
+    let tsconfig = root.join("tsconfig.json");
+    let mut checks = 0usize;
+    super::graph::BEFORE_RESOLVER_CHECK.with(|hook| {
+        let tsconfig = tsconfig.clone();
+        *hook.borrow_mut() = Some(Box::new(move || {
+            checks += 1;
+            // Check 1 is inside `reconcile` (`is_fresh`); check 2 is after `answer_sections`.
+            if checks == 2 {
+                fs::write(&tsconfig, r#"{"compilerOptions":{"baseUrl":".","paths":{"@lib/*":["src/b/*"]}}}"#).unwrap();
+            }
+        }));
+    });
+    let relinked = ask(&cache, &root, imports_query.clone());
+    super::graph::BEFORE_RESOLVER_CHECK.with(|hook| *hook.borrow_mut() = None);
+    assert!(relinked.complete && relinked.warnings.is_empty(), "{}", relinked.text);
+    assert_eq!(relinked.text.lines().next(), Some("src/b/x.ts"));
+
+    // 2) Manifest keeps changing after the relink with nothing else stale: terminates and discloses warning.
+    let mut seq = 0usize;
+    super::graph::BEFORE_RESOLVER_CHECK.with(|hook| {
+        let tsconfig = tsconfig.clone();
+        *hook.borrow_mut() = Some(Box::new(move || {
+            seq += 1;
+            if seq >= 2 {
+                let target = if seq % 2 == 0 { "src/a/*" } else { "src/b/*" };
+                fs::write(&tsconfig, format!(r#"{{"compilerOptions":{{"baseUrl":".","paths":{{"@lib/*":["{target}"]}}}}}} // {seq}"#)).unwrap();
+            }
+        }));
+    });
+    let manifest_only = ask(&cache, &root, imports_query.clone());
+    super::graph::BEFORE_RESOLVER_CHECK.with(|hook| *hook.borrow_mut() = None);
+    assert!(!manifest_only.complete && !manifest_only.warnings.is_empty(), "{}", manifest_only.text);
+    let wrapped = super::output::wrap(manifest_only.text, &manifest_only.warnings, &Args::parse(&imports_query));
+    assert!(wrapped.contains("[warning] graph incomplete:") && wrapped.contains("manifest(s) changed") && wrapped.contains("tsconfig.json"), "{wrapped}");
+
+    // 3) Manifest keeps changing while a source file is also dropped into `unverified`: must not spin forever.
+    let refs_query = serde_json::json!({ "mode": "references", "symbol": "x" });
+    let mut seq2 = 0usize;
+    super::graph::FORCED_MISMATCHES.with(|n| n.set(1000));
+    super::graph::BEFORE_RESOLVER_CHECK.with(|hook| {
+        let tsconfig = tsconfig.clone();
+        *hook.borrow_mut() = Some(Box::new(move || {
+            seq2 += 1;
+            if seq2 >= 2 {
+                let target = if seq2 % 2 == 0 { "src/a/*" } else { "src/b/*" };
+                fs::write(&tsconfig, format!(r#"{{"compilerOptions":{{"baseUrl":".","paths":{{"@lib/*":["{target}"]}}}}}} // r{seq2}"#)).unwrap();
+            }
+        }));
+    });
+    let both = ask(&cache, &root, refs_query.clone());
+    super::graph::BEFORE_RESOLVER_CHECK.with(|hook| *hook.borrow_mut() = None);
+    super::graph::FORCED_MISMATCHES.with(|n| n.set(0));
+    assert!(!both.complete && !both.warnings.is_empty(), "{}", both.text);
+    let wrapped_both = super::output::wrap(both.text, &both.warnings, &Args::parse(&refs_query));
+    assert!(wrapped_both.contains("file(s) changed while they were being read"), "{wrapped_both}");
+    assert!(wrapped_both.contains("manifest(s) changed") && wrapped_both.contains("tsconfig.json"), "{wrapped_both}");
 }

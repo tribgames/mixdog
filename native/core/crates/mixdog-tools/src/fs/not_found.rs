@@ -80,10 +80,7 @@ pub(crate) async fn grep_missing(ctx: &ToolContext, missing: &AbsPath, input: &s
 pub(crate) async fn missing_with_tool(ctx: &ToolContext, missing: &AbsPath, input: &str, code: &str, tool: PathTool) -> String {
     let joined = joined_evidence(ctx, input).await;
     // A joined list names no one directory: a same-named suggestion for its last segment would send the model to it.
-    let mut hint = if joined.is_some() { String::new() } else { hint_body(ctx, missing, "Search").await };
-    if hint.is_empty() && joined.is_none() {
-        hint = suggest_indexed(ctx, missing).await;
-    }
+    let hint = if joined.is_some() { String::new() } else { hint_body(ctx, missing, "Search").await };
     let hint = with_cwd_note(ctx, hint);
     format!("Error: path does not exist: {} ({code}){}", normalize_output_path(&missing.as_path().to_string_lossy()), finalize_tail(hint, joined, tool))
 }
@@ -93,38 +90,6 @@ pub(crate) async fn missing_with_tool(ctx: &ToolContext, missing: &AbsPath, inpu
 pub(crate) async fn joined_path_answer(ctx: &ToolContext, missing: &AbsPath, input: &str, code: &str, tool: PathTool) -> Option<String> {
     joined_evidence(ctx, input).await?;
     Some(missing_with_tool(ctx, missing, input, code, tool).await)
-}
-
-/// `_suggestIndexedPaths`: when the scans concluded nothing, the first five rows of a `**/<basename>` glob (six
-/// asked), its empty-result and `... [` lines dropped; nothing for an outside path or a basename with glob magic.
-async fn suggest_indexed(ctx: &ToolContext, missing: &AbsPath) -> String {
-    if outside_project(&ctx.cwd, missing) {
-        return String::new();
-    }
-    let text = missing.as_path().to_string_lossy().replace('\\', "/");
-    let base = text.rsplit('/').next().unwrap_or_default();
-    if base.is_empty() || base.contains(['*', '?', '[', ']', '{', '}']) {
-        return String::new();
-    }
-    let args = serde_json::json!({ "pattern": format!("**/{base}"), "limit": 6 });
-    let Ok(output) = <super::search::GlobTool as mixdog_core_api::domain::tool::Tool>::call(&super::search::GlobTool::new(), ctx, args).await else {
-        return String::new();
-    };
-    static NO_RESULT: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r"^\(no (?:files found|entries\b)").expect("a fixed pattern"));
-    let rows: String =
-        output.parts.iter().filter_map(|p| if let mixdog_core_api::domain::tool::ToolPart::Text(t) = p { Some(t.as_str()) } else { None }).collect();
-    let hits: Vec<&str> = rows
-        .split('\n')
-        .filter(|s| !s.is_empty() && !NO_RESULT.is_match(s) && !s.starts_with("... ["))
-        .map(mixdog_js::js_trim)
-        .filter(|s| !s.is_empty())
-        .take(5)
-        .collect();
-    if hits.is_empty() {
-        return String::new();
-    }
-    format!("\n[path not found here; same-named indexed file(s): {}]", hits.join(", "))
 }
 
 /// `appendNotFoundCwdNote`.

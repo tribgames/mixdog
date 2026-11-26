@@ -418,11 +418,10 @@ mod tests {
         assert_eq!(store.list_grants(None).await.expect("list").len(), 1);
     }
 
-    /// Upgrade rule. A row of 1.4.5 (and of the builds since) names only an action category: it
-    /// cannot say which tool the person meant, so an `allow` of a connector category grants nothing
-    /// and the person is asked once more. A `block`, a tool row and the browser's own allow stand.
+    /// Upgrade rule. Category grants stored by 1.4.5 and per-tool grants stored by 1.5.0 are both
+    /// kept on load and survive subsequent writes; payments and permanent deletes are still dropped.
     #[tokio::test]
-    async fn a_category_allow_stored_by_1_4_5_no_longer_grants_but_blocks_and_tool_rows_stand() {
+    async fn category_allows_from_1_4_5_and_tool_allows_from_1_5_0_both_stand_on_load() {
         let dir = tempfile::tempdir().expect("dir");
         let row = |agent: &str, action: &str, mode: &str| {
             let id = super::super::grants::grant_id(agent, &GrantKey::parse(action).expect("action"));
@@ -434,22 +433,30 @@ mod tests {
             row("bot", "message", "block"),
             row("bot", "browser_submit", "allow"),
             row("bot", "tool:shell", "allow"),
+            row("bot", "tool:mcp__gmail__send_email", "allow"),
+            row("bot", "payment", "allow"),
+            row("bot", "delete", "allow"),
         ];
         std::fs::write(dir.path().join(GRANTS_FILE), format!("{{\n  \"grants\": [\n    {}\n  ]\n}}\n", rows.join(",\n    "))).expect("write");
         let store = store_in(dir.path());
         let kind = |kind| GrantKey::Kind(kind);
-        assert_eq!(store.mode_for("bot", &kind(ActionKind::Comment), false).await, Ok(PermissionMode::Ask));
-        assert_eq!(store.mode_for("bot", &kind(ActionKind::Email), false).await, Ok(PermissionMode::Ask), "an every-agent category allow too");
+        assert_eq!(store.mode_for("bot", &kind(ActionKind::Comment), false).await, Ok(PermissionMode::Allow));
+        assert_eq!(store.mode_for("other", &kind(ActionKind::Comment), false).await, Ok(PermissionMode::Ask));
+        assert_eq!(store.mode_for("bot", &kind(ActionKind::Email), false).await, Ok(PermissionMode::Allow), "an every-agent 1.4.5 category allow");
+        assert_eq!(store.mode_for("other", &kind(ActionKind::Email), false).await, Ok(PermissionMode::Allow));
         assert_eq!(store.mode_for("bot", &kind(ActionKind::Message), false).await, Ok(PermissionMode::Block));
         assert_eq!(store.mode_for("bot", &kind(ActionKind::BrowserSubmit), false).await, Ok(PermissionMode::Allow));
         assert_eq!(store.mode_for("bot", &GrantKey::tool("shell").expect("key"), false).await, Ok(PermissionMode::Allow));
-        assert_eq!(store.list_grants(None).await.expect("list").len(), 3);
-        // The next answer is stored for its tool, and the old category rows leave the file.
-        assert_eq!(store.grant("bot", &comment(), ApprovalRemember::Agent, "").await, Ok(true));
+        assert_eq!(store.mode_for("bot", &GrantKey::tool("mcp__gmail__send_email").expect("key"), false).await, Ok(PermissionMode::Allow));
+        assert_eq!(store.mode_for("bot", &kind(ActionKind::Payment), false).await, Ok(PermissionMode::Ask));
+        assert_eq!(store.mode_for("bot", &kind(ActionKind::Delete), false).await, Ok(PermissionMode::Ask));
+        assert_eq!(store.list_grants(None).await.expect("list").len(), 6);
+        // A new category grant is written alongside existing 1.4.5 category and 1.5.0 tool rows.
+        assert_eq!(store.grant("bot", &kind(ActionKind::Publish), ApprovalRemember::Agent, "").await, Ok(true));
         let doc: Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join(GRANTS_FILE)).expect("file")).expect("json");
         let mut actions: Vec<&str> = doc["grants"].as_array().expect("rows").iter().map(|r| r["action"].as_str().expect("action")).collect();
         actions.sort_unstable();
-        assert_eq!(actions, ["browser_submit", "message", "tool:mcp__github__add_issue_comment", "tool:shell"]);
+        assert_eq!(actions, ["browser_submit", "comment", "email", "message", "publish", "tool:mcp__gmail__send_email", "tool:shell"]);
     }
 
     /// A row hand-edited to another owner or action keeps the id of the row it was: it is damaged, grants nothing to

@@ -67,11 +67,19 @@ pub(super) fn run(args: &Args, default_cwd: &Path, env: &Env<'_>) -> Result<Answ
 }
 
 /// `runCodeGraphWork`: `symbols[]` and `files[]` fan out into `# <mode> <item>` sections.
-fn answer_sections(mode: &str, args: &Args, base: &Path, default_cwd: &Path, root: &PathBuf, graph: &Lease) -> Result<Section, String> {
+fn answer_sections(
+    mode: &str,
+    args: &Args,
+    base: &Path,
+    default_cwd: &Path,
+    root: &PathBuf,
+    graph: &Lease,
+    needs_full_graph: Option<&std::cell::Cell<bool>>,
+) -> Result<Section, String> {
     let mode = if mode == "symbols" && args.body == Some(true) && !args.symbol_list().is_empty() { "find_symbol" } else { mode };
     let batch_mode = if mode == "search" { "symbol_search" } else { mode };
     // A mode's failure fails the call; inside a fan-out it is that section's `Error:` body (`_fanoutSections`).
-    let raw = |a: &Args| -> Result<Section, String> { answer(mode, a, base, default_cwd, root, graph, a.file.as_deref()).map(Section::whole) };
+    let raw = |a: &Args| -> Result<Section, String> { answer(mode, a, base, default_cwd, root, graph, needs_full_graph).map(Section::whole) };
     let caught = |section: Result<Section, String>| section.unwrap_or_else(|e| Section::whole(format!("Error: {e}")));
     // `files` scopes the symbol modes: one entry becomes the anchor, several fan out per file.
     let scope_files = if BATCHABLE.contains(&batch_mode) && args.file.as_deref().is_none_or(|f| f.trim().is_empty()) { args.file_list() } else { Vec::new() };
@@ -101,6 +109,28 @@ fn answer_sections(mode: &str, args: &Args, base: &Path, default_cwd: &Path, roo
         }
     }
     one(args)
+}
+
+/// Loads the project graph and verifies only explicit file anchors against disk so same-stamp
+/// anchor edits are picked up without reading and hashing the rest of the project.
+fn load_project_graph(
+    cache: &GraphCache,
+    root: &Path,
+    excluded: &[PathBuf],
+    anchors: &[String],
+    base: &Path,
+    reparsed: &mut std::collections::HashSet<String>,
+) -> Result<Lease, String> {
+    let mut graph = cache.graph(root, excluded)?;
+    if !anchors.is_empty() {
+        let anchor_rels: Vec<String> = anchors.iter().map(|a| abs_from(base, a)).filter(|p| !p.is_dir()).map(|p| display_rel(&p, root)).collect();
+        if !graph.verify_nodes(&anchor_rels) {
+            let stale = graph.stale_files();
+            reparsed.extend(stale.iter().cloned());
+            graph = cache.reparse_files(root, excluded, &graph.graph, &stale, false)?;
+        }
+    }
+    Ok(graph)
 }
 
 /// One call. `excluded` are nested project roots a federated child must not re-index.
@@ -173,41 +203,81 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
         return Err(error.clone());
     }
 
+    let effective_mode = if mode == "symbols" && args.body == Some(true) && !args.symbol_list().is_empty() { "find_symbol" } else { mode };
     let anchors = args.file_list();
-    let single_file = match anchors.as_slice() {
-        [one] => Some(abs_from(&base, one)).filter(|p| p.is_file()),
-        _ => None,
+    let scoped_files: Option<Vec<PathBuf>> = if matches!(effective_mode, "symbols" | "find_symbol" | "symbol_search" | "search") && !anchors.is_empty() {
+        let paths: Vec<PathBuf> = anchors.iter().map(|a| abs_from(&base, a)).collect();
+        paths.iter().all(|p| p.is_file()).then_some(paths)
+    } else {
+        None
     };
-    // A source read that finds a file changed marks that generation stale; the call then runs once more on the next
-    // generation, which re-reads the file. Nothing discards the parsed records of the files that did not change.
-    let mut attempt = 0;
+
+    let mut reparsed: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut dropped: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut relinked = false;
+
+    let built = match scoped_files.as_deref() {
+        Some(files) => Graph::build_files(&root, files)?,
+        None => None,
+    };
+    let (mut graph, mut file_only) = match built {
+        Some(g) => (Lease::alone(std::sync::Arc::new(g)), true),
+        None => (load_project_graph(env.cache, &root, excluded, &anchors, &base, &mut reparsed)?, false),
+    };
+
+    // Structural state machine per call:
+    // - Each stale source file transitions once: initial -> reparsed -> unverified (dropped from
+    //   `graph.nodes`, so it cannot trigger stale again and is disclosed in `warnings`).
+    // - Manifests transition at most once: initial -> relinked -> disclosed in `warnings`.
+    // - A file-only graph transitions at most once to the full project graph if the answer needs
+    //   project-wide facts (outside-scope declarations, full node count, or casing hints).
     let (_graph, section, warnings) = loop {
-        let (graph, one_file) = match single_file.as_ref().filter(|_| mode == "symbols") {
-            Some(file) => match Graph::build_single(&root, file)? {
-                Some(g) => (Lease::alone(std::sync::Arc::new(g)), true),
-                None => (env.cache.graph(&root, excluded)?, false),
-            },
-            None => (env.cache.graph(&root, excluded)?, false),
-        };
-        if !graph.verify_records() {
-            if attempt == 0 {
-                attempt = 1;
-                continue;
+        let needs_full_graph = std::cell::Cell::new(false);
+        let section = answer_sections(mode, &args, &base, default_cwd, &root, &graph, file_only.then_some(&needs_full_graph))?;
+        let stale = if graph.source_stale() { graph.stale_files() } else { Vec::new() };
+        let stale_manifests = if !file_only { graph.stale_resolver_inputs() } else { Vec::new() };
+
+        let mut to_reparse = Vec::new();
+        let mut newly_dropped = false;
+        for rel in stale {
+            if reparsed.insert(rel.clone()) {
+                to_reparse.push(rel);
+            } else {
+                newly_dropped |= dropped.insert(rel);
             }
-            return Err("code_graph: could not verify the current project sources; run it again".to_owned());
+        }
+        let do_relink = !stale_manifests.is_empty() && !relinked;
+        if do_relink {
+            relinked = true;
+        }
+
+        if !to_reparse.is_empty() || do_relink || newly_dropped {
+            if !to_reparse.is_empty() || do_relink {
+                graph = if file_only {
+                    Lease::alone(graph.reparse_subset_standalone(&to_reparse)?)
+                } else {
+                    env.cache.reparse_files(&root, excluded, &graph.graph, &to_reparse, do_relink)?
+                };
+            }
+            if !dropped.is_empty() {
+                graph = Lease::alone(graph.without_unverified(&dropped));
+            }
+            continue;
+        }
+
+        if file_only && needs_full_graph.get() {
+            file_only = false;
+            reparsed.clear();
+            dropped.clear();
+            relinked = false;
+            graph = load_project_graph(env.cache, &root, excluded, &anchors, &base, &mut reparsed)?;
+            continue;
         }
 
         let mut warnings = Warnings::default();
-        warnings.collect(one_file, &root, &graph);
-        let section = answer_sections(mode, &args, &base, default_cwd, &root, &graph)?;
-        if graph.source_stale() || !graph.resolver_inputs_current() {
-            if attempt == 0 {
-                attempt = 1;
-                continue;
-            }
-            // The files changed again under the fresh build: the empty reads would silently drop references, bodies or
-            // callers from the answer, so it fails instead.
-            return Err("code_graph: source files changed while the query ran; run it again".to_owned());
+        warnings.collect(&root, &graph);
+        if !stale_manifests.is_empty() {
+            warnings.note_unverified_manifests(&root, &stale_manifests);
         }
         break (graph, section, warnings);
     };
@@ -260,7 +330,16 @@ fn fanout<T>(items: &[T], header: impl Fn(&T) -> String, run: impl Fn(&T) -> Sec
     Section { text: texts.join("\n\n"), complete }
 }
 
-fn answer(mode: &str, args: &Args, base: &Path, default_cwd: &Path, root: &PathBuf, graph: &Graph, anchor: Option<&str>) -> Result<String, String> {
+fn answer(
+    mode: &str,
+    args: &Args,
+    base: &Path,
+    default_cwd: &Path,
+    root: &PathBuf,
+    graph: &Graph,
+    needs_full_graph: Option<&std::cell::Cell<bool>>,
+) -> Result<String, String> {
+    let anchor = args.file.as_deref();
     let abs = anchor.map(|a| abs_from(base, a));
     let rel = abs.as_ref().map(|p| display_rel(p, root));
     let is_dir = abs.as_ref().is_some_and(|p| p.is_dir());
@@ -273,8 +352,17 @@ fn answer(mode: &str, args: &Args, base: &Path, default_cwd: &Path, root: &PathB
         (Some(r), false) => (Some(r.clone()), None),
         _ => (None, None),
     };
-    let ctx =
-        Ctx { args, cwd: root, default_cwd, graph, norm_file: anchor, node: file_rel.as_deref().and_then(|r| graph.node(r)), rel: file_rel, scope_prefix };
+    let ctx = Ctx {
+        args,
+        cwd: root,
+        default_cwd,
+        graph,
+        norm_file: anchor,
+        node: file_rel.as_deref().and_then(|r| graph.node(r)),
+        rel: file_rel,
+        scope_prefix,
+        needs_full_graph,
+    };
     match mode {
         "overview" => Ok(modes::overview(&ctx)),
         "imports" => Ok(modes::imports(&ctx)),

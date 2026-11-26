@@ -12,25 +12,50 @@ use super::graph::{Graph, Node};
 use crate::fs::common::{cap_marker, format_cap_size};
 
 /// The files a call's graphs held unindexed (`options._parseWarnings`), keyed by absolute path
-/// in the order first seen.
+/// in the order first seen, plus any unverified-input disclosures.
 #[derive(Default)]
-pub(super) struct Warnings(Vec<(PathBuf, String)>, Option<String>);
+pub(super) struct Warnings {
+    parse_errors: Vec<(PathBuf, String)>,
+    unverified: Vec<String>,
+}
 
 impl Warnings {
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty() && self.1.is_none()
+        self.parse_errors.is_empty() && self.unverified.is_empty()
     }
 
-    pub fn collect(&mut self, one_file: bool, root: &Path, graph: &Graph) {
-        if one_file {
-            return;
-        }
+    pub fn collect(&mut self, root: &Path, graph: &Graph) {
         // Every answer from a graph that had to leave files out says so, empty results and `imports` included: what concerns
         // a file that is not there is unknown, not absent. (The one place the reason is attached.)
         if graph.incomplete() {
-            self.1 = Some(graph.incomplete_note());
+            let note = graph.incomplete_note();
+            if !self.unverified.contains(&note) {
+                self.unverified.push(note);
+            }
         }
         graph.nodes.iter().for_each(|node| self.note(root, node));
+    }
+
+    pub fn note_unverified_manifests(&mut self, root: &Path, paths: &[PathBuf]) {
+        if paths.is_empty() {
+            return;
+        }
+        let mut names: Vec<String> = Vec::new();
+        for path in paths {
+            let shown = super::dispatch::display_rel(path, root);
+            let shown = if shown.is_empty() { path.to_string_lossy().replace('\\', "/") } else { shown };
+            if !names.contains(&shown) {
+                names.push(shown);
+            }
+        }
+        let note = format!(
+            "graph incomplete: {} manifest(s) changed while the query ran (first: {}); import edges may not reflect current manifests",
+            names.len(),
+            names.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
+        );
+        if !self.unverified.contains(&note) {
+            self.unverified.push(note);
+        }
     }
 
     fn note(&mut self, root: &Path, node: &Node) {
@@ -38,20 +63,25 @@ impl Warnings {
             return;
         }
         let (abs, text) = (root.join(&node.rel), format!("{}: {}", node.rel, node.parse_error));
-        match self.0.iter_mut().find(|(seen, _)| *seen == abs) {
+        match self.parse_errors.iter_mut().find(|(seen, _)| *seen == abs) {
             Some(slot) => slot.1 = text,
-            None => self.0.push((abs, text)),
+            None => self.parse_errors.push((abs, text)),
         }
     }
 
     /// `raw` under the warning that results are partial (the first five files named).
     pub(super) fn prefix(&self, raw: String) -> String {
-        let omitted = self.1.as_ref().map(|reason| format!("[warning] {reason}\n")).unwrap_or_default();
-        if self.0.is_empty() {
+        let mut omitted = String::new();
+        for reason in &self.unverified {
+            omitted.push_str("[warning] ");
+            omitted.push_str(reason);
+            omitted.push('\n');
+        }
+        if self.parse_errors.is_empty() {
             return format!("{omitted}{raw}");
         }
-        let shown: Vec<&str> = self.0.iter().take(5).map(|(_, text)| text.as_str()).collect();
-        format!("{omitted}[warning] {} source file(s) could not be indexed; graph results are partial:\n{}\n{raw}", self.0.len(), shown.join("\n"))
+        let shown: Vec<&str> = self.parse_errors.iter().take(5).map(|(_, text)| text.as_str()).collect();
+        format!("{omitted}[warning] {} source file(s) could not be indexed; graph results are partial:\n{}\n{raw}", self.parse_errors.len(), shown.join("\n"))
     }
 }
 

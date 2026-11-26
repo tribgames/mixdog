@@ -30,6 +30,8 @@ mod read_paths;
 pub mod read_state;
 mod search;
 #[cfg(test)]
+mod search_bounds_tests;
+#[cfg(test)]
 mod search_paging_tests;
 #[cfg(test)]
 mod tests;

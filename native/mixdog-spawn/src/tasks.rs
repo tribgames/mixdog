@@ -240,6 +240,16 @@ impl TaskRegistry {
         self.change(task_id, |row| row.foreground = false)
     }
 
+    /// Attaches the spawned process to a queued task so `terminate` can stop it.
+    pub fn attach_process(&self, task_id: &str, handle: ProcessHandle) -> Result<(), TaskError> {
+        let mut inner = self.lock();
+        if !inner.tasks.contains_key(task_id) {
+            return Err(TaskError::UnknownTask);
+        }
+        inner.processes.insert(task_id.to_owned(), handle);
+        Ok(())
+    }
+
     /// The task ended. A finished task keeps its row until `clean` or `release`.
     pub fn finish(&self, task_id: &str, outcome: TaskOutcome) -> Result<(), TaskError> {
         let now = (self.now_ms)();

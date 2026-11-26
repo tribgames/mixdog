@@ -132,6 +132,33 @@ fn node_request(op: &SessionOp) -> Value {
             }
             put("txId", json!(tx_id));
         }
+        SessionOp::RemovePath { path, force } => {
+            put("op", json!("remove-path"));
+            put("path", json!(path));
+            put("force", json!(force));
+        }
+        SessionOp::Add { branch, create, start_point, confirm_large, tx_id, repo_common_dir } => {
+            put("op", json!("add"));
+            put("branch", json!(branch));
+            put("create", json!(create));
+            if let Some(start) = start_point {
+                put("startPoint", json!(start));
+            }
+            put("confirmLarge", json!(confirm_large));
+            put("txId", json!(tx_id));
+            if let Some(dir) = repo_common_dir {
+                put("repoCommonDir", json!(dir));
+            }
+        }
+        SessionOp::Snapshot { commit, confirm_large, tx_id, repo_common_dir } => {
+            put("op", json!("snapshot"));
+            put("commit", json!(commit));
+            put("confirmLarge", json!(confirm_large));
+            put("txId", json!(tx_id));
+            if let Some(dir) = repo_common_dir {
+                put("repoCommonDir", json!(dir));
+            }
+        }
     }
     Value::Object(out)
 }
@@ -144,6 +171,8 @@ fn scripted_failure(error: &Value) -> ScmFailure {
         "MERGE_CONFLICT" => ("MERGE_CONFLICT", "mergeConflict"),
         "WORKTREE_DIRTY" => ("WORKTREE_DIRTY", "worktreeDirty"),
         "WORKTREE_BUSY_JOBS" => ("WORKTREE_BUSY_JOBS", "worktreeBusyJobs"),
+        "WORKTREE_PROJECT_MISMATCH" => ("WORKTREE_PROJECT_MISMATCH", "worktreeProjectMismatch"),
+        "WORKTREE_BRANCH_OCCUPIED" => ("WORKTREE_BRANCH_OCCUPIED", "worktreeBranchOccupied"),
         "WORKTREE_DISK_INSUFFICIENT" => {
             details["path"] = json!("");
             ("WORKTREE_DISK_INSUFFICIENT", "worktreeDiskInsufficient")
@@ -152,6 +181,67 @@ fn scripted_failure(error: &Value) -> ScmFailure {
     };
     details["type"] = json!(tag);
     ScmFailure::coded_with_message(code, serde_json::from_value::<DomainErrorDetail>(details).unwrap(), error["message"].as_str().unwrap())
+}
+
+/// Real-repository [`SessionWorktrees`] for the git tool tests: delegates raw `add`, `snapshot`
+/// and `remove-path` to `Worktrees` with the Lead session's project and owner checks.
+struct LocalSessions {
+    session: String,
+    project: PathBuf,
+    worktrees: Arc<Worktrees>,
+}
+
+#[async_trait]
+impl SessionWorktrees for LocalSessions {
+    async fn is_lead(&self, session_id: &str) -> bool {
+        session_id == self.session
+    }
+
+    async fn run(&self, op: SessionOp, caller: &str, cancel: &CancellationToken) -> Result<JsonValue, ScmFailure> {
+        match op {
+            SessionOp::Add { branch, create, start_point, confirm_large, tx_id, .. } => {
+                let record = self
+                    .worktrees
+                    .create(
+                        mixdog_scm::worktree::manager::CreateRequest {
+                            project_path: self.project.clone(),
+                            session_id: caller.to_owned(),
+                            tx_id,
+                            name_hint: branch.clone(),
+                            base_branch: None,
+                            branch: Some(branch.clone()),
+                            existing_branch: !create,
+                            start_commit: start_point,
+                            confirm_large,
+                            carry: None,
+                            runtime_token: String::new(),
+                        },
+                        cancel,
+                    )
+                    .await?;
+                Ok(json!({
+                    "path": record.path,
+                    "branch": branch,
+                    "worktreeId": record.id,
+                    "created": true,
+                    "baseCommit": record.base_commit,
+                    "mergeTarget": record.merge_target,
+                }))
+            }
+            SessionOp::Snapshot { commit, confirm_large, tx_id, .. } => {
+                self.worktrees.create_worker_snapshot(caller, &self.project, &commit, &tx_id, confirm_large, cancel).await
+            }
+            SessionOp::RemovePath { path, force } => {
+                self.worktrees.remove_by_path(Path::new(&path), force, Some(caller), cancel).await.map_err(|failure| match failure {
+                    ScmFailure::Coded { code: "WORKTREE_PATH_UNSAFE", .. } => ScmFailure::git(format!(
+                        "git worktree remove: {path} is not a Mixdog-managed worktree; unmanaged worktrees are not removed through the git tool"
+                    )),
+                    other => other,
+                })
+            }
+            other => Err(ScmFailure::git(format!("unexpected session op in LocalSessions: {other:?}"))),
+        }
+    }
 }
 
 #[async_trait]
@@ -272,8 +362,12 @@ fn rig() -> Rig {
             json!({"git": ["commit", "-q", "-m", "init"]}),
         ],
     );
-    let sessions = Arc::new(ScriptSessions { session: "lead".into(), script: json!({}), requests: Mutex::new(Vec::new()) });
-    let services = services(sessions, "lead", work.join("data"));
+    let data_dir = work.join("data");
+    let tokens = mixdog_rt::testing::tokens();
+    let scm = Scm::new(processes::TestProcesses::shared(), tokens.maintenance_io, data_dir.join("scratch"));
+    let worktrees = Arc::new(Worktrees::new(scm, data_dir));
+    let sessions: Arc<dyn SessionWorktrees> = Arc::new(LocalSessions { session: "lead".into(), project: ws.clone(), worktrees: worktrees.clone() });
+    let services = Arc::new(WorktreeServices { worktrees, stored: Arc::new(Stores("lead".into())), live: Arc::new(HashSet::new), sessions });
     Rig { tool: GitTool::new().with_worktrees(services.clone()), services, ws, _tmp: tmp }
 }
 
@@ -291,7 +385,8 @@ async fn a_lead_adds_lists_and_removes_a_managed_worktree_on_a_real_repository()
     let added = parsed(&run(&rig, "lead", &rig.ws, json!({"command": "git worktree add -b feat ../elsewhere"})).await);
     assert_eq!(added["ok"], true, "{added}");
     assert_eq!(added["branch"], "feat");
-    assert_eq!(added["state"], "ready");
+    assert_eq!(added["created"], true, "{added}");
+    assert!(added["worktreeId"].as_str().is_some(), "{added}");
     let managed = PathBuf::from(added["path"].as_str().unwrap());
     assert!(managed.join(".git").exists() && !rig.ws.join("../elsewhere").exists());
     assert!(added["note"].as_str().unwrap().contains("worktree_action:\"enter\" with branch:\"feat\""));
@@ -626,4 +721,46 @@ async fn a_lead_session_transition_is_sent_to_the_runtime_with_what_was_asked_an
 
 async fn text_of_future(tool: &GitTool, cwd: &Path, input: Value) -> String {
     text_of(tool.call(&context(cwd, "lead", "call1"), input).await)
+}
+
+#[tokio::test]
+async fn raw_worktree_add_snapshot_and_remove_route_through_session_worktrees() {
+    pin_environment();
+    let tmp = tempfile::tempdir().unwrap();
+    let work = strip_verbatim(tmp.path().canonicalize().unwrap());
+    let ws = work.join("ws");
+    std::fs::create_dir_all(&ws).unwrap();
+    apply_setup(
+        &ws,
+        &[
+            json!({"git": ["init", "-q", "-b", "main"]}),
+            json!({"write": ["f.txt", "a\n"]}),
+            json!({"git": ["add", "."]}),
+            json!({"git": ["commit", "-q", "-m", "init"]}),
+        ],
+    );
+    let sessions = Arc::new(ScriptSessions {
+        session: "lead".into(),
+        script: json!({
+            "add": {"error": {"code": "WORKTREE_PROJECT_MISMATCH", "message": "Managed worktrees belong to this session's Project repository; run the command there.", "details": {"projectPath": "/other", "repoCommonDir": "/ws/.git"}}},
+            "snapshot": {"id": "snapshot-1", "path": "/data/snapshot-1", "baseCommit": "abc"},
+            "remove-path": {"error": {"code": "WORKTREE_BUSY_JOBS", "message": "This snapshot belongs to another session's turn; it is removed when that turn ends, or by a prune.", "details": {"reason": "snapshot-held", "sessionId": "other", "entryId": "snapshot-1"}}},
+        }),
+        requests: Mutex::new(Vec::new()),
+    });
+    let tool = GitTool::new().with_worktrees(services(sessions.clone(), "lead", work.join("data")));
+    let mismatch = parsed(&text_of_future(&tool, &ws, json!({"command": "git worktree add -b feat ../w"})).await);
+    assert_eq!((&mismatch["ok"], &mismatch["code"]), (&json!(false), &json!("WORKTREE_PROJECT_MISMATCH")));
+    let snap = parsed(&text_of_future(&tool, &ws, json!({"command": "git worktree add --detach ../s"})).await);
+    assert_eq!((&snap["ok"], &snap["snapshot"], &snap["worktreeId"]), (&json!(true), &json!(true), &json!("snapshot-1")));
+    let refused = parsed(&text_of_future(&tool, &ws, json!({"command": "git worktree remove -f ../s"})).await);
+    assert_eq!((&refused["ok"], &refused["code"]), (&json!(false), &json!("WORKTREE_BUSY_JOBS")));
+    assert_eq!(refused["error"], "This snapshot belongs to another session's turn; it is removed when that turn ends, or by a prune.");
+
+    let seen = sessions.requests.lock().unwrap().clone();
+    assert_eq!(seen.iter().map(|r| r["op"].as_str().unwrap()).collect::<Vec<_>>(), ["add", "snapshot", "remove-path"]);
+    assert_eq!((&seen[0]["branch"], &seen[0]["create"]), (&json!("feat"), &json!(true)));
+    assert!(seen[0]["repoCommonDir"].as_str().is_some());
+    assert!(seen[1]["repoCommonDir"].as_str().is_some());
+    assert_eq!(seen[2]["force"], true);
 }

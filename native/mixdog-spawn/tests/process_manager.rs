@@ -867,3 +867,15 @@ async fn shutdown_confirms_an_older_windows_job_after_its_handle_is_reused() {
     assert_eq!(tokio::time::timeout(WAIT, m.shutdown()).await.unwrap(), ShutdownOutcome::Clean);
     assert!(!pid_alive(child), "the first job was confirmed empty, not just the current one");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn default_process_config_is_uncapped() {
+    assert_eq!(ProcessConfig::default().max_processes, 0);
+    let m = manager();
+    let handles = [handle("uncapped-1"), handle("uncapped-2"), handle("uncapped-3")];
+    for h in &handles {
+        m.spawn(request(h, long_sleep())).await.unwrap();
+    }
+    assert_eq!(m.live(), 3);
+    assert_eq!(tokio::time::timeout(WAIT, m.shutdown()).await.unwrap(), ShutdownOutcome::Clean);
+}

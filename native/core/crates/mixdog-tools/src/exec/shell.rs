@@ -17,6 +17,7 @@ use mixdog_core_api::domain::process::KillReason;
 use mixdog_core_api::domain::process::OutputMode;
 use mixdog_core_api::domain::process::ProcessError;
 use mixdog_core_api::domain::process::ProcessExit;
+use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::process::ProcessOwner;
 use mixdog_core_api::domain::process::SpawnRequest;
 use mixdog_core_api::domain::tool::Tool;
@@ -30,8 +31,14 @@ use mixdog_core_api::domain::tool::ToolProgress;
 use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_protocol::JsonValue;
 use mixdog_protocol::ProcessHandle;
+use mixdog_protocol::ThreadId;
+use mixdog_protocol::ToolCallId;
 use serde::Deserialize;
+use tokio_util::sync::CancellationToken;
 
+use super::admission::ShellAdmission;
+use super::admission::ShellAdmissionError;
+use super::admission::ShellLease;
 use super::archive;
 use super::bashism::rewrite_powershell_bashisms;
 use super::benign::is_benign_search_exit_one;
@@ -69,6 +76,7 @@ use super::invocation::prefix_powershell_skill_function;
 use super::invocation::prefix_powershell_utf8;
 use super::invocation::wrap_with_snapshot;
 use super::jobs::ExecRuntime;
+use super::jobs::ExitFacts;
 use super::jobs::Job;
 use super::jobs::ReadOptions;
 use super::jobs::shown_path;
@@ -89,6 +97,8 @@ use crate::policy::ExecVerdict;
 const SHELL_HOLD_DEFAULT_MS: u64 = 60_000;
 const SHELL_HOLD_MIN_MS: u64 = 1_000;
 const SHELL_HOLD_MAX_MS: u64 = 600_000;
+/// Default admission-wait ceiling (`SHELL_ADMISSION_WAIT_MS` in `shell-command.mjs`). 0 disables the ceiling.
+const SHELL_ADMISSION_WAIT_DEFAULT_MS: u64 = 30_000;
 /// The hold of an explicit background start: long enough for the child to be spawned and
 /// promoted, short enough to return at once.
 const BACKGROUND_START_HOLD_MS: u64 = 1;
@@ -895,9 +905,13 @@ mod tests {
 
 /// The spec, the filter-rescue tee file and the PowerShell script fed on stdin to `POWERSHELL_BOOTSTRAP` (Node's fresh
 /// pwsh spawn, `shell-run-spawn.mjs`).
+#[allow(clippy::too_many_arguments, reason = "Shared by foreground and queued background shell spawns without coupling to ToolContext.")]
 async fn shell_command_spec(
     runtime: &ExecRuntime,
-    ctx: &ToolContext,
+    processes: &Arc<dyn ProcessManager>,
+    cancel: &CancellationToken,
+    thread_id: &ThreadId,
+    call_id: &ToolCallId,
     command: &str,
     shell_program: String,
     cwd: &AbsPath,
@@ -927,15 +941,15 @@ async fn shell_command_spec(
             let snapshot = runtime
                 .snapshots
                 .get(SnapshotRequest {
-                    processes: &ctx.processes,
+                    processes,
                     lane: runtime.config.lanes.spawn,
-                    cancel: &ctx.cancel,
+                    cancel,
                     shell_path: &shell_program,
                     data_dir: data,
                     launcher_dir: &dir.to_string_lossy(),
                     cwd: cwd.clone(),
-                    thread: ctx.thread_id.clone(),
-                    call: ctx.call_id.clone(),
+                    thread: thread_id.clone(),
+                    call: call_id.clone(),
                 })
                 .await;
             if let Some(snapshot) = snapshot {
@@ -946,6 +960,207 @@ async fn shell_command_spec(
         (CommandSpec::Shell { script: EVAL_SCRIPT.to_owned(), shell: Some(shell_program) }, None, None)
     } else {
         (CommandSpec::Shell { script: command.to_owned(), shell: None }, None, None)
+    }
+}
+
+fn admission_wait_ms(env: &dyn Fn(&str) -> Option<String>) -> u64 {
+    env("MIXDOG_SHELL_ADMISSION_WAIT_MS")
+        .filter(|raw| !mixdog_js::js_trim(raw).is_empty())
+        .map(|raw| mixdog_js::string_to_number(&raw))
+        .filter(|n| n.is_finite() && *n >= 0.0)
+        .map_or(SHELL_ADMISSION_WAIT_DEFAULT_MS, |n| (n.floor() as u64).min(TIMER_MAX_MS))
+}
+
+enum ShellSlot {
+    Held(Box<dyn ShellLease>),
+    Saturated(u64),
+    Cancelled,
+    QueueFull(String),
+}
+
+async fn acquire_shell_slot(
+    admission: &Arc<dyn ShellAdmission>,
+    owner: &str,
+    cancel: &CancellationToken,
+    wait_ms: u64,
+    answer_by: Option<std::time::Instant>,
+) -> ShellSlot {
+    let by_wait = (wait_ms > 0).then(|| (Duration::from_millis(wait_ms), wait_ms));
+    let by_answer = answer_by.map(|by| {
+        let dur = by.saturating_duration_since(std::time::Instant::now());
+        (dur, dur.as_millis() as u64)
+    });
+    let limit = match (by_wait, by_answer) {
+        (Some(w), Some(a)) => Some(if w.0 <= a.0 { w } else { a }),
+        (Some(w), None) => Some(w),
+        (None, Some(a)) => Some(a),
+        (None, None) => None,
+    };
+    let map_res = |res: Result<Box<dyn ShellLease>, ShellAdmissionError>| match res {
+        Ok(lease) => ShellSlot::Held(lease),
+        Err(ShellAdmissionError::Cancelled) => ShellSlot::Cancelled,
+        Err(ShellAdmissionError::QueueFull(msg)) => ShellSlot::QueueFull(msg),
+    };
+    match limit {
+        None => map_res(admission.acquire_shell(owner, cancel).await),
+        Some((dur, reported_ms)) => tokio::select! {
+            biased;
+            res = admission.acquire_shell(owner, cancel) => map_res(res),
+            () = mixdog_rt::time::sleep(dur) => ShellSlot::Saturated(reported_ms),
+        },
+    }
+}
+
+struct SpawnPlan {
+    spec: CommandSpec,
+    env: mixdog_core_api::domain::process::EnvSpec,
+    tee_path: Option<PathBuf>,
+    fed_script: Option<String>,
+}
+
+#[allow(clippy::too_many_arguments, reason = "Shared by foreground and queued background shell spawns without coupling to ToolContext.")]
+async fn prepare_shell_spawn(
+    runtime: &ExecRuntime,
+    processes: &Arc<dyn ProcessManager>,
+    cancel: &CancellationToken,
+    thread_id: &ThreadId,
+    call_id: &ToolCallId,
+    command: &str,
+    shell_program: String,
+    cwd: &AbsPath,
+    vars: &[(String, String)],
+    scratch: Option<&Path>,
+    launcher_dir: Option<&Path>,
+) -> SpawnPlan {
+    let mut env = shell_env(
+        vars,
+        &ShellEnv { cwd: &cwd.as_path().to_string_lossy(), windows: runtime.config.windows, scratch_dir: scratch, skill_launcher_dir: launcher_dir },
+    );
+    // A simple native `.exe` skips the PowerShell startup (Windows + PowerShell only).
+    let path_value = env.set.iter().chain(vars.iter()).find(|(k, _)| k.eq_ignore_ascii_case("PATH")).map(|(_, v)| v.clone()).unwrap_or_default();
+    let direct =
+        plan_direct_exe(runtime.config.lanes.spawn, cancel, command, runtime.config.windows, runtime.config.powershell, cwd.as_path(), &path_value).await;
+    let (spec, tee_path, fed_script) = match direct {
+        Some(direct) => (CommandSpec::Argv { program: direct.exe.to_string_lossy().into_owned(), args: direct.argv }, None, None),
+        None => shell_command_spec(runtime, processes, cancel, thread_id, call_id, command, shell_program, cwd, launcher_dir, &mut env).await,
+    };
+    SpawnPlan { spec, env, tee_path, fed_script }
+}
+
+struct QueuedShell {
+    runtime: Arc<ExecRuntime>,
+    admission: Arc<dyn ShellAdmission>,
+    processes: Arc<dyn ProcessManager>,
+    job: Arc<Job>,
+    queued_cancel: CancellationToken,
+    logs: spill::LogWriter,
+    thread_id: ThreadId,
+    call_id: ToolCallId,
+    command: String,
+    shell_program: String,
+    cwd: AbsPath,
+    vars: Vec<(String, String)>,
+    scratch: Option<PathBuf>,
+    launcher_dir: Option<PathBuf>,
+    hoist_path: Option<PathBuf>,
+    time_limit: u64,
+    background_limit: u64,
+    hold: u64,
+    has_hold_end: bool,
+}
+
+async fn run_queued_shell(q: QueuedShell) {
+    let lease = match q.admission.acquire_shell(q.thread_id.as_str(), &q.queued_cancel).await {
+        Ok(lease) => lease,
+        Err(ShellAdmissionError::Cancelled) => {
+            if let Some(path) = q.hoist_path {
+                q.runtime.remove_unused(path).await;
+            }
+            q.runtime.finish_queued_unstarted(&q.job, ExitFacts::cancelled()).await;
+            return;
+        }
+        Err(ShellAdmissionError::QueueFull(msg)) => {
+            if let Some(path) = q.hoist_path {
+                q.runtime.remove_unused(path).await;
+            }
+            q.runtime.finish_queued_unstarted(&q.job, ExitFacts::failed(Some(msg))).await;
+            return;
+        }
+    };
+    let SpawnPlan { spec, env, tee_path, fed_script } = prepare_shell_spawn(
+        &q.runtime,
+        &q.processes,
+        &q.queued_cancel,
+        &q.thread_id,
+        &q.call_id,
+        &q.command,
+        q.shell_program,
+        &q.cwd,
+        &q.vars,
+        q.scratch.as_deref(),
+        q.launcher_dir.as_deref(),
+    )
+    .await;
+    if q.queued_cancel.is_cancelled() {
+        for path in q.hoist_path.iter().chain(tee_path.iter()) {
+            q.runtime.remove_unused(path.clone()).await;
+        }
+        drop(lease);
+        q.runtime.finish_queued_unstarted(&q.job, ExitFacts::cancelled()).await;
+        return;
+    }
+    let fresh = q.job.handle.clone();
+    let request = SpawnRequest {
+        handle: fresh.clone(),
+        command: spec,
+        cwd: q.cwd,
+        env,
+        pty: None,
+        stdin_piped: fed_script.is_some(),
+        output: OutputMode::Separate,
+        owner: ProcessOwner::Tool { thread_id: q.thread_id, tool_call_id: q.call_id },
+        time_limit: (q.time_limit > 0).then(|| Duration::from_millis(q.time_limit)),
+    };
+    if let Err(error) = q.runtime.attach_queued(&q.job, &q.processes, request, q.logs, &q.queued_cancel).await {
+        for path in q.hoist_path.iter().chain(tee_path.iter()) {
+            q.runtime.remove_unused(path.clone()).await;
+        }
+        drop(lease);
+        q.runtime.finish_queued_unstarted(&q.job, ExitFacts::failed(Some(spawn_failure(error).message_for_model))).await;
+        return;
+    }
+    if let Some(script) = fed_script {
+        drop(feed_script(&q.processes, &q.job, script, &fresh, ""));
+    }
+    for path in q.hoist_path.into_iter().chain(tee_path) {
+        q.runtime.remove_when_settled(&q.job, path).await;
+    }
+    // Mirror Node's queued foreground-then-promote lifecycle: hold the slot until the job
+    // settles or its foreground hold expires, then release the slot so running background jobs
+    // never count toward the concurrency limit.
+    if q.hold > 0 && q.has_hold_end {
+        tokio::select! {
+            biased;
+            () = q.job.settled() => {}
+            () = q.queued_cancel.cancelled() => {
+                let _ = q.processes.kill(&q.job.handle);
+            }
+            () = mixdog_rt::time::sleep(Duration::from_millis(q.hold)) => {
+                drop(lease);
+                if q.background_limit > 0 {
+                    let remaining = q.job.remaining_time_limit_ms(q.runtime.now_ms());
+                    let _ = q.processes.arm_time_limit(&q.job.handle, Duration::from_millis(remaining));
+                }
+            }
+        }
+    } else {
+        tokio::select! {
+            biased;
+            () = q.job.settled() => {}
+            () = q.queued_cancel.cancelled() => {
+                let _ = q.processes.kill(&q.job.handle);
+            }
+        }
     }
 }
 
@@ -1084,23 +1299,30 @@ impl ShellTool {
 }
 /// Writes the framed script to the job's input on its own task; the receiver yields the failure of a write that did not
 /// complete.
-fn feed_script(ctx: &ToolContext, job: &Job, mut script: String, fresh: &ProcessHandle, hand_off: &str) -> tokio::sync::oneshot::Receiver<ProcessError> {
+fn feed_script(
+    processes: &Arc<dyn ProcessManager>,
+    job: &Arc<Job>,
+    mut script: String,
+    fresh: &ProcessHandle,
+    hand_off: &str,
+) -> tokio::sync::oneshot::Receiver<ProcessError> {
     if job.handle != *fresh {
         script.insert_str(0, hand_off);
     }
     let framed = frame_powershell_script(&script);
     drop(script);
     let (failed, failure) = tokio::sync::oneshot::channel();
-    let (processes, handle) = (Arc::clone(&ctx.processes), job.handle.clone());
+    let (processes, job, handle) = (Arc::clone(processes), Arc::clone(job), job.handle.clone());
     drop(mixdog_rt::spawn("shell-stdin", mixdog_rt::TaskClass::Work, async move {
         match processes.write_stdin_whole(&handle, framed.into_bytes()).await {
             Ok(()) => {
                 let _ = processes.close_stdin(&handle);
             }
             Err(error) => {
-                // The failure is published before the kill: the kill settles the job, and a caller that sees the
-                // settle must already find the failure, so a script that was not written whole always answers
-                // with the input failure and never with the cancellation the kill looks like.
+                // Record the input failure and publish it before the kill: the kill settles the job,
+                // so both foreground callers and detached/queued jobs always observe the input failure
+                // rather than the cancellation the kill looks like.
+                job.mark_input_failure(input_failure(error.clone()).message_for_model);
                 let _ = failed.send(error);
                 // A kill of a process that already exited is not an error.
                 let _ = processes.kill(&handle);
@@ -1124,6 +1346,9 @@ impl ShellTool {
         let (time_limit, background_limit) = run_limits_ms(&args, hard_cap, env);
         let hold = hold_ms(&args, time_limit, background_enabled, env);
         let at_hold_end = hold_end(args.background == Some(true), time_limit, hold, env);
+        let wait_ms = admission_wait_ms(env);
+        let slot_wait = if args.background == Some(true) && background_enabled && wait_ms > 0 { wait_ms.min(BACKGROUND_START_HOLD_MS) } else { wait_ms };
+        let slot_answer_by = background_enabled.then_some(ctx.options.answer_by).flatten();
 
         let scratch = runtime.config.data_dir.as_deref().and_then(|data| session_scratch_dir(data, ctx.thread_id.as_str()));
         if let Some(dir) = &scratch {
@@ -1135,27 +1360,95 @@ impl ShellTool {
             (Some(rt), Some(data)) => Some(spill::ensure_launchers(runtime.config.lanes.spawn, &ctx.cancel, &runtime.launchers, rt, data).await),
             _ => runtime.config.skill_launcher_dir.clone(),
         };
-        let mut env = shell_env(
-            &vars,
-            &ShellEnv {
-                cwd: &cwd.as_path().to_string_lossy(),
-                windows: runtime.config.windows,
-                scratch_dir: scratch.as_deref(),
-                skill_launcher_dir: launcher_dir.as_deref(),
-            },
-        );
+        let task_id = format!("task-{}", ctx.call_id);
 
-        // A simple native `.exe` skips the PowerShell startup (Windows + PowerShell only).
-        let path_value = env.set.iter().chain(vars.iter()).find(|(k, _)| k.eq_ignore_ascii_case("PATH")).map(|(_, v)| v.clone()).unwrap_or_default();
-        let direct =
-            plan_direct_exe(runtime.config.lanes.spawn, &ctx.cancel, &command, runtime.config.windows, runtime.config.powershell, cwd.as_path(), &path_value)
-                .await;
-        let (spec, tee_path, fed_script) = match direct {
-            Some(direct) => (CommandSpec::Argv { program: direct.exe.to_string_lossy().into_owned(), args: direct.argv }, None, None),
-            None => shell_command_spec(runtime, ctx, &command, shell_program, &cwd, launcher_dir.as_deref(), &mut env).await,
+        let admission = runtime.admission();
+        let lease = match acquire_shell_slot(&admission, ctx.thread_id.as_str(), &ctx.cancel, slot_wait, slot_answer_by).await {
+            ShellSlot::Held(lease) => lease,
+            ShellSlot::Cancelled => {
+                if let Some(path) = hoist_path {
+                    runtime.remove_unused(path).await;
+                }
+                return Err(failed(ToolErrorCode::Cancelled, tool_failure("command cancelled")));
+            }
+            ShellSlot::QueueFull(msg) => {
+                if let Some(path) = hoist_path {
+                    runtime.remove_unused(path).await;
+                }
+                return Err(failed(
+                    ToolErrorCode::Unavailable { capability: "shell".into(), reason: msg.clone() },
+                    format!("Error: [shell-tool-failed] [resource pressure]\n\n{msg}"),
+                ));
+            }
+            ShellSlot::Saturated(sat_ms) => {
+                if !background_enabled {
+                    if let Some(path) = hoist_path {
+                        runtime.remove_unused(path).await;
+                    }
+                    return Err(failed(
+                        ToolErrorCode::Unavailable { capability: "shell".into(), reason: format!("shell admission wait exceeded {sat_ms}ms") },
+                        format!(
+                            "Error: [shell-tool-failed] [resource pressure]\n\nshell admission wait exceeded {sat_ms}ms — A lease returns when its call ends or is promoted to the background; background jobs hold none."
+                        ),
+                    ));
+                }
+                let (job, queued_cancel, logs) = runtime.start_queued(
+                    task_id.clone(),
+                    command.clone(),
+                    cwd.as_path().to_string_lossy().into_owned(),
+                    ctx.thread_id.clone(),
+                    time_limit.max(background_limit),
+                    ctx.review.clone(),
+                    ctx.options.notify.clone(),
+                );
+                drop(mixdog_rt::spawn(
+                    "shell-queued",
+                    mixdog_rt::TaskClass::Work,
+                    run_queued_shell(QueuedShell {
+                        runtime: Arc::clone(runtime),
+                        admission,
+                        processes: Arc::clone(&ctx.processes),
+                        job: Arc::clone(&job),
+                        queued_cancel,
+                        logs,
+                        thread_id: ctx.thread_id.clone(),
+                        call_id: ctx.call_id.clone(),
+                        command: command.clone(),
+                        shell_program,
+                        cwd,
+                        vars,
+                        scratch,
+                        launcher_dir,
+                        hoist_path,
+                        time_limit,
+                        background_limit,
+                        hold,
+                        has_hold_end: at_hold_end.is_some(),
+                    }),
+                ));
+                let queued_msg = format!(
+                    "shell admission wait exceeded {sat_ms}ms; queued as background task [task_id: {}] that starts when an execution slot frees. Completion arrives automatically; call task wait (not task read polling) when the result is due.",
+                    job.id
+                );
+                return backgrounded(&job, &command, &guard_note, &queued_msg);
+            }
         };
 
-        let task_id = format!("task-{}", ctx.call_id);
+        let SpawnPlan { spec, env, tee_path, fed_script } = prepare_shell_spawn(
+            runtime,
+            &ctx.processes,
+            &ctx.cancel,
+            &ctx.thread_id,
+            &ctx.call_id,
+            &command,
+            shell_program,
+            &cwd,
+            &vars,
+            scratch.as_deref(),
+            launcher_dir.as_deref(),
+        )
+        .await;
+
         let request = SpawnRequest {
             handle: ProcessHandle(task_id.clone()),
             command: spec,
@@ -1199,7 +1492,7 @@ impl ShellTool {
                 return Err(spawn_failure(error));
             }
         };
-        let input_failed = fed_script.map(|script| feed_script(ctx, &job, script, &fresh, &hand_off));
+        let input_failed = fed_script.map(|script| feed_script(&ctx.processes, &job, script, &fresh, &hand_off));
         let write_failed = async {
             match input_failed {
                 Some(failure) => match failure.await {
@@ -1239,6 +1532,7 @@ impl ShellTool {
                 biased;
                 error = &mut write_failed => {
                     let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
+                    drop(lease);
                     runtime.release(&job.id);
                     if ended_by_run_limit(&job) {
                         return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
@@ -1249,6 +1543,7 @@ impl ShellTool {
                     return Err(input_failure(error));
                 }
                 () = job.settled() => {
+                    drop(lease);
                     runtime.release(&job.id);
                     return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
                 }
@@ -1256,6 +1551,7 @@ impl ShellTool {
                 // running behind a call that was cancelled.
                 () = ctx.cancel.cancelled() => {
                     cancel_foreground(runtime, ctx, &job).await;
+                    drop(lease);
                     return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
                 }
                 () = hold_timer => {
@@ -1273,6 +1569,7 @@ impl ShellTool {
                 biased;
                 error = &mut write_failed => {
                     let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
+                    drop(lease);
                     runtime.release(&job.id);
                     if !ended_by_run_limit(&job) {
                         if let Some(tee) = tee_path.clone() {
@@ -1281,13 +1578,22 @@ impl ShellTool {
                         return Err(input_failure(error));
                     }
                 }
-                () = job.settled() => runtime.release(&job.id),
-                () = ctx.cancel.cancelled() => cancel_foreground(runtime, ctx, &job).await,
+                () = job.settled() => {
+                    drop(lease);
+                    runtime.release(&job.id);
+                }
+                () = ctx.cancel.cancelled() => {
+                    cancel_foreground(runtime, ctx, &job).await;
+                    drop(lease);
+                }
             }
             return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
         }
         let promoted = runtime.now_ms();
         if job.detach(promoted) {
+            // Promoting to the background releases the foreground shell slot immediately so running
+            // background jobs never count toward the concurrency limit.
+            drop(lease);
             if background_limit > 0 {
                 let remaining = job.remaining_time_limit_ms(promoted);
                 // The process may exit between detach and arming the limit.
@@ -1300,6 +1606,7 @@ impl ShellTool {
             }
             backgrounded(&job, &command, &guard_note, &background_message(reason, runtime.now_ms().saturating_sub(job.started_ms)))
         } else {
+            drop(lease);
             runtime.release(&job.id);
             completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await
         }

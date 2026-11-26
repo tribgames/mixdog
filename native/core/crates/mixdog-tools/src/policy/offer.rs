@@ -3,8 +3,9 @@
 //! the writer that stores an answer. A scope is offered only where its writer
 //! can store it, so no path can offer or store more than another.
 //!
-//! An approval covers the one tool it names, for every account of a connector;
-//! a payment or permanent delete is answered once, whatever else is known.
+//! A bot's outbound approval covers its action category (or its tool when a
+//! hook also asked); a hook ask covers only the one tool it names; a payment
+//! or permanent delete is answered once, whatever else is known.
 
 use mixdog_core_api::domain::approval::ActionKind;
 use mixdog_protocol::ApprovalRemember;
@@ -55,30 +56,31 @@ pub mod row_fields {
 
 /// The scopes a card offers, `Once` first:
 ///
-/// | card | tool key | category | caller | offered |
+/// | card | key | category | caller | offered |
 /// |---|---|---|---|---|
 /// | any | any | payment, permanent delete | any | once |
 /// | hook ask | a tool | other or none | attended | once, this conversation, every agent |
-/// | outbound | a tool | other | attended | once, this conversation, this agent |
-/// | outbound | a tool | other | unattended | once, this agent |
-/// | hook ask, outbound | none | any | any | once |
+/// | outbound | rememberable | other | attended | once, this conversation, this agent |
+/// | outbound | rememberable | other | unattended | once, this agent |
+/// | hook ask | category or none | any | any | once |
+/// | outbound | none or unrememberable | any | any | once |
 /// | hook ask | a tool | any | unattended | once |
 /// | connector policy | — | other or none | any | once, this agent |
 ///
 /// "This conversation" needs a person (an unattended session has no
 /// conversation of its own to hold it); "every agent" is never offered for a
-/// bot's outbound call; a key that names no tool stores nothing.
+/// bot's outbound call or for an action category; a hook ask requires a tool
+/// key, and a missing or unrememberable key stores nothing.
 pub fn offered_scopes(card: Card, key: Option<&GrantKey>, category: Option<ActionKind>, caller: Caller) -> Vec<ApprovalRemember> {
     use ApprovalRemember::*;
     if category.is_some_and(|kind| !kind.rememberable()) {
         return vec![Once];
     }
-    let tool = key.is_some_and(GrantKey::is_tool);
-    match (card, tool, caller) {
+    match (card, key, caller) {
         (Card::ConnectorPolicy, _, _) => vec![Once, Agent],
-        (Card::HookAsk, true, Caller::Attended) => vec![Once, Session, Always],
-        (Card::Outbound, true, Caller::Attended) => vec![Once, Session, Agent],
-        (Card::Outbound, true, Caller::Unattended) => vec![Once, Agent],
+        (Card::HookAsk, Some(key), Caller::Attended) if key.is_tool() => vec![Once, Session, Always],
+        (Card::Outbound, Some(key), Caller::Attended) if key.rememberable() => vec![Once, Session, Agent],
+        (Card::Outbound, Some(key), Caller::Unattended) if key.rememberable() => vec![Once, Agent],
         (Card::HookAsk | Card::Outbound, _, _) => vec![Once],
     }
 }
@@ -96,12 +98,17 @@ mod tests {
     fn a_bots_outbound_card_never_offers_every_agent() {
         for category in [ActionKind::Comment, ActionKind::Email, ActionKind::Trash] {
             for caller in [Caller::Attended, Caller::Unattended] {
-                let offered = offered_scopes(Card::Outbound, Some(&tool("github")), Some(category), caller);
+                let offered = offered_scopes(Card::Outbound, Some(&GrantKey::Kind(category)), Some(category), caller);
                 assert!(!offered.contains(&Always), "{category:?} {caller:?}: {offered:?}");
             }
         }
-        assert_eq!(offered_scopes(Card::Outbound, Some(&tool("github")), Some(ActionKind::Comment), Caller::Attended), [Once, Session, Agent]);
-        assert_eq!(offered_scopes(Card::Outbound, Some(&tool("github")), Some(ActionKind::Comment), Caller::Unattended), [Once, Agent]);
+        assert_eq!(
+            offered_scopes(Card::Outbound, Some(&GrantKey::Kind(ActionKind::Comment)), Some(ActionKind::Comment), Caller::Attended),
+            [Once, Session, Agent]
+        );
+        assert_eq!(offered_scopes(Card::Outbound, Some(&GrantKey::Kind(ActionKind::Comment)), Some(ActionKind::Comment), Caller::Unattended), [Once, Agent]);
+        assert_eq!(offered_scopes(Card::Outbound, Some(&tool("mcp__gmail__send_email")), Some(ActionKind::Email), Caller::Attended), [Once, Session, Agent]);
+        assert_eq!(offered_scopes(Card::Outbound, Some(&tool("mcp__gmail__send_email")), Some(ActionKind::Email), Caller::Unattended), [Once, Agent]);
     }
 
     #[test]
@@ -109,17 +116,25 @@ mod tests {
         for card in [Card::HookAsk, Card::Outbound, Card::ConnectorPolicy] {
             for category in [ActionKind::Payment, ActionKind::Delete] {
                 assert_eq!(offered_scopes(card, Some(&tool("mcp__shop__buy")), Some(category), Caller::Attended), [Once], "{card:?} {category:?}");
+                assert_eq!(offered_scopes(card, Some(&GrantKey::Kind(category)), Some(category), Caller::Attended), [Once], "{card:?} {category:?}");
             }
         }
     }
 
     #[test]
-    fn nothing_but_once_is_offered_without_a_tool_to_store_it_for() {
+    fn nothing_but_once_is_offered_without_a_rememberable_key_or_for_a_category_hook_ask() {
         for card in [Card::HookAsk, Card::Outbound] {
             assert_eq!(offered_scopes(card, None, Some(ActionKind::Email), Caller::Attended), [Once], "{card:?}");
-            // A category key (what 1.4.5 stored) names no tool.
-            assert_eq!(offered_scopes(card, Some(&GrantKey::Kind(ActionKind::Email)), Some(ActionKind::Email), Caller::Attended), [Once], "{card:?}");
+            assert_eq!(offered_scopes(card, Some(&GrantKey::Kind(ActionKind::Payment)), None, Caller::Attended), [Once], "{card:?}");
         }
+        for category in [ActionKind::Email, ActionKind::BrowserSubmit] {
+            assert_eq!(
+                offered_scopes(Card::HookAsk, Some(&GrantKey::Kind(category)), Some(category), Caller::Attended),
+                [Once],
+                "a hook ask never offers standing scopes for a category: {category:?}"
+            );
+        }
+        assert_eq!(offered_scopes(Card::HookAsk, Some(&tool("mcp__gmail__send_email")), Some(ActionKind::Email), Caller::Attended), [Once, Session, Always]);
     }
 
     #[test]

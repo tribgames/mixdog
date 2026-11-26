@@ -547,7 +547,8 @@ impl ToolPolicy {
             Some(AskRequest::Outbound { agent_id, card, remember }) => {
                 fields.insert("kind".into(), Card::Outbound.kind().into());
                 fields.insert("agentId".into(), agent_id.clone().into());
-                // What every remembered choice on the card covers: this tool.
+                // What every remembered choice on the card covers: the action category,
+                // or the tool when a hook also asked.
                 if let Some(grant) = spec.audit.and_then(|audit| audit.grant.as_ref()) {
                     fields.insert("grantAction".into(), grant.render().into());
                 }
@@ -898,7 +899,7 @@ mod tests {
         assert_eq!(asks[0].action_kind, Some(ActionKind::Comment));
         assert_eq!(asks[0].payload["kind"], "outbound");
         assert_eq!(asks[0].payload["outbound"]["payload"], "draft");
-        assert_eq!(asks[0].payload["grantAction"], "tool:github", "the card says which tool a remembered choice covers");
+        assert_eq!(asks[0].payload["grantAction"], "comment", "the card says which action category a remembered choice covers");
         assert_eq!(asks[0].payload["account"], "work@example.com");
         assert_eq!(asks[0].remember, [ApprovalRemember::Session, ApprovalRemember::Agent]);
         assert_eq!(h.store.audit()[0].decision, "edit-and-approve");
@@ -970,43 +971,51 @@ mod tests {
         h.answer(decided(true, Some(ApprovalRemember::Agent)));
         let policy = h.policy(None);
         h.run(&policy, &bot(), "github", comment_args()).await.expect("first");
-        assert_eq!(h.store.mode_for("mailer", &GrantKey::tool("github").expect("key"), false).await, Ok(PermissionMode::Allow));
-        assert_eq!(h.store.mode_for("mailer", &GrantKey::Kind(ActionKind::Comment), false).await, Ok(PermissionMode::Ask), "the category is not allowed");
+        assert_eq!(h.store.mode_for("mailer", &GrantKey::Kind(ActionKind::Comment), false).await, Ok(PermissionMode::Allow));
+        assert_eq!(h.store.mode_for("mailer", &GrantKey::tool("github").expect("key"), false).await, Ok(PermissionMode::Ask), "stored by category, not tool");
         h.run(&policy, &bot(), "github", comment_args()).await.expect("second");
         assert_eq!(h.asks().len(), 1);
         let decisions: Vec<_> = h.store.audit().into_iter().map(|e| e.decision).collect();
         assert_eq!(decisions, ["approve", "granted", "remembered"]);
     }
 
-    /// Finding 1: approving one outbound tool for good, or for the conversation, does not
-    /// approve a different tool of the same category, even one its connector is set to ask for;
-    /// another account of the same connector is the same tool.
+    /// Approving one outbound action with "don't ask again" (agent or session scope) covers
+    /// other tools of the same action category, while other categories still ask; 1.4.5
+    /// category grants and 1.5.0 per-tool grants both work across calls.
     #[tokio::test]
-    async fn an_approval_is_for_the_tool_and_never_skips_another_tools_ask() {
-        // The outbound card offers once / this conversation / this agent (`offer::offered_scopes`);
-        // "always" is offered only on a hook's own ask of a call no outbound rule covers.
+    async fn an_approval_covers_the_action_category_and_1_5_0_tool_grants_keep_working() {
         for scope in [ApprovalRemember::Agent, ApprovalRemember::Session] {
             let tools = Tools::default()
                 .with("mcp__slack__post", Some(ActionKind::Message))
                 .with("mcp__chat__post", Some(ActionKind::Message))
-                .with("mcp__gmail__send", Some(ActionKind::Email))
-                .with("mcp__gmail-2__send", Some(ActionKind::Email));
+                .with("mcp__gmail__send", Some(ActionKind::Email));
             let mut h = Harness::new(tools);
             h.connectors = Arc::new(Connectors { needs: vec!["mcp__chat__post".into()], save_works: true, ..Connectors::default() });
             let policy = h.policy(None);
             h.answer(decided(true, Some(scope)));
             h.run(&policy, &bot(), "mcp__slack__post", json!({})).await.expect("approved");
             h.run(&policy, &bot(), "mcp__slack__post", json!({})).await.expect("remembered");
-            assert_eq!(h.asks().len(), 1, "{scope:?}: the approved tool is not asked again");
+            h.run(&policy, &bot(), "mcp__chat__post", json!({})).await.expect("same category remembered");
+            assert_eq!(h.asks().len(), 1, "{scope:?}: another tool of the same category runs without asking");
             h.answer(decided(true, None));
-            h.run(&policy, &bot(), "mcp__chat__post", json!({})).await.expect("asked");
-            assert_eq!(h.asks().len(), 2, "{scope:?}: the other tool of the category is asked on its own card");
-            h.answer(decided(true, Some(scope)));
-            h.run(&policy, &bot(), "mcp__gmail__send", json!({})).await.expect("first account");
-            let before = h.asks().len();
-            h.run(&policy, &bot(), "mcp__gmail-2__send", json!({})).await.expect("second account");
-            assert_eq!(h.asks().len(), before, "{scope:?}: approvals are not separated by account");
+            h.run(&policy, &bot(), "mcp__gmail__send", json!({})).await.expect("other category asked");
+            assert_eq!(h.asks().len(), 2, "{scope:?}: another category still asks");
         }
+
+        // A 1.5.0 per-tool grant keeps answering that tool (across accounts) without widening to other tools.
+        let tools = Tools::default()
+            .with("mcp__gmail__send", Some(ActionKind::Email))
+            .with("mcp__gmail-2__send", Some(ActionKind::Email))
+            .with("mcp__outlook__send", Some(ActionKind::Email));
+        let h = Harness::new(tools);
+        h.store.set_mode("mailer", &GrantKey::tool("mcp__gmail__send").expect("key"), PermissionMode::Allow);
+        let policy = h.policy(None);
+        h.run(&policy, &bot(), "mcp__gmail__send", json!({})).await.expect("first account");
+        h.run(&policy, &bot(), "mcp__gmail-2__send", json!({})).await.expect("second account");
+        assert_eq!(h.asks().len(), 0, "1.5.0 per-tool grant runs unasked across accounts");
+        h.answer(decided(true, None));
+        h.run(&policy, &bot(), "mcp__outlook__send", json!({})).await.expect("different tool asked");
+        assert_eq!(h.asks().len(), 1);
     }
 
     /// "Always allow" is not a button of an outbound card, so an answer carrying it stores nothing.
@@ -1034,10 +1043,13 @@ mod tests {
         h.run(&policy, &bot(), "mcp__slack__post", json!({})).await.expect("approved once");
         let asks = h.asks();
         assert_eq!(asks[0].payload["kind"], "outbound");
+        assert_eq!(asks[0].payload["grantAction"], "tool:mcp__slack__post");
         assert_eq!(asks[0].payload["remember"], json!(["once", "session", "agent"]));
         assert_eq!(asks[0].remember, [ApprovalRemember::Session, ApprovalRemember::Agent]);
+        let message = GrantKey::Kind(ActionKind::Message);
         let slack = GrantKey::tool("mcp__slack__post").expect("key");
         for agent in ["mailer", "someone-else"] {
+            assert_eq!(h.store.mode_for(agent, &message, false).await, Ok(PermissionMode::Ask), "{agent}");
             assert_eq!(h.store.mode_for(agent, &slack, false).await, Ok(PermissionMode::Ask), "{agent}");
         }
         let decisions: Vec<_> = h.store.audit().into_iter().map(|e| e.decision).collect();
@@ -1045,6 +1057,57 @@ mod tests {
         h.answer(decided(true, None));
         h.run(&policy, &bot(), "mcp__slack__post", json!({})).await.expect("asked again");
         assert_eq!(h.asks().len(), 2);
+    }
+
+    /// A hook ask stores and checks per-tool keys, never action-category keys, so "Always allow"
+    /// on a Lead hook ask does not turn off other tools' outbound cards and a bot's category grant
+    /// never silences a hook ask.
+    #[tokio::test]
+    async fn a_hook_ask_stores_per_tool_and_category_grants_never_silence_it() {
+        let tools = Tools::default().with("mcp__gmail__send_email", Some(ActionKind::Email)).with("mcp__outlook__send_email", Some(ActionKind::Email));
+        let h = Harness::new(tools);
+        let lead = SessionFacts { agent_id: "lead".into(), life: Some("life".into()), ..SessionFacts::default() };
+        let hook: Arc<dyn PreToolHook> =
+            Arc::new(FixedHook(Ok(Some(HookDecision { action: HookAction::Ask, reason: Some("confirm send".into()), ..HookDecision::default() }))));
+        let hook_policy = h.policy(Some(hook));
+        let plain_policy = h.policy(None);
+
+        h.answer(decided(true, Some(ApprovalRemember::Always)));
+        h.run(&hook_policy, &lead, "mcp__gmail__send_email", json!({})).await.expect("lead first");
+        assert_eq!(h.asks()[0].payload["grantAction"], "tool:mcp__gmail__send_email");
+        assert_eq!(h.store.mode_for("mailer", &GrantKey::Kind(ActionKind::Email), false).await, Ok(PermissionMode::Ask));
+        assert_eq!(h.store.mode_for("mailer", &GrantKey::tool("mcp__gmail__send_email").expect("key"), true).await, Ok(PermissionMode::Allow));
+
+        // Same tool on the Lead runs unasked; another email tool still asks on both Lead and bot.
+        h.run(&hook_policy, &lead, "mcp__gmail__send_email", json!({})).await.expect("lead remembered");
+        assert_eq!(h.asks().len(), 1);
+        h.answer(decided(true, None));
+        h.run(&hook_policy, &lead, "mcp__outlook__send_email", json!({})).await.expect("lead other tool asks");
+        h.answer(decided(true, None));
+        h.run(&plain_policy, &bot(), "mcp__outlook__send_email", json!({})).await.expect("bot other tool still asks");
+        assert_eq!(h.asks().len(), 3);
+
+        // A bot's session category allow covers normal outbound calls, never a hook ask.
+        let tools = Tools::default().with("mcp__slack__post", Some(ActionKind::Message)).with("mcp__chat__post", Some(ActionKind::Message));
+        let h = Harness::new(tools);
+        let plain = h.policy(None);
+        let ask_hook: Arc<dyn PreToolHook> =
+            Arc::new(FixedHook(Ok(Some(HookDecision { action: HookAction::Ask, reason: Some("hook rule".into()), ..HookDecision::default() }))));
+        let hooked = h.policy(Some(ask_hook));
+        h.answer(decided(true, Some(ApprovalRemember::Session)));
+        h.run(&plain, &bot(), "mcp__slack__post", json!({})).await.expect("outbound approved");
+        h.run(&plain, &bot(), "mcp__chat__post", json!({})).await.expect("outbound category remembered");
+        assert_eq!(h.asks().len(), 1);
+
+        h.answer(decided(true, Some(ApprovalRemember::Session)));
+        h.run(&hooked, &bot(), "mcp__chat__post", json!({})).await.expect("hook ask still asks");
+        assert_eq!(h.asks().len(), 2);
+        assert_eq!(h.asks()[1].payload["grantAction"], "tool:mcp__chat__post");
+        h.run(&hooked, &bot(), "mcp__chat__post", json!({})).await.expect("tool session grant answers same tool hook ask");
+        assert_eq!(h.asks().len(), 2);
+        h.answer(decided(true, None));
+        h.run(&hooked, &bot(), "mcp__slack__post", json!({})).await.expect("tool session grant does not cover other tool hook ask");
+        assert_eq!(h.asks().len(), 3);
     }
 
     /// An unattended session's card says so, so the row it is shown as offers what this caller can store.

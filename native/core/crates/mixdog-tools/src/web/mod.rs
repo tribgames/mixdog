@@ -53,6 +53,7 @@ pub use hosted_search::HostedSearchSender;
 pub use hosted_search::HostedWebSearch;
 pub use hosted_search::SearchCandidate;
 pub use hosted_search::SearchFamily;
+pub use hosted_search::SearchRouteResolution;
 pub use hosted_search::SearchRoutes;
 pub use hosted_sender::ProviderSearchSender;
 pub use hosted_sender::SenderDeps;

@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+mod admission;
 pub(crate) mod archive;
 mod bashism;
 mod benign;
@@ -32,9 +33,14 @@ mod text;
 mod wake;
 mod warning;
 
+pub use admission::LocalShellAdmission;
+pub use admission::ShellAdmission;
+pub use admission::ShellAdmissionError;
+pub use admission::ShellLease;
 pub use cover::COVERING_TOOLS;
 pub use fold::fold_carriage_return_frames;
 pub use fold::fold_consecutive_duplicate_lines;
+pub use guard::SHELL_FILE_READ_NOTE;
 pub use hoist::ExtSyntax;
 pub use hoist::ScriptSyntax;
 pub use invocation::POWERSHELL_BOOTSTRAP;

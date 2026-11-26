@@ -29,23 +29,11 @@ use super::benign::split_pipeline_segments;
 use super::benign::split_segments;
 use super::benign::tokenize;
 
-/// The replacement a covered command names: a tool and its arguments, in the order the text shows them.
+/// The replacement a covered command names: a tool and its arguments.
 #[derive(Debug, PartialEq)]
 pub(crate) struct Call {
     pub tool: &'static str,
     pub args: JsonValue,
-}
-
-impl Call {
-    fn text(&self) -> String {
-        format!("{} {}", self.tool, mixdog_js::json_stringify(&self.args))
-    }
-}
-
-/// The refusal text for a covered command (before the tool-failure framing).
-pub(crate) fn blocked_text(calls: &[Call]) -> String {
-    let named: Vec<String> = calls.iter().map(Call::text).collect();
-    format!("Blocked: the built-in tools cover this command, so it was not run. Call instead: {}", named.join("; "))
 }
 
 /// The tool a replacement can name, as the session offers it.

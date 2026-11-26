@@ -2612,6 +2612,10 @@ fn the_shell_text_follows_the_platform_and_not_the_setting() {
     let posix = super::shell::shell_spec(super::shell::ShellKind::of(false), true).definition();
     assert_ne!(windows, posix);
     assert_eq!(windows, super::shell::shell_spec(super::shell::ShellKind::of(true), true).definition());
+    for (windows, background) in [(true, true), (false, true), (true, false), (false, false)] {
+        let desc = super::shell::shell_spec(super::shell::ShellKind::of(windows), background).description;
+        assert!(desc.contains("read-type call placed after shell"), "{windows}/{background}: {desc}");
+    }
 }
 /// Node `notifyToolCompletion`: the launching call's `notifyFn` takes the completion first, with
 /// the meta that files it; the owner's default delivery is not used when it accepts.
@@ -2803,4 +2807,276 @@ async fn a_stalled_turns_reap_stops_and_splits_the_shells_of_the_turn() {
         assert_eq!(strip(stopping), names(&case["stopping"]), "{name}: stopping");
         assert!(control.take_reaped(&owner).0.is_empty(), "{name}: the list is handed out once");
     }
+}
+
+#[tokio::test]
+async fn covered_shell_commands_run_and_return_output_with_advisory_note() {
+    let rig = rig();
+    std::fs::write(rig.dir.path().join("notes.txt"), "alpha\nfoo bar\nomega\n").unwrap();
+    std::fs::create_dir_all(rig.dir.path().join("sub")).unwrap();
+    std::fs::write(rig.dir.path().join("sub/item.txt"), "hi\n").unwrap();
+
+    let offered = Some(Arc::new(vec!["read".to_owned(), "grep".to_owned(), "list".to_owned()]));
+    let make_ctx = |rig: &Rig, id: &str| {
+        let mut c = ctx(rig, id);
+        c.files = Arc::new(mixdog_workspace::localfs::LocalFileService::new());
+        c.options.offered_tools = offered.clone();
+        c
+    };
+
+    // POSIX covered commands run and return output + advisory note (never refused).
+    for (id, command, out) in [
+        ("c-cat", "cat notes.txt", "alpha\n"),
+        ("c-head", "head -n 1 notes.txt", "alpha\n"),
+        ("c-tail", "tail -n 1 notes.txt", "omega\n"),
+        ("c-ls", "ls sub", "item.txt\n"),
+    ] {
+        let c = make_ctx(&rig, id);
+        let shell = ShellTool::new(rig.runtime.clone());
+        let procs = rig.processes.clone();
+        let handle = ProcessHandle(format!("task-{id}"));
+        let run = tokio::spawn(async move { shell.call(&c, serde_json::json!({"command": command})).await });
+        procs.spawned.notified().await;
+        {
+            let mut senders = procs.senders.lock().unwrap();
+            let (tx, seq) = senders.get_mut(&handle).unwrap();
+            send(tx, seq, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: out.as_bytes().to_vec() });
+            send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } });
+        }
+        let text = body(run.await.unwrap());
+        assert!(text.contains(out), "{command}: missing output in {text}");
+        assert!(text.contains(SHELL_FILE_READ_NOTE), "{command}: missing advisory note in {text}");
+        assert!(!text.contains("Blocked: the built-in tools cover"), "{command}: unexpected refusal in {text}");
+    }
+
+    // grep also runs with the advisory note when offered.
+    let grep_text = body(rig.shell.call(&make_ctx(&rig, "c-grep"), serde_json::json!({"command": "grep foo notes.txt"})).await);
+    assert!(grep_text.contains(SHELL_FILE_READ_NOTE), "grep: missing advisory note in {grep_text}");
+    assert!(!grep_text.contains("Blocked: the built-in tools cover"), "grep: unexpected refusal in {grep_text}");
+
+    // PowerShell covered commands run with the advisory note.
+    let ps_rig = rig_shell(mixdog_rt::testing::tokens(), Arc::new(OsPromptElevation), None, true);
+    std::fs::write(ps_rig.dir.path().join("notes.txt"), "alpha\nfoo bar\n").unwrap();
+    for (id, command, out) in [("ps-gc", "Get-Content notes.txt", "alpha\n"), ("ps-sls", "Select-String foo notes.txt", "notes.txt:2:foo bar\n")] {
+        let c = make_ctx(&ps_rig, id);
+        let shell = ShellTool::new(ps_rig.runtime.clone());
+        let procs = ps_rig.processes.clone();
+        let handle = ProcessHandle(format!("task-{id}"));
+        let run = tokio::spawn(async move { shell.call(&c, serde_json::json!({"command": command})).await });
+        procs.spawned.notified().await;
+        {
+            let mut senders = procs.senders.lock().unwrap();
+            let (tx, seq) = senders.get_mut(&handle).unwrap();
+            send(tx, seq, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: out.as_bytes().to_vec() });
+            send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } });
+        }
+        let text = body(run.await.unwrap());
+        assert!(text.contains(out), "{command}: missing output in {text}");
+        assert!(text.contains(SHELL_FILE_READ_NOTE), "{command}: missing advisory note in {text}");
+    }
+
+    // A leading `cd` moves into cwd with its note and runs there.
+    let cd_text = body(rig.shell.call(&make_ctx(&rig, "c-cd"), serde_json::json!({"command": "cd sub && echo hi"})).await);
+    assert!(cd_text.contains("hi\n"), "{cd_text}");
+    assert!(cd_text.contains("Moved `cd sub` into cwd."), "{cd_text}");
+    assert_eq!(rig.processes.cwds.lock().unwrap().last().unwrap().as_path(), rig.dir.path().join("sub").as_path());
+}
+
+#[tokio::test]
+async fn shell_waits_for_slot_when_concurrent_limit_is_reached() {
+    let rig = rig();
+    let pool = Arc::new(LocalShellAdmission::new(2, 16));
+    rig.runtime.set_admission(pool.clone());
+
+    let finish = |procs: &FakeProcesses, id: &str| {
+        let mut senders = procs.senders.lock().unwrap();
+        let (tx, seq) = senders.get_mut(&ProcessHandle(format!("task-{id}"))).unwrap();
+        send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } });
+    };
+
+    let (s1, c1) = (ShellTool::new(rig.runtime.clone()), ctx(&rig, "fg1"));
+    let (s2, c2) = (ShellTool::new(rig.runtime.clone()), ctx(&rig, "fg2"));
+    let h1 = tokio::spawn(async move { s1.call(&c1, serde_json::json!({"command": "npm run dev"})).await });
+    rig.processes.spawned.notified().await;
+    let h2 = tokio::spawn(async move { s2.call(&c2, serde_json::json!({"command": "npm run dev"})).await });
+    rig.processes.spawned.notified().await;
+    assert_eq!(pool.active(), 2);
+
+    // A 3rd shell waits for a slot instead of failing with "too many running processes".
+    let (s3, c3) = (ShellTool::new(rig.runtime.clone()), ctx(&rig, "fg3"));
+    let h3 = tokio::spawn(async move {
+        let env = |k: &str| (k == "MIXDOG_SHELL_ADMISSION_WAIT_MS").then(|| "5000".to_owned());
+        s3.run(&c3, serde_json::json!({"command": "echo waited-ok"}), false, &env).await
+    });
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(5), pool.wait_counts(2, 1)).await.expect("3rd shell queues");
+
+    // Releasing one foreground slot lets the 3rd call run and return its output.
+    finish(&rig.processes, "fg1");
+    let _ = h1.await.unwrap().unwrap();
+    let out3 = body(h3.await.unwrap());
+    assert_eq!(out3, "[exit code: 0]\n\nwaited-ok\n");
+
+    finish(&rig.processes, "fg2");
+    let _ = h2.await.unwrap().unwrap();
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(5), pool.wait_counts(0, 0)).await.expect("all foreground slots released");
+}
+
+#[tokio::test]
+async fn saturated_shell_queues_as_background_task_and_runs_when_slot_frees() {
+    let told = Arc::new(Told::default());
+    let rig = rig_full(Arc::new(OsPromptElevation), Some(told.clone()));
+    let pool = Arc::new(LocalShellAdmission::new(1, 16));
+    rig.runtime.set_admission(pool.clone());
+
+    let (s1, c1) = (ShellTool::new(rig.runtime.clone()), ctx(&rig, "hold1"));
+    let h1 = tokio::spawn(async move { s1.call(&c1, serde_json::json!({"command": "npm run dev"})).await });
+    rig.processes.spawned.notified().await;
+    assert_eq!(pool.active(), 1);
+
+    // When admission wait expires, the call queues as a background task instead of failing.
+    let short_wait = |k: &str| (k == "MIXDOG_SHELL_ADMISSION_WAIT_MS").then(|| "20".to_owned());
+    let queued_text = body(rig.shell.run(&ctx(&rig, "q1"), serde_json::json!({"command": "echo queued-ok"}), false, &short_wait).await);
+    assert!(queued_text.contains("task_id: task-q1"), "{queued_text}");
+    assert!(queued_text.contains("queued as background task [task_id: task-q1] that starts when an execution slot frees"), "{queued_text}");
+    assert!(!queued_text.contains("logs:"), "unstarted queued task has no log files yet: {queued_text}");
+
+    let queued2_text = body(rig.shell.run(&ctx(&rig, "q2"), serde_json::json!({"command": "echo never-runs"}), false, &short_wait).await);
+    assert!(queued2_text.contains("task_id: task-q2"), "{queued2_text}");
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(5), pool.wait_counts(1, 2)).await.expect("both queued tasks wait on pool");
+    assert_eq!(rig.processes.seen.lock().unwrap().len(), 1, "queued tasks wait before spawning");
+
+    // Cancelling a queued task settles it cleanly without ever spawning it and without naming an uncreated output file.
+    let cancelled = body(rig.task.call(&ctx(&rig, "cancel-q2"), serde_json::json!({"action": "cancel", "task_id": "task-q2"})).await);
+    assert_eq!(cancelled, "status: completed\ntask_id: task-q2\ncancelled: shell/shell");
+    let q2 = rig.runtime.get(&ThreadId::from("t"), "task-q2").unwrap();
+    q2.settled().await;
+    assert_eq!(q2.status(), JobStatus::Cancelled);
+    {
+        let notices = told.0.lock().unwrap();
+        let (_, key, notice) = notices.iter().find(|(_, k, _)| k == "shell/task-q2/cancelled").expect("cancelled notification");
+        assert_eq!(key, "shell/task-q2/cancelled");
+        assert!(!notice.contains("<output-file>"), "unstarted task notification must not name an uncreated output file: {notice}");
+    }
+
+    // Finishing the foreground holder lets `task-q1` acquire the slot, run, and finish.
+    {
+        let mut senders = rig.processes.senders.lock().unwrap();
+        let (tx, seq) = senders.get_mut(&ProcessHandle("task-hold1".into())).unwrap();
+        send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } });
+    }
+    let _ = h1.await.unwrap().unwrap();
+    let q1 = rig.runtime.get(&ThreadId::from("t"), "task-q1").unwrap();
+    q1.settled().await;
+    assert_eq!(q1.status(), JobStatus::Completed);
+    let waited = body(rig.task.call(&ctx(&rig, "read-q1"), serde_json::json!({"action": "read", "task_id": "task-q1"})).await);
+    assert!(waited.contains("queued-ok"), "{waited}");
+    assert_eq!(rig.processes.seen.lock().unwrap().len(), 2, "only hold1 and q1 spawned");
+    // Observe the queued task's lease release instead of assuming it already ran before q1.settled() returned here.
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(5), pool.wait_counts(0, 0)).await.expect("queued task releases slot after settling");
+}
+
+#[tokio::test]
+async fn queued_powershell_stdin_write_failure_reports_input_failure_not_cancelled() {
+    let told = Arc::new(Told::default());
+    let rig = rig_shell(mixdog_rt::testing::tokens(), Arc::new(OsPromptElevation), Some(told.clone()), true);
+    let pool = Arc::new(LocalShellAdmission::new(1, 16));
+    rig.runtime.set_admission(pool.clone());
+
+    let (s1, c1) = (ShellTool::new(rig.runtime.clone()), ctx(&rig, "ps-hold"));
+    let h1 = tokio::spawn(async move { s1.call(&c1, serde_json::json!({"command": "npm run dev"})).await });
+    rig.processes.spawned.notified().await;
+    assert_eq!(pool.active(), 1);
+
+    let short_wait = |k: &str| (k == "MIXDOG_SHELL_ADMISSION_WAIT_MS").then(|| "20".to_owned());
+    let queued = body(rig.shell.run(&ctx(&rig, "ps-q1"), serde_json::json!({"command": "echo hi"}), false, &short_wait).await);
+    assert!(queued.contains("task_id: task-ps-q1"), "{queued}");
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(5), pool.wait_counts(1, 1)).await.expect("queued powershell task waits");
+
+    // Break stdin writes before releasing the slot so the queued PowerShell job fails to receive its script.
+    rig.processes.refuse_write.store(true, std::sync::atomic::Ordering::SeqCst);
+    {
+        let mut senders = rig.processes.senders.lock().unwrap();
+        let (tx, seq) = senders.get_mut(&ProcessHandle("task-ps-hold".into())).unwrap();
+        send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } });
+    }
+    let _ = h1.await.unwrap().unwrap();
+
+    let q1 = rig.runtime.get(&ThreadId::from("t"), "task-ps-q1").unwrap();
+    q1.settled().await;
+    assert_eq!(q1.status(), JobStatus::Failed);
+    let read = body(rig.task.call(&ctx(&rig, "read-ps-q1"), serde_json::json!({"action": "read", "task_id": "task-ps-q1"})).await);
+    assert!(read.contains("status: failed"), "{read}");
+    assert!(read.contains("[stdin write failed]"), "{read}");
+    assert!(!read.contains("was cancelled"), "{read}");
+    {
+        let notices = told.0.lock().unwrap();
+        let (_, _, notice) = notices.iter().find(|(_, k, _)| k == "shell/task-ps-q1/failed").expect("failed notification");
+        assert!(notice.contains("[stdin write failed]"), "{notice}");
+        assert!(!notice.contains("was cancelled"), "{notice}");
+    }
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(5), pool.wait_counts(0, 0)).await.expect("slot released after stdin failure");
+}
+
+#[tokio::test]
+async fn running_background_jobs_do_not_count_toward_shell_limit() {
+    let rig = rig();
+    let pool = Arc::new(LocalShellAdmission::new(2, 16));
+    rig.runtime.set_admission(pool.clone());
+
+    // Start 3 running background jobs when max_shells is 2: none hold a foreground shell slot.
+    for id in ["bg1", "bg2", "bg3"] {
+        let out = body(rig.shell.call(&ctx(&rig, id), serde_json::json!({"command": "sleep 100", "background": true})).await);
+        assert!(out.contains(&format!("task_id: task-{id}")), "{out}");
+    }
+    assert_eq!(pool.active(), 0, "background jobs release their shell slot on promotion");
+    assert_eq!(rig.runtime.list(&ThreadId::from("t")).len(), 3);
+
+    // 2 foreground shells still run concurrently while all 3 background jobs keep running.
+    let (s1, c1) = (ShellTool::new(rig.runtime.clone()), ctx(&rig, "fg1"));
+    let (s2, c2) = (ShellTool::new(rig.runtime.clone()), ctx(&rig, "fg2"));
+    let h1 = tokio::spawn(async move { s1.call(&c1, serde_json::json!({"command": "npm run dev"})).await });
+    rig.processes.spawned.notified().await;
+    let h2 = tokio::spawn(async move { s2.call(&c2, serde_json::json!({"command": "npm run dev"})).await });
+    rig.processes.spawned.notified().await;
+    assert_eq!(pool.active(), 2);
+
+    // Promoting a foreground shell via hold expiry (answer_by) also releases its slot immediately.
+    let mut c3 = ctx(&rig, "promo1");
+    c3.options.answer_by = Some(std::time::Instant::now() + std::time::Duration::from_millis(15));
+    {
+        let mut senders = rig.processes.senders.lock().unwrap();
+        let (tx, seq) = senders.get_mut(&ProcessHandle("task-fg1".into())).unwrap();
+        send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } });
+    }
+    let _ = h1.await.unwrap().unwrap();
+    assert_eq!(pool.active(), 1);
+    let promoted = body(rig.shell.call(&c3, serde_json::json!({"command": "npm run dev"})).await);
+    assert!(promoted.contains("task_id: task-promo1"), "{promoted}");
+    assert_eq!(pool.active(), 1, "only fg2 still holds a foreground slot");
+
+    {
+        let mut senders = rig.processes.senders.lock().unwrap();
+        let (tx, seq) = senders.get_mut(&ProcessHandle("task-fg2".into())).unwrap();
+        send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } });
+    }
+    let _ = h2.await.unwrap().unwrap();
+    assert_eq!(pool.active(), 0);
+
+    for id in ["task-bg1", "task-bg2", "task-bg3", "task-promo1"] {
+        rig.task.call(&ctx(&rig, &format!("c-{id}")), serde_json::json!({"action": "cancel", "task_id": id})).await.unwrap();
+    }
+}
+
+#[test]
+fn local_shell_admission_reads_max_concurrent_shells_from_env() {
+    let default_pool = LocalShellAdmission::from_env(&|_| None);
+    assert_eq!(default_pool.max_shells(), 64);
+    let custom = LocalShellAdmission::from_env(&|k| match k {
+        "MIXDOG_MAX_CONCURRENT_SHELLS" => Some("3.9".to_owned()),
+        "MIXDOG_RESOURCE_MAX_QUEUE" => Some("0".to_owned()),
+        _ => None,
+    });
+    assert_eq!(custom.max_shells(), 3);
+    let invalid = LocalShellAdmission::from_env(&|k| (k == "MIXDOG_MAX_CONCURRENT_SHELLS").then(|| "0".to_owned()));
+    assert_eq!(invalid.max_shells(), 64);
 }

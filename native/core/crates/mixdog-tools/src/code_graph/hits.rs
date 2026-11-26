@@ -355,7 +355,9 @@ pub(super) struct FindOptions<'a> {
     pub limit: usize,
     pub file_rel: Option<&'a str>,
     pub body: bool,
-    pub outside: Option<Outside>,
+    pub check_outside: bool,
+    /// Set when the answer needs project-wide graph state (outside-scope declarations, full node count, or casing hints).
+    pub needs_full_graph: Option<&'a std::cell::Cell<bool>>,
     /// Shown as `# scope: cwd=…` when the answer's root differs from the caller's.
     pub scope_note: Option<String>,
 }
@@ -401,9 +403,20 @@ fn best_declaration_lines(graph: &Graph, primary: &Hit, with_body: bool, lines: 
 pub(super) fn find_symbol_across_graph(graph: &Graph, symbol: &str, cwd: &str, opts: FindOptions<'_>) -> String {
     let all = find_hits(graph, symbol, opts.language);
     let hits: Vec<&Hit> = all.iter().filter(|h| opts.file_rel.is_none_or(|f| h.rel == f)).collect();
-    let outside_line = opts.outside.as_ref().map(|o| format!("declared outside the requested files: {}", format_outside(o))).unwrap_or_default();
+    let outside_line = || -> String {
+        if !opts.check_outside || opts.file_rel.is_none() {
+            return String::new();
+        }
+        let in_scope = |rel: &str| opts.file_rel.is_none_or(|f| rel == f);
+        declaration_outside_scope(graph, symbol, opts.language, &in_scope)
+            .map(|o| format!("declared outside the requested files: {}", format_outside(&o)))
+            .unwrap_or_default()
+    };
     if hits.is_empty() {
-        return no_symbol_matches(graph, symbol, cwd, &opts, outside_line);
+        if let Some(flag) = opts.needs_full_graph {
+            flag.set(true);
+        }
+        return no_symbol_matches(graph, symbol, cwd, &opts, outside_line());
     }
     let top: Vec<&Hit> = hits.iter().take(opts.limit.max(1)).copied().collect();
     let primary = top[0];
@@ -457,6 +470,10 @@ pub(super) fn find_symbol_across_graph(graph: &Graph, symbol: &str, cwd: &str, o
         lines.push(format!("type declaration: {} [{}]{}", hit.location(), hit.lang, if detail.is_empty() { String::new() } else { format!(" — {detail}") }));
     }
     if decl_count == 0 {
+        if let Some(flag) = opts.needs_full_graph {
+            flag.set(true);
+        }
+        let outside_line = outside_line();
         lines.push(String::new());
         lines.push(if outside_line.is_empty() {
             format!("(no user declaration found; likely a global/builtin identifier — all {} hits are references)", hits.len())

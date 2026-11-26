@@ -2,14 +2,11 @@
 //! before policy, hooks and execution:
 //!   1. a leading whole-second sleep of 2 s or more is rejected (a wait belongs to background +
 //!      task wait);
-//!   2. a plain leading `cd <dir>` moves into the `cwd` argument, silently (a `cd` that cannot be
-//!      moved without changing the command's meaning is left in the command);
-//!   3. the hint rule — a hint is printed only when it is true and names an invocation the
-//!      offered replacement tool accepts and that preserves what the command asked for: the only
-//!      hint is the refusal of [guard_call], issued when `cover::covering_tool_calls` proves the
-//!      whole command (every statement, flag and pipeline stage) is covered and the session offers
-//!      the named tool; it names the tool and its arguments. A command with a part no tool covers
-//!      runs without a note;
+//!   2. a plain leading `cd <dir>` moves into the `cwd` argument with a note (a `cd` that cannot
+//!      be moved without changing the command's meaning is left in the command);
+//!   3. a command `cover::covering_tool_calls` proves is covered by offered built-in tools runs
+//!      with [`SHELL_FILE_READ_NOTE`] instead of being refused; a command with a part no tool
+//!      covers runs without a note;
 //!   4. a command mentioning `git … worktree add` is rejected (worktrees go through the git
 //!      tool; a textual check, so mentions as data are too).
 
@@ -157,22 +154,25 @@ pub fn adds_unmanaged_worktree(command: &str) -> bool {
 
 const SHELL_WORKTREE_ADD_BLOCK: &str = "Blocked: this shell command mentions `git … worktree add`, which does not run from the shell; Mixdog manages worktrees so they are cleaned up. To create one, use the git tool: command \"git worktree add --detach <path> [<commit>]\" makes a read-only snapshot (removed when the turn ends; delegated workers too), and the Lead uses \"git worktree add -b <branch> <path>\" or action:\"worktree\" for a branch worktree. The check is textual: to search for that text use the grep tool, and keep the phrase out of shell commands (echo, commit messages, heredocs).";
 
+pub const SHELL_FILE_READ_NOTE: &str = "Note: use the read / grep / list tools for files instead of the shell.";
+
 /// What the guards decided for one call.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Guarded {
     /// The call is refused; the text is the whole result.
     Refused(String),
     /// The call runs with this command and cwd (a leading `cd` moved into `cwd`) and these
-    /// lines added to its result. No guard adds a line any more; the field stays for the shell tool's result framing.
+    /// advisory lines added to its result.
     Run { command: String, cwd: Option<String>, notes: Vec<String> },
 }
 
 /// Applies the guards to a shell call.
 pub fn guard_shell_call(command: &str, cwd: Option<&str>, background: bool, powershell: bool) -> Guarded {
-    let (mut command, mut cwd) = (command.to_owned(), cwd.map(str::to_owned));
+    let (mut command, mut cwd, mut notes) = (command.to_owned(), cwd.map(str::to_owned), Vec::new());
     if cwd.is_none()
         && let Some((dir, rest)) = split_leading_cd(&command, powershell)
     {
+        notes.push(format!("Moved `cd {dir}` into cwd."));
         command = rest;
         cwd = Some(dir);
     }
@@ -182,22 +182,23 @@ pub fn guard_shell_call(command: &str, cwd: Option<&str>, background: bool, powe
     if adds_unmanaged_worktree(&command) {
         return Guarded::Refused(super::shell::tool_failure(SHELL_WORKTREE_ADD_BLOCK));
     }
-    Guarded::Run { command, cwd, notes: Vec::new() }
+    Guarded::Run { command, cwd, notes }
 }
 
-/// [guard_shell_call] with the session's tool surface (guardShellCall with offers): a command the built-in tools cover whole
-/// is refused, naming the call that replaces it, when the session offers every tool that call names. A call that runs elsewhere
-/// than the session directory (its own cwd, a leading cd) is never covered, since the tools resolve paths in the session's.
+/// [guard_shell_call] with the session's tool surface: a command the built-in tools cover whole
+/// still runs, with [`SHELL_FILE_READ_NOTE`] added when the session offers every tool that covers
+/// it. A call that runs elsewhere than the session directory (its own cwd, a leading cd) is never
+/// covered, since the tools resolve paths in the session's.
 pub(crate) async fn guard_call(ctx: &ToolContext, command: &str, cwd: Option<&str>, background: bool, powershell: bool) -> Guarded {
-    let guarded = guard_shell_call(command, cwd, background, powershell);
-    let Guarded::Run { command, cwd: None, .. } = &guarded else { return guarded };
+    let mut guarded = guard_shell_call(command, cwd, background, powershell);
+    let Guarded::Run { command, cwd: None, notes } = &mut guarded else { return guarded };
     let Some(offered) = &ctx.options.offered_tools else { return guarded };
-    match super::cover::covering_tool_calls(ctx, command, powershell).await {
-        Some(calls) if calls.iter().all(|call| offered.iter().any(|name| name == call.tool)) => {
-            Guarded::Refused(super::shell::tool_failure(&super::cover::blocked_text(&calls)))
-        }
-        _ => guarded,
+    if let Some(calls) = super::cover::covering_tool_calls(ctx, command, powershell).await
+        && calls.iter().all(|call| offered.iter().any(|name| name == call.tool))
+    {
+        notes.push(SHELL_FILE_READ_NOTE.to_owned());
     }
+    guarded
 }
 
 #[cfg(test)]
@@ -312,10 +313,10 @@ mod tests {
         }
     }
 
-    /// Every command the table covers is refused with the call that replaces it; the named call is inside the tool's spec and,
-    /// run on the fixture tree, shows what the shell command printed (`shows`) and nothing it did not (`hides`).
+    /// Every command the table covers runs with [`SHELL_FILE_READ_NOTE`] instead of being refused;
+    /// the covering call is inside the tool's spec and returns what the shell command prints.
     #[tokio::test]
-    async fn a_covered_command_names_a_call_that_is_in_the_spec_and_returns_what_the_command_printed() {
+    async fn a_covered_command_runs_with_advisory_note_instead_of_refusal() {
         let (_dir, ctx) = session(ALL);
         let cases: [(&str, bool, &str, &[&str], &[&str]); 8] = [
             ("cat small.txt", false, "read", &["alpha", "Foo bar", "omega foo"], &[]),
@@ -332,9 +333,8 @@ mod tests {
             assert_eq!(calls.len(), 1, "{command}");
             assert_eq!(calls[0].tool, tool, "{command}");
             assert_in_spec(tool, &calls[0].args);
-            let refusal = guard_call(&ctx, command, None, false, powershell).await;
-            let want = super::super::shell::tool_failure(&super::super::cover::blocked_text(&calls));
-            assert_eq!(refusal, Guarded::Refused(want), "{command}");
+            let guarded = guard_call(&ctx, command, None, false, powershell).await;
+            assert_eq!(guarded, Guarded::Run { command: command.to_owned(), cwd: None, notes: vec![SHELL_FILE_READ_NOTE.to_owned()] }, "{command}");
             let text = answer(tool, &ctx, calls[0].args.clone()).await;
             for line in shows {
                 assert!(text.contains(line), "{command}: {line} missing from {text}");
@@ -393,19 +393,24 @@ mod tests {
         }
     }
 
-    /// A leading `cd` moves into `cwd` without a word; with an explicit `cwd` it stays in the command; a command that ran
+    /// A leading `cd` moves into `cwd` with its note; with an explicit `cwd` it stays in the command; a command that ran
     /// elsewhere than the session directory is never covered; a quoted directory moves, one the shell would expand does not.
     #[tokio::test]
-    async fn a_leading_cd_is_moved_silently_and_left_alone_when_it_cannot_be_moved() {
+    async fn a_leading_cd_is_moved_with_its_note_and_left_alone_when_it_cannot_be_moved() {
         let (_dir, ctx) = session(ALL);
         let moved = |command: &str, cwd: Option<&str>, powershell| guard_shell_call(command, cwd, false, powershell);
         let run = |command: &str, cwd: Option<&str>| Guarded::Run { command: command.to_owned(), cwd: cwd.map(str::to_owned), notes: Vec::new() };
+        let run_moved = |command: &str, dir: &str| Guarded::Run {
+            command: command.to_owned(),
+            cwd: Some(dir.to_owned()),
+            notes: vec![format!("Moved `cd {dir}` into cwd.")],
+        };
 
-        assert_eq!(moved("cd /tmp && ls", None, false), run("ls", Some("/tmp")));
-        assert_eq!(moved("Set-Location src; Get-ChildItem", None, true), run("Get-ChildItem", Some("src")));
+        assert_eq!(moved("cd /tmp && ls", None, false), run_moved("ls", "/tmp"));
+        assert_eq!(moved("Set-Location src; Get-ChildItem", None, true), run_moved("Get-ChildItem", "src"));
         // quoted
-        assert_eq!(moved(r#"cd "my dir" && cat small.txt"#, None, false), run("cat small.txt", Some("my dir")));
-        assert_eq!(moved("cd 'my dir' && cat small.txt", None, false), run("cat small.txt", Some("my dir")));
+        assert_eq!(moved(r#"cd "my dir" && cat small.txt"#, None, false), run_moved("cat small.txt", "my dir"));
+        assert_eq!(moved("cd 'my dir' && cat small.txt", None, false), run_moved("cat small.txt", "my dir"));
         for command in [r#"cd "$HOME/x" && ls"#, "cd '~' && ls", "cd ~root && ls", "cd -- x && ls", "cd a && cd b && ls"] {
             assert_eq!(moved(command, None, false), run(command, None), "{command}");
         }
@@ -413,8 +418,8 @@ mod tests {
         assert_eq!(moved("cd d && cat small.txt", Some("my dir"), false), run("cd d && cat small.txt", Some("my dir")));
         assert_eq!(guard_call(&ctx, "cd d && cat small.txt", Some("my dir"), false, false).await, run("cd d && cat small.txt", Some("my dir")));
         // `small.txt` is not in `d`: covering the moved command in the session directory would name the wrong file
-        assert_eq!(guard_call(&ctx, "cd d && cat small.txt", None, false, false).await, run("cat small.txt", Some("d")));
-        assert_eq!(guard_call(&ctx, r#"cd "my dir" && cat small.txt"#, None, false, false).await, run("cat small.txt", Some("my dir")));
+        assert_eq!(guard_call(&ctx, "cd d && cat small.txt", None, false, false).await, run_moved("cat small.txt", "d"));
+        assert_eq!(guard_call(&ctx, r#"cd "my dir" && cat small.txt"#, None, false, false).await, run_moved("cat small.txt", "my dir"));
         assert_eq!(guard_call(&ctx, "cat small.txt", Some("d"), false, false).await, run("cat small.txt", Some("d")));
     }
 

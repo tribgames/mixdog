@@ -268,7 +268,7 @@ fn resume_of(value: Option<Value>) -> Result<Option<ResumeFrom>, CoreError> {
         return Ok(None);
     };
     let position: WireFeedPosition = serde_json::from_value(value).map_err(|e| invalid_params("resumeFrom", e.to_string()))?;
-    Ok(Some(ResumeFrom { position: FeedPosition { epoch: position.epoch, seq: position.seq }, window: Window::Fixed }))
+    Ok(Some(ResumeFrom { position: FeedPosition { epoch: position.epoch, seq: position.seq }, window: Window::Fixed, positioned: None }))
 }
 
 /// How long a reply waits for the events its call caused to be published (see `TerminalService::published`).

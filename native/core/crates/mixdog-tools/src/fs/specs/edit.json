@@ -10,7 +10,7 @@
     "compressible": false,
     "compressibleLossless": true
   },
-  "description": "Replace exact text in one file, one replacement pair per call. old_string must match once unless replace_all is true. Send independent, non-overlapping edits in one response using existing text, not text another edit creates. For several hunks or files in one call, use apply_patch. Widened replacements keep intervening lines verbatim.",
+  "description": "Replace exact text in one file, one replacement pair per call. old_string must match once unless replace_all is true. Send independent, non-overlapping edits in one response using existing text, not text another edit creates. Widened replacements keep intervening lines verbatim.",
   "inputSchema": {
     "type": "object",
     "properties": {

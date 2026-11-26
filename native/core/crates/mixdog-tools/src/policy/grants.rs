@@ -6,13 +6,11 @@
 //! A grant is keyed by agent + action; `agent` scope names the agent, `always`
 //! stands for every agent (`*`), and an agent's own grant wins over an
 //! every-agent one. `once` is never stored, and neither is `session` (that is
-//! [`super::SessionGrants`]). What a person allows from a card is a tool
-//! (`tool:<identity>`), never an action category; a category holds only a
-//! `block`, or the browser's own `allow`. Payments and permanent deletes are
-//! never allowed. A stored `allow` of a connector category (all that 1.4.5 and
-//! the builds since wrote when a card was answered "always") does not say which
-//! tool was meant, so it is dropped on load and grants nothing: the person is
-//! asked once more, and the next answer is stored for the tool.
+//! [`super::SessionGrants`]). Outbound approvals are stored per action category
+//! (`ActionKind`), as in 1.4.5, so category grants written by 1.4.5 are kept on
+//! load. Per-tool grants (`tool:<identity>`) from hook asks or 1.5.0 are also
+//! kept on load (tools may be allowed, never blocked). Payments and permanent
+//! deletes are never allowed.
 
 use std::fmt;
 use std::sync::Mutex;
@@ -401,14 +399,18 @@ mod tests {
     }
 
     #[test]
-    fn a_connector_category_is_never_allowed_as_a_whole() {
+    fn a_connector_category_can_be_allowed_for_one_agent_or_every_agent() {
         let mut table = GrantTable::default();
         for k in [ActionKind::Comment, ActionKind::Email, ActionKind::Message, ActionKind::Trash] {
-            assert_eq!(table.grant("a", &kind(k), ApprovalRemember::Agent, "", 0), None, "{k:?}");
-            assert_eq!(table.grant("a", &kind(k), ApprovalRemember::Always, "", 0), None, "{k:?}");
-            assert_eq!(table.mode_for("a", &kind(k), false), PermissionMode::Ask);
+            let key = kind(k);
+            assert!(table.grant("a", &key, ApprovalRemember::Agent, "", 0).is_some(), "{k:?}");
+            assert_eq!(table.mode_for("a", &key, false), PermissionMode::Allow, "{k:?}");
+            assert_eq!(table.mode_for("z", &key, false), PermissionMode::Ask, "{k:?}: another agent is asked");
+            assert!(table.grant("a", &key, ApprovalRemember::Always, "", 0).is_some(), "{k:?}");
+            assert_eq!(table.mode_for("z", &key, false), PermissionMode::Allow, "{k:?}: every-agent allow");
+            table.set_mode("z", &key, PermissionMode::Ask, "", 1, false).expect("ask");
+            assert_eq!(table.mode_for("z", &key, false), PermissionMode::Ask, "{k:?}: shared allow revoked");
         }
-        assert!(table.rows().is_empty());
     }
     #[test]
     fn no_widen_refuses_lifting_a_block_and_leaves_the_table_unchanged() {
@@ -445,7 +447,9 @@ mod tests {
         let submit = rows.iter().find(|r| r.action == kind(ActionKind::BrowserSubmit)).expect("submit");
         assert!(submit.shared && submit.mode == PermissionMode::Allow);
         let comment = rows.iter().find(|r| r.action == kind(ActionKind::Comment)).expect("comment");
-        assert!(!comment.rememberable, "a connector category cannot be allowed as a whole");
+        assert!(comment.rememberable, "a connector category can be allowed as a whole");
+        let payment = rows.iter().find(|r| r.action == kind(ActionKind::Payment)).expect("payment");
+        assert!(!payment.rememberable, "payments can never be allowed");
         let tools: Vec<(String, bool)> = rows[ActionKind::ALL.len()..].iter().map(|r| (r.action.render(), r.shared)).collect();
         // Its own allow of a tool is listed once, in place of the every-agent one.
         assert_eq!(tools, [("tool:mine".to_owned(), false), ("tool:shell".to_owned(), false)]);
@@ -456,16 +460,17 @@ mod tests {
             |action: GrantKey, mode: PermissionMode| Grant { id: grant_id("a", &action), agent_id: "a".into(), action, mode, device: String::new(), at_ms: 0 };
         let kept = GrantTable::from_rows([
             row(GrantKey::Tool("shell".into()), PermissionMode::Allow),
-            row(GrantKey::Kind(ActionKind::Email), PermissionMode::Block),
+            row(GrantKey::Kind(ActionKind::Email), PermissionMode::Allow),
+            row(GrantKey::Kind(ActionKind::Comment), PermissionMode::Block),
             row(GrantKey::Kind(ActionKind::BrowserSubmit), PermissionMode::Allow),
         ]);
-        assert_eq!(kept.rows().len(), 3);
+        assert_eq!(kept.rows().len(), 4);
         let dropped = GrantTable::from_rows([
             row(GrantKey::Tool("shell".into()), PermissionMode::Block),
-            row(GrantKey::Kind(ActionKind::Email), PermissionMode::Allow),
             row(GrantKey::Kind(ActionKind::Payment), PermissionMode::Allow),
+            row(GrantKey::Kind(ActionKind::Delete), PermissionMode::Allow),
         ]);
-        assert!(dropped.rows().is_empty(), "a category allow says no tool, so it grants nothing");
+        assert!(dropped.rows().is_empty(), "tool blocks and payment/delete allows cannot exist");
     }
 
     /// Regression: a row's owner and action were read on their own, so a hand-edited owner or action granted under

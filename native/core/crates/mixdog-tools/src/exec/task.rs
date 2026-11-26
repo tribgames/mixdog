@@ -394,7 +394,8 @@ async fn cancel_outcome(runtime: &ExecRuntime, processes: &dyn ProcessManager, j
     if !job.is_running() {
         return CancelOutcome::Cancelled;
     }
-    if !send_kill(runtime, processes, job) {
+    let was_queued = job.cancel_queued();
+    if !send_kill(runtime, processes, job) && !was_queued {
         return CancelOutcome::Unconfirmed;
     }
     if mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await.is_err() {

@@ -7,19 +7,24 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_ai::service::routes::DefaultSearchFallback;
+use mixdog_ai::service::routes::DefaultSearchRoute;
 use mixdog_ai::service::routes::MainRoute;
+use mixdog_ai::service::routes::canonical_route_provider;
 use mixdog_ai::service::routes::is_default_web_search_route;
 use mixdog_ai::service::routes::native_web_search_routes;
-use mixdog_ai::service::routes::no_candidate_message;
+use mixdog_ai::service::routes::no_candidate_message_with_reason;
 use mixdog_ai::service::routes::route_chain;
 use mixdog_ai::service::routes::web_search_provider_family;
 use mixdog_ai::service::routes::web_search_route_or_default;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::ids::ThreadId;
+use serde_json::Map;
 use serde_json::Value;
 
 use super::hosted_search::SearchCandidate;
 use super::hosted_search::SearchFamily;
+use super::hosted_search::SearchRouteResolution;
 use super::hosted_search::SearchRoutes;
 
 /// What serves a web-search candidate: a Mixdog provider adapter running its
@@ -57,6 +62,13 @@ pub trait SearchHost: Send + Sync {
 
     /// `getSession()?.id`: the session the asking turn runs in.
     fn session_id(&self, thread: &ThreadId) -> Option<String>;
+
+    /// Same-product stand-in route (or failure reason) using already-known
+    /// readiness when the default ("follow Main") route's Main model cannot
+    /// run native web search itself. Never probes or runs readiness work.
+    fn default_search_fallback(&self, _main_provider: &str, _main_model: &str) -> DefaultSearchFallback {
+        DefaultSearchFallback::default()
+    }
 }
 
 pub struct ConfiguredSearchRoutes {
@@ -101,9 +113,31 @@ fn family_of(provider: &str) -> Option<SearchFamily> {
     })
 }
 
-#[async_trait]
-impl SearchRoutes for ConfiguredSearchRoutes {
-    async fn candidates(&self, thread: &ThreadId) -> Result<Vec<SearchCandidate>, String> {
+fn fallback_candidate(entry: DefaultSearchRoute) -> Option<SearchCandidate> {
+    let provider = canonical_route_provider(&entry.provider);
+    let model = mixdog_js::js_trim(&entry.model).to_owned();
+    if provider.is_empty() || model.is_empty() {
+        return None;
+    }
+    Some(SearchCandidate {
+        family: family_of(&provider)?,
+        provider,
+        model,
+        effort: None,
+        fast: false,
+        model_parameters: Value::Object(Map::new()),
+        tool_type: None,
+    })
+}
+
+fn push_unique_candidate(out: &mut Vec<SearchCandidate>, candidate: SearchCandidate) {
+    if !out.iter().any(|existing| existing.provider == candidate.provider && existing.model == candidate.model) {
+        out.push(candidate);
+    }
+}
+
+impl ConfiguredSearchRoutes {
+    async fn resolve_with_reason(&self, thread: &ThreadId) -> Result<(Vec<SearchCandidate>, Value, MainRoute, Option<String>), String> {
         let route = self.web_search_route()?;
         // A cold catalog is loaded once before the capability check, so a Main
         // model never falls back to the bare id.
@@ -116,8 +150,9 @@ impl SearchRoutes for ConfiguredSearchRoutes {
         };
         let main = MainRoute { catalog_row: row, ..main };
         let global = |provider: &str, model: &str| self.host.catalog_row(provider, model);
-        let candidates = native_web_search_routes(&route, Some(&main), &global)?;
-        Ok(candidates
+        let resolved = native_web_search_routes(&route, Some(&main), &global)?;
+        let main_resolved = resolved.iter().any(|candidate| candidate.source == "default-web-search-route");
+        let mut out: Vec<SearchCandidate> = resolved
             .into_iter()
             .filter_map(|candidate| {
                 Some(SearchCandidate {
@@ -130,12 +165,42 @@ impl SearchRoutes for ConfiguredSearchRoutes {
                     tool_type: candidate.tool_type,
                 })
             })
-            .collect())
+            .collect();
+        let reason = if follows_main && !main_resolved {
+            // User-written fallbacks stay ahead of any automatic same-product stand-in.
+            let fallback = self.host.default_search_fallback(&main.provider, &main.model);
+            if let Some(entry) = fallback.route
+                && let Some(candidate) = fallback_candidate(entry)
+            {
+                push_unique_candidate(&mut out, candidate);
+            }
+            if out.is_empty() { fallback.reason } else { None }
+        } else {
+            None
+        };
+        Ok((out, route, main, reason))
+    }
+}
+
+#[async_trait]
+impl SearchRoutes for ConfiguredSearchRoutes {
+    async fn candidates(&self, thread: &ThreadId) -> Result<Vec<SearchCandidate>, String> {
+        self.resolve_with_reason(thread).await.map(|(out, ..)| out)
     }
 
     async fn no_candidate_message(&self, thread: &ThreadId) -> String {
         // `getWebSearchRoute()` is never unset; an unreadable stored route reads as the default.
         let route = self.web_search_route().unwrap_or(Value::Null);
-        no_candidate_message(&route, Some(&self.main(thread, None)))
+        let main = self.main(thread, None);
+        let reason = is_default_web_search_route(&route).then(|| self.host.default_search_fallback(&main.provider, &main.model).reason).flatten();
+        no_candidate_message_with_reason(&route, Some(&main), reason.as_deref())
+    }
+
+    async fn resolve(&self, thread: &ThreadId) -> Result<SearchRouteResolution, String> {
+        let (out, route, main, reason) = self.resolve_with_reason(thread).await?;
+        if out.is_empty() {
+            return Ok(SearchRouteResolution::Unavailable(no_candidate_message_with_reason(&route, Some(&main), reason.as_deref())));
+        }
+        Ok(SearchRouteResolution::Candidates(out))
     }
 }

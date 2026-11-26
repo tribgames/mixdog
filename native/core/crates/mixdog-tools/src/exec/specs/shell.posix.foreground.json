@@ -9,7 +9,7 @@
     "openWorldHint": true,
     "compressible": true
   },
-  "description": "Run programs, builds, tests and computation. Never use shell commands/scripts for work other tools cover: cat/head/tail/less→read; ls/tree→list; find→glob/find; grep/rg/ag→grep; file authoring via sed/awk/echo >/tee/heredoc→edit/apply_patch; git→git (-C <dir> for other folders); gh→github, except what it lacks (repo rename/settings, account switching); code structure→code_graph. Commands run in the foreground until completion.",
+  "description": "Run programs, builds, tests and computation. Never use shell commands/scripts for work other tools cover: cat/head/tail/less→read; ls/tree→list; find→glob/find; grep/rg/ag→grep; file authoring via sed/awk/echo >/tee/heredoc→edit/apply_patch; git→git (-C <dir> for other folders); gh→github, except what it lacks (repo rename/settings, account switching); code structure→code_graph. Commands run in the foreground until completion. A read-type call placed after shell in one response runs only when shell ends; place independent reads before it.",
   "inputSchema": {
     "type": "object",
     "properties": {

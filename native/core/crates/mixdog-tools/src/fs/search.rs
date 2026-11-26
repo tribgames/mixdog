@@ -200,6 +200,7 @@ fn promote_output_mode(mut args: JsonValue) -> Result<JsonValue, ToolError> {
 struct OrderedGlobs {
     rules: Vec<(GlobMatcher, bool)>,
     any_include: bool,
+    max_depth: Option<usize>,
 }
 
 impl OrderedGlobs {
@@ -212,6 +213,7 @@ impl OrderedGlobs {
 fn compile_globs(patterns: &[String]) -> Result<OrderedGlobs, ToolError> {
     let mut rules = Vec::with_capacity(patterns.len());
     let mut any_include = false;
+    let mut max_depth: Option<usize> = Some(0);
     for raw in patterns {
         let (neg, body) = match raw.strip_prefix('!') {
             Some(rest) => (true, rest),
@@ -230,10 +232,16 @@ fn compile_globs(patterns: &[String]) -> Result<OrderedGlobs, ToolError> {
         }
         let glob: Glob =
             GlobBuilder::new(&p).literal_separator(true).build().map_err(|e| invalid("pattern", "glob", format!("Error: invalid glob {raw:?}: {e}")))?;
-        any_include |= !neg;
+        if !neg {
+            any_include = true;
+            max_depth = match (max_depth, (!p.contains("**")).then(|| p.split('/').filter(|s| !s.is_empty()).count())) {
+                (Some(cur), Some(depth)) => Some(cur.max(depth)),
+                _ => None,
+            };
+        }
         rules.push((glob.compile_matcher(), neg));
     }
-    Ok(OrderedGlobs { rules, any_include })
+    Ok(OrderedGlobs { rules, any_include, max_depth: if any_include { max_depth } else { None } })
 }
 
 /// The mtime in ms (0 when the file service has none); `None` when the stat failed.
@@ -1627,7 +1635,11 @@ pub(super) async fn broad_listing(
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn walk_kept(ctx: &ToolContext, request: WalkRequest, keep: impl Fn(&DirEntry) -> bool, cap: Option<usize>, budget_ms: u64) -> Result<Walked, ToolError> {
     let mut entries = Vec::new();
-    let (complete, capped) = visit_walk(ctx, request, keep, cap, budget_ms, |entry| entries.push(entry)).await?;
+    let (complete, capped) = visit_walk(ctx, request, keep, cap, budget_ms, |entry| {
+        entries.push(entry);
+        true
+    })
+    .await?;
     Ok(Walked { entries, complete, capped })
 }
 
@@ -1638,7 +1650,7 @@ async fn visit_walk(
     mut keep: impl FnMut(&DirEntry) -> bool,
     cap: Option<usize>,
     budget_ms: u64,
-    mut visit: impl FnMut(DirEntry),
+    mut visit: impl FnMut(DirEntry) -> bool,
 ) -> Result<(bool, bool), ToolError> {
     let include_dirs = request.include_dirs;
     // A walk the search server runs answers what it found at its soft deadline, before the client's hard timeout would refuse the
@@ -1666,7 +1678,9 @@ async fn visit_walk(
                         return false;
                     }
                     kept += 1;
-                    visit(entry);
+                    if !visit(entry) {
+                        return false;
+                    }
                 }
             }
             Err(FsError { kind, .. }) => {
@@ -1762,10 +1776,10 @@ async fn visit_glob(
     cap: Option<usize>,
     budget: u64,
     unique: bool,
-    visit: impl FnMut(DirEntry),
+    visit: impl FnMut(DirEntry) -> bool,
 ) -> Result<(bool, bool), ToolError> {
     let root_path = root.as_path();
-    let descent = Descent { bare: if include_noise { Vec::new() } else { noise_bare() }, ..Descent::default() };
+    let descent = Descent { max_depth: globs.max_depth, bare: if include_noise { Vec::new() } else { noise_bare() }, ..Descent::default() };
     let request = WalkRequest {
         root: root.clone(),
         recursive: true,
@@ -1809,7 +1823,11 @@ pub(crate) async fn glob_files(
     let globs = compile_globs(patterns)?;
     let work = |budget: u64| async move {
         let mut entries = Vec::new();
-        let (complete, capped) = visit_glob(ctx, root, globs, include_noise, cap, budget, false, |entry| entries.push(entry)).await?;
+        let (complete, capped) = visit_glob(ctx, root, globs, include_noise, cap, budget, false, |entry| {
+            entries.push(entry);
+            true
+        })
+        .await?;
         // The mtimes are read 64 at a time, in the walk's order (as `find` reads its stats).
         use futures::StreamExt as _;
         let mut out = Vec::with_capacity(entries.len());
@@ -1921,18 +1939,20 @@ async fn rank_glob_group(
         let mut top = Top::new(ranking.top.bound);
         let mut total = 0;
         // The unbounded variant caps the combined inventory in walk order, before ranking.
-        let remaining = ranking.cap.map_or(usize::MAX, |cap| cap - ranking.total);
+        let remaining = ranking.cap.map_or(usize::MAX, |cap| cap.saturating_sub(ranking.total));
         if ranking.natural {
             let mut merged_cap = false;
             let (complete, walk_cap) = visit_glob(ctx, root, globs, include_noise, ranking.cap, budget, true, |entry| {
-                if !merged_cap && new_glob_path(&entry.path, seen, added.as_mut()) {
-                    if total == remaining {
-                        merged_cap = true;
-                    } else {
-                        top.push(ranking.rank(total, entry.path, None));
-                        total += 1;
-                    }
+                if !new_glob_path(&entry.path, seen, added.as_mut()) {
+                    return true;
                 }
+                if total == remaining {
+                    merged_cap = true;
+                    return false;
+                }
+                top.push(ranking.rank(total, entry.path, None));
+                total += 1;
+                true
             })
             .await?;
             return Ok(GlobBatch { top, added, total, missing_stat: false, followed_link: false, complete, capped: walk_cap || merged_cap });
@@ -1941,17 +1961,21 @@ async fn rank_glob_group(
         // Keep the enumeration's soft deadline separate from the metadata budget.
         let mut entries = Vec::new();
         let mut followed_link = false;
-        let (complete, mut capped) = visit_glob(ctx, root, globs, include_noise, ranking.cap, budget, true, |entry| {
+        let mut merged_cap = false;
+        let (complete, walk_cap) = visit_glob(ctx, root, globs, include_noise, ranking.cap, budget, true, |entry| {
             followed_link |= entry.kind == EntryKind::Symlink;
-            if entries.len() <= remaining && new_glob_path(&entry.path, seen, added.as_mut()) {
-                entries.push(entry.path);
+            if !new_glob_path(&entry.path, seen, added.as_mut()) {
+                return true;
             }
+            if entries.len() >= remaining {
+                merged_cap = true;
+                return false;
+            }
+            entries.push(entry.path);
+            true
         })
         .await?;
-        if entries.len() > remaining {
-            entries.truncate(remaining);
-            capped = true;
-        }
+        let capped = walk_cap || merged_cap;
         let mut missing_stat = false;
         {
             let mut stamped = futures::stream::iter(entries.into_iter().enumerate().map(|(number, path)| async move {
@@ -2002,15 +2026,165 @@ fn glob_sort_is_natural(args: &JsonValue) -> Result<bool, ToolError> {
     }
 }
 
-/// Node `buildGlobPatternGroups`: an absolute pattern is walked from its own static prefix, anchored there; the others
-/// from `root`. Each group carries the root Node names it by (`normalizeOutputPath(root)`). The inner `Err` is the answer
-/// for a `root` that is not a directory.
+fn strip_dot_slash(mut s: &str) -> &str {
+    while let Some(rest) = s.strip_prefix("./") {
+        s = rest;
+    }
+    s
+}
+
+fn anchor_glob_rest(rest: &str) -> String {
+    if rest.is_empty() { "/**".to_owned() } else { format!("/{rest}") }
+}
+
+fn fixed_relative_prefix(pattern: &str) -> Option<(Vec<String>, String)> {
+    let trimmed = strip_dot_slash(pattern.trim());
+    let (base, rest) = extract_glob_base_directory(trimmed);
+    let base = base?;
+    if !cfg!(windows) && base.contains('\\') {
+        return None;
+    }
+    let parts: Vec<String> = base.split('/').filter(|s| !s.is_empty() && *s != ".").map(str::to_owned).collect();
+    if parts.is_empty() || parts.iter().any(|s| s == "..") {
+        return None;
+    }
+    Some((parts, rest))
+}
+
+enum SubdirProbe {
+    Dir(AbsPath),
+    Missing,
+    Fallback,
+}
+
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+async fn probe_relative_subdir(ctx: &ToolContext, root: &AbsPath, parts: &[String], include_noise: bool) -> Result<SubdirProbe, ToolError> {
+    if !include_noise && parts.iter().any(|part| NOISE_DIRS.contains(&part.as_str())) {
+        return Ok(SubdirProbe::Missing);
+    }
+    let prunes = root_scan_prunes(root, cfg!(not(windows)));
+    let mut cur = root.clone();
+    for (idx, part) in parts.iter().enumerate() {
+        let Some(target) = AbsPath::new(cur.as_path().join(part)) else { return Ok(SubdirProbe::Fallback) };
+        if idx == 0 && prunes.contains(&target) {
+            return Ok(SubdirProbe::Missing);
+        }
+        match ctx.files.lstat_for_locator(ctx.io.interactive, target.clone()).await {
+            Ok(stat) if stat.kind == EntryKind::Dir => {}
+            Ok(stat) if stat.kind == EntryKind::Symlink => {
+                // A walk from `root` never enters a symlink directory; only a leaf symlink could itself match.
+                return Ok(if idx + 1 < parts.len() { SubdirProbe::Missing } else { SubdirProbe::Fallback });
+            }
+            Ok(_) => return Ok(SubdirProbe::Missing),
+            Err(e) if matches!(e.kind, FsErrorKind::NotFound | FsErrorKind::NotADirectory) => return Ok(SubdirProbe::Missing),
+            Err(_) => return Ok(SubdirProbe::Fallback),
+        }
+        if !super::common::followable(ctx, &target).await {
+            return Ok(SubdirProbe::Fallback);
+        }
+        if !include_noise {
+            // Verify the root walk's ignore rules (.gitignore, .ignore, excludes) admit this directory before entering it.
+            let probe_req = WalkRequest {
+                root: cur.clone(),
+                recursive: false,
+                include_hidden: true,
+                respect_ignore: true,
+                require_git: true,
+                include_dirs: true,
+                prune: if idx == 0 { prunes.clone() } else { Vec::new() },
+                descent: Descent { max_depth: Some(1), bare: noise_bare(), ..Descent::default() },
+                server: None,
+            };
+            let mut walk = ctx.files.walk(ctx.io.maintenance, probe_req);
+            let mut admitted = false;
+            loop {
+                match guarded(ctx, "glob", walk.next()).await {
+                    Ok(Some(Ok(entry))) if entry.path == target => {
+                        admitted = entry.kind == EntryKind::Dir;
+                        break;
+                    }
+                    Ok(Some(Ok(_))) => {}
+                    Ok(Some(Err(_))) => {
+                        let _ = guarded(ctx, "close", walk.close()).await;
+                        return Ok(SubdirProbe::Fallback);
+                    }
+                    Ok(None) => break,
+                    Err(e) => {
+                        let _ = guarded(ctx, "close", walk.close()).await;
+                        return Err(e);
+                    }
+                }
+            }
+            let _ = guarded(ctx, "close", walk.close()).await;
+            if !admitted {
+                return Ok(SubdirProbe::Missing);
+            }
+            // A nested `.git` stops a walk rooted at `target` from loading parent `.gitignore` files from `root`.
+            if ctx.files.lstat_for_locator(ctx.io.interactive, target.join(".git")).await.is_ok() {
+                return Ok(SubdirProbe::Fallback);
+            }
+        }
+        cur = target;
+    }
+    Ok(SubdirProbe::Dir(cur))
+}
+
+fn relative_group_label(raw: &str, prefix: &str) -> String {
+    let raw = raw.replace('\\', "/");
+    let raw = raw.trim_end_matches('/');
+    if raw.is_empty() || raw == "." { prefix.to_owned() } else { format!("{raw}/{prefix}") }
+}
+
+fn push_positive_group(groups: &mut Vec<(AbsPath, Vec<String>, String)>, group_root: AbsPath, rest: String, label: String) {
+    match groups.iter_mut().find(|(r, rels, _)| *r == group_root && !rels.is_empty() && !rels.iter().any(|p| p.starts_with('!'))) {
+        Some((_, rels, _)) if rels.contains(&rest) => {}
+        Some((_, rels, _)) => rels.push(rest),
+        None => groups.push((group_root, vec![rest], label)),
+    }
+}
+
+/// Common fixed directory prefix of relative patterns when negated patterns are present, with rewritten patterns.
+fn narrowed_negated_relative(relative: &[&String]) -> Option<(Vec<String>, Vec<String>)> {
+    let mut common: Option<Vec<String>> = None;
+    for p in relative.iter().filter(|p| !p.starts_with('!')) {
+        let (parts, _) = fixed_relative_prefix(p)?;
+        common = Some(match common {
+            None => parts,
+            Some(prev) => prev.into_iter().zip(parts).take_while(|(a, b)| a == b).map(|(a, _)| a).collect(),
+        });
+    }
+    let common = common.filter(|c| !c.is_empty())?;
+    let prefix_slash = format!("{}/", common.join("/"));
+    let mut rewritten = Vec::with_capacity(relative.len());
+    for p in relative {
+        if let Some(neg_body) = p.strip_prefix('!') {
+            let trimmed = strip_dot_slash(neg_body.trim());
+            if let Some(rest) = trimmed.strip_prefix(&prefix_slash) {
+                rewritten.push(format!("!{}", anchor_glob_rest(rest.trim_start_matches('/'))));
+            } else if !trimmed.contains('/') || trimmed.strip_prefix("**/").is_some_and(|rest| !rest.contains('/')) {
+                rewritten.push((*p).clone());
+            } else {
+                return None;
+            }
+        } else {
+            let trimmed = strip_dot_slash(p.trim());
+            let rest = trimmed.strip_prefix(&prefix_slash)?;
+            rewritten.push(anchor_glob_rest(rest.trim_start_matches('/')));
+        }
+    }
+    Some((common, rewritten))
+}
+
+/// Node `buildGlobPatternGroups`: each pattern with a fixed directory prefix is walked from that prefix, anchored there;
+/// the others from `root`. Each group carries the root Node names it by (`normalizeOutputPath(root)`). The inner `Err` is
+/// the answer for a `root` that is not a directory.
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn glob_groups(
     ctx: &ToolContext,
     raw: &str,
     root: &AbsPath,
     patterns: &[String],
+    include_noise: bool,
 ) -> Result<Result<Vec<(AbsPath, Vec<String>, String)>, String>, ToolError> {
     let (absolute, relative): (Vec<&String>, Vec<&String>) = patterns.iter().partition(|p| is_absolute_pattern(p));
     let mut groups: Vec<(AbsPath, Vec<String>, String)> = Vec::new();
@@ -2018,7 +2192,39 @@ async fn glob_groups(
         if let Some(missing) = require_dir(ctx, raw, root).await? {
             return Ok(Err(missing));
         }
-        groups.push((root.clone(), relative.into_iter().cloned().collect(), raw.replace('\\', "/")));
+        if relative.is_empty() {
+            groups.push((root.clone(), Vec::new(), raw.replace('\\', "/")));
+        } else if relative.iter().any(|p| p.starts_with('!')) {
+            if let Some((parts, rewritten)) = narrowed_negated_relative(&relative) {
+                match probe_relative_subdir(ctx, root, &parts, include_noise).await? {
+                    SubdirProbe::Dir(sub_root) => {
+                        groups.push((sub_root, rewritten, relative_group_label(raw, &parts.join("/"))));
+                    }
+                    SubdirProbe::Missing => {}
+                    SubdirProbe::Fallback => {
+                        groups.push((root.clone(), relative.into_iter().cloned().collect(), raw.replace('\\', "/")));
+                    }
+                }
+            } else {
+                groups.push((root.clone(), relative.into_iter().cloned().collect(), raw.replace('\\', "/")));
+            }
+        } else {
+            for pattern in relative {
+                if let Some((parts, rest)) = fixed_relative_prefix(pattern) {
+                    match probe_relative_subdir(ctx, root, &parts, include_noise).await? {
+                        SubdirProbe::Dir(sub_root) => {
+                            push_positive_group(&mut groups, sub_root, anchor_glob_rest(&rest), relative_group_label(raw, &parts.join("/")));
+                        }
+                        SubdirProbe::Missing => {}
+                        SubdirProbe::Fallback => {
+                            push_positive_group(&mut groups, root.clone(), pattern.clone(), raw.replace('\\', "/"));
+                        }
+                    }
+                } else {
+                    push_positive_group(&mut groups, root.clone(), pattern.clone(), raw.replace('\\', "/"));
+                }
+            }
+        }
     }
     for pattern in absolute {
         let (base, rest) = extract_glob_base_directory(pattern);
@@ -2029,12 +2235,8 @@ async fn glob_groups(
             },
             None => (root.clone(), raw.replace('\\', "/")),
         };
-        let rest = format!("/{rest}");
-        match groups.iter_mut().find(|(r, _, _)| *r == group_root) {
-            Some((_, rels, _)) if rels.contains(&rest) => {}
-            Some((_, rels, _)) => rels.push(rest),
-            None => groups.push((group_root, vec![rest], label)),
-        }
+        let rest = anchor_glob_rest(&rest);
+        push_positive_group(&mut groups, group_root, rest, label);
     }
     Ok(Ok(groups))
 }
@@ -2096,7 +2298,8 @@ impl GlobTool {
             Ok(root) => root,
             Err(text) => return Err(refuse(text)),
         };
-        let groups = match glob_groups(ctx, raw, &root, &patterns).await? {
+        let include_noise = arg_bool(&args, "include_noise");
+        let groups = match glob_groups(ctx, raw, &root, &patterns, include_noise).await? {
             Ok(groups) => groups,
             Err(missing) => return Ok(text_output(missing)),
         };
@@ -2109,7 +2312,6 @@ impl GlobTool {
             bound = bound.min(GLOB_ACCUM_CAP);
         }
         let mut ranking = GlobRanking { top: Top::new(bound), natural, cap, total: 0, missing_stat: false };
-        let include_noise = arg_bool(&args, "include_noise");
         let (mut complete, mut capped) = (true, false);
         let mut followed_link = false;
         let mut errors = Vec::new();
@@ -2123,6 +2325,9 @@ impl GlobTool {
             .then(HashSet::new);
         let (mut walk_ms, mut admitted_directly, mut queued_behind_others) = (0u64, 0usize, false);
         for (group_root, rels, label) in &groups {
+            if capped {
+                break;
+            }
             if let Some(missing) = require_dir(ctx, &fwd(group_root.as_path()), group_root).await? {
                 errors.push(missing.trim_start_matches("Error: ").to_owned());
                 continue;
@@ -2745,19 +2950,26 @@ impl GrepTool {
                 if let Some(bodies) = self.combined_paths((ctx, sources), &args, &list, &patterns, per_path).await? {
                     return Ok(fanout_sections(Fanout::Path, &list, &bodies));
                 }
-                // `runGrepPathFanout`'s fallback: each path an independent grep.
-                let mut bodies = Vec::with_capacity(list.len());
-                for p in &list {
+                // `runGrepPathFanout`'s fallback: each path an independent grep, run concurrently.
+                let results = futures::future::try_join_all(list.iter().map(|p| {
                     let mut one = args.clone();
                     one["path"] = JsonValue::String(p.clone());
-                    bodies.push(match self.answer_one((ctx, sources), &one, &patterns, per_path, None, complete).await {
-                        Ok(text) => text,
-                        Err(e) if matches!(e.code, ToolErrorCode::Cancelled) => return Err(e),
-                        Err(e) => {
-                            *complete = false;
-                            e.message_for_model
+                    let patterns = &patterns;
+                    async move {
+                        let mut local_sources = SourceCache::default();
+                        let mut local_complete = true;
+                        match self.answer_one((ctx, &mut local_sources), &one, patterns, per_path, None, &mut local_complete).await {
+                            Ok(text) => Ok((text, local_complete)),
+                            Err(e) if matches!(e.code, ToolErrorCode::Cancelled) => Err(e),
+                            Err(e) => Ok((e.message_for_model, false)),
                         }
-                    });
+                    }
+                }))
+                .await?;
+                let mut bodies = Vec::with_capacity(results.len());
+                for (text, ok) in results {
+                    *complete &= ok;
+                    bodies.push(text);
                 }
                 return Ok(fanout_sections(Fanout::Path, &list, &bodies));
             }
@@ -2804,17 +3016,36 @@ impl GrepTool {
             let per_pattern = (budget / patterns.len()).max(512);
             let (bodies, residual, partial) = match self.combined_patterns((ctx, sources), &args, &patterns, per_pattern).await? {
                 Some(answer) => answer,
-                // `runPerPatternFanout`: each pattern an independent grep.
+                // `runPerPatternFanout`: each pattern an independent grep, scanned concurrently.
                 None => {
                     if self.no_candidate_files(ctx, &args, &patterns).await? {
                         return Ok(no_matches(true));
                     }
+                    let window = Window::of(&args, mode);
+                    let bound = window.stream_bound(mode);
+                    let collected = futures::future::try_join_all(patterns.iter().map(|pattern| async {
+                        match self.collect(ctx, &args, pattern, mode, bound, SearchClass::Interactive).await {
+                            Ok(found) => Ok(Ok(found)),
+                            Err(e) if matches!(e.code, ToolErrorCode::Cancelled) => Err(e),
+                            Err(e) => Ok(Err(e)),
+                        }
+                    }))
+                    .await?;
                     let mut bodies = Vec::with_capacity(patterns.len());
                     // A pattern's failure is its section's text (`runPattern`'s catch, grep-pattern-fanout.mjs:336-339).
-                    for pattern in &patterns {
-                        bodies.push(match self.search((ctx, sources), &args, pattern, mode, true, per_pattern, None, complete).await {
-                            Ok(text) => text,
-                            Err(e) if matches!(e.code, ToolErrorCode::Cancelled) => return Err(e),
+                    for (pattern, found) in patterns.iter().zip(collected) {
+                        bodies.push(match found {
+                            Ok(found) => {
+                                *complete &= found.complete && found.errors.is_empty();
+                                match Self::page((ctx, sources), found, window, pattern, (mode, true, false), per_pattern, None, Totals::Streamed).await {
+                                    Ok(paged) => paged.text,
+                                    Err(e) if matches!(e.code, ToolErrorCode::Cancelled) => return Err(e),
+                                    Err(e) => {
+                                        *complete = false;
+                                        e.message_for_model
+                                    }
+                                }
+                            }
                             Err(e) => {
                                 *complete = false;
                                 e.message_for_model
@@ -3358,17 +3589,27 @@ impl GrepTool {
         }
         let per_window = if window.limit == usize::MAX { 300 } else { window.offset.saturating_add(window.limit).saturating_add(4) };
         let cap = per_window.saturating_mul(roots.len()).clamp(400, 4000);
+        enum CombinedAbort {
+            Decline,
+            Error(ToolError),
+        }
+        let scans = futures::future::try_join_all(roots.iter().map(|(raw, _, _, _)| async {
+            let scanned = self.run_one_root(ctx, (raw, args, pattern, &globs), mode, Some(cap + 1), SearchClass::Interactive, u64::MAX).await;
+            match declined_on_failure(scanned) {
+                Ok(Some(s)) if s.complete && s.error.is_empty() && s.hits.len() <= cap => Ok(s),
+                Ok(_) => Err(CombinedAbort::Decline),
+                Err(e) => Err(CombinedAbort::Error(e)),
+            }
+        }))
+        .await;
+        let scans = match scans {
+            Ok(scans) => scans,
+            Err(CombinedAbort::Decline) => return Ok(None),
+            Err(CombinedAbort::Error(e)) => return Err(e),
+        };
         let mut sections = Vec::with_capacity(roots.len());
         let mut seen = 0usize;
-        for (raw, _, _, _) in &roots {
-            let scanned = self.run_one_root(ctx, (raw, args, pattern, &globs), mode, Some(cap + 1 - seen), SearchClass::Interactive, u64::MAX).await;
-            let Some(Scanned { hits, complete, error, single_file: is_file, .. }) = declined_on_failure(scanned)? else {
-                return Ok(None);
-            };
-            // A scan its deadline cut declines too (`runCombinedPathFanout` takes only a complete scan).
-            if !complete || !error.is_empty() {
-                return Ok(None);
-            }
+        for ((raw, _, _, _), Scanned { hits, single_file: is_file, .. }) in roots.iter().zip(scans) {
             seen += hits.len();
             if seen > cap {
                 return Ok(None);

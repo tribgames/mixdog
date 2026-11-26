@@ -469,6 +469,9 @@ pub struct GraphCache {
     /// Every graph admitted to `graphs`, with its heap bytes: one the cache evicted while a call still uses it stays
     /// alive and counts against the heap budget until that call is done.
     tracked: Mutex<Vec<(Weak<Graph>, u64)>>,
+    /// Per key, the last generation the budget declined, while a call still uses it: the next caller of that key takes it
+    /// as its base (as it is when still valid) instead of parsing the tree again beside it.
+    declined: Mutex<HashMap<String, Weak<Graph>>>,
     /// Each root's last built graph as `(file-set signature, heap bytes)`, kept in `<dir>/heap.note` across restarts:
     /// what a warm asks to know whether the root's current graph would be admitted. Loaded on first use.
     heap_notes: Mutex<Option<BTreeMap<String, (u64, u64)>>>,
@@ -878,6 +881,7 @@ impl GraphCache {
             ledger: Arc::new(Ledger::new()),
             generations: AtomicU64::new(0),
             tracked: Mutex::default(),
+            declined: Mutex::default(),
             heap_notes: Mutex::new(None),
             graph_heap_max_bytes: (env_count("MIXDOG_CODE_GRAPH_HEAP_MAX_MB", DEFAULT_GRAPH_HEAP_MB, 1.0) * 1024.0 * 1024.0).floor() as u64,
             #[cfg(test)]
@@ -974,6 +978,48 @@ impl GraphCache {
         let _turn = lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         note(|t| t.root_wait_ms += elapsed_ms(waited));
         self.reconcile(root, &key).map(|graph| Lease { graph })
+    }
+
+    /// Re-parses only `rels` (and/or re-links manifests when `force_relink` is set) against the
+    /// current generation, without walking the project tree or hashing untouched files.
+    pub(super) fn reparse_files(&self, root: &Path, excluded: &[PathBuf], from: &Arc<Graph>, rels: &[String], force_relink: bool) -> Result<Lease, String> {
+        let key = identity_key(root)?;
+        let held = if excluded.is_empty() { key.clone() } else { scoped_key(&key, excluded) };
+        let lock = self.root_lock(&held);
+        let waited = Instant::now();
+        let _turn = lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        note(|t| t.root_wait_ms += elapsed_ms(waited));
+        let hints = self.ledger.snapshot(&key);
+        let base = self.current(&held).unwrap_or_else(|| from.clone());
+        let base_key = key.trim_end_matches('/');
+        if !Arc::ptr_eq(&base, from)
+            && !force_relink
+            && !base.source_stale()
+            && base.resolver_inputs_current()
+            && rels.iter().all(|rel| {
+                let id = format!("{base_key}/{}", super::graph::fold(rel));
+                hints.get(&id).is_some_and(|rev| base.receipts.get(&id) == Some(rev))
+            })
+        {
+            note(|t| t.retained = Some(true));
+            return Ok(Lease { graph: base });
+        }
+        let graph = base.reparse_subset(&key, rels, &hints, force_relink, excluded.is_empty().then_some(self))?;
+        drop(base);
+        let generation = if excluded.is_empty() { self.generations.fetch_add(1, Ordering::SeqCst) + 1 } else { 0 };
+        let admitting = Instant::now();
+        let kept = self.hold_with(held, graph.clone(), excluded.is_empty());
+        note(|t| {
+            t.admission_ms += elapsed_ms(admitting);
+            t.retained = Some(kept);
+            if generation != 0 {
+                t.generation = generation;
+            }
+        });
+        if excluded.is_empty() && kept && !graph.unchanged {
+            self.stage_held(root, &key, &graph, generation);
+        }
+        Ok(Lease { graph })
     }
 
     /// One refresh, inside the root's turn: the inventory of the tree, the base chosen once, the generation made over it
@@ -1149,15 +1195,23 @@ impl GraphCache {
         unresolved
     }
 
-    /// The generation held for `key` (now the newest).
+    /// The generation held for `key` (now the newest), else the declined one a call still uses.
     fn current(&self, key: &str) -> Option<Arc<Graph>> {
         let mut all = self.graphs.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let at = all.iter().position(|h| h.key == key)?;
-        let mut entry = all.remove(at);
-        entry.used = Instant::now();
-        let graph = entry.graph.clone();
-        all.push(entry);
-        Some(graph)
+        if let Some(at) = all.iter().position(|h| h.key == key) {
+            let mut entry = all.remove(at);
+            entry.used = Instant::now();
+            let graph = entry.graph.clone();
+            all.push(entry);
+            return Some(graph);
+        }
+        drop(all);
+        let mut declined = self.declined.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let graph = declined.get(key).and_then(Weak::upgrade);
+        if graph.is_none() {
+            declined.remove(key);
+        }
+        graph
     }
 
     /// Publishes `graph` as its root's generation, replacing the previous one in one step under the lock; `false` when it
@@ -1173,20 +1227,23 @@ impl GraphCache {
         if noted {
             self.record_heap(&key, graph.signature, bytes);
         }
+        let weak = Arc::downgrade(&graph);
         let mut all = self.graphs.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         all.retain(|h| h.key != key);
-        if !self.admits(bytes, &all) {
-            return false;
+        let kept = self.admits(bytes, &all) && {
+            all.push(Held { key: key.clone(), bytes, graph, used: Instant::now() });
+            self.prune_graphs(&mut all);
+            // The newest is the last to go, so it is gone only when it could not stay beside graphs still in use.
+            all.last().is_some_and(|h| std::ptr::eq(Arc::as_ptr(&h.graph), weak.as_ptr()))
+        };
+        let mut declined = self.declined.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if kept {
+            declined.remove(&key);
+            self.tracked.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((weak, bytes));
+        } else {
+            declined.insert(key, weak);
         }
-        let weak = Arc::downgrade(&graph);
-        all.push(Held { key, bytes, graph, used: Instant::now() });
-        self.prune_graphs(&mut all);
-        // The newest is the last to go, so it is gone only when it could not stay beside graphs still in use.
-        if !all.last().is_some_and(|h| std::ptr::eq(Arc::as_ptr(&h.graph), weak.as_ptr())) {
-            return false;
-        }
-        self.tracked.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((weak, bytes));
-        true
+        kept
     }
 
     #[cfg(test)]
@@ -1455,6 +1512,7 @@ impl GraphCache {
         }
         // The root's scoped builds go with it.
         self.graphs.lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(|h| h.key != key && !h.key.starts_with(&scoped));
+        self.declined.lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(|held, _| held != key && !held.starts_with(&scoped));
         if self.heap_note(key).is_some() {
             let mut notes = self.heap_notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(notes) = notes.as_mut() {

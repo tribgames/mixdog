@@ -84,6 +84,10 @@ enum Observation {
 }
 
 impl ObservedInput {
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+
     pub fn is_current(&self) -> bool {
         let path = &self.0;
         let now = match &self.1 {

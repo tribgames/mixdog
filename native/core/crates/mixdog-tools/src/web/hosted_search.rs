@@ -51,6 +51,13 @@ pub struct SearchCandidate {
     pub tool_type: Option<String>,
 }
 
+/// Outcome of resolving web-search routes for one search.
+#[derive(Clone, Debug)]
+pub enum SearchRouteResolution {
+    Candidates(Vec<SearchCandidate>),
+    Unavailable(String),
+}
+
 /// The web-search route chain (Node `nativeWebSearchRoutes`), already
 /// resolved to candidates: de-duplicated by provider and model, in route order. Both
 /// reads are the asking thread's runtime's.
@@ -59,6 +66,15 @@ pub trait SearchRoutes: Send + Sync {
     async fn candidates(&self, thread: &ThreadId) -> Result<Vec<SearchCandidate>, String>;
     /// Why the chain produced no candidate (Node `noCandidateError`).
     async fn no_candidate_message(&self, thread: &ThreadId) -> String;
+    /// Resolves candidates for one search and, when none exist, builds the
+    /// unavailable message from that lookup without retaining state.
+    async fn resolve(&self, thread: &ThreadId) -> Result<SearchRouteResolution, String> {
+        let candidates = self.candidates(thread).await?;
+        if candidates.is_empty() {
+            return Ok(SearchRouteResolution::Unavailable(self.no_candidate_message(thread).await));
+        }
+        Ok(SearchRouteResolution::Candidates(candidates))
+    }
 }
 
 /// One request to a provider with the hosted search tool attached.
@@ -463,10 +479,10 @@ fn flatten_acp_citations(citations: &[NativeSource], calls: &[SearchCall]) -> Ve
 #[async_trait]
 impl NativeWebSearch for HostedWebSearch {
     async fn search(&self, request: NativeSearchRequest, cancel: CancellationToken) -> Result<NativeSearchResult, NativeSearchError> {
-        let candidates = self.routes.candidates(&request.thread).await.map_err(NativeSearchError::Failed)?;
-        if candidates.is_empty() {
-            return Err(NativeSearchError::Unavailable(self.routes.no_candidate_message(&request.thread).await));
-        }
+        let candidates = match self.routes.resolve(&request.thread).await.map_err(NativeSearchError::Failed)? {
+            SearchRouteResolution::Candidates(candidates) => candidates,
+            SearchRouteResolution::Unavailable(message) => return Err(NativeSearchError::Unavailable(message)),
+        };
         let mut errors: Vec<String> = Vec::new();
         let mut unavailable: Vec<String> = Vec::new();
         for candidate in candidates {

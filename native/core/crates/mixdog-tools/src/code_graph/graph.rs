@@ -15,7 +15,7 @@ use mixdog_graph::lang::{lang_for, lang_static};
 use mixdog_graph::outline;
 use mixdog_graph::resolve::{ImportRecord, ObservedInput, extract_top_level_types, resolve_and_link_observing};
 use mixdog_graph::scan_lang::{ScanLang, scan_lang_for_path};
-use mixdog_graph::{MAX_FILE_BYTES, walk_classified_files};
+use mixdog_graph::{MAX_FILE_BYTES, walk_classified_files_with_meta};
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 
@@ -26,9 +26,9 @@ use super::roots::{identity_key, path_key};
 use super::symbols::{Sym, Symbols};
 
 // File versions. A file's *discovery* fingerprint is `(size, mtime_ns)`: a file whose fingerprint equals the one a record
-// was made at is not read again (nobody hashes unchanged files). A rewrite from outside that preserves both size and
-// modification time is not detected by discovery alone. Before serving derived answers we verify the record's digest
-// against accessible source bytes. A mismatch invalidates that record's version so the next refresh parses it again.
+// was made at is not read again (nobody hashes unchanged files). Session writes record a ledger revision (`note_changed`)
+// so same-stamp writes are still re-parsed; when a query reads a file's source or targets an explicit file anchor, that
+// file's digest is verified against disk and a mismatch re-parses only that file.
 
 /// SHA-256 of a file's bytes: the version of what a record was parsed from.
 pub(super) fn digest_of(bytes: &[u8]) -> [u8; 32] {
@@ -145,6 +145,7 @@ fn rel_of(root: &Path, path: &Path) -> Option<String> {
 pub(super) struct Origin {
     root: PathBuf,
     stale: AtomicBool,
+    stale_files: Mutex<Vec<String>>,
     /// Shared by every generation of one root: records carry ids into it, so a carried record stays valid.
     words: Arc<Mutex<Words>>,
     /// Where a source that is not what its record was parsed from is reported: the ledger keeps it (surviving the graph's
@@ -280,17 +281,33 @@ impl WordTable {
 
 impl Origin {
     fn new(root: &Path, invalid: Option<Arc<Ledger>>) -> Arc<Self> {
-        Arc::new(Self { root: root.to_path_buf(), stale: AtomicBool::new(false), words: Arc::default(), invalid })
+        Arc::new(Self { root: root.to_path_buf(), stale: AtomicBool::new(false), stale_files: Mutex::default(), words: Arc::default(), invalid })
     }
 
     /// The origin of the next generation: the same root and words, a stale mark of its own (a read that found a file
     /// changed under an older generation must not condemn this one).
     fn successor(&self) -> Arc<Self> {
-        Arc::new(Self { root: self.root.clone(), stale: AtomicBool::new(false), words: self.words.clone(), invalid: self.invalid.clone() })
+        Arc::new(Self {
+            root: self.root.clone(),
+            stale: AtomicBool::new(false),
+            stale_files: Mutex::default(),
+            words: self.words.clone(),
+            invalid: self.invalid.clone(),
+        })
     }
 
     fn words(&self) -> std::sync::MutexGuard<'_, Words> {
         self.words.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn mark_stale(&self, rel: &str) {
+        self.stale.store(true, Ordering::SeqCst);
+        let mut files = self.stale_files.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !files.iter().any(|seen| seen == rel) {
+            files.push(rel.to_owned());
+        }
+        drop(files);
+        self.invalidate(rel);
     }
 
     /// A source read for `rel` was not what its record was parsed from: a new revision of the file in the ledger, so the
@@ -573,7 +590,7 @@ pub(super) struct Graph {
     /// [`signature_of`] the indexed files when it was built (whole-tree builds only).
     pub signature: u64,
     /// What the import resolver looked at when it linked this graph, with the `(size, mtime)` of each as it was.
-    inputs: Vec<ObservedInput>,
+    inputs: Arc<Vec<ObservedInput>>,
     origin: Arc<Origin>,
 }
 
@@ -581,8 +598,14 @@ pub(super) struct Graph {
 thread_local! {
     /// How many files the calling thread's parses have read (a refresh on a thread parses few, on that thread).
     pub(super) static PARSED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// How many project-wide inventory walks the calling thread has run.
+    pub(super) static INVENTORIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// How many source-digest verification reads the calling thread has run.
+    pub(super) static VERIFIED_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// Runs on the reading thread after each read of a file, before its stamp is compared with the one before it.
     pub(super) static AFTER_READ: std::cell::RefCell<Option<Box<dyn FnMut()>>> = const { std::cell::RefCell::new(None) };
+    /// Runs on the calling thread just before `stale_resolver_inputs` checks manifest observations.
+    pub(super) static BEFORE_RESOLVER_CHECK: std::cell::RefCell<Option<Box<dyn FnMut()>>> = const { std::cell::RefCell::new(None) };
 }
 
 /// What one file became in a generation.
@@ -590,6 +613,14 @@ enum Slot {
     Node(Node),
     /// Its bytes changed while they were read: it is not in the graph this time.
     Unverified(String),
+}
+
+/// A re-parse's nodes on the next generation `origin`, the files it left unindexed, and whether an import changed.
+struct Reparsed {
+    origin: Arc<Origin>,
+    nodes: Vec<Node>,
+    unverified: Vec<String>,
+    imports_changed: bool,
 }
 
 /// One eligible file of an inventory.
@@ -825,6 +856,8 @@ impl Node {
     }
 
     fn verify_source_into(&self, bytes: &mut Vec<u8>, for_body: bool) -> bool {
+        #[cfg(test)]
+        VERIFIED_READS.with(|n| n.set(n.get() + 1));
         bytes.clear();
         // The size the record was parsed at: a read into a growing buffer would hold up to twice the text.
         if let Some((size, _)) = self.fingerprint {
@@ -837,8 +870,7 @@ impl Node {
         };
         let current = read().unwrap_or(false);
         if !current {
-            self.origin.stale.store(true, Ordering::SeqCst);
-            self.origin.invalidate(&self.rel);
+            self.origin.mark_stale(&self.rel);
         }
         current
     }
@@ -977,6 +1009,8 @@ impl Graph {
     /// The eligible files of `root` with their fingerprints, from one walk: what membership, fingerprints and a refresh
     /// are all derived from. Nothing is parsed.
     pub(super) fn inventory(root: &Path, key: &str, excluded: &[PathBuf]) -> Result<Vec<Entry>, String> {
+        #[cfg(test)]
+        INVENTORIES.with(|n| n.set(n.get() + 1));
         let started = std::time::Instant::now();
         let entries = indexed_files(root, key, excluded);
         super::cache::note(|t| t.inventory_ms += super::cache::elapsed_ms(started));
@@ -1100,7 +1134,7 @@ impl Graph {
         let mut graph = Self::assemble(nodes, origin);
         graph.unverified = unverified;
         graph.unchanged = unchanged;
-        graph.inputs = inputs;
+        graph.inputs = Arc::new(inputs);
         graph.signature = inventory_signature(entries);
         graph.receipts = receipts;
         if let Some(cache) = cache {
@@ -1149,26 +1183,53 @@ impl Graph {
         self.unverified.is_empty() && !self.origin.stale.load(Ordering::SeqCst) && self.resolver_inputs_current()
     }
 
-    pub(super) fn resolver_inputs_current(&self) -> bool {
+    pub(super) fn stale_resolver_inputs(&self) -> Vec<PathBuf> {
+        #[cfg(test)]
+        BEFORE_RESOLVER_CHECK.with(|hook| {
+            if let Some(hook) = hook.borrow_mut().as_mut() {
+                hook();
+            }
+        });
         let started = std::time::Instant::now();
-        let current = self.inputs.iter().all(ObservedInput::is_current);
+        let stale: Vec<PathBuf> = self.inputs.iter().filter(|input| !input.is_current()).map(|input| input.path().to_path_buf()).collect();
         super::cache::note(|t| t.resolver_check_ms += super::cache::elapsed_ms(started));
-        current
+        stale
     }
 
-    /// All nodes can contribute to metadata-only answers, including a negative result.
-    pub(super) fn verify_records(&self) -> bool {
+    pub(super) fn resolver_inputs_current(&self) -> bool {
+        self.stale_resolver_inputs().is_empty()
+    }
+
+    /// Verifies only the named anchor nodes against disk so explicit file-anchored queries
+    /// detect same-stamp rewrites without reading or hashing the rest of the project.
+    pub(super) fn verify_nodes(&self, rels: &[String]) -> bool {
+        if rels.is_empty() {
+            return true;
+        }
         let started = std::time::Instant::now();
         let mut bytes = Vec::new();
         let mut current = true;
-        for node in &self.nodes {
-            current &= node.verify_source_into(&mut bytes, false);
+        let mut verified = 0usize;
+        let mut seen = HashSet::new();
+        for rel in rels {
+            if !seen.insert(rel.as_str()) {
+                continue;
+            }
+            if let Some(node) = self.node(rel) {
+                current &= node.verify_source_into(&mut bytes, false);
+                verified += 1;
+            }
         }
         super::cache::note(|t| {
             t.verify_ms += super::cache::elapsed_ms(started);
-            t.verified += self.nodes.len();
+            t.verified += verified;
         });
         current
+    }
+
+    /// The relative paths whose source reads did not match this generation's digest.
+    pub fn stale_files(&self) -> Vec<String> {
+        self.origin.stale_files.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     /// The graph's words, by token id: a copy of the table's two buffers, read without holding its lock.
@@ -1281,20 +1342,213 @@ impl Graph {
         bytes
     }
 
-    /// One file on its own, rooted at `root` (a symbol outline needs no edges).
-    pub fn build_single(root: &Path, file: &Path) -> Result<Option<Graph>, String> {
-        let Some(lang) = file.extension().and_then(|s| s.to_str()).and_then(lang_for).map(lang_static) else {
-            return Ok(None);
-        };
-        if std::fs::metadata(file).map_err(|e| e.to_string())?.len() > MAX_FILE_BYTES {
+    /// A small explicit set of files on their own, rooted at `root`, without walking the project
+    /// or linking edges. Returns `Ok(None)` when any file is outside `root`, unsupported, or over
+    /// `MAX_FILE_BYTES`, so the caller can fall back to the full graph.
+    pub(super) fn build_files(root: &Path, files: &[PathBuf]) -> Result<Option<Graph>, String> {
+        if files.is_empty() {
             return Ok(None);
         }
+        let mut targets: Vec<(PathBuf, String, &'static str)> = Vec::with_capacity(files.len());
+        let mut seen = HashSet::new();
+        for file in files {
+            let Some(lang) = file.extension().and_then(|s| s.to_str()).and_then(lang_for).map(lang_static) else {
+                return Ok(None);
+            };
+            let meta = match std::fs::metadata(file) {
+                Ok(meta) => meta,
+                Err(_) => return Ok(None),
+            };
+            if !meta.is_file() || meta.len() > MAX_FILE_BYTES {
+                return Ok(None);
+            }
+            let (path, rel) = match file.strip_prefix(root) {
+                Ok(relative) => (file.clone(), relative.to_string_lossy().replace('\\', "/")),
+                Err(_) => {
+                    let rel = super::dispatch::display_rel(file, root);
+                    if rel.is_empty() || Path::new(&rel).is_absolute() {
+                        return Ok(None);
+                    }
+                    (root.join(&rel), rel)
+                }
+            };
+            if seen.insert(rel.clone()) {
+                targets.push((path, rel, lang));
+            }
+        }
         let origin = Origin::new(root, None);
-        let Some(record) = parse_record(root, file, lang, &origin)? else {
-            return Err(format!("code_graph: {} changed while it was being read; run the query again", file.display()));
+        let started = std::time::Instant::now();
+        let parse_one = |(path, rel, lang): &(PathBuf, String, &'static str)| -> Result<Slot, String> {
+            match parse_record(root, path, lang, &origin)? {
+                Some(record) => Ok(Slot::Node(Node::of(Arc::new(record), &origin))),
+                None => Ok(Slot::Unverified(rel.clone())),
+            }
         };
-        let node = Node::of(Arc::new(record), &origin);
-        Ok(Some(Self::assemble(vec![node], origin)))
+        let made: Vec<Slot> = if targets.len() > 4 {
+            targets.par_iter().map(parse_one).collect::<Result<Vec<_>, _>>()?
+        } else {
+            targets.iter().map(parse_one).collect::<Result<Vec<_>, _>>()?
+        };
+        let mut nodes = Vec::with_capacity(made.len());
+        let mut unverified = Vec::new();
+        for slot in made {
+            match slot {
+                Slot::Node(node) => nodes.push(node),
+                Slot::Unverified(rel) => unverified.push(rel),
+            }
+        }
+        super::cache::note(|t| {
+            t.parse_ms += super::cache::elapsed_ms(started);
+            t.parsed += nodes.len();
+            t.omitted += unverified.len();
+        });
+        origin.words().settle();
+        let mut graph = Self::assemble(nodes, origin);
+        graph.unverified = unverified;
+        Ok(Some(graph))
+    }
+
+    fn reparse_nodes(&self, target_set: &HashSet<&str>, carry_imports: bool) -> Result<Reparsed, String> {
+        let origin = self.origin.successor();
+        let started = std::time::Instant::now();
+        let mut nodes = Vec::with_capacity(self.nodes.len());
+        let mut unverified: Vec<String> = self.unverified.iter().filter(|rel| !target_set.contains(rel.as_str())).cloned().collect();
+        let mut imports_changed = false;
+        let (mut reused, mut parsed, mut omitted) = (0usize, 0usize, 0usize);
+
+        for node in &self.nodes {
+            if !target_set.contains(node.rel.as_str()) {
+                let mut carried = Node::of(node.record.clone(), &origin);
+                if carry_imports {
+                    carried.resolved_imports = node.resolved_imports.clone();
+                }
+                nodes.push(carried);
+                reused += 1;
+                continue;
+            }
+            let path = self.origin.root.join(&node.rel);
+            let eligible = std::fs::symlink_metadata(&path).ok().is_some_and(|m| m.is_file() && m.len() <= MAX_FILE_BYTES);
+            if !eligible {
+                imports_changed = true;
+                continue;
+            }
+            parsed += 1;
+            match parse_record(&self.origin.root, &path, node.lang, &origin)? {
+                Some(record) => {
+                    if carry_imports
+                        && (record.raw_imports != node.raw_imports
+                            || record.package_name != node.package_name
+                            || record.namespace_name != node.namespace_name
+                            || record.top_level_types != node.top_level_types)
+                    {
+                        imports_changed = true;
+                    }
+                    let mut updated = Node::of(Arc::new(record), &origin);
+                    if carry_imports {
+                        updated.resolved_imports = node.resolved_imports.clone();
+                    }
+                    nodes.push(updated);
+                }
+                None => {
+                    unverified.push(node.rel.clone());
+                    imports_changed = true;
+                    omitted += 1;
+                }
+            }
+        }
+        super::cache::note(|t| {
+            t.parse_ms += super::cache::elapsed_ms(started);
+            t.reused += reused;
+            t.parsed += parsed;
+            t.omitted += omitted;
+        });
+        origin.words().settle();
+        Ok(Reparsed { origin, nodes, unverified, imports_changed })
+    }
+
+    /// Re-parses only `rels` against the current generation, carrying over every other node's
+    /// record and edges without walking the tree. Re-links only when a re-parsed file changed
+    /// its import metadata, was removed/unverified, or `force_relink` is set.
+    pub(super) fn reparse_subset(
+        &self,
+        key: &str,
+        rels: &[String],
+        hints: &Receipts,
+        force_relink: bool,
+        cache: Option<&GraphCache>,
+    ) -> Result<Arc<Graph>, String> {
+        let target_set: HashSet<&str> = rels.iter().map(String::as_str).collect();
+        let Reparsed { origin, mut nodes, unverified, imports_changed } = self.reparse_nodes(&target_set, true)?;
+
+        let inputs = if imports_changed || force_relink || !self.resolver_inputs_current() {
+            let linking = std::time::Instant::now();
+            let linked = link_stable(&self.origin.root, &mut nodes)?;
+            super::cache::note(|t| t.link_ms += super::cache::elapsed_ms(linking));
+            Arc::new(linked)
+        } else {
+            self.inputs.clone()
+        };
+
+        let base_key = key.trim_end_matches('/');
+        let mut receipts = self.receipts.clone();
+        for rel in &target_set {
+            let id = format!("{base_key}/{}", fold(rel));
+            if unverified.iter().any(|u| u == rel) {
+                receipts.remove(&id);
+            } else if let Some(&rev) = hints.get(&id) {
+                receipts.insert(id, rev);
+            }
+        }
+        let signature = signature_of(nodes.iter().map(|n| (n.rel.as_str(), n.fingerprint)));
+
+        let assembling = std::time::Instant::now();
+        let mut graph = Self::assemble(nodes, origin);
+        graph.unverified = unverified;
+        graph.unchanged = false;
+        graph.inputs = inputs;
+        graph.signature = signature;
+        graph.receipts = receipts;
+        if let Some(cache) = cache {
+            graph.attach_lookups(key, Some(self), cache);
+        }
+        super::cache::note(|t| t.assemble_ms += super::cache::elapsed_ms(assembling));
+        Ok(Arc::new(graph))
+    }
+
+    /// Re-parses only `rels` on a standalone (`build_files`) graph without linking or caching.
+    pub(super) fn reparse_subset_standalone(&self, rels: &[String]) -> Result<Arc<Graph>, String> {
+        let target_set: HashSet<&str> = rels.iter().map(String::as_str).collect();
+        let Reparsed { origin, nodes, unverified, .. } = self.reparse_nodes(&target_set, false)?;
+        let mut graph = Self::assemble(nodes, origin);
+        graph.unverified = unverified;
+        Ok(Arc::new(graph))
+    }
+
+    /// A view of this graph with persistently unstable files omitted into `unverified`, so the
+    /// query can still answer for the rest of the project with a completeness warning.
+    pub(super) fn without_unverified(&self, drop_rels: &HashSet<String>) -> Arc<Graph> {
+        let origin = self.origin.successor();
+        let mut nodes = Vec::with_capacity(self.nodes.len());
+        for node in &self.nodes {
+            if drop_rels.contains(&node.rel) {
+                continue;
+            }
+            let mut carried = Node::of(node.record.clone(), &origin);
+            carried.resolved_imports = node.resolved_imports.clone();
+            let _ = carried.runtime.set(self.lookups.clone());
+            nodes.push(carried);
+        }
+        let mut unverified = self.unverified.clone();
+        let mut added: Vec<String> = drop_rels.iter().filter(|rel| !unverified.contains(*rel)).cloned().collect();
+        added.sort();
+        unverified.extend(added);
+        let mut graph = Self::assemble(nodes, origin);
+        graph.unverified = unverified;
+        graph.inputs = self.inputs.clone();
+        graph.signature = self.signature;
+        graph.receipts = self.receipts.clone();
+        graph.lookups = self.lookups.clone();
+        Arc::new(graph)
     }
 
     fn assemble(nodes: Vec<Node>, origin: Arc<Origin>) -> Graph {
@@ -1332,27 +1586,28 @@ impl Graph {
             unchanged: false,
             lookups: Lookups::default(),
             signature: 0,
-            inputs: Vec::new(),
+            inputs: Arc::default(),
             origin,
         }
     }
 }
-/// The eligible files of a graph over `root`, sorted, each with its fingerprint: one walk, one stat per file.
+/// The eligible files of a graph over `root`, sorted, each with its fingerprint: one parallel walk
+/// reading directory-entry metadata directly (no second per-file `stat` on Windows).
 fn indexed_files(root: &Path, key: &str, excluded: &[PathBuf]) -> Result<Vec<Entry>, String> {
     let base = key.trim_end_matches('/');
-    let mut candidates = walk_classified_files(root, |p| p.extension().and_then(|s| s.to_str()).and_then(lang_for))?;
-    if !excluded.is_empty() {
-        let prefixes: Vec<String> = excluded.iter().map(|path| path_key(path)).collect();
-        candidates.retain(|(path, _)| {
-            let key = path_key(path);
-            !prefixes.iter().any(|prefix| key == *prefix || key.starts_with(&format!("{prefix}/")))
-        });
-    }
+    let prefixes: Vec<String> = excluded.iter().map(|path| path_key(path)).collect();
+    let skip_dir = |dir: &Path| {
+        if prefixes.is_empty() {
+            return false;
+        }
+        let dir_key = path_key(dir);
+        prefixes.iter().any(|prefix| dir_key == *prefix || dir_key.starts_with(&format!("{prefix}/")))
+    };
+    let mut candidates = walk_classified_files_with_meta(root, |p| p.extension().and_then(|s| s.to_str()).and_then(lang_for), skip_dir)?;
     candidates.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(candidates
-        .into_par_iter()
-        .filter_map(|(path, lang)| {
-            let meta = std::fs::metadata(&path).ok()?;
+        .into_iter()
+        .filter_map(|(path, lang, meta)| {
             if meta.len() > MAX_FILE_BYTES {
                 return None;
             }

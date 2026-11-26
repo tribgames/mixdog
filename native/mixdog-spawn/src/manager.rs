@@ -57,7 +57,7 @@ use crate::pty::Root;
 /// `limits.maxProcesses`, the replay ring and the other bounds of one manager.
 #[derive(Clone, Debug)]
 pub struct ProcessConfig {
-    /// Live processes the manager admits (SPEC §3.1: 64).
+    /// Live processes the manager admits (`0` = uncapped; concurrency is bounded by shell admission).
     pub max_processes: u32,
     /// Replay ring of a process feed, and the most a subscriber may trail its reader.
     pub ring_bytes: usize,
@@ -77,7 +77,7 @@ pub struct ProcessConfig {
 impl Default for ProcessConfig {
     fn default() -> Self {
         Self {
-            max_processes: 64,
+            max_processes: 0,
             ring_bytes: 4 * 1024 * 1024,
             retained_exits: 256,
             input_queue_bytes: 1024 * 1024,
@@ -633,7 +633,11 @@ impl Inner {
             _ => {}
         }
         let limit = self.config.max_processes;
-        self.live.try_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < limit).then_some(n + 1)).map_err(|_| ProcessError::LimitReached { limit })?;
+        if limit > 0 {
+            self.live.try_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < limit).then_some(n + 1)).map_err(|_| ProcessError::LimitReached { limit })?;
+        } else {
+            self.live.fetch_add(1, Ordering::AcqRel);
+        }
         self.prune_exited(&mut table.slots);
         table.owned.retain(|owned| *owned.done.borrow() != Some(true) || !owned.containment.shutdown_idle());
         for owned in &mut table.owned {

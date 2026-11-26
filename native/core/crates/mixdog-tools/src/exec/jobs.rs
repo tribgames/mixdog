@@ -44,6 +44,8 @@ use regex::Regex;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
+use super::admission::LocalShellAdmission;
+use super::admission::ShellAdmission;
 use super::codepage::Label;
 use super::codepage::ShellStreamDecoder;
 use super::codepage::Sniffer;
@@ -340,8 +342,13 @@ pub struct ExitFacts {
 
 impl ExitFacts {
     /// A failed end with no exit of a process to tell (an exit never seen, an outcome lost to a restart), with `error`.
-    fn failed(error: Option<String>) -> Self {
+    pub(super) fn failed(error: Option<String>) -> Self {
         Self { status: JobStatus::Failed, exit_code: None, timed_out: false, signal: None, error }
+    }
+
+    /// A queued shell task cancelled before its process ever spawned.
+    pub(super) fn cancelled() -> Self {
+        Self { status: JobStatus::Cancelled, exit_code: Some(mixdog_spawn::tasks::KILLED_EXIT_CODE), timed_out: false, signal: None, error: None }
     }
 
     /// A command killed for writing past [`OUTPUT_DISK_CAP`] failed, and says so.
@@ -748,6 +755,14 @@ struct JobState {
     last_output_ms: Option<u64>,
     /// The command wrote past [`OUTPUT_DISK_CAP`] and was killed for it.
     output_capped: bool,
+    /// Cancels a queued shell task before or during its admission wait.
+    queued_cancel: Option<CancellationToken>,
+    /// Terminal outcome of a queued task that ended before a process exited (cancelled while queued or spawn failed).
+    terminal_override: Option<ExitFacts>,
+    /// Whether this job has opened (or recovered) spill log files on disk; `false` while queued before spawn.
+    has_logs: bool,
+    /// Stdin write error recorded before killing the child so detached jobs fail instead of reading as cancelled.
+    input_failure: Option<String>,
 }
 
 impl JobState {
@@ -768,6 +783,10 @@ impl JobState {
             promoted_ms: None,
             last_output_ms: None,
             output_capped: false,
+            queued_cancel: None,
+            terminal_override: None,
+            has_logs: true,
+            input_failure: None,
         }
     }
 
@@ -1164,6 +1183,7 @@ pub struct ExecRuntime {
     #[cfg(test)]
     cleanups: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     pub(crate) standby: Arc<super::standby::Standby>,
+    admission: Mutex<Arc<dyn ShellAdmission>>,
     weak: std::sync::Weak<Self>,
     expiry_wake: Arc<tokio::sync::Notify>,
 }
@@ -1963,11 +1983,26 @@ impl Job {
         self.status_locked(&self.state())
     }
 
-    /// How the job ended: its process's exit, or what the record of a recovered job says.
+    /// How the job ended: a queued-before-spawn outcome, a recovered record, or its process's exit.
     fn end_of(&self, state: &JobState) -> Option<ExitFacts> {
+        if let Some(end) = &state.terminal_override {
+            return Some(end.clone());
+        }
         match &self.recovered {
             Some(end) => Some(end.clone()),
             None => state.exit.as_ref().map(|exit| self.facts_of(state, exit)),
+        }
+    }
+
+    /// Cancels a queued shell job's admission wait; `true` when the job was started as a queued task.
+    pub(crate) fn cancel_queued(&self) -> bool {
+        let token = self.state().queued_cancel.clone();
+        match token {
+            Some(token) => {
+                token.cancel();
+                true
+            }
+            None => false,
         }
     }
 
@@ -2046,6 +2081,15 @@ impl Job {
         state.promoted_ms.unwrap_or(self.started_ms)
     }
 
+    /// Records a stdin script-write failure before killing the child so detached/queued jobs report
+    /// the input failure rather than cancellation.
+    pub(super) fn mark_input_failure(&self, message: String) {
+        let mut state = self.state();
+        if !state.finished && state.input_failure.is_none() {
+            state.input_failure = Some(message);
+        }
+    }
+
     /// `exit_facts`, with the cause of a time-limit kill saying how much of the limit was left at
     /// promotion (`timed out after 985 ms`).
     fn facts_of(&self, state: &JobState, exit: &ProcessExit) -> ExitFacts {
@@ -2056,6 +2100,14 @@ impl Job {
         }
         if state.output_capped {
             facts.mark_output_capped();
+        }
+        if !facts.timed_out
+            && let Some(message) = &state.input_failure
+        {
+            facts.status = JobStatus::Failed;
+            facts.exit_code = None;
+            facts.signal = None;
+            facts.error = Some(message.clone());
         }
         facts
     }
@@ -2236,7 +2288,7 @@ impl Job {
         if self.recovered.is_some() {
             lines.push("recovered: true".into());
         }
-        if !self.survivors {
+        if !self.survivors && self.state().has_logs {
             lines.push(self.logs_line());
             lines.extend(self.log_note());
         }
@@ -2278,7 +2330,7 @@ impl Job {
         if let Some(notify) = &self.notify {
             let exit_code = {
                 let state = self.state();
-                state.exit.and_then(|exit| self.facts_of(&state, &exit).exit_code)
+                self.end_of(&state).and_then(|facts| facts.exit_code)
             };
             let meta = serde_json::json!({
                 "type": "shell_task_result",
@@ -2335,9 +2387,11 @@ impl Job {
             out.push(format!("<exit-code>{code}</exit-code>"));
         }
         out.push(format!("<summary>{}</summary>", escape_field(&summary)));
-        out.push(format!("<output-file>{}</output-file>", escape_field(&shown_path(&self.stdout_log))));
-        if let Some(note) = self.log_note() {
-            out.push(escape_field(&note));
+        if state.has_logs {
+            out.push(format!("<output-file>{}</output-file>", escape_field(&shown_path(&self.stdout_log))));
+            if let Some(note) = self.log_note() {
+                out.push(escape_field(&note));
+            }
         }
         if !result.is_empty() {
             out.push(format!("<result>\n{result}\n</result>"));
@@ -2351,6 +2405,10 @@ impl Job {
 }
 impl ExecRuntime {
     pub fn new(config: ExecConfig) -> Arc<Self> {
+        Self::with_admission(config, Arc::new(LocalShellAdmission::from_env(&|k| std::env::var(k).ok())))
+    }
+
+    pub fn with_admission(config: ExecConfig, admission: Arc<dyn ShellAdmission>) -> Arc<Self> {
         Arc::new_cyclic(|weak| Self {
             config,
             jobs: Mutex::new(JobTable::default()),
@@ -2364,9 +2422,19 @@ impl ExecRuntime {
             #[cfg(test)]
             cleanups: Mutex::new(Vec::new()),
             standby: Arc::default(),
+            admission: Mutex::new(admission),
             weak: weak.clone(),
             expiry_wake: Arc::new(tokio::sync::Notify::new()),
         })
+    }
+
+    /// Replaces the foreground shell admission pool (used by the daemon to share one `ResourceAdmission` across agents and shells).
+    pub fn set_admission(&self, admission: Arc<dyn ShellAdmission>) {
+        *lock(&self.admission) = admission;
+    }
+
+    pub(crate) fn admission(&self) -> Arc<dyn ShellAdmission> {
+        Arc::clone(&lock(&self.admission))
     }
 
     /// The parked PowerShell standby's handle, for tests.
@@ -2546,6 +2614,131 @@ impl ExecRuntime {
         });
         mixdog_rt::spawn("shell-collect", TaskClass::Work, collect(job.clone(), source, self.clone(), logs, processes.clone()));
         Ok(job)
+    }
+
+    /// Registers a background shell task waiting for a foreground shell admission slot (`queueSaturatedAsTask`).
+    /// No child process is spawned yet; once a slot frees, [`Self::attach_queued`] spawns and connects it,
+    /// or [`Self::finish_queued_unstarted`] settles it if cancelled or spawn fails.
+    #[allow(clippy::too_many_arguments, reason = "Matches ExecRuntime::start's explicit job-creation boundary.")]
+    pub(super) fn start_queued(
+        self: &Arc<Self>,
+        task_id: String,
+        command: String,
+        cwd: String,
+        owner: ThreadId,
+        time_limit_ms: u64,
+        review: Option<Arc<dyn TurnReviewApi>>,
+        notify: Option<ToolNotify>,
+    ) -> (Arc<Job>, CancellationToken, spill::LogWriter) {
+        let [stdout_log, stderr_log] = spill::log_paths(&self.config.spill_dir, &task_id);
+        let logs = spill::LogWriter::new(self.config.lanes.pty, &stdout_log, &stderr_log);
+        self.ensure_log_sweep();
+        let (settled, _) = watch::channel(false);
+        let started_ms = self.now_ms();
+        let oem = self.config.oem;
+        let queued_cancel = CancellationToken::new();
+        let mut state = JobState::new(oem);
+        state.detached = true;
+        state.promoted_ms = Some(started_ms);
+        state.queued_cancel = Some(queued_cancel.clone());
+        state.has_logs = false;
+        let job = Arc::new(Job {
+            id: task_id.clone(),
+            command: command.clone(),
+            cwd: cwd.clone(),
+            owner: owner.clone(),
+            handle: ProcessHandle(task_id.clone()),
+            pid: 0,
+            started_ms,
+            time_limit_ms,
+            review,
+            stdout_log,
+            stderr_log,
+            logs: Some(logs.clone()),
+            wait_hits: AtomicU32::new(0),
+            survivors: false,
+            notify,
+            recovered: None,
+            state: Mutex::new(state),
+            settled,
+        });
+        self.purge_expired(started_ms, tokio::time::Instant::now());
+        lock(&self.jobs).insert(task_id.clone(), job.clone());
+        let _ = self.config.tasks.start(TaskSpec {
+            task_id,
+            surface: "shell".into(),
+            op: "shell".into(),
+            command,
+            cwd,
+            owner: Some(owner.as_str().to_owned()),
+            foreground: false,
+            process: None,
+            started_at_ms: started_ms,
+        });
+        (job, queued_cancel, logs)
+    }
+
+    /// Spawns the process for a queued background shell job, attaches it to the task registry,
+    /// publishes its background job record, and starts its output collector.
+    pub(super) async fn attach_queued(
+        self: &Arc<Self>,
+        job: &Arc<Job>,
+        processes: &Arc<dyn ProcessManager>,
+        request: SpawnRequest,
+        logs: spill::LogWriter,
+        cancel: &CancellationToken,
+    ) -> Result<(), ProcessError> {
+        let (handle, source, pid) = Self::spawn_or_claim(processes, request, None).await?;
+        let _ = self.config.tasks.attach_process(&job.id, handle.clone());
+        let cancelled = {
+            let mut state = job.state();
+            state.has_logs = true;
+            state.queued_cancel.take().is_some_and(|token| token.is_cancelled())
+        };
+        if cancelled || cancel.is_cancelled() {
+            let _ = processes.kill(&handle);
+        }
+        let mut fields = serde_json::Map::new();
+        fields.insert("background".into(), true.into());
+        fields.insert("ownerSessionId".into(), job.owner.as_str().into());
+        fields.insert("command".into(), job.command.clone().into());
+        fields.insert("cwd".into(), job.cwd.clone().into());
+        fields.insert("pid".into(), pid.into());
+        fields.insert("startedAtMs".into(), job.started_ms.into());
+        logs.describe(fields);
+        mixdog_rt::spawn("shell-collect", TaskClass::Work, collect(job.clone(), source, self.clone(), logs, processes.clone()));
+        Ok(())
+    }
+
+    /// Settles a queued background shell job that ended before a child process could start
+    /// (cancelled while waiting for a slot, queue full, or spawn failed).
+    pub(super) async fn finish_queued_unstarted(self: &Arc<Self>, job: &Arc<Job>, facts: ExitFacts) {
+        let now = self.now_ms();
+        {
+            let mut state = job.state();
+            if state.finished {
+                return;
+            }
+            state.queued_cancel = None;
+            state.terminal_override = Some(facts.clone());
+            state.finished = true;
+            state.finished_ms = Some(now);
+            state.finished_at = Some(tokio::time::Instant::now());
+            state.completion_output = Some("(no output)".to_owned());
+        }
+        let outcome = TaskOutcome {
+            status: match facts.status {
+                JobStatus::Completed | JobStatus::Running => SpawnStatus::Completed,
+                JobStatus::Failed => SpawnStatus::Failed,
+                JobStatus::Cancelled => SpawnStatus::Cancelled,
+            },
+            exit_code: facts.exit_code,
+        };
+        self.finish_row(&job.id, outcome);
+        super::settle::note_command_settled(job.review.as_ref(), &job.cwd);
+        job.report_finished(self.config.notifier.as_deref(), facts.status.as_str(), job.notification("(no output)")).await;
+        self.arm_expiry();
+        job.settled.send_replace(true);
     }
 
     fn ensure_log_sweep(&self) {

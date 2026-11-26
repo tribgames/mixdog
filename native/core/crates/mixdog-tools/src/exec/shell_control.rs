@@ -143,10 +143,13 @@ impl ShellControl {
                     runtime.finish_survivors(&job).await;
                 }
             }));
-        } else if !send_kill(&self.runtime, &*self.processes, &job) {
-            // A kill that cannot be sent leaves the shell running and held, as a stop's would;
-            // the close records an outcome only for a tombstone (`record`), which Rust never plants.
-            self.runtime.hold_unconfirmed(&job);
+        } else {
+            let was_queued = job.cancel_queued();
+            if !send_kill(&self.runtime, &*self.processes, &job) && !was_queued {
+                // A kill that cannot be sent leaves the shell running and held, as a stop's would;
+                // the close records an outcome only for a tombstone (`record`), which Rust never plants.
+                self.runtime.hold_unconfirmed(&job);
+            }
         }
     }
 

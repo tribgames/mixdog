@@ -2,11 +2,11 @@
 //! unmanaged worktrees: `action:"worktree"` drives the Lead session's managed worktree, and a
 //! raw `git worktree …` command maps onto a managed operation instead of running.
 //!
-//! The managed operations are `mixdog-scm`'s [`Worktrees`] (list, add, snapshot and its lease,
-//! remove by path, prune), called directly. Only the session transitions — enter, return,
-//! merge into the session workspace, remove the session's worktree — belong to the session
-//! runtime, which implements [`SessionWorktrees`] at composition. A caller the session runtime
-//! does not claim as the Lead is no Lead.
+//! Lead mutations — `action:"worktree"` enter, return, merge, remove and raw `git worktree add`,
+//! Lead `add --detach` snapshots and `remove <path>` — run through [`SessionWorktrees`] so the
+//! session runtime enforces its workspace guards and project resolution. Read-only `list`,
+//! `prune`, and a delegated worker's `add --detach` snapshot use `mixdog-scm`'s [`Worktrees`].
+//! A caller the session runtime does not claim as the Lead is no Lead.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -17,9 +17,7 @@ use async_trait::async_trait;
 use mixdog_protocol::JsonValue;
 use mixdog_scm::error::ScmFailure;
 use mixdog_scm::worktree::maintenance::SessionSource;
-use mixdog_scm::worktree::manager::CreateRequest;
 use mixdog_scm::worktree::manager::Worktrees;
-use mixdog_scm::worktree::manager::entry_json;
 use mixdog_scm::worktree::retention::SnapshotRetention;
 use mixdog_scm::worktree::texts::failure_json;
 use serde_json::Map;
@@ -44,6 +42,12 @@ pub enum SessionOp {
     Merge { session_id: Option<String>, tx_id: String },
     /// Remove the session's worktree (or, with `branch`, the one it owns on that branch).
     Remove { session_id: Option<String>, branch: Option<String>, force: bool, tx_id: String },
+    /// `git worktree remove <path>`: managed removal through the owning session's lane.
+    RemovePath { path: String, force: bool },
+    /// `git worktree add`: managed branch worktree resolved against the session's Project.
+    Add { branch: String, create: bool, start_point: Option<String>, confirm_large: bool, tx_id: String, repo_common_dir: Option<String> },
+    /// Lead `git worktree add --detach`: read-only snapshot resolved against the session's Project.
+    Snapshot { commit: String, confirm_large: bool, tx_id: String, repo_common_dir: Option<String> },
 }
 
 /// The session runtime's workspace transitions (WP-SESSION). A result is the operation's own
@@ -249,6 +253,9 @@ fn op_name(op: &SessionOp) -> &'static str {
         SessionOp::Return { .. } => "return",
         SessionOp::Merge { .. } => "merge",
         SessionOp::Remove { .. } => "remove",
+        SessionOp::RemovePath { .. } => "remove-path",
+        SessionOp::Add { .. } => "add",
+        SessionOp::Snapshot { .. } => "snapshot",
     }
 }
 
@@ -273,23 +280,8 @@ async fn raw_remove(plan: &Plan, env: &Env<'_>) -> Result<String, Failure> {
     }
     let lead = env.lead("git worktree remove").await?;
     let path = resolve(&plan.cwd, positional[0]);
-    // A snapshot goes through its ledger, which refuses while a command still runs in it.
-    let wanted = mixdog_scm::locks::path_key(&path);
-    let rows = lead.rows(env.cancel()).await?;
-    let snapshot =
-        rows.iter().find(|row| row["kind"] == "snapshot" && row["path"].as_str().is_some_and(|p| mixdog_scm::locks::path_key(Path::new(p)) == wanted));
-    let removed = match snapshot.and_then(|row| row["id"].as_str()) {
-        Some(id) => lead.worktrees.remove_snapshot(id, force, env.cancel()).await,
-        None => lead.worktrees.remove_by_path(&path, force, Some(&env.session_id), env.cancel()).await,
-    };
-    let result = removed.map_err(|failure| match failure {
-        // Node's wording for a folder the registry does not manage.
-        ScmFailure::Coded { code: "WORKTREE_PATH_UNSAFE", .. } if snapshot.is_none() => {
-            plain(format!("git worktree remove: {} is not a Mixdog-managed worktree; unmanaged worktrees are not removed through the git tool", path.display()))
-        }
-        other => Failure::Scm(other),
-    })?;
     let shown = path.to_string_lossy().into_owned();
+    let result = lead.sessions.run(SessionOp::RemovePath { path: shown.clone(), force }, &env.session_id, env.cancel()).await?;
     Ok(transition_result(request(vec![("mapped", json!(plan.command)), ("path", json!(shown))]), result))
 }
 
@@ -672,12 +664,34 @@ fn parse_add_args(args: &[String]) -> Result<AddArgs, Failure> {
     Ok(AddArgs { branch, reset, detach, path, commitish })
 }
 
-async fn add_snapshot(env: &Env<'_>, services: &Arc<WorktreeServices>, plan: &Plan, wanted: &str, tx_id: &str, mapped: Object) -> Result<String, Failure> {
+#[allow(clippy::too_many_arguments)]
+async fn add_snapshot(
+    env: &Env<'_>,
+    services: &Arc<WorktreeServices>,
+    plan: &Plan,
+    wanted: &str,
+    tx_id: &str,
+    repo_common_dir: String,
+    is_lead: bool,
+    mapped: Object,
+) -> Result<String, Failure> {
     let Some(commit) = commit_in(env, &plan.cwd, wanted).await else {
         return Err(plain(format!("git worktree add: {wanted} is not a commit")));
     };
-    // Held by the calling session and removed when its turn settles.
-    let entry = services.worktrees.create_worker_snapshot(&env.session_id, &plan.cwd, &commit, tx_id, env.confirm_large, env.cancel()).await?;
+    // A Lead's snapshot resolves the session's Project through the session runtime;
+    // a delegated worker's snapshot is held by its own session and removed when its turn settles.
+    let entry = if is_lead {
+        services
+            .sessions
+            .run(
+                SessionOp::Snapshot { commit, confirm_large: env.confirm_large, tx_id: tx_id.to_owned(), repo_common_dir: Some(repo_common_dir) },
+                &env.session_id,
+                env.cancel(),
+            )
+            .await?
+    } else {
+        services.worktrees.create_worker_snapshot(&env.session_id, &plan.cwd, &commit, tx_id, env.confirm_large, env.cancel()).await?
+    };
     let entry = object(entry);
     let mut out = mapped;
     out.insert("snapshot".into(), json!(true));
@@ -722,14 +736,15 @@ async fn branch_to_check_out(env: &Env<'_>, plan: &Plan, args: AddArgs) -> Resul
 
 async fn raw_add(plan: &Plan, env: &Env<'_>) -> Result<String, Failure> {
     let args = parse_add_args(&plan.args[1..])?;
-    if !env.is_lead().await && !args.detach {
+    let is_lead = env.is_lead().await;
+    if !is_lead && !args.detach {
         return Err(plain(
             "git worktree add belongs to the Lead session; a delegated worker may only make a read-only snapshot: git worktree add --detach <path> [<commit>]",
         ));
     }
-    if repository_at(env, &plan.cwd).await.is_none() {
+    let Some(repo) = repository_at(env, &plan.cwd).await else {
         return Err(plain(format!("git worktree add: {} is not a git repository", plan.cwd.display())));
-    }
+    };
     let tx_id = tx_id_of(env, &plan.command);
     let mapped = request(vec![("mapped", json!(plan.command)), ("requestedPath", json!(resolve(&plan.cwd, &args.path).to_string_lossy()))]);
     // A detached checkout, or a commit-ish that names no local branch: a snapshot.
@@ -746,32 +761,19 @@ async fn raw_add(plan: &Plan, env: &Env<'_>) -> Result<String, Failure> {
         return Err(plain("git worktree add: managed worktrees are unavailable in this runtime"));
     };
     if let Some(wanted) = snapshot_commit {
-        return add_snapshot(env, services, plan, &wanted, &tx_id, mapped).await;
+        return add_snapshot(env, services, plan, &wanted, &tx_id, repo, is_lead, mapped).await;
     }
     let (target_branch, create, start_point) = branch_to_check_out(env, plan, args).await?;
-    let record = services
-        .worktrees
-        .create(
-            CreateRequest {
-                project_path: plan.cwd.clone(),
-                session_id: env.session_id.clone(),
-                tx_id,
-                name_hint: target_branch.clone(),
-                base_branch: None,
-                branch: Some(target_branch.clone()),
-                existing_branch: !create,
-                start_commit: start_point,
-                confirm_large: env.confirm_large,
-                // Node's `add` carries nothing and binds no runtime lease here; the session
-                // runtime binds the lease when it enters the worktree.
-                carry: None,
-                runtime_token: String::new(),
-            },
+    let added = services
+        .sessions
+        .run(
+            SessionOp::Add { branch: target_branch.clone(), create, start_point, confirm_large: env.confirm_large, tx_id, repo_common_dir: Some(repo) },
+            &env.session_id,
             env.cancel(),
         )
         .await?;
     let mut out = mapped;
-    merge(&mut out, object(entry_json(&record)));
+    merge(&mut out, object(added));
     out.insert(
         "note".into(),
         json!(format!("Managed worktree at the path above (not the one requested), retained by this session. The session did not move; worktree_action:\"enter\" with branch:\"{target_branch}\" moves it there.")),
