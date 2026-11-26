@@ -11,6 +11,7 @@ import { applyVisualizeAnnotationOp } from '../../shared/visualize-annotations';
 import {
   currentAnnotations,
   displayedPanes,
+  displaysMissingLive,
   problemRootsOf,
   problemsOf,
   shownLayout,
@@ -48,6 +49,7 @@ async function annotateTab(
     throw new Error(`annotate works on HTML tabs only; tab ${tab.id} shows no HTML page`);
   }
   if (tab.verify) throw new Error(`tab ${tab.id} was opened with verify and is never shown; marks need a shown tab`);
+  if (displaysMissingLive(tab)) throw new Error(`tab ${tab.id}'s file is missing`);
   // During an agent turn the panel is left alone: the marks are kept in
   // the tab state and drawn when the turn's end shows the tab.
   const held = heldTurn(ctx, request.sessionId) !== null;
@@ -146,6 +148,7 @@ async function inspectTab(
   const { deps } = ctx;
   const tab = ctx.tabs.findTab(request.sessionId, request.tab);
   if (tab.url) throw new Error(`tab ${tab.id} lives in the browser panel; read it with the browser tool`);
+  if (displaysMissingLive(tab)) throw new Error(`tab ${tab.id}'s file is missing`);
   const panes = displayedPanes(tab);
   if (!panes.some((pane) => pane.kind === 'html')) {
     const staticKind = panes.find((pane) => pane.inline)?.inline?.kind;
@@ -209,6 +212,9 @@ async function actTab(
         ? `pane ${index + 1} of tab ${tab.id} is not an HTML page`
         : `tab ${tab.id} has ${panes.length} pane${panes.length === 1 ? '' : 's'}, no pane ${index + 1}`
     );
+  }
+  if ((tab.missing && pane.version === undefined) || !pane.url) {
+    throw new Error(`tab ${tab.id}'s file is missing`);
   }
   const output = request.output ? await resolveCaptureOutput(request.cwd, request.output) : null;
   const total = request.steps.length;
@@ -304,6 +310,7 @@ export function createReadActions(ctx: ReadContext) {
     async capture(request: Extract<VisualizeRequest, { action: 'capture' }>): Promise<VisualizeResult> {
       const tab = ctx.tabs.findTab(request.sessionId, request.tab);
       if (tab.url) throw new Error(`tab ${tab.id} lives in the browser panel; capture it with the browser tool`);
+      if (displaysMissingLive(tab)) throw new Error(`tab ${tab.id}'s file is missing`);
       const output = await resolveCaptureOutput(request.cwd, request.output);
       // During an agent turn the tab is drawn off screen, never shown.
       const held = offscreen(ctx, request.sessionId, tab);
@@ -329,6 +336,7 @@ export function createReadActions(ctx: ReadContext) {
       if (tab.url || !displayedPanes(tab).some((pane) => pane.kind === 'html' || pane.inline)) {
         throw new Error(`check works on HTML tabs only; tab ${tab.id} shows no HTML page`);
       }
+      if (displaysMissingLive(tab)) throw new Error(`tab ${tab.id}'s file is missing`);
       if (offscreen(ctx, request.sessionId, tab)) return checkOffscreen(request, tab);
       await ctx.tabs.display(request.sessionId, tab);
       await ctx.problems.awaitInlineRender(tab);
@@ -360,6 +368,9 @@ export function createReadActions(ctx: ReadContext) {
         if (!pane) throw new Error(`tab ${shown.id} has no pane ${index}`);
         if (pane.inline) return { text: pane.inline.source, truncated: false };
         if (pane.kind !== 'html') throw new Error('only HTML pages and inline content have a source view');
+        if ((shown.missing && pane.version === undefined) || !pane.path) {
+          throw new Error(`tab ${shown.id}'s file is missing`);
+        }
         return readPaneSource({ path: pane.path, root: pane.root ?? shown.cwd, target: pane.target });
       }
       const tab = ctx.tabs.findTab(sessionId, tabId);
@@ -367,8 +378,10 @@ export function createReadActions(ctx: ReadContext) {
       if (!pane || tab.url) throw new Error(`tab ${tab.id} has no pane ${index}`);
       if (pane.inline) return { text: pane.inline.source, truncated: false };
       if (pane.kind !== 'html') throw new Error('only HTML pages and inline content have a source view');
+      if (tab.missing && pane.version === undefined) throw new Error(`tab ${tab.id}'s file is missing`);
       const target = shownLayout(tab, tab.shown?.targets ?? [], tab.targets)[index];
       if (!target) throw new Error(`tab ${tab.id} has no pane ${index}`);
+      if (!target.path) throw new Error(`tab ${tab.id}'s file is missing`);
       return readPaneSource(target);
     },
   };

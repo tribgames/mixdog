@@ -810,3 +810,24 @@ test('a deleted watched folder is awaited through its parent and re-attached whe
   stop();
   assert.equal(fake.live().length, 0);
 });
+
+test('deferRun loads settings and arms lock watcher at startup, then activate runs with zero startup delay', async () => {
+  const { importer, clock, calls, chromeExits } = setup({
+    saved: { enabled: true, profileId: 'Default' },
+  });
+  await importer.start({ deferRun: true });
+  const before = await importer.status();
+  assert.equal(before.enabled, true, 'status reports persisted settings before Browser Use');
+  assert.equal(before.profileId, 'Default');
+  assert.equal(calls.watches, 1, 'Chrome lock watcher is armed when enabled at startup');
+  assert.equal(clock.pending(), 0, 'no startup timer runs while deferred');
+
+  await clock.advance(START_DELAY_MS * 2);
+  await chromeExits();
+  assert.deepEqual(calls.run, [], 'deferred mode never triggers cookie import before Browser Use activates');
+
+  await importer.activate();
+  await clock.advance(0);
+  assert.deepEqual(calls.run, ['Default'], 'activate runs immediately without waiting 20 s START_DELAY_MS');
+  importer.stop();
+});

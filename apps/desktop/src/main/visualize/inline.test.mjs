@@ -607,3 +607,49 @@ test('check adds a one-line layout findings summary, only when there are finding
   );
   failing.service.dispose();
 });
+
+test('closing an inline tab during version selection immediately revokes the newly prepared virtual page lease', async () => {
+  const revoked = [];
+  let seq = 0;
+  let holdNext = false;
+  let selectStarted;
+  const selectWaiting = new Promise((resolve) => (selectStarted = resolve));
+  let releaseSelect;
+  let lateUrl = '';
+
+  const { service } = pageSetup({
+    prepareInlinePage: async () => {
+      const url = `http://127.0.0.1:4100/virtual-${++seq}/index.html`;
+      if (holdNext) {
+        holdNext = false;
+        lateUrl = url;
+        selectStarted();
+        await new Promise((resolve) => (releaseSelect = resolve));
+      }
+      return url;
+    },
+    revokeInlinePage: (url) => revoked.push(url),
+  });
+  try {
+    const first = await open(service, { content: { kind: 'html', source: '<p>v1</p>', title: 'Widget' } });
+    const tabId = first.tabs[0].id;
+    await open(service, { content: { kind: 'html', source: '<p>v2</p>', title: 'Widget' } });
+    revoked.length = 0;
+
+    // Begin selecting version 1 and suspend while its virtual page is being prepared.
+    holdNext = true;
+    const selecting = service.command({ action: 'version', sessionId: 's1', tabId, version: 1, compare: false });
+    await selectWaiting;
+
+    // Close the tab while version 1 preparation is still in flight.
+    await service.command({ action: 'close', sessionId: 's1', tabId });
+    releaseSelect();
+    await selecting;
+
+    assert.ok(lateUrl, 'captured late virtual page URL');
+    assert.equal(revoked.includes(lateUrl), true, 'late virtual page lease for closed tab is revoked immediately');
+    assert.equal(service.tabView('s1', tabId), null);
+  } finally {
+    service.dispose();
+  }
+});

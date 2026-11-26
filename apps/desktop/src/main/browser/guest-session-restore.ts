@@ -55,6 +55,8 @@ function savedPageDescriptor(
 export function createBrowserSessionRestore(host: {
   sessions: BrowserSessionRegistry;
   urlPolicy: BrowserUrlPolicy;
+  /** Runs before suspended pages are recreated (for example, awaiting cookie restoration). */
+  beforeRestore?(): Promise<void>;
   /** The session's primary page, created when it has none. */
   ensurePrimaryPage(sessionId: string, pageId?: string): Promise<WebContents>;
   /** The page is the user's from now on, no stand-in. */
@@ -99,7 +101,9 @@ export function createBrowserSessionRestore(host: {
             )
           ),
       ];
-      if (pages.length) suspendedSessions.set(sessionId, pages);
+      const restorable = restorablePages(pages, urlPolicy).map(({ page }) => page);
+      if (restorable.length) suspendedSessions.set(sessionId, restorable);
+      else suspendedSessions.delete(sessionId);
     } else if (!restore) {
       suspendedSessions.delete(sessionId);
     }
@@ -123,6 +127,10 @@ export function createBrowserSessionRestore(host: {
       .then(async () => {
         // Overtaken before anything exists (deleted, or unloaded again): create nothing.
         assertStillRestoring();
+        if (host.beforeRestore) {
+          await host.beforeRestore();
+          assertStillRestoring();
+        }
         // Pages with nothing to come back to (the host's own blank stand-in,
         // an address no longer admitted) are dropped.
         const restorable = restorablePages(saved, urlPolicy);
@@ -182,11 +190,21 @@ export function createBrowserSessionRestore(host: {
     return work;
   }
 
+  /** Drops any suspended descriptors for an ended session without touching live pages. */
+  function forgetSession(sessionId: string): void {
+    suspendedSessions.delete(sessionId);
+    restoringSessions.delete(sessionId);
+  }
+
+  function hasSuspended(sessionId: string): boolean {
+    return suspendedSessions.has(sessionId);
+  }
+
   /** Host teardown: nothing is left to restore. */
   function forgetAll(): void {
     suspendedSessions.clear();
     restoringSessions.clear();
   }
 
-  return { releaseSession, restoreSession, forgetAll };
+  return { releaseSession, restoreSession, forgetSession, hasSuspended, forgetAll };
 }

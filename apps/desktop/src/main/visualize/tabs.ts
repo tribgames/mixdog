@@ -1,6 +1,8 @@
+import type { VisualizePaneView } from '../../shared/visualize';
 import { ACTIVATE_SETTLE_MS, type VisualizeServiceContext } from './context';
 import { summary, type TabState, type VisualizeResult } from './tab-state';
 import type { VisualizeRequest } from './targets';
+import { holdReferencesUrl } from './turn-hold';
 
 const MAX_TABS_PER_SESSION = 8;
 
@@ -39,16 +41,46 @@ export async function whileOpen<T>(tab: TabState, work: TabWork<T>): Promise<T |
 export function createTabs(
   ctx: Pick<
     VisualizeServiceContext,
-    'sessions' | 'sessionOf' | 'sessionCwds' | 'delay' | 'views' | 'thumbnails' | 'reloads' | 'tabVersions' | 'publish'
+    | 'deps'
+    | 'sessions'
+    | 'sessionOf'
+    | 'sessionCwds'
+    | 'delay'
+    | 'views'
+    | 'thumbnails'
+    | 'reloads'
+    | 'tabVersions'
+    | 'publish'
+    | 'holds'
   >
 ) {
   const { sessions, sessionOf } = ctx;
+
+  const releasePanes = (panes: readonly VisualizePaneView[]): void => {
+    if (!ctx.deps.revokeInlinePage) return;
+    for (const pane of panes) {
+      if (pane.inline && pane.url) {
+        const url = pane.url;
+        pane.url = '';
+        let deferred = false;
+        for (const hold of ctx.holds.values()) {
+          if (holdReferencesUrl(hold, url)) {
+            hold.deferredRevokes.add(url);
+            deferred = true;
+          }
+        }
+        if (!deferred) void Promise.resolve(ctx.deps.revokeInlinePage(url)).catch(() => undefined);
+      }
+    }
+  };
 
   const dispose = (tab: TabState): void => {
     for (const stop of tab.unwatch) stop();
     tab.unwatch = [];
     ctx.reloads.cancelScheduledReload(tab);
     ctx.thumbnails.cancel(tab);
+    releasePanes(tab.panes);
+    if (tab.shown) releasePanes(tab.shown.panes);
   };
 
   /** The tab is gone (closed, evicted, its session deleted): its work stops
@@ -112,6 +144,7 @@ export function createTabs(
   };
 
   return {
+    releasePanes,
     dispose,
     end,
     findTab,
@@ -167,6 +200,7 @@ export function createTabs(
         state.active = null;
       }
       ctx.publish(sessionId);
+      forgetIfEmpty(sessionId);
       const count = closing.length;
       const plural = count === 1 ? '' : 's';
       const closed = count ? `Closed ${count} visualize tab${plural}.` : 'No visualize tabs were open.';

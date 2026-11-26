@@ -37,7 +37,7 @@ import {
   shownBody,
   windowAccess,
 } from './host-frames';
-import { inlinePageUrl, panePreviewUrl } from './host-pane-preview';
+import { inlinePageUrl, panePreviewUrl, revokeInlinePageUrl } from './host-pane-preview';
 import { watchPageContents, watchPageRequests } from './host-page-observer';
 import { actPane, annotatePanes, inspectPanes, requireShownWindow, shownHtmlFrames } from './host-page-ops';
 import { watchVisualizeZoomInput } from './host-zoom-input';
@@ -311,6 +311,8 @@ export function createDesktopVisualize(options: {
     publish: publishToWindow,
     publishHost: options.publishRemote,
     prepareInlinePage: (content) => inlinePageUrl(content, liveWindow()?.webContents, observePageProblems),
+    revokeInlinePage: revokeInlinePageUrl,
+    remoteViewing: viewer.remoteViewing,
     preparePane: (target) =>
       panePreviewUrl(target, {
         contents: () => liveWindow()?.webContents,

@@ -282,6 +282,11 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   transcriptWindowStart?: string;
   /** The history resets (a rewind, a clear) the window has taken: after one it is another window, wherever it begins. */
   transcriptGeneration?: number;
+  /** Monotonic authoritative sync revision: advances on a fresh `thread/snapshot`
+   *  replacement or reconnect replay completion, never on ordinary streaming frames. */
+  snapshotRevision?: number;
+  /** True on intermediate phone reconnect replay frames before `replayComplete`. */
+  replayPending?: true;
   streamingTail?: DesktopTranscriptItem | null;
   /** The live row's unfinished line, which the line-gated `streamingTail`
    *  holds back (see shared/streaming-partial.ts). Terminal clients drop it;

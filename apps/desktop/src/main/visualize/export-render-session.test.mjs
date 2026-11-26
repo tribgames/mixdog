@@ -9,6 +9,8 @@ import test from 'node:test';
 
 const sessions = new Map();
 const windows = [];
+const netFetched = [];
+const sessionFetched = [];
 
 function fakeSession(partition, options) {
   const listeners = {};
@@ -17,7 +19,6 @@ function fakeSession(partition, options) {
     options,
     listeners,
     cleared: [],
-    fetched: [],
     webRequest: {
       onBeforeRequest: (_filter, listener) => (listeners.before = listener),
       onCompleted: (_filter, listener) => (listeners.completed = listener),
@@ -27,16 +28,40 @@ function fakeSession(partition, options) {
     },
     protocol: { handle: (scheme, handler) => (listeners[scheme] = handler) },
     setPermissionRequestHandler: (handler) => (listeners.permission = handler),
+    setPermissionCheckHandler: (handler) => (listeners.permissionCheck = handler),
+    async fetch(input, init) {
+      const url = typeof input === 'string' ? input : input.url;
+      sessionFetched.push({
+        partition,
+        url,
+        method: init?.method,
+        redirect: init?.redirect,
+        cache: init?.cache,
+        credentials: init?.credentials,
+        bypassCustomProtocolHandlers: init?.bypassCustomProtocolHandlers,
+      });
+      return new Response(`from ${url}`);
+    },
     async clearData(filter) {
       this.cleared.push(filter);
     },
-    async fetch(input, init) {
-      const url = typeof input === 'string' ? input : input.url;
-      this.fetched.push({ url, method: init?.method, redirect: init?.redirect, credentials: init?.credentials });
-      return new Response(`from ${url}`);
-    },
   };
 }
+
+const fakeNet = {
+  async fetch(input, init) {
+    const url = typeof input === 'string' ? input : input.url;
+    netFetched.push({
+      url,
+      method: init?.method,
+      redirect: init?.redirect,
+      cache: init?.cache,
+      credentials: init?.credentials,
+      bypassCustomProtocolHandlers: init?.bypassCustomProtocolHandlers,
+    });
+    return new Response(`from ${url}`);
+  },
+};
 
 function fromPartition(partition, options) {
   if (!sessions.has(partition)) sessions.set(partition, fakeSession(partition, options));
@@ -72,7 +97,11 @@ class FakeWindow {
       on: () => undefined,
       setWindowOpenHandler: () => undefined,
       executeJavaScript: async () => false,
-      capturePage: async () => ({ toPNG: () => Buffer.from('png') }),
+      capturePage: async () => ({
+        getSize: () => ({ width: 10 }),
+        isEmpty: () => false,
+        toPNG: () => Buffer.from('png'),
+      }),
     };
     windows.push(this);
   }
@@ -97,13 +126,14 @@ class FakeWindow {
   destroy() {}
 }
 
-globalThis.__exportRenderElectron = { BrowserWindow: FakeWindow, session: { fromPartition } };
+globalThis.__exportRenderElectron = { BrowserWindow: FakeWindow, net: fakeNet, session: { fromPartition } };
 registerHooks({
   resolve(specifier, context, next) {
     return specifier === 'electron'
       ? {
           url:
             'data:text/javascript,export const BrowserWindow=globalThis.__exportRenderElectron.BrowserWindow;' +
+            'export const net=globalThis.__exportRenderElectron.net;' +
             'export const session=globalThis.__exportRenderElectron.session;' +
             'export const screen={getDisplayMatching:()=>({scaleFactor:1})};',
           shortCircuit: true,
@@ -112,25 +142,50 @@ registerHooks({
   },
 });
 
+const { OFFSCREEN_FETCH_PARTITION, OFFSCREEN_PARTITION } = await import('../offscreen-partition.ts');
+const { renderFileSnapshot } = await import('../file-snapshot.ts');
 const { inspectPageOffscreen, renderPageThumbnail } = await import('./export-render.ts');
+const { pathToFileURL } = await import('node:url');
+const { tmpdir } = await import('node:os');
+const { join } = await import('node:path');
 
-test('repeated off-screen renders reuse one session', async () => {
+test('repeated off-screen renders and file snapshots share one non-persistent session', async () => {
   await renderPageThumbnail('http://127.0.0.1:4100/a/', false);
   await renderPageThumbnail('http://127.0.0.1:4100/b/', false);
   await inspectPageOffscreen('http://127.0.0.1:4100/c/', false, 'true');
-  assert.equal(windows.length, 3);
+  const file = join(tmpdir(), 'shared-partition-check.html');
+  await renderFileSnapshot({
+    fileUrl: pathToFileURL(file).href,
+    root: tmpdir(),
+    signal: new AbortController().signal,
+  });
+  assert.equal(windows.length, 4);
   assert.equal(new Set(windows.map((window) => window.session)).size, 1);
-  // The renders' session and the one the main process fetches their pages
-  // through; neither keeps an HTTP cache.
+  // One shared non-persistent render partition and one dedicated non-persistent fetch partition, both uncached.
   assert.equal(sessions.size, 2);
-  for (const session of sessions.values()) assert.deepEqual(session.options, { cache: false });
+  const shared = sessions.get(OFFSCREEN_PARTITION);
+  const fetchSession = sessions.get(OFFSCREEN_FETCH_PARTITION);
+  assert.ok(shared);
+  assert.ok(fetchSession);
+  assert.equal(shared.partition.startsWith('persist:'), false);
+  assert.deepEqual(shared.options, { cache: false });
+  assert.equal(fetchSession.partition.startsWith('persist:'), false);
+  assert.deepEqual(fetchSession.options, { cache: false });
+
+  // Both permission request and permission check handlers deny all permissions.
+  for (const ses of [shared, fetchSession]) {
+    let granted = true;
+    ses.listeners.permission(null, 'notifications', (decision) => (granted = decision));
+    assert.equal(granted, false);
+    assert.equal(ses.listeners.permissionCheck(null, 'notifications', '', {}), false);
+  }
 });
 
 test('every render loads at an origin of its own, served from its page only while it runs', async () => {
   windows.length = 0;
-  const shared = sessions.get('visualize-offscreen');
-  const network = sessions.get('visualize-offscreen-network');
-  const fetchedBefore = network.fetched.length;
+  const shared = sessions.get(OFFSCREEN_PARTITION);
+  const fetchedBefore = sessionFetched.length;
+  const netFetchedBefore = netFetched.length;
   // Two at once, then one later: the same page each time.
   await Promise.all([
     renderPageThumbnail('http://127.0.0.1:4100/tok/page.html', false),
@@ -144,12 +199,22 @@ test('every render loads at an origin of its own, served from its page only whil
     assert.equal(new URL(window.loaded).pathname, '/tok/page.html');
     assert.equal(window.servedDuring, 'from http://127.0.0.1:4100/tok/page.htmlasset.css?v=1');
   }
+  assert.equal(netFetched.length, netFetchedBefore, 'http fetches never go through electronNet.fetch / defaultSession');
   assert.deepEqual(
-    network.fetched.slice(fetchedBefore).map(({ method, redirect, credentials }) => [method, redirect, credentials]),
+    sessionFetched
+      .slice(fetchedBefore)
+      .map(({ partition, method, redirect, cache, credentials, bypassCustomProtocolHandlers }) => [
+        partition,
+        method,
+        redirect,
+        cache,
+        credentials,
+        bypassCustomProtocolHandlers,
+      ]),
     [
-      ['GET', 'manual', 'omit'],
-      ['GET', 'manual', 'omit'],
-      ['GET', 'manual', 'omit'],
+      [OFFSCREEN_FETCH_PARTITION, 'GET', 'manual', 'no-store', 'omit', true],
+      [OFFSCREEN_FETCH_PARTITION, 'GET', 'manual', 'no-store', 'omit', true],
+      [OFFSCREEN_FETCH_PARTITION, 'GET', 'manual', 'no-store', 'omit', true],
     ]
   );
   // Released: no longer served, and what its page stored is dropped.
@@ -157,9 +222,13 @@ test('every render loads at an origin of its own, served from its page only whil
     assert.equal((await shared.listeners.http(new Request(`${origin}/tok/page.html`))).status, 404);
     assert.ok(shared.cleared.some((filter) => filter.origins?.length === 1 && filter.origins[0] === origin));
   }
-  // Any other http address goes out through the network session, cookieless.
+  // Any other http address goes out through the isolated fetch session cookieless and uncached.
   assert.equal(await served(shared, 'http://example.test/a.js'), 'from http://example.test/a.js');
-  assert.equal(network.fetched.at(-1).credentials, 'omit');
+  assert.equal(netFetched.length, netFetchedBefore);
+  assert.equal(sessionFetched.at(-1).partition, OFFSCREEN_FETCH_PARTITION);
+  assert.equal(sessionFetched.at(-1).cache, 'no-store');
+  assert.equal(sessionFetched.at(-1).credentials, 'omit');
+  assert.equal(sessionFetched.at(-1).bypassCustomProtocolHandlers, true);
 });
 
 test('each render filters its own requests on the shared session, overlapping renders included', async () => {

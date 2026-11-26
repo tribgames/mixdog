@@ -62,7 +62,7 @@ import { createDesktopQuitSequence, stopCoreForQuit } from './quit-sequence';
 import { loginShellOverrides, readLoginShellEnvironment, withHomebrewPath } from './login-shell-environment';
 import { createTurnAttention, type TurnAttention } from './turn-attention';
 import type { InitializeResponse, WindowFocusEntry } from '../../../../packages/protocol/src/index.ts';
-import { screenSessionIds } from './screen-sessions';
+import { paintedSessionIds, screenSessionIds, watchScreenSessions } from './screen-sessions';
 import { setForegroundLeaseLibrary } from './computer/backend/foreground-lock-host';
 import { micaLibraryPath } from './window-mica';
 import { onProtocolAttached, publishScreenSessions } from './protocol/screen-sessions-publish';
@@ -666,23 +666,25 @@ function startDaemonService(): void {
   if (!daemonServiceStartedAt) daemonServiceStartedAt = Date.now();
   reportDaemonServiceStart();
   visualizeBridge.start();
-  daemonServiceStarting ??= localConnection.start().then(
-    () => {
-      hostRole.claimNow();
-      refreshCorePageOrigin();
-      diagnostics?.write('daemon-service-ready', {
-        totalMs: Date.now() - desktopProcessStartedAt,
-      });
-    },
-    (error: unknown) => {
-      daemonServiceStarting = null;
-      diagnostics?.write('daemon-service-start-failed', {
-        totalMs: Date.now() - desktopProcessStartedAt,
-        errorName: error instanceof Error ? error.name : typeof error,
-      });
-      console.error('Failed to start the Mixdog daemon:', error);
-    }
-  );
+  if (!daemonServiceStarting) {
+    daemonServiceStarting = localConnection.start().then(
+      () => {
+        hostRole.claimNow();
+        refreshCorePageOrigin();
+        diagnostics?.write('daemon-service-ready', {
+          totalMs: Date.now() - desktopProcessStartedAt,
+        });
+      },
+      (error: unknown) => {
+        daemonServiceStarting = null;
+        diagnostics?.write('daemon-service-start-failed', {
+          totalMs: Date.now() - desktopProcessStartedAt,
+          errorName: error instanceof Error ? error.name : typeof error,
+        });
+        console.error('Failed to start the Mixdog daemon:', error);
+      }
+    );
+  }
 }
 // Scheme privileges must be declared before the app is ready, otherwise the
 // media lane cannot stream or answer Range requests.
@@ -924,7 +926,7 @@ function applyComputerObserveOnlySetting(enabled: boolean): void {
 }
 const browserLogin = createBrowserLoginPopup({
   parent: () => mainWindow,
-  session: () => session.fromPartition(BROWSER_PARTITION),
+  session: () => browserHost?.ensurePartitionSession() ?? session.fromPartition(BROWSER_PARTITION),
   urlPolicy: browserUrlPolicyFromEnvironment({ remote: false }),
   ready: (sessionId, id) => takeoverGate.ready(sessionId, id),
   settle: (sessionId, id) =>
@@ -1228,6 +1230,7 @@ unsubscribeCoreObservers = observeCoreForMain({
   connection: localProtocol,
   applyDesktopSettings,
   releaseBrowserSession: (sessionId) => browserHost?.releaseSession(sessionId),
+  forgetSuspendedBrowserSession: (sessionId) => browserHost?.forgetSuspendedSession(sessionId),
 });
 let quitAfterDispose = false;
 // Last-known runInBackground setting; the window's close listener reads it live.
@@ -2222,6 +2225,7 @@ function windowsRemoteScreens() {
 /** Hands a heavy renderer's memory back and reports the working set once it settles. */
 async function reclaimRendererMemory(window: BrowserWindow): Promise<void> {
   if (window.isDestroyed()) return;
+  fileSnapshots.clear();
   const startedAt = Date.now();
   const before = rendererWorkingSetKb();
   await purgeRendererMemory(window.webContents);
@@ -2245,11 +2249,25 @@ function installLocalWindowFeatures(
   onGuest: (guest: Electron.WebContents) => void
 ): BrowserHost {
   mainWindow = window;
-  const stopScreenSessions = publishScreenSessions(
+  const stopScreenSessionsBase = publishScreenSessions(
     window,
     (method, params) => localProtocol?.notify(method, params),
     (listener) => (localProtocol ? onProtocolAttached(localProtocol, listener) : () => {})
   );
+  const syncVisualizeShown = (): void => {
+    void visualize.setShownSessions(paintedSessionIds(window));
+  };
+  const stopVisualizeShown = watchScreenSessions(window, syncVisualizeShown);
+  const stopScreenSessions = (): void => {
+    stopScreenSessionsBase();
+    stopVisualizeShown();
+    void visualize.setShownSessions([]);
+  };
+  window.on('show', syncVisualizeShown);
+  window.on('hide', syncVisualizeShown);
+  window.on('minimize', syncVisualizeShown);
+  window.on('restore', syncVisualizeShown);
+  syncVisualizeShown();
   desktopPet?.attachAppWindow(window);
   if (!computerHost) {
     computerHost = createComputerHost({
@@ -2940,7 +2958,9 @@ if (holdsSingleInstanceLock) {
       // Gallery bytes leave the RPC lane here: tiles and clips become ordinary
       // cacheable, range-able resources fetched straight by the DOM. The lane
       // reads this PC's files, so only this PC's window session has it.
-      registerMediaProtocol(localService);
+      registerMediaProtocol(localService, {
+        isShellWebContents: (webContentsId) => windowRoutes.connectionIdFor(webContentsId) === LOCAL_CONNECTION_ID,
+      });
       registerConnectionLinkIpc({
         ipcMain,
         routes: windowRoutes,

@@ -136,6 +136,7 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
     taskLifecycle.begin(ownerSessionId, turnId);
     const previousGuest = browserSessions.liveGuest(ownerSessionId);
     const knownPages = sessionPages(ownerSessionId);
+    if (background) await lifecycle.ensurePartitionReady?.();
     const target = tabs.resolveTargetGuest(ownerSessionId, background, tab);
     const targetIsBackground = target?.background === true;
     if (!target && !previousGuest && action !== 'navigate' && action !== 'open') {

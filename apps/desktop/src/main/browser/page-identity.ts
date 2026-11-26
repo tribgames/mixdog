@@ -30,7 +30,7 @@ function keyVariants(key: string): string[] {
   return [key, key.endsWith('/') ? key.slice(0, -1) : `${key}/`];
 }
 
-function boundedMap<V>(limit: number) {
+function boundedMap<V>(limit: number, onEvict?: (value: V) => void) {
   const map = new Map<string, V>();
   return {
     has: (key: string) => map.has(key),
@@ -47,7 +47,17 @@ function boundedMap<V>(limit: number) {
     set(key: string, value: V): void {
       map.delete(key);
       map.set(key, value);
-      while (map.size > limit) map.delete(map.keys().next().value as string);
+      while (map.size > limit) {
+        const oldestKey = map.keys().next().value as string;
+        const evicted = map.get(oldestKey);
+        map.delete(oldestKey);
+        if (evicted !== undefined) onEvict?.(evicted);
+      }
+    },
+    deleteIf(key: string, expected: V): boolean {
+      if (map.get(key) !== expected) return false;
+      map.delete(key);
+      return true;
     },
     /** Older entries placed beneath the live ones: a live key keeps its
      *  value, and over the limit the older entries go first. */
@@ -59,9 +69,23 @@ function boundedMap<V>(limit: number) {
         map.delete(key);
         map.set(key, value);
       }
-      while (map.size > limit) map.delete(map.keys().next().value as string);
+      while (map.size > limit) {
+        const oldestKey = map.keys().next().value as string;
+        const evicted = map.get(oldestKey);
+        map.delete(oldestKey);
+        if (evicted !== undefined) onEvict?.(evicted);
+      }
     },
   };
+}
+
+export interface BrowserPageThumbnailStorage {
+  /** Persist a data URL to disk and return the compact URL kept in memory. */
+  put(key: string, dataUrl: string): string | null;
+  /** Validate a restored disk thumbnail URL. */
+  accept?(thumbnailUrl: string): boolean;
+  /** Remove an evicted thumbnail file from disk. */
+  remove?(thumbnailUrl: string): void;
 }
 
 interface PageFacts {
@@ -90,10 +114,30 @@ const snapshotImage = (value: unknown, max: number): string | undefined => {
   return text && /^data:image\//i.test(text) ? text : undefined;
 };
 
-export function createBrowserPageIdentityStore(options: { onChange?(origin: string): void } = {}) {
+export function createBrowserPageIdentityStore(
+  options: { onChange?(origin: string): void; onMigrated?(): void; thumbnails?: BrowserPageThumbnailStorage } = {}
+) {
+  const thumbStorage = options.thumbnails;
   const pages = boundedMap<PageFacts>(PAGE_LIMIT);
   const originFavicons = boundedMap<string>(ORIGIN_LIMIT);
-  const thumbnails = boundedMap<string>(THUMBNAIL_LIMIT);
+  const thumbnails = boundedMap<string>(THUMBNAIL_LIMIT, (evicted) => {
+    // Only remove from disk when evicted (not when replaced by another version of the same file).
+    thumbStorage?.remove?.(evicted);
+  });
+
+  function storeThumbnail(key: string, value: string): void {
+    if (!thumbStorage) {
+      thumbnails.set(key, value);
+      return;
+    }
+    const stored = thumbStorage.put(key, value);
+    if (!stored) return;
+    const previous = thumbnails.get(key);
+    thumbnails.set(key, stored);
+    if (previous && previous.split('?', 1)[0] !== stored.split('?', 1)[0]) {
+      thumbStorage.remove?.(previous);
+    }
+  }
 
   function update(url: string, patch: BrowserPageIdentityPatch): void {
     const key = pageIdentityKey(url);
@@ -106,7 +150,7 @@ export function createBrowserPageIdentityStore(options: { onChange?(origin: stri
       originFavicons.set(origin, patch.favicon);
     }
     if (patch.title || patch.favicon) pages.set(key, page);
-    if (patch.thumbnail) thumbnails.set(key, patch.thumbnail);
+    if (patch.thumbnail) storeThumbnail(key, patch.thumbnail);
     options.onChange?.(origin);
   }
 
@@ -161,20 +205,43 @@ export function createBrowserPageIdentityStore(options: { onChange?(origin: stri
       filled.add(origin);
     }
     const savedThumbnails: [string, string][] = [];
+    let migrated = false;
     for (const [url, value] of snapshotList(data.thumbnails)) {
       const key = typeof url === 'string' ? pageIdentityKey(url) : null;
-      const thumbnail = snapshotImage(value, THUMBNAIL_MAX_CHARS);
-      if (!key || key !== url || !thumbnail || thumbnails.has(key)) continue;
+      if (!key || key !== url || thumbnails.has(key)) continue;
+      let thumbnail: string | undefined;
+      if (thumbStorage) {
+        if (typeof value === 'string' && thumbStorage.accept?.(value)) {
+          thumbnail = thumbStorage.put(key, value) ?? undefined;
+        } else {
+          const legacyData = snapshotImage(value, THUMBNAIL_MAX_CHARS);
+          if (legacyData) {
+            thumbnail = thumbStorage.put(key, legacyData) ?? undefined;
+            if (thumbnail) migrated = true;
+          }
+        }
+      } else {
+        thumbnail = snapshotImage(value, THUMBNAIL_MAX_CHARS);
+      }
+      if (!thumbnail) continue;
       savedThumbnails.push([key, thumbnail]);
       filled.add(new URL(key).origin);
     }
     pages.seed(savedPages);
     originFavicons.seed(savedOrigins);
     thumbnails.seed(savedThumbnails);
+    if (migrated) options.onMigrated?.();
     return [...filled];
   }
 
-  return { update, lookup, snapshot, restore };
+  function dropThumbnail(key: string, expectedUrl: string): void {
+    const normalized = pageIdentityKey(key);
+    if (!normalized) return;
+    if (!thumbnails.deleteIf(normalized, expectedUrl)) return;
+    options.onChange?.(new URL(normalized).origin);
+  }
+
+  return { update, lookup, snapshot, restore, dropThumbnail };
 }
 
 export type BrowserPageIdentityStore = ReturnType<typeof createBrowserPageIdentityStore>;

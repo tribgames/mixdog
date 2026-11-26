@@ -62,6 +62,7 @@ import { takeoverRevealDetail } from './page-reveal';
 import { reclaimIdleUserSessions } from './page-power';
 import { createBrowserProfileHostMethods, createCookieAutoImporter } from './profile-host-methods';
 import type { CookieAutoImporterDeps } from './profile-import-auto';
+import { browserSessionId } from './session-registry';
 import type { BrowserSignedInSite } from './signed-in-sites';
 import type { VaultLoginSummary } from './credential-vault';
 import type { LinkedSignIn } from './linked-sign-in';
@@ -142,6 +143,10 @@ export interface BrowserHost {
     engine: BrowserEnginePorts;
   };
   releaseSession(sessionId: string, options?: { restore?: boolean }): void;
+  /** Drops any suspended restore descriptors for an ended session. */
+  forgetSuspendedSession(sessionId: string): void;
+  /** Ensures the browser partition is initialized and returns its session. */
+  ensurePartitionSession(): Electron.Session;
   /** Every live page with what keeps it loaded, for the memory diagnostics: no URL or title. */
   pageRetention(now?: number): BrowserPageRetention[];
   /** Takeover `id` starts: the page it hands over (`tab` of the request, else
@@ -281,12 +286,17 @@ export function createBrowserHost(
   let webrtc: RemoteWebrtcHost | null = null;
   let screens: RemoteScreenSources | null = null;
   let disposeSender = (): void => undefined;
+  let partitionReady = false;
+  let activateCookieAutoImport = (): void => {
+    partitionReady = true;
+  };
   const base = createBrowserHostFoundation(window, {
     remoteSession: options.remoteSession,
     onDiagnostic: options.onDiagnostic,
     requestApproval: options.requestApproval,
     hidDevices: options.hidDevices,
     permissionPolicy: options.permissionPolicy,
+    onPartitionReady: () => activateCookieAutoImport(),
   });
   const { state, sessions, cdp, display, sendToRenderer } = base;
   const { lifecycle, nativeViews, fullscreen, taskLifecycle, retainGuest } = createBrowserHostPages({
@@ -306,7 +316,7 @@ export function createBrowserHost(
     settle: base.settle,
     sessions,
     downloadsForSession: base.partition.downloadLedger.downloadsForSession,
-    partitionSession: base.partition.session,
+    partitionSession: () => base.partition.session,
     urlPolicy: base.urlPolicy,
     sendToRenderer,
     beginViewportChange: (guest) => shown.pageSurface.beginViewportChange(guest),
@@ -374,17 +384,24 @@ export function createBrowserHost(
   });
 
   // Chrome's cookies are read from the Windows profile, so only Windows has it.
+  const reportCookieAutoImportError = (error: unknown): void => {
+    options.onDiagnostic?.('browser-cookie-auto-import-failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  };
   const cookieAutoImport =
     options.cookieAutoImportSettings && process.platform === 'win32'
       ? createCookieAutoImporter({
           profileImporter: base.profileImporter,
           settings: options.cookieAutoImportSettings,
-          onError: (error) =>
-            options.onDiagnostic?.('browser-cookie-auto-import-failed', {
-              error: error instanceof Error ? error.message : String(error),
-            }),
+          onError: reportCookieAutoImportError,
         })
       : null;
+  void cookieAutoImport?.start({ deferRun: true }).catch(reportCookieAutoImportError);
+  activateCookieAutoImport = () => {
+    void cookieAutoImport?.activate().catch(reportCookieAutoImportError);
+  };
+  if (partitionReady) activateCookieAutoImport();
 
   const browserHost: BrowserHost = {
     ...createBrowserHostDisplayMethods({
@@ -425,6 +442,8 @@ export function createBrowserHost(
       sendToRenderer,
       remoteTabs: shown.remoteTabs,
     }),
+    forgetSuspendedSession: (sessionId) => lifecycle.forgetSuspendedSession(browserSessionId(sessionId)),
+    ensurePartitionSession: () => base.partition.session,
     pageRetention: (now = Date.now()) => {
       const rows: BrowserPageRetention[] = [];
       for (const sessionId of sessions.sessionIds()) {
@@ -614,10 +633,5 @@ export function createBrowserHost(
     disposeSender();
     await Promise.all([screensStopped, dispose()]);
   };
-  void cookieAutoImport?.start().catch((error: unknown) =>
-    options.onDiagnostic?.('browser-cookie-auto-import-failed', {
-      error: error instanceof Error ? error.message : String(error),
-    })
-  );
   return browserHost;
 }

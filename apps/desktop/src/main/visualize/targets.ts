@@ -430,3 +430,20 @@ export async function resolveProjectOutput(cwd: string, raw: string): Promise<st
   }
   return file;
 }
+
+/** Lightweight stat fingerprint of a tab's live files, avoiding reading
+ *  oversized files into memory while detecting replacements across park/hydrate. */
+export async function liveFilesFingerprint(targets: readonly { path: string }[]): Promise<string | undefined> {
+  if (!targets.length || targets.some((target) => !target.path)) return undefined;
+  try {
+    const parts = await Promise.all(
+      targets.map(async (target) => {
+        const info = await stat(target.path, { bigint: true });
+        return `${target.path}\0${info.size}\0${info.mtimeNs}\0${info.ctimeNs}\0${info.ino}`;
+      })
+    );
+    return parts.join('\n');
+  } catch {
+    return undefined;
+  }
+}

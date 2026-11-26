@@ -15,22 +15,38 @@ function profile(t) {
 }
 const unexpectedFailure = (stage, error) => assert.fail(`unexpected ${stage} failure: ${error}`);
 
-test('the latest text is held and given to the page, and reaches the file once, when saved', (t) => {
+test('writes coalesce asynchronously and nothing is held in memory once persisted', async (t) => {
   const path = join(profile(t), 'cache.json');
   const cache = createRendererCache(path, unexpectedFailure);
   assert.equal(cache.read(), null);
   cache.save();
-  assert.equal(existsSync(path), false, 'nothing held is nothing to write');
-  for (let version = 1; version <= 20; version += 1) cache.write(`v${version}`);
-  assert.equal(cache.read(), 'v20', 'a page loaded meanwhile is given what is held');
-  assert.equal(existsSync(path), false, 'a change is not a write to disk');
+  assert.equal(existsSync(path), false, 'nothing written is nothing on disk');
+  cache.write('v1');
+  cache.write('v2');
+  assert.equal(existsSync(path), false, 'write does not block synchronously on the main thread');
+  assert.equal(cache.read(), 'v2', 'read returns latest pending text before async flush');
+  await cache.flush();
+  assert.equal(readFileSync(path, 'utf8'), 'v2', 'coalesced async write persists latest value');
+  assert.equal(cache.read(), 'v2');
+  // Removing the file on disk leaves nothing cached in main.
+  rmSync(path);
+  assert.equal(cache.read(), null, 'main holds no copy after the async write completes');
   cache.save();
-  assert.equal(readFileSync(path, 'utf8'), 'v20');
-  // The next window's cache starts from the file.
-  assert.equal(createRendererCache(path, unexpectedFailure).read(), 'v20');
+  assert.equal(existsSync(path), false, 'save does not rewrite already-persisted data');
 });
 
-test('a file that cannot be read or written is reported, and what is held stays readable', (t) => {
+test('save synchronously flushes dirty pending writes on shutdown', async (t) => {
+  const path = join(profile(t), 'shutdown.json');
+  const cache = createRendererCache(path, unexpectedFailure);
+  cache.write('final');
+  cache.save();
+  assert.equal(readFileSync(path, 'utf8'), 'final', 'save flushes pending dirty text synchronously');
+  await cache.flush();
+  rmSync(path);
+  assert.equal(cache.read(), null, 'nothing remains held after synchronous shutdown flush');
+});
+
+test('a file that cannot be read or written is reported, and failed writes hold nothing', async (t) => {
   const dir = profile(t);
   const failures = [];
   // A directory where the file belongs cannot be read as one.
@@ -40,9 +56,10 @@ test('a file that cannot be read or written is reported, and what is held stays 
   writeFileSync(join(dir, 'blocker'), 'x');
   const unwritable = createRendererCache(join(dir, 'blocker', 'cache.json'), (stage) => failures.push(stage));
   unwritable.write('held');
+  await unwritable.flush();
   unwritable.save();
   assert.deepEqual(failures, ['read', 'write']);
-  assert.equal(unwritable.read(), 'held');
+  assert.equal(unwritable.read(), null);
 });
 
 /** A window's page and other senders over the caches' IPC. */
@@ -97,4 +114,48 @@ test('a window without caches (capture) is answered with none and drops writes',
   assert.equal(read('session-catalog'), null);
   write('session-catalog', 'x');
   dispose();
+});
+
+test('late in-flight async write cannot leave stale data over a newer sync save', async (t) => {
+  const path = join(profile(t), 'race.json');
+  const syncOpts = [];
+  let releaseFirstAsync;
+  let firstAsyncStarted;
+  const firstStarted = new Promise((resolve) => (firstAsyncStarted = resolve));
+  let asyncCalls = 0;
+
+  const cache = createRendererCache(path, unexpectedFailure, {
+    async writeAsync(filePath, text) {
+      asyncCalls += 1;
+      if (asyncCalls === 1) {
+        firstAsyncStarted();
+        await new Promise((resolve) => (releaseFirstAsync = resolve));
+      }
+      writeFileSync(filePath, text, 'utf8');
+      return true;
+    },
+    writeSync(filePath, text, opts) {
+      syncOpts.push(opts);
+      writeFileSync(filePath, text, 'utf8');
+      return true;
+    },
+  });
+
+  // Start async write for T1 and hold it in flight.
+  cache.write('T1');
+  await firstStarted;
+
+  // Queue newer T2 and flush synchronously on shutdown/close.
+  cache.write('T2');
+  cache.save();
+  assert.equal(readFileSync(path, 'utf8'), 'T2', 'sync save immediately persists T2');
+  assert.equal(cache.read(), 'T2', 'read returns T2 while stale T1 is still in flight');
+  assert.ok(Array.isArray(syncOpts[0]?.backoffs) && syncOpts[0].backoffs.length > 0, 'sync save uses retry backoffs');
+
+  // Stale T1 finishes late and renames over the file; drain must reconcile back to T2.
+  releaseFirstAsync();
+  await cache.flush();
+  assert.equal(readFileSync(path, 'utf8'), 'T2', 'disk ends with T2 after stale T1 finishes');
+  rmSync(path);
+  assert.equal(cache.read(), null, 'nothing remains retained in memory after reconciliation');
 });

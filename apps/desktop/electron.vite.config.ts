@@ -22,28 +22,25 @@ import {
   monacoTypescriptExternalEsbuildPlugin,
 } from './scripts/monaco-typescript-external.mjs';
 
-// The ECharts browser build, bundled into the main process as a lazily loaded
-// string: scripted inline chart pages get it from the local page server (the
-// shipped app has no node_modules for dev dependencies, and never a CDN).
-const bundledSourceModule = (moduleId: string, file: string): Plugin => ({
-  name: moduleId,
-  resolveId: (id) => (id === moduleId ? `\0${moduleId}` : null),
-  load(id) {
-    if (id !== `\0${moduleId}`) return null;
-    const source = readFileSync(resolve(__dirname, file), 'utf8');
-    return `export default ${JSON.stringify(source)};`;
+// Browser builds for scripted inline charts and off-screen Mermaid exports,
+// emitted as asset files under out/main/assets/ and read from disk on demand
+// instead of staying pinned in V8 as JS string modules.
+const visualizeVendorAssets = (assets: ReadonlyArray<{ fileName: string; source: string }>): Plugin => ({
+  name: 'mixdog-visualize-vendor-assets',
+  generateBundle() {
+    for (const asset of assets) {
+      this.emitFile({
+        type: 'asset',
+        fileName: asset.fileName,
+        source: readFileSync(resolve(__dirname, asset.source)),
+      });
+    }
   },
 });
-const echartsSourceModule = bundledSourceModule(
-  'virtual:mixdog-echarts-source',
-  'node_modules/echarts/dist/echarts.min.js'
-);
-// The Mermaid browser build, for the hidden window that renders a diagram for
-// an export when no desktop panel can draw it.
-const mermaidSourceModule = bundledSourceModule(
-  'virtual:mixdog-mermaid-source',
-  'node_modules/mermaid/dist/mermaid.min.js'
-);
+const visualizeAssetsPlugin = visualizeVendorAssets([
+  { fileName: 'assets/echarts.min.js', source: 'node_modules/echarts/dist/echarts.min.js' },
+  { fileName: 'assets/mermaid.min.js', source: 'node_modules/mermaid/dist/mermaid.min.js' },
+]);
 
 const selectedBuildTargets = new Set(
   String(process.env.MIXDOG_ELECTRON_BUILD_TARGETS || '')
@@ -228,8 +225,7 @@ export default defineConfig({
     // the pairing QR silently never rendered. Pure JS, so bundling is safe.
     plugins: [
       computerSourceVitePlugin(),
-      echartsSourceModule,
-      mermaidSourceModule,
+      visualizeAssetsPlugin,
       externalizeDepsPlugin({ exclude: ['qrcode'] }),
     ],
     build: {
@@ -300,6 +296,13 @@ export default defineConfig({
           find: MONACO_TYPESCRIPT_CONTRIBUTION,
           replacement: MONACO_TYPESCRIPT_STUB,
         },
+        {
+          // Share the renderer's single lowlight instance across Markdown and
+          // @git-diff-view instead of eagerly instantiating createLowlight(all);
+          // non-common grammars load on demand in shared-lowlight-extra.ts.
+          find: /^@git-diff-view\/lowlight$/,
+          replacement: resolve(__dirname, 'src/renderer/shared-diff-lowlight.ts'),
+        },
       ],
     },
     // Vite otherwise discovers Monaco on the first file open and unified/remark on the first
@@ -318,6 +321,9 @@ export default defineConfig({
         'rehype-katex',
         'rehype-highlight',
       ],
+    },
+    worker: {
+      format: 'es',
     },
     build: {
       // Electron 40 ships Chromium 144, so the controlled desktop runtime can

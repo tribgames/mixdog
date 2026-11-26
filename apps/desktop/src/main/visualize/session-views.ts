@@ -12,6 +12,7 @@ import type { VisualizeServiceContext } from './context';
 import { type HistoryEntry, historyId, historyItems, rememberHistory } from './history';
 import { joinShown, noteReveal, publishShown, type TurnHold } from './turn-hold';
 import {
+  fileTargetsKey,
   paneKindOf,
   remoteLabelOf,
   remoteTargetOf,
@@ -40,7 +41,7 @@ const liveHostPanes = (tab: TabState): VisualizeHostPane[] =>
         kind: target.kind,
         label: target.label,
         target: target.target,
-        path: target.path,
+        path: tab.missing ? '' : target.path,
         remoteTarget: remoteTargetOf(target),
         root: target.root,
       }));
@@ -117,6 +118,10 @@ export function createSessionViews(
           target: target.target,
           remoteTarget: remoteTargetOf(target),
         }));
+    const canonicalKey =
+      !tab.inline && tab.targets.length && tab.targets.every((target) => target.path)
+        ? fileTargetsKey(tab.targets)
+        : undefined;
     const entry: HistoryEntry = {
       id: historyId(tab.key),
       key: tab.key,
@@ -124,6 +129,8 @@ export function createSessionViews(
       remoteLabel: remoteLabelOf(tab, live),
       kind: tab.inline ? tab.inline.kind : paneKindOf(tab),
       targets: tab.inline ? [] : tab.targets.map((target) => target.target),
+      ...(!tab.inline ? { cwd: tab.cwd } : {}),
+      ...(canonicalKey ? { canonicalKey } : previous?.canonicalKey ? { canonicalKey: previous.canonicalKey } : {}),
       ...(tab.inline ? { content: tab.inline } : {}),
       at: touch || !previous ? Date.now() : previous.at,
       versions: tab.versions?.length ?? 1,
@@ -190,19 +197,48 @@ export type SessionViews = ReturnType<typeof createSessionViews>;
 export function readStates<T extends VisualizeSessionState | VisualizeHostState>(
   ctx: Pick<VisualizeServiceContext, 'holds' | 'sessions'>,
   shown: (hold: TurnHold) => T,
-  live: (sessionId: string) => T
+  live: (sessionId: string) => T,
+  parked?: Iterable<readonly [string, T]>
 ): T[] {
-  return [...ctx.sessions.keys()].flatMap((sessionId) => {
+  const result = [...ctx.sessions.keys()].flatMap((sessionId) => {
     const held = ctx.holds.get(sessionId);
     // A held session is always read as held, also while it shows nothing yet (its first turn with tabs): its reader
     // must know to keep that turn's cards back.
     if (held) {
       held.dirty = true;
-      return [{ ...shown(held), held: true, heldSince: held.shown.since }];
+      return [
+        {
+          ...shown(held),
+          held: true,
+          heldSince: held.shown.since,
+          ...(held.shown.calls.length ? { heldCalls: held.shown.calls } : {}),
+        },
+      ];
     }
     const state = live(sessionId);
     return state.tabs.length > 0 || state.history?.length ? [state] : [];
   });
+  if (parked) {
+    for (const [sessionId, state] of parked) {
+      if (ctx.sessions.has(sessionId)) continue;
+      const held = ctx.holds.get(sessionId);
+      if (held) {
+        held.dirty = true;
+        const shownState = shown(held);
+        if (shownState.tabs.length > 0 || shownState.history?.length) {
+          result.push({
+            ...shownState,
+            held: true,
+            heldSince: held.shown.since,
+            ...(held.shown.calls.length ? { heldCalls: held.shown.calls } : {}),
+          });
+        }
+        continue;
+      }
+      if (state.tabs.length > 0 || state.history?.length) result.push(state);
+    }
+  }
+  return result;
 }
 
 /** `publish` of the service: a picture of an older revision is stopped first

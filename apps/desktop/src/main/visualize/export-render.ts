@@ -1,6 +1,6 @@
-import type { Session } from 'electron';
+import { getSharedOffscreenPartition, type OffscreenRenderHooks } from '../offscreen-partition';
 import { tagRendererSurface } from '../process-memory-diagnostics';
-import { isOffscreenOriginUrl, type OffscreenOrigins, offscreenOrigins } from './offscreen-origins';
+import { isOffscreenOriginUrl } from './offscreen-origins';
 import { localizeProblemText } from './page-problems';
 
 /** Viewport width the page lays out at, and the tallest/widest PNG taken. */
@@ -208,73 +208,6 @@ export async function renderPageThumbnail(
   return read.data;
 }
 
-/** What the shared session asks of the render a request belongs to. */
-interface OffscreenRender {
-  /** The render's own origin: the one its frames keep their origin at. */
-  origin: string;
-  admit(details: { id: number; url: string }): boolean;
-  settled(details: Parameters<typeof failedRequestLine>[0]): void;
-}
-
-interface OffscreenRendering {
-  /** Where every render's page runs, each at an origin of its own. */
-  session: Session;
-  origins: OffscreenOrigins;
-  /** The main process's requests for the pages: each one was already
-   *  admitted by `session`'s filter as its page's request. */
-  network: Session;
-}
-
-const OFFSCREEN_PARTITION = 'visualize-offscreen';
-const OFFSCREEN_NETWORK_PARTITION = 'visualize-offscreen-network';
-/** What a frame from another origin runs under: everything but its origin. */
-const FOREIGN_FRAME_POLICY = 'sandbox allow-scripts allow-forms allow-modals allow-pointer-lock allow-presentation';
-const offscreenRenders = new Map<number, OffscreenRender>();
-let offscreenRendering: OffscreenRendering | null = null;
-
-/** `headers` without the ones named `name` (any case). */
-const without = <T>(headers: Record<string, T>, name: string): Record<string, T> =>
-  Object.fromEntries(Object.entries(headers).filter(([key]) => key.toLowerCase() !== name));
-
-function offscreen(session: typeof import('electron').session): OffscreenRendering {
-  if (offscreenRendering) return offscreenRendering;
-  const shared = session.fromPartition(OFFSCREEN_PARTITION, { cache: false });
-  const network = session.fromPartition(OFFSCREEN_NETWORK_PARTITION, { cache: false });
-  const renderOf = (webContentsId: number | undefined) =>
-    webContentsId === undefined ? undefined : offscreenRenders.get(webContentsId);
-  shared.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) => {
-    callback({ cancel: !renderOf(details.webContentsId)?.admit(details) });
-  });
-  shared.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, (details, callback) => {
-    callback({ requestHeaders: without(details.requestHeaders, 'cookie') });
-  });
-  shared.webRequest.onHeadersReceived({ urls: ['<all_urls>'] }, (details, callback) => {
-    const responseHeaders = without(details.responseHeaders ?? {}, 'set-cookie');
-    const own = renderOf(details.webContentsId)?.origin;
-    if (details.resourceType === 'subFrame' && (own === undefined || new URL(details.url).origin !== own)) {
-      const policy = Object.keys(responseHeaders).find((key) => key.toLowerCase() === 'content-security-policy');
-      responseHeaders[policy ?? 'Content-Security-Policy'] = [
-        ...(policy ? responseHeaders[policy] : []),
-        FOREIGN_FRAME_POLICY,
-      ];
-    }
-    callback({ responseHeaders });
-  });
-  shared.webRequest.onCompleted({ urls: ['<all_urls>'] }, (details) =>
-    renderOf(details.webContentsId)?.settled(details)
-  );
-  shared.webRequest.onErrorOccurred({ urls: ['<all_urls>'] }, (details) =>
-    renderOf(details.webContentsId)?.settled(details)
-  );
-  shared.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-  offscreenRendering = {
-    session: shared,
-    origins: offscreenOrigins(shared, (request) => network.fetch(request, { credentials: 'omit' })),
-    network,
-  };
-  return offscreenRendering;
-}
-
 async function withOffscreenPage<T>(
   pageUrl: string,
   allowNetwork: boolean,
@@ -290,8 +223,8 @@ async function withOffscreenPage<T>(
 ): Promise<{ data: T; problems: string[] }> {
   const roots = options.roots ?? [];
   options.signal?.throwIfAborted();
-  const { BrowserWindow, session } = await import('electron');
-  const setup = offscreen(session);
+  const { BrowserWindow, net, session } = await import('electron');
+  const setup = getSharedOffscreenPartition(session, net);
   const page = new URL(pageUrl);
   const window = new BrowserWindow({
     show: false,
@@ -317,18 +250,18 @@ async function withOffscreenPage<T>(
   const contentsId = contents.id;
   // The page's own origin, its every request answered by the page's server.
   const own = setup.origins.open((url, request) =>
-    setup.network.fetch(`${page.origin}${url.pathname}${url.search}`, {
+    setup.fetch(`${page.origin}${url.pathname}${url.search}`, {
       method: request.method,
       headers: request.headers,
       redirect: 'manual',
-      credentials: 'omit',
     })
   );
   const { origin } = own;
   let timer: NodeJS.Timeout | undefined;
   let onAbort = () => {};
+  let unregister = () => {};
   try {
-    const render: OffscreenRender = {
+    const render: OffscreenRenderHooks = {
       origin,
       admit(details) {
         const allowed = exportRequestAllowed(origin, details.url, allowNetwork);
@@ -343,7 +276,7 @@ async function withOffscreenPage<T>(
         if (line) note(line);
       },
     };
-    offscreenRenders.set(contentsId, render);
+    unregister = setup.register(contentsId, render);
     contents.setWindowOpenHandler(() => ({ action: 'deny' }));
     contents.on('will-navigate', (event) => event.preventDefault());
     contents.on('console-message', (event) => {
@@ -384,7 +317,7 @@ async function withOffscreenPage<T>(
   } finally {
     clearTimeout(timer);
     options.signal?.removeEventListener('abort', onAbort);
-    offscreenRenders.delete(contentsId);
+    unregister();
     window.destroy();
     await own.release();
   }

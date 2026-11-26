@@ -70,6 +70,7 @@ export function createBrowserHostPages(options: {
   base: Pick<
     BrowserHostFoundation,
     | 'partition'
+    | 'ensurePartitionReady'
     | 'state'
     | 'sessions'
     | 'cdp'
@@ -93,7 +94,8 @@ export function createBrowserHostPages(options: {
   const { state, sessions } = base;
   const lifecycle = createBrowserGuestLifecycle({
     window,
-    partitionSession: base.partition.session,
+    partitionSession: () => base.partition.session,
+    ensurePartitionReady: base.ensurePartitionReady,
     state,
     sessions,
     cdp: base.cdp,

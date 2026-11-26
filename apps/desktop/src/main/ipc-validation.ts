@@ -2027,7 +2027,15 @@ export {
 } from '../shared/settings-input';
 
 const LSP_REQUEST_METHOD_SET: ReadonlySet<string> = new Set(DESKTOP_LSP_REQUEST_METHODS);
-const LSP_DOCUMENT_KEYS = new Set(['kind', 'projectPath', 'relPath', 'languageId', 'version', 'content']);
+const LSP_DOCUMENT_KEYS = new Set([
+  'kind',
+  'projectPath',
+  'relPath',
+  'languageId',
+  'version',
+  'content',
+  'attachmentId',
+]);
 const LSP_REQUEST_KEYS = new Set(['projectPath', 'relPath', 'languageId', 'method', 'params']);
 const WORKSPACE_WRITE_KEYS = new Set(['relPath', 'content', 'expectedContent']);
 const WORKSPACE_SEARCH_KEYS = new Set(['query', 'include', 'exclude', 'matchCase', 'wholeWord', 'regex', 'maxResults']);
@@ -2085,6 +2093,9 @@ export function requiredLspDocumentInput(value: unknown): DesktopLspDocumentInpu
     languageId: requiredString(input.languageId, 'languageId', 64),
     version: Number(input.version),
     ...(typeof input.content === 'string' ? { content: input.content } : {}),
+    ...(input.attachmentId !== undefined
+      ? { attachmentId: requiredString(input.attachmentId, 'attachmentId', 128) }
+      : {}),
   };
 }
 

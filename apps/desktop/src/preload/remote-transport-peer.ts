@@ -6,8 +6,12 @@ const COMMAND = 'remote-transport-peer:command';
 const EVENT = 'remote-transport-peer:event';
 
 const bridge = {
-  onCommand(listener: (command: unknown) => void): void {
-    ipcRenderer.on(COMMAND, (_event, command: unknown) => listener(command));
+  onCommand(listener: (command: unknown) => void): () => void {
+    const receive = (_event: Electron.IpcRendererEvent, command: unknown): void => listener(command);
+    ipcRenderer.on(COMMAND, receive);
+    return () => {
+      ipcRenderer.removeListener(COMMAND, receive);
+    };
   },
   emit(event: unknown): void {
     ipcRenderer.send(EVENT, event);

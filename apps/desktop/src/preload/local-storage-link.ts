@@ -18,6 +18,8 @@ export interface LinkWatchDeps {
   probe(): void;
   /** The link is lost. Called once, and the watch ends. */
   lost(): void;
+  /** The watch ended (lost or gave up on a replacement); stop probing. */
+  onEnd?(): void;
   /** This page already is the replacement of a lost one. */
   replacement: boolean;
 }
@@ -50,6 +52,7 @@ export function createLinkWatch(deps: LinkWatchDeps): LinkWatch {
         if (since.backend) silent = 0;
         else if (since.page && ++silent === 2) {
           over = true;
+          deps.onEnd?.();
           if (up || !deps.replacement) deps.lost();
           return;
         }
@@ -84,15 +87,40 @@ export function restoreRescuedLocalStorage(
   return 'whole';
 }
 
-function watchLink(ipcRenderer: Pick<IpcRenderer, 'sendSync'>, storage: Storage, replacement: boolean): void {
+export function watchLink(
+  ipcRenderer: Pick<IpcRenderer, 'sendSync'>,
+  storage: Storage,
+  replacement: boolean
+): () => void {
   const frame = document.createElement('iframe');
   frame.hidden = true;
   document.documentElement.append(frame);
   const inner = frame.contentWindow;
-  if (!inner) return;
+  if (!inner) {
+    frame.remove();
+    return () => {};
+  }
   // A frame's storage areas exist, and hear the page's writes, only once they were read.
   void inner.localStorage.length;
   void inner.sessionStorage.length;
+  let stopped = false;
+  let timer: ReturnType<typeof setInterval> | null = null;
+  const onStorage = (event: StorageEvent): void => {
+    if (event.key === LINK_KEY) watch.heard('backend');
+    else if (event.key === PAGE_KEY) watch.heard('page');
+  };
+  const stop = (): void => {
+    if (stopped) return;
+    stopped = true;
+    if (timer !== null) {
+      clearInterval(timer);
+      timer = null;
+    }
+    inner.removeEventListener('storage', onStorage);
+    window.removeEventListener('pagehide', stop);
+    window.removeEventListener('unload', stop);
+    frame.remove();
+  };
   const watch = createLinkWatch({
     replacement,
     probe: () => {
@@ -105,6 +133,7 @@ function watchLink(ipcRenderer: Pick<IpcRenderer, 'sendSync'>, storage: Storage,
       }
       window.sessionStorage.setItem(PAGE_KEY, value);
     },
+    onEnd: stop,
     // The page stops here: main ends this process instead of answering, so nothing is written after what it was given.
     lost: () =>
       void ipcRenderer.sendSync(
@@ -114,12 +143,12 @@ function watchLink(ipcRenderer: Pick<IpcRenderer, 'sendSync'>, storage: Storage,
           .map((key) => [key, storage.getItem(key) ?? ''])
       ),
   });
-  inner.addEventListener('storage', (event) => {
-    if (event.key === LINK_KEY) watch.heard('backend');
-    else if (event.key === PAGE_KEY) watch.heard('page');
-  });
+  inner.addEventListener('storage', onStorage);
+  window.addEventListener('pagehide', stop, { once: true });
+  window.addEventListener('unload', stop, { once: true });
   watch.tick();
-  setInterval(watch.tick, PROBE_PERIOD_MS);
+  if (!stopped) timer = setInterval(watch.tick, PROBE_PERIOD_MS);
+  return stop;
 }
 
 /** Restores a rescue now, before the page's scripts run, and watches the link from the first document on. */
@@ -136,7 +165,21 @@ export function installLocalStorageLink(ipcRenderer: Pick<IpcRenderer, 'send' | 
   // A storage that refused the rescue is not the whole of what the window held: it is not watched, so main's rescue is
   // never replaced by less.
   if (restored === 'refused') return;
-  const start = (): void => watchLink(ipcRenderer, storage, restored === 'whole');
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
-  else start();
+  let stopWatch: (() => void) | null = null;
+  const start = (): void => {
+    stopWatch = watchLink(ipcRenderer, storage, restored === 'whole');
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start, { once: true });
+    window.addEventListener(
+      'unload',
+      () => {
+        document.removeEventListener('DOMContentLoaded', start);
+        stopWatch?.();
+      },
+      { once: true }
+    );
+  } else {
+    start();
+  }
 }

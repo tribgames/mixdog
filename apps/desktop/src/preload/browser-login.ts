@@ -6,6 +6,10 @@ contextBridge.exposeInMainWorld('mixdogBrowserLogin', {
   close: () => ipcRenderer.invoke('browser-login-control', { action: 'close' }),
   complete: () => ipcRenderer.invoke('browser-login-control', { action: 'complete' }),
   onState: (listener: (state: unknown) => void) => {
-    ipcRenderer.on('browser-login-state', (_event, state) => listener(state));
+    const receive = (_event: Electron.IpcRendererEvent, state: unknown): void => listener(state);
+    ipcRenderer.on('browser-login-state', receive);
+    return () => {
+      ipcRenderer.removeListener('browser-login-state', receive);
+    };
   },
 });

@@ -183,7 +183,7 @@ function createBrowserPageConfigTools(
   sessions: ToolkitSessions,
   reply: ReturnType<typeof createBrowserReply>,
   options: {
-    partitionSession: Session;
+    partitionSession: Session | (() => Session);
     urlPolicy: BrowserUrlPolicy;
     sendToRenderer: (channel: string, ...args: unknown[]) => void;
     beginViewportChange: (guest: WebContents) => () => void;
@@ -226,7 +226,7 @@ export function createBrowserCommandToolkit(options: {
   settle: ReturnType<typeof createBrowserSettle>;
   sessions: ToolkitSessions;
   downloadsForSession: DownloadsForSession;
-  partitionSession: Session;
+  partitionSession: Session | (() => Session);
   urlPolicy: BrowserUrlPolicy;
   sendToRenderer: (channel: string, ...args: unknown[]) => void;
   beginViewportChange: (guest: WebContents) => () => void;

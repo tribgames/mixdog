@@ -22,6 +22,7 @@ import { createCoreLocalPages, setCoreLocalPages } from '../core-local-pages.ts'
 import { pageAssetType } from './test-fixtures/page-server-stand-in.ts';
 
 import {
+  changedRestoreAssets,
   createVisualizeVersionStore,
   keptAssetNames,
   keptTargets,
@@ -501,6 +502,49 @@ test('a failed picture write is logged and blocks nothing; a version evicted whi
   } finally {
     console.warn = warn;
     restore();
+    space.cleanup();
+  }
+});
+
+test('changedRestoreAssets and versionChanges skip reading live files whose size differs from kept snapshots', async () => {
+  const space = workspace();
+  const originalReadFile = fsp.readFile;
+  const readPaths = [];
+  fsp.readFile = function wrappedReadFile(path, ...rest) {
+    readPaths.push(String(path));
+    return originalReadFile.call(this, path, ...rest);
+  };
+  syncBuiltinESMExports();
+  try {
+    const store = createVisualizeVersionStore({ directory: space.store });
+    space.write('index.html', '<link rel="stylesheet" href="style.css"><h1>v1</h1>');
+    space.write('style.css', 'body{color:red}');
+    const pagePath = join(space.cwd, 'index.html');
+    const stylePath = join(space.cwd, 'style.css');
+    const v1 = await store.snapshot('s1', 'v1', [space.source('html', 'index.html')]);
+    assert.ok(v1);
+
+    // Replace both the live pane and the asset with larger files.
+    space.write('index.html', `<link rel="stylesheet" href="style.css"><h1>${'L'.repeat(1024)}</h1>`);
+    space.write('style.css', `body{color:${'b'.repeat(512)}}`);
+    readPaths.length = 0;
+
+    const assets = await changedRestoreAssets(v1);
+    assert.deepEqual(assets, ['style.css']);
+    assert.equal(readPaths.includes(pagePath), false, 'changedRestoreAssets never reads live pane file');
+    assert.equal(readPaths.includes(stylePath), false, 'changedRestoreAssets skips reading size-mismatched live asset');
+
+    readPaths.length = 0;
+    const changes = await versionChanges(v1, [pagePath]);
+    assert.deepEqual(
+      changes.map((change) => change.name),
+      ['style.css', 'index.html']
+    );
+    assert.equal(readPaths.includes(pagePath), false, 'versionChanges skips reading size-mismatched live pane file');
+    assert.equal(readPaths.includes(stylePath), false, 'versionChanges skips reading size-mismatched live asset');
+  } finally {
+    fsp.readFile = originalReadFile;
+    syncBuiltinESMExports();
     space.cleanup();
   }
 });

@@ -275,6 +275,7 @@ export interface DesktopLspDocumentInput {
   languageId: string;
   version: number;
   content?: string;
+  attachmentId?: string;
 }
 
 export interface DesktopLspCapabilities {

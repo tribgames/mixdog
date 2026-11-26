@@ -2,10 +2,9 @@ import { realpathSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import type { Session } from 'electron';
+import { getSharedOffscreenPartition } from './offscreen-partition';
 import { tagRendererSurface } from './process-memory-diagnostics';
 import { projectEntryPathIn } from './project-entry-path';
-import { type OffscreenOrigins, offscreenOrigins } from './visualize/offscreen-origins';
 
 export const SNAPSHOT_TIMEOUT_MS = 4_000;
 /** Time for scripts, fonts and images to settle after the load event. */
@@ -98,15 +97,17 @@ export interface FileSnapshotDeps {
 export function createFileSnapshotService({ confine, render, timeoutMs = SNAPSHOT_TIMEOUT_MS }: FileSnapshotDeps) {
   const cache = new Map<string, FileSnapshot>();
   const inflight = new Map<string, Promise<FileSnapshot>>();
-  let tail: Promise<unknown> = Promise.resolve();
+  let tail: Promise<void> = Promise.resolve();
   let queued = 0;
+  let epoch = 0;
 
   const run = async (
     root: string,
     absolute: string,
     key: string,
     info: { mtimeMs: number; size: number },
-    grant: boolean
+    grant: boolean,
+    captureEpoch: number
   ) => {
     const controller = new AbortController();
     let timer: NodeJS.Timeout | undefined;
@@ -126,9 +127,11 @@ export function createFileSnapshotService({ confine, render, timeoutMs = SNAPSHO
       rendering.catch(() => undefined);
       const dataUrl = await Promise.race([rendering, deadline]);
       const snapshot = { dataUrl, mtimeMs: info.mtimeMs, size: info.size };
-      cache.delete(key);
-      cache.set(key, snapshot);
-      while (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value as string);
+      if (captureEpoch === epoch) {
+        cache.delete(key);
+        cache.set(key, snapshot);
+        while (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value as string);
+      }
       return snapshot;
     } finally {
       clearTimeout(timer);
@@ -139,6 +142,7 @@ export function createFileSnapshotService({ confine, render, timeoutMs = SNAPSHO
     /** `grant`: the file was granted on its own, so `root` is only its parent
      *  folder and the capture may load nothing but the file itself. */
     async capture(root: string, rel: string, grant = false): Promise<FileSnapshot> {
+      const captureEpoch = epoch;
       const absolute = confine(root, rel);
       if (!snapshotKind(absolute)) throw new Error('This file type has no snapshot.');
       const info = await stat(absolute);
@@ -151,22 +155,32 @@ export function createFileSnapshotService({ confine, render, timeoutMs = SNAPSHO
       if (pending) return pending;
       if (queued >= QUEUE_LIMIT) throw new Error('Too many snapshots are waiting.');
       queued += 1;
-      const job = tail.then(() => run(root, absolute, key, info, grant));
-      tail = job.catch(() => undefined);
+      const job = tail.then(() => run(root, absolute, key, info, grant, captureEpoch));
+      const nextTail = job.then(
+        () => undefined,
+        () => undefined
+      );
+      tail = nextTail;
       const tracked = job.finally(() => {
         queued -= 1;
-        inflight.delete(key);
+        if (inflight.get(key) === tracked) inflight.delete(key);
+        if (tail === nextTail) tail = Promise.resolve();
       });
       inflight.set(key, tracked);
       return tracked;
+    },
+    /** Releases cached base64 snapshot data URLs from main's heap. */
+    clear(): void {
+      epoch += 1;
+      cache.clear();
+      inflight.clear();
+      if (queued === 0) tail = Promise.resolve();
     },
   };
 }
 
 /** The app's one service: desktop windows and paired phones share its queue. */
 export const fileSnapshots = createFileSnapshotService({ confine: projectEntryPathIn, render: renderFileSnapshot });
-
-let snapshotRendering: { session: Session; origins: OffscreenOrigins } | null = null;
 
 /** The `file:` URL a snapshot origin's request `pathname` names under `root`
  *  (null when it does not decode). */
@@ -179,21 +193,13 @@ function snapshotFileUrl(root: string, pathname: string): string | null {
 }
 
 /** The production renderer: a hidden, off-screen, sandboxed window on the
- *  snapshot in-memory session, at an origin of its own that serves only the
- *  `file:` resources `snapshotRequestAllowed` admits. No preload, no dialogs,
- *  no new windows or navigation, nothing from any other origin. Its request
- *  filter is this run's, as one snapshot runs at a time. */
+ *  shared off-screen in-memory session, at an origin of its own that serves only
+ *  the `file:` resources `snapshotRequestAllowed` admits. No preload, no dialogs,
+ *  no new windows or navigation, nothing from any other origin. */
 export async function renderFileSnapshot({ fileUrl, root, onlyFile, signal }: SnapshotRenderInput): Promise<string> {
   signal.throwIfAborted();
   const { BrowserWindow, net, session } = await import('electron');
-  if (!snapshotRendering) {
-    // No `persist:` prefix and no HTTP cache: nothing outlives the app.
-    const shared = session.fromPartition('file-snapshot', { cache: false });
-    snapshotRendering = {
-      session: shared,
-      origins: offscreenOrigins(shared, () => new Response(null, { status: 404 })),
-    };
-  }
+  const shared = getSharedOffscreenPartition(session, net);
   const rel = relative(root, fileURLToPath(fileUrl));
   if (rel.startsWith('..') || isAbsolute(rel)) throw new Error('The snapshot target is outside its folder.');
   const window = new BrowserWindow({
@@ -201,7 +207,7 @@ export async function renderFileSnapshot({ fileUrl, root, onlyFile, signal }: Sn
     width: 1280,
     height: 800,
     webPreferences: {
-      session: snapshotRendering.session,
+      session: shared.session,
       offscreen: true,
       nodeIntegration: false,
       contextIsolation: true,
@@ -213,7 +219,7 @@ export async function renderFileSnapshot({ fileUrl, root, onlyFile, signal }: Sn
   });
   const contents = window.webContents;
   tagRendererSurface(window, 'file-snapshot');
-  const own = snapshotRendering.origins.open((url) => {
+  const own = shared.origins.open((url) => {
     const file = snapshotFileUrl(root, url.pathname);
     return file && snapshotRequestAllowed(root, file, onlyFile) ? net.fetch(file) : new Response(null, { status: 404 });
   });
@@ -222,16 +228,11 @@ export async function renderFileSnapshot({ fileUrl, root, onlyFile, signal }: Sn
     onAbort = () => reject(new Error('The snapshot was cancelled.'));
     signal.addEventListener('abort', onAbort, { once: true });
   });
-  const { webRequest } = snapshotRendering.session;
+  const unregister = shared.register(contents.id, {
+    origin: own.origin,
+    admit: (details) => snapshotPageRequestAllowed(own.origin, details.url),
+  });
   try {
-    contents.session.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) =>
-      // Only this window's own requests (its dedicated workers' included): a
-      // service or shared worker's carry no window and are refused.
-      callback({
-        cancel: details.webContentsId !== contents.id || !snapshotPageRequestAllowed(own.origin, details.url),
-      })
-    );
-    contents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     contents.setWindowOpenHandler(() => ({ action: 'deny' }));
     contents.on('will-navigate', (event) => event.preventDefault());
     const render = async (): Promise<string> => {
@@ -251,7 +252,7 @@ export async function renderFileSnapshot({ fileUrl, root, onlyFile, signal }: Sn
     return await Promise.race([rendering, aborted]);
   } finally {
     signal.removeEventListener('abort', onAbort);
-    webRequest.onBeforeRequest(null);
+    unregister();
     window.destroy();
     await own.release();
   }

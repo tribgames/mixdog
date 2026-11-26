@@ -7,6 +7,7 @@ import {
 } from '../../../../../packages/protocol-client/src/index.ts';
 import type { DesktopSessionStateUpdate, DesktopStreamPosition, SessionSnapshot } from '../contract';
 import type { ProtocolConnection } from '../../main/protocol/connection';
+import { advanceSnapshotRevision, snapshotRevisionFor } from './snapshot-revision';
 
 type Client = ProtocolClient<SessionFold>;
 
@@ -111,10 +112,15 @@ export function createStatePublisher({
     if (!client || !fold || transcriptPending(threadId)) return false;
     // Every publication of a thread, whatever asked for it, makes it one of the threads a host change republishes.
     shown.add(threadId);
-    const snapshot = decorated(
+    const baseSnapshot = decorated(
       client,
       desktopSessionState(fold, client.pendingServerRequests(), client.store.section('hostShellJobs')?.value)
     );
+    const snapshotRevision = snapshotRevisionFor(fold.origin);
+    const snapshot =
+      snapshotRevision !== undefined && baseSnapshot
+        ? ({ ...baseSnapshot, snapshotRevision } as SessionSnapshot)
+        : baseSnapshot;
     const streamPosition = positionOf(client, threadId);
     if (fold.origin)
       projected.set(fold.origin, { fold, requests: requestsOf(client, threadId), snapshot, position: streamPosition });
@@ -144,8 +150,21 @@ export function createStatePublisher({
       // Approval updates share this signal with transcript folds. The request stays in the client and is
       // projected with the usable transcript, not with the old or partly replayed fold.
       if (!interested(change.threadId) || transcriptPending(change.threadId)) return;
+      if (change.replayComplete) {
+        const origin = held()?.store.thread(change.threadId)?.state.origin;
+        if (origin) advanceSnapshotRevision(origin);
+      }
       if (!change.replayComplete && !due(change.threadId)) return;
       publish(change.threadId);
+    } else if (
+      change.type === 'subscription' &&
+      change.state === 'restored' &&
+      change.feedId &&
+      change.feedId !== 'app' &&
+      !transcriptPending(change.feedId)
+    ) {
+      const origin = held()?.store.thread(change.feedId)?.state.origin;
+      if (origin) advanceSnapshotRevision(origin);
     } else if (
       change.type === 'section' &&
       (change.section === 'hostShellJobs' || (change.section === 'hostState' && change.key === 'remoteSession'))

@@ -12,10 +12,15 @@ import type { DesktopVisualize } from './visualize/host';
 import type { VisualizeService } from './visualize/service';
 
 export type VisualizeIpcHost = Pick<VisualizeService, 'snapshot' | 'command' | 'paneText' | 'setPanelSize'> &
+  Partial<Pick<VisualizeService, 'hydrateShown'>> &
   Partial<Pick<DesktopVisualize, 'attachFeedback' | 'captureRect' | 'consumeChoiceGesture'>>;
 
 export function registerVisualizeIpc({ handle, visualize }: { handle: IpcHandle; visualize?: VisualizeIpcHost }): void {
-  handle(DESKTOP_IPC.visualizeState, () => visualize?.snapshot() ?? []);
+  handle(DESKTOP_IPC.visualizeState, async () => {
+    if (!visualize) return [];
+    await visualize.hydrateShown?.();
+    return visualize.snapshot();
+  });
   handle(DESKTOP_IPC.visualizeCommand, async (_event, command) =>
     visualize?.command(requiredVisualizeTabCommand(command))
   );

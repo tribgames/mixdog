@@ -1,7 +1,7 @@
 import type { VisualizeServiceContext } from './context';
 import type { TabState } from './tab-state';
 import { step, type TabWork, whileOpen } from './tabs';
-import { VersionHistoryFullError, versionChanges } from './versions';
+import { changedRestoreAssets, VersionHistoryFullError } from './versions';
 
 /** The "no such version" error, listing what the tab keeps. */
 export const noVersion = (tab: TabState, n: number, kept: number[]): Error =>
@@ -29,12 +29,18 @@ export function createTabVersions(ctx: Pick<VisualizeServiceContext, 'versions' 
   function* recordSteps(sessionId: string, tab: TabState, label?: string): TabWork {
     if (!versions || tab.inline) return;
     try {
-      yield* step(versions.snapshot(sessionId, tab.id, tab.targets, label));
+      const outcome = yield* step(versions.record(sessionId, tab.id, tab.targets, label));
       tab.historyFull = false;
+      tab.liveUnkept = outcome.status === 'too-large';
     } catch (error) {
       // The tab keeps working live; its version list stays as it was.
-      if (error instanceof VersionHistoryFullError) tab.historyFull = true;
-      else console.warn('visualize version snapshot failed:', (error as Error).message);
+      if (error instanceof VersionHistoryFullError) {
+        tab.historyFull = true;
+        tab.liveUnkept = true;
+      } else {
+        console.warn('visualize version snapshot failed:', (error as Error).message);
+        tab.liveUnkept = true;
+      }
     }
     syncVersions(sessionId);
   }
@@ -50,11 +56,7 @@ export function createTabVersions(ctx: Pick<VisualizeServiceContext, 'versions' 
     const version = versions?.get(sessionId, tab.id, n);
     if (!version?.assets.length) return [];
     try {
-      const changes = await versionChanges(
-        version,
-        tab.targets.map((target) => target.path)
-      );
-      return changes.filter((change) => change.asset).map((change) => change.name);
+      return await changedRestoreAssets(version);
     } catch {
       // Unlisted: a restore then refuses any changed asset until listed.
       return [];

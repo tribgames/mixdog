@@ -3,12 +3,17 @@ import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import test from 'node:test';
 
-const filters = [];
+let beforeRequestListener = null;
+let loadedUrl = '';
 const sessionFake = {
   protocol: { handle() {} },
   async clearData() {},
   setPermissionRequestHandler() {},
-  webRequest: { onBeforeRequest: (...args) => filters.push(args.length === 1 && args[0] === null ? null : args) },
+  webRequest: {
+    onBeforeRequest: (_filter, listener) => {
+      beforeRequestListener = listener;
+    },
+  },
 };
 
 class FakeWindow {
@@ -26,7 +31,9 @@ class FakeWindow {
       }),
     };
   }
-  async loadURL() {}
+  async loadURL(url) {
+    loadedUrl = url;
+  }
   destroy() {
     this.webContents.session = undefined;
   }
@@ -67,6 +74,9 @@ test('a finished snapshot render leaves no request filter and no abort listener 
   const file = join(tmpdir(), 'page.html');
   await renderFileSnapshot({ fileUrl: pathToFileURL(file).href, root: tmpdir(), signal });
   assert.equal(listeners.size, 0);
-  assert.equal(filters.length, 2);
-  assert.equal(filters.at(-1), null, 'the filter that held the window is cleared');
+  let cancelled = false;
+  beforeRequestListener({ id: 1, webContentsId: 7, url: loadedUrl }, (answer) => {
+    cancelled = answer.cancel;
+  });
+  assert.equal(cancelled, true, 'the finished snapshot window is unregistered from the shared filter');
 });

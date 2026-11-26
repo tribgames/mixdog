@@ -215,8 +215,8 @@ export function createBrowserHostLifecycleMethods(options: {
       options.stopSessionAutosave();
       // Teardown goes on past a failed final save or flush.
       await options.sessionStore.save().catch(() => undefined);
-      options.pagePreviews.dispose();
       await options.pageIdentityFile.flush().catch(() => undefined);
+      options.pagePreviews.dispose();
       await options.cookieJar.dispose();
       options.partition.dispose();
       for (const guest of options.visibleGuests()) {

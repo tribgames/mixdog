@@ -18,7 +18,8 @@ import type { BrowserUrlPolicy } from './url-policy';
 
 interface BrowserGuestLifecycleHost {
   window: BrowserWindow;
-  partitionSession: Electron.Session;
+  partitionSession: Electron.Session | (() => Electron.Session);
+  ensurePartitionReady?: () => Promise<void>;
   state: BrowserGuestStateStore;
   sessions: BrowserSessionRegistry;
   cdp: Pick<BrowserGuestCdp, 'guestDebugger' | 'attachOpenedPage'>;
@@ -107,7 +108,13 @@ function popupWindowOptions(nativeView = false): Electron.BrowserWindowConstruct
 
 export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
   const { window, state, sessions, urlPolicy, waitForLoadSettle } = host;
-  const createPage = () => createBrowserPageWindow(offscreenWindowOptions(host.nativeView === true), host.nativeView);
+  const ensurePartition = (): void => {
+    if (typeof host.partitionSession === 'function') host.partitionSession();
+  };
+  const createPage = () => {
+    ensurePartition();
+    return createBrowserPageWindow(offscreenWindowOptions(host.nativeView === true), host.nativeView);
+  };
   const backgroundPages = createBrowserBackgroundPages(host, {
     create: createPage,
     initialize: (guest, attach) => guests.initializeGuest(guest, attach),
@@ -141,6 +148,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
   window.webContents.on('will-attach-webview', (event) => event.preventDefault());
   const primaryPages = createBrowserPageOwner({
     sessions,
+    beforeCreate: host.ensurePartitionReady,
     create: createPage,
     initialize: guests.initializeGuest,
     adoptPage: (guest, pageId) => state.adoptPage(guest, pageId),
@@ -154,6 +162,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
   const sessionRestore = createBrowserSessionRestore({
     sessions,
     urlPolicy,
+    beforeRestore: host.ensurePartitionReady,
     ensurePrimaryPage: (sessionId, pageId) => primaryPages.ensure(sessionId, pageId),
     claimPage: (sessionId, guest) => primaryPages.claim(sessionId, guest),
     pageId: (guest) => state.pageId(guest),
@@ -233,10 +242,12 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
   return {
     initializeGuest: guests.initializeGuest,
     attachDebuggerEagerly: guests.attachDebuggerEagerly,
+    ensurePartitionReady: () => host.ensurePartitionReady?.() ?? Promise.resolve(),
     backgroundEntryByPageId: backgroundPages.entryByPageId,
     destroyBackgroundPage: backgroundPages.close,
     destroyAllBackgroundPages: () => panelFold.quietly(() => backgroundPages.closeAll()),
     releaseSession: sessionRestore.releaseSession,
+    forgetSuspendedSession: sessionRestore.forgetSession,
     restoreSession,
     reclaimIdleBackgroundPages: backgroundPages.sweep,
     ensureOffscreen: backgroundPages.ensureOffscreen,

@@ -48,15 +48,19 @@ function createBrowserRestartState(
     cookies: cookieJar,
     directory: join(app.getPath('userData'), 'browser-state'),
   });
-  void sessionStore.restore().catch((error) => {
-    onDiagnostic?.('browser-session-restore-failed', {
-      error: redactBrowserText((error as Error).message || String(error)),
-    });
-  });
+  const restored: Promise<void> = sessionStore.restore().then(
+    () => undefined,
+    (error) => {
+      onDiagnostic?.('browser-session-restore-failed', {
+        error: redactBrowserText((error as Error).message || String(error)),
+      });
+    }
+  );
   const stopAutosave = sessionStore.startAutosave();
   const stopWatching = watchBrowserSessionCookies(partition.cookies, sessionStore, cookieJar);
   return {
     sessionStore,
+    restored,
     stopSessionAutosave: () => {
       stopAutosave();
       stopWatching();
@@ -105,7 +109,9 @@ function sameProcessGuests(guest: WebContents): WebContents[] {
     .filter((other) => other !== guest && !other.isDestroyed() && other.getOSProcessId() === pid);
 }
 
-/** The persistent partition and what lives on it across restarts. */
+/** The persistent partition and what lives on it across restarts, created only
+ *  when Browser Use is first used so an unused feature never initializes the
+ *  Chromium StoragePartition at startup. */
 function createBrowserHostStorage(
   windowSession: Electron.Session,
   state: BrowserGuestStateStore,
@@ -113,33 +119,9 @@ function createBrowserHostStorage(
   urls: ReturnType<typeof createBrowserUrlAdmission>,
   onDiagnostic?: Diagnostic,
   hidDevices?: () => boolean,
-  permissionPolicy?: BrowserPermissionPolicyStore
+  permissionPolicy?: BrowserPermissionPolicyStore,
+  onPartitionReady?: () => void
 ) {
-  const partition = createBrowserPartition({
-    windowSession,
-    hidDevices,
-    permissionPolicy,
-    guestForFrame: (frame) => webContents.fromFrame(frame),
-    assertResolvedResourceUrlAllowed: urls.assertResolvedResourceUrlAllowed,
-    downloadsDirectory: () => app.getPath('downloads'),
-    sessionIdForGuest: (guest) => sessions.sessionIdForGuest(guest),
-    defaultSessionId: DEFAULT_BROWSER_SESSION_ID,
-    // A form_post callback's fields, for linked sign-in's state check.
-    onNavigationPost: (webContentsId, url, chunks) => linkedSignIns.navigationPost(webContentsId, url, chunks),
-    onRequestRefused: (webContentsId, url, reason) => {
-      const guest = webContentsId === undefined ? null : webContents.fromId(webContentsId);
-      if (guest) state.recordRefusedRequest(guest, url, reason);
-    },
-  });
-  const cookieJar = createBrowserCookieJar(partition.session);
-  const { sessionStore, stopSessionAutosave } = createBrowserRestartState(partition.session, cookieJar, onDiagnostic);
-  const profileImporter = new BrowserProfileImportService({
-    userDataDirectory: app.getPath('userData'),
-    temporaryDirectory: app.getPath('temp'),
-    partition: partition.session,
-    cookieJar,
-    nativeImporterPath: defaultNativeBrowserImporterPath(),
-  });
   const vault = new CredentialVault({ userDataDirectory: app.getPath('userData') });
   const linkedSignInStore = new LinkedSignInStore({ userDataDirectory: app.getPath('userData') });
   // Linked sign-in memory (linked-sign-in.ts): the tabs' OAuth round trips.
@@ -158,11 +140,139 @@ function createBrowserHostStorage(
         error: redactBrowserText((error as Error).message || String(error)),
       }),
   });
-  const signIns = createPartitionSignIns(partition.session, cookieJar, profileImporter, sessionStore, vault);
+
+  type RealPartitionStorage = {
+    partition: ReturnType<typeof createBrowserPartition>;
+    cookieJar: ReturnType<typeof createBrowserCookieJar>;
+    sessionStore: ReturnType<typeof createBrowserSessionStore>;
+    partitionReady: Promise<void>;
+    stopSessionAutosave: () => void;
+    signIns: ReturnType<typeof createPartitionSignIns>;
+  };
+
+  let created: RealPartitionStorage | null = null;
+  let disposed = false;
+
+  const ensure = (): RealPartitionStorage => {
+    if (created) return created;
+    const partition = createBrowserPartition({
+      windowSession,
+      hidDevices,
+      permissionPolicy,
+      guestForFrame: (frame) => webContents.fromFrame(frame),
+      assertResolvedResourceUrlAllowed: urls.assertResolvedResourceUrlAllowed,
+      downloadsDirectory: () => app.getPath('downloads'),
+      sessionIdForGuest: (guest) => sessions.sessionIdForGuest(guest),
+      defaultSessionId: DEFAULT_BROWSER_SESSION_ID,
+      // A form_post callback's fields, for linked sign-in's state check.
+      onNavigationPost: (webContentsId, url, chunks) => linkedSignIns.navigationPost(webContentsId, url, chunks),
+      onRequestRefused: (webContentsId, url, reason) => {
+        const guest = webContentsId === undefined ? null : webContents.fromId(webContentsId);
+        if (guest) state.recordRefusedRequest(guest, url, reason);
+      },
+    });
+    const cookieJar = createBrowserCookieJar(partition.session);
+    const { sessionStore, restored, stopSessionAutosave } = createBrowserRestartState(
+      partition.session,
+      cookieJar,
+      onDiagnostic
+    );
+    const signIns = createPartitionSignIns(partition.session, cookieJar, profileImporter, sessionStore, vault);
+    const next: RealPartitionStorage = {
+      partition,
+      cookieJar,
+      sessionStore,
+      partitionReady: restored,
+      stopSessionAutosave,
+      signIns,
+    };
+    created = next;
+    if (!disposed) onPartitionReady?.();
+    return next;
+  };
+
+  const profileImporter = new BrowserProfileImportService({
+    userDataDirectory: app.getPath('userData'),
+    temporaryDirectory: app.getPath('temp'),
+    partition: () => ensure().partition.session,
+    cookieJar: () => ensure().cookieJar,
+    nativeImporterPath: defaultNativeBrowserImporterPath(),
+  });
+
+  const lazyDelegate = <T extends object>(resolve: () => T): T =>
+    new Proxy({} as T, {
+      get(_target, prop) {
+        const target = resolve();
+        const value = Reflect.get(target, prop, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+
+  const permissions: ReturnType<typeof createBrowserPartition>['permissions'] = {
+    install: (s) => ensure().partition.permissions.install(s),
+    uninstall: (s) => created?.partition.permissions.uninstall(s),
+    refused: (origin, engineName) => (created ? created.partition.permissions.refused(origin, engineName) : false),
+    pending: (guest) => (created ? created.partition.permissions.pending(guest) : undefined),
+    answer: (guest, id, allow, deviceId, remember) =>
+      created ? created.partition.permissions.answer(guest, id, allow, deviceId, remember) : false,
+  };
+
+  const downloadLedger: ReturnType<typeof createBrowserPartition>['downloadLedger'] = {
+    onWillDownload: (event, item, guest) => ensure().partition.downloadLedger.onWillDownload(event, item, guest),
+    downloadsForSession: (sessionId) =>
+      created ? created.partition.downloadLedger.downloadsForSession(sessionId) : [],
+    hasActiveDownload: (sessionId) => (created ? created.partition.downloadLedger.hasActiveDownload(sessionId) : false),
+    release: (sessionId) => created?.partition.downloadLedger.release(sessionId),
+  };
+
+  const partition: ReturnType<typeof createBrowserPartition> = {
+    get session() {
+      return ensure().partition.session;
+    },
+    downloadLedger,
+    permissions,
+    dispose() {
+      disposed = true;
+      created?.partition.dispose();
+    },
+  };
+
+  const cookieJar: ReturnType<typeof createBrowserCookieJar> = new Proxy(
+    {} as ReturnType<typeof createBrowserCookieJar>,
+    {
+      get(_target, prop) {
+        if (prop === 'dispose') return () => (created ? created.cookieJar.dispose() : Promise.resolve());
+        const target = ensure().cookieJar;
+        const value = Reflect.get(target, prop, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    }
+  );
+
+  const sessionStore: ReturnType<typeof createBrowserSessionStore> = new Proxy(
+    {} as ReturnType<typeof createBrowserSessionStore>,
+    {
+      get(_target, prop) {
+        if (prop === 'save') return () => (created ? created.sessionStore.save() : Promise.resolve());
+        const target = ensure().sessionStore;
+        const value = Reflect.get(target, prop, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    }
+  );
+
+  const stopSessionAutosave = (): void => {
+    created?.stopSessionAutosave();
+  };
+
+  const ensurePartitionReady = (): Promise<void> => ensure().partitionReady;
+  const signIns = lazyDelegate(() => ensure().signIns);
+
   return {
     partition,
     cookieJar,
     sessionStore,
+    ensurePartitionReady,
     stopSessionAutosave,
     profileImporter,
     vault,
@@ -300,6 +410,8 @@ export function createBrowserHostFoundation(
     hidDevices?: () => boolean;
     /** The saved site-permission defaults and exceptions. */
     permissionPolicy?: BrowserPermissionPolicyStore;
+    /** Runs once when the browser partition is first created on demand. */
+    onPartitionReady?: () => void;
   }
 ) {
   const state = new BrowserGuestStateStore(sameProcessGuests);
@@ -340,7 +452,8 @@ export function createBrowserHostFoundation(
     urls,
     options.onDiagnostic,
     options.hidDevices,
-    options.permissionPolicy
+    options.permissionPolicy,
+    options.onPartitionReady
   );
   const devtools = createBrowserHostDevtools(state, urlPolicy, storage.partition.permissions.refused);
   const displayTextures = createBrowserHostTextures(window, state);
@@ -358,7 +471,7 @@ export function createBrowserHostFoundation(
     },
   };
   const pageIdentity = createBrowserHostPageIdentity({
-    partitionSession: storage.partition.session,
+    partitionSession: () => storage.partition.session,
     directory: join(app.getPath('userData'), 'browser-state'),
     announce: (origin) => sendToRenderer(DESKTOP_IPC.browserPageIdentityChanged, origin),
   });

@@ -13,6 +13,7 @@ export function createBrowserPageIdentityFile(host: {
   directory: string;
   encrypt?(text: string): Promise<Buffer | null>;
   decrypt?(data: Buffer): Promise<string | null>;
+  beforeFlush?(): Promise<void>;
   saveDelayMs?: number;
 }) {
   const encrypt = host.encrypt || safeStorageEncrypt;
@@ -39,17 +40,24 @@ export function createBrowserPageIdentityFile(host: {
     return [];
   }
 
-  /** Origins the saved copy filled in, once it is back. */
-  const loaded = load();
+  let loadedPromise: Promise<string[]> | null = null;
+
+  /** Load `page-identity.bin` on first use; subsequent calls reuse the same promise. */
+  function ensureLoaded(): Promise<string[]> {
+    loadedPromise ??= load();
+    return loadedPromise;
+  }
 
   /** Write the current snapshot now (pending changes only). */
   function flush(): Promise<void> {
     if (timer) clearTimeout(timer);
     timer = null;
+    if (!dirty) return saving;
     saving = saving
       .catch(() => undefined)
       .then(async () => {
-        await loaded.catch(() => undefined);
+        await ensureLoaded().catch(() => undefined);
+        await host.beforeFlush?.().catch(() => undefined);
         if (!dirty) return;
         dirty = false;
         const sealed = await encrypt(JSON.stringify(host.store.snapshot()));
@@ -67,5 +75,13 @@ export function createBrowserPageIdentityFile(host: {
     timer.unref?.();
   }
 
-  return { loaded, schedule, flush, file };
+  return {
+    get loaded(): Promise<string[]> {
+      return ensureLoaded();
+    },
+    ensureLoaded,
+    schedule,
+    flush,
+    file,
+  };
 }

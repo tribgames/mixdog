@@ -109,7 +109,15 @@ export function relativePaths(value: unknown): string[] {
   });
 }
 
-const LSP_DOCUMENT_KEYS = new Set(['kind', 'projectPath', 'relPath', 'languageId', 'version', 'content']);
+const LSP_DOCUMENT_KEYS = new Set([
+  'kind',
+  'projectPath',
+  'relPath',
+  'languageId',
+  'version',
+  'content',
+  'attachmentId',
+]);
 const LSP_REQUEST_KEYS = new Set(['projectPath', 'relPath', 'languageId', 'method', 'params']);
 const LSP_METHODS: ReadonlySet<string> = new Set(DESKTOP_LSP_REQUEST_METHODS);
 
@@ -134,6 +142,9 @@ export function lspDocumentInput(value: unknown) {
     languageId: requiredString(value.languageId, 'languageId', 64),
     version: Number(value.version),
     ...(typeof value.content === 'string' ? { content: value.content } : {}),
+    ...(value.attachmentId !== undefined
+      ? { attachmentId: requiredString(value.attachmentId, 'attachmentId', 128) }
+      : {}),
   };
 }
 

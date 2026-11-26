@@ -11,6 +11,9 @@ import type { VisualizeServiceDeps } from './service';
 
 type PaneTarget = Parameters<VisualizeServiceDeps['preparePane']>[0];
 
+let virtualLeaseSeq = 0;
+const virtualLeaseOwners = new Map<string, string>();
+
 /** A chart / html sketch as a virtual page: its own lease (opaque origin,
  *  scripts on), the same problem capture and network guard as file pages. */
 export async function inlinePageUrl(
@@ -19,10 +22,24 @@ export async function inlinePageUrl(
   observe: (contents: WebContents) => void
 ): Promise<string> {
   if (contents) observe(contents);
-  return coreLocalPages().virtual(await inlinePageFiles(content), {
+  const baseOwner = contents ? windowIdFor(contents) : 'visualize';
+  const ownerId = `${baseOwner}:virtual:${++virtualLeaseSeq}`;
+  const url = await coreLocalPages().virtual(await inlinePageFiles(content), {
     owner: contents,
-    ownerId: contents && windowIdFor(contents),
+    ownerId,
   });
+  virtualLeaseOwners.set(url, ownerId);
+  return url;
+}
+
+/** Revoke a virtual-page lease in core when its tab ends, reloads, or parks. */
+export function revokeInlinePageUrl(url: string): void {
+  const ownerId = virtualLeaseOwners.get(url);
+  if (!ownerId) return;
+  virtualLeaseOwners.delete(url);
+  void coreLocalPages()
+    .revokeOwner(ownerId)
+    .catch(() => undefined);
 }
 
 /** The preview URL of one pane file, contained in its root (the cwd, an

@@ -19,23 +19,40 @@ const reported = new WeakMap<object, ReadonlySet<string>>();
 export function reportScreenSessions(window: object, value: unknown): void {
   const ids = Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string' && id !== '') : [];
   reported.set(window, new Set(ids));
-  watchers.get(window)?.();
+  const set = watchers.get(window);
+  if (set) for (const listener of [...set]) listener();
 }
 
 /** Forget what a window reported: its page is gone, so nothing is painted. */
 export function clearScreenSessions(window: object): void {
   reported.delete(window);
-  watchers.get(window)?.();
+  const set = watchers.get(window);
+  if (set) for (const listener of [...set]) listener();
 }
 
-const watchers = new WeakMap<object, () => void>();
+const watchers = new WeakMap<object, Set<() => void>>();
 
-/** Calls `listener` after every report or clear for `window` (one watcher per window); returns the stop. */
+/** Calls `listener` after every report or clear for `window`; returns the stop. */
 export function watchScreenSessions(window: object, listener: () => void): () => void {
-  watchers.set(window, listener);
+  let set = watchers.get(window);
+  if (!set) {
+    set = new Set();
+    watchers.set(window, set);
+  }
+  set.add(listener);
   return () => {
-    if (watchers.get(window) === listener) watchers.delete(window);
+    const current = watchers.get(window);
+    if (!current) return;
+    current.delete(listener);
+    if (!current.size) watchers.delete(window);
   };
+}
+
+/** The sessions `window` is painting right now: empty when hidden or minimized,
+ *  even if another app currently has OS focus. */
+export function paintedSessionIds(window: ScreenWindow | null | undefined): string[] {
+  if (!window || window.isDestroyed() || !window.isVisible() || window.isMinimized()) return [];
+  return [...(reported.get(window) ?? [])];
 }
 
 /** The sessions `isSessionOnScreen` would answer true for: empty unless the window is up, in front and focused. */

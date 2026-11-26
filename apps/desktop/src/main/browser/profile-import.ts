@@ -130,8 +130,8 @@ interface NativeCredential {
 interface BrowserProfileImportOptions {
   userDataDirectory: string;
   temporaryDirectory: string;
-  partition: Session;
-  cookieJar?: BrowserCookieJar;
+  partition: Session | (() => Session);
+  cookieJar?: BrowserCookieJar | (() => BrowserCookieJar);
   nativeImporterPath?: string;
   chromeExecutablePath?: string;
   chromeUserDataDirectory?: string;
@@ -666,7 +666,10 @@ export class BrowserProfileImportService {
       await this.keepAppBoundKey(grant);
     }
     const encryption = this.options.keyEncryption ?? safeStorage;
-    const partition = { cookies: this.options.cookieJar || this.options.partition.cookies };
+    const cookieJar = typeof this.options.cookieJar === 'function' ? this.options.cookieJar() : this.options.cookieJar;
+    const partitionSession =
+      typeof this.options.partition === 'function' ? this.options.partition() : this.options.partition;
+    const partition = { cookies: cookieJar || partitionSession.cookies };
     // Manual import is explicit consent for this run only. It does not
     // release the block for future automatic imports from any profile.
     const cookies = blocked ? report.cookies.filter((cookie) => !blocked(cookie.domain)) : report.cookies;

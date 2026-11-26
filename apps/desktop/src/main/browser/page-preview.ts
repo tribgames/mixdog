@@ -145,7 +145,7 @@ export async function fetchPagePreviewMarkup(
  *  A finished preview fills only what is still missing then, so facts the
  *  browser recorded meanwhile win. */
 export function createBrowserPagePreviews(host: {
-  ready?: Promise<unknown>;
+  ready?: Promise<unknown> | (() => Promise<unknown>);
   lookup(url: string): DesktopBrowserPageIdentity | null;
   read(url: string): Promise<BrowserPageIdentityPatch | null>;
   record(url: string, patch: BrowserPageIdentityPatch): void;
@@ -195,7 +195,7 @@ export function createBrowserPagePreviews(host: {
     attempted.add(key);
     const timer = setTimeout(() => {
       timers.delete(timer);
-      void Promise.resolve(host.ready)
+      void Promise.resolve(typeof host.ready === 'function' ? host.ready() : host.ready)
         .catch(() => undefined)
         .then(() => {
           queue.push(url);

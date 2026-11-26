@@ -208,6 +208,9 @@ export interface VisualizeTabView {
   /** The shown version sits beside the live files (panes interleave
    *  version, live, version, live…). */
   compare?: boolean;
+  /** The live files changed without being kept as a new version (too large,
+   *  history full, or snapshot error), so live differs from the newest kept version. */
+  liveUnkept?: true;
   /** While a kept version is shown: its kept page assets that differ from the
    *  current files, which a restore also overwrites, each by its path in its
    *  root (qualified with the root's folder name when two roots share it);
@@ -267,6 +270,9 @@ export interface VisualizeSessionState {
    *  snapshot says nothing of holds. */
   held?: boolean;
   heldSince?: number;
+  /** With `held`: the tool call ids of opens made during the held turn(s), so
+   *  chat cards hold them even if the turn-start clock lagged a call's start. */
+  heldCalls?: string[];
   /** The host's turn-end record of opens with nothing left to show; absent
    *  when there are none (and from older hosts: every card then draws). */
   goneOpens?: VisualizeGoneOpen[];
@@ -327,6 +333,8 @@ export interface DesktopVisualizeEvent {
   /** With `held`: when the oldest turn not shown yet started (ms). Chat cards
    *  of opens made since then wait for that turn's end. */
   heldSince?: number;
+  /** With `held`: tool call ids of opens made during the held turn(s). */
+  heldCalls?: string[];
   openUrl?: string;
   /** With `openUrl`: names this request, so the browser tab the pane creates
    *  for it reports back to the agent's open (and no other tab does). */
@@ -426,6 +434,7 @@ export interface VisualizeHostTab {
   versions?: VisualizeVersionView[];
   version?: number | null;
   compare?: boolean;
+  liveUnkept?: true;
   /** Root-relative names already (see `VisualizeTabView.restoreAssets`). */
   restoreAssets?: string[];
   /** A data URL (path-free). */
@@ -441,6 +450,7 @@ export interface VisualizeHostState {
   /** A snapshot read: a turn of the session runs, its work kept back since (ms); see `VisualizeSessionState.held`. */
   held?: boolean;
   heldSince?: number;
+  heldCalls?: string[];
   sessionId: string;
   tabs: VisualizeHostTab[];
   active: string | null;
@@ -458,10 +468,11 @@ export interface VisualizeHostEvent {
   reveal?: boolean;
   /** With `reveal`: the tab the open or update was for. */
   tab?: string;
-  /** See `DesktopVisualizeEvent.updated` / `held` / `heldSince`. */
+  /** See `DesktopVisualizeEvent.updated` / `held` / `heldSince` / `heldCalls`. */
   updated?: string;
   held?: boolean;
   heldSince?: number;
+  heldCalls?: string[];
   openUrl?: string;
 }
 
@@ -538,6 +549,7 @@ function remoteVisualizeTab(tab: VisualizeHostState['tabs'][number]): VisualizeS
     versions: versions.map(remoteVersion),
     version: tab.version ?? null,
     ...(tab.compare ? { compare: true } : {}),
+    ...(tab.liveUnkept ? { liveUnkept: true as const } : {}),
     ...(tab.restoreAssets?.length ? { restoreAssets: tab.restoreAssets.map(String) } : {}),
   });
   return {
@@ -574,7 +586,13 @@ export function remoteVisualizeState(state: VisualizeHostState): VisualizeSessio
     sessionId: state.sessionId,
     active: state.active,
     ...(state.held === true
-      ? { held: true, ...(Number.isFinite(state.heldSince) ? { heldSince: state.heldSince } : {}) }
+      ? {
+          held: true,
+          ...(Number.isFinite(state.heldSince) ? { heldSince: state.heldSince } : {}),
+          ...(Array.isArray(state.heldCalls) && state.heldCalls.length
+            ? { heldCalls: state.heldCalls.map(String).filter(Boolean) }
+            : {}),
+        }
       : {}),
     ...(Array.isArray(state.goneOpens) && state.goneOpens.length
       ? {

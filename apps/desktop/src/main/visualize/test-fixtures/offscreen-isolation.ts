@@ -221,9 +221,10 @@ const writeThenRead = (tag: string) =>
   `(async () => { await writeStorage(${JSON.stringify(tag)}); return storageState(); })()`;
 
 async function run() {
+  const { OFFSCREEN_PARTITION } = await import('../../offscreen-partition');
   // The test certificate is trusted for EXTERNAL only, on the renders' session.
   session
-    .fromPartition('visualize-offscreen', { cache: false })
+    .fromPartition(OFFSCREEN_PARTITION, { cache: false })
     .setCertificateVerifyProc(({ hostname }, verified) => verified(hostname === EXTERNAL ? 0 : -3));
   const plain = createHttpServer(externalSite);
   const secure = createHttpsServer({ key: EXTERNAL_KEY, cert: EXTERNAL_CERT }, externalSite);
@@ -307,7 +308,7 @@ async function run() {
   const note = (details: { url: string }) => {
     if (details.url.includes('state-')) reported.push(details.url);
   };
-  const snapshots = session.fromPartition('file-snapshot');
+  const snapshots = session.fromPartition(OFFSCREEN_PARTITION, { cache: false });
   snapshots.webRequest.onCompleted(note);
   snapshots.webRequest.onErrorOccurred(note);
   const picture = await snapshot(second);

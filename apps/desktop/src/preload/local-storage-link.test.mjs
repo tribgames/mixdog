@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { DESKTOP_IPC } from '../shared/contract-ipc.ts';
-import { createLinkWatch, restoreRescuedLocalStorage } from './local-storage-link.ts';
+import { createLinkWatch, restoreRescuedLocalStorage, watchLink } from './local-storage-link.ts';
 
 /** A started watch (its first probe is out) over what a test says is heard of each probe: `page` the page's own,
  *  `backend` an acknowledgement. */
@@ -130,4 +130,74 @@ test('a_storage_that_refused_the_rescue_leaves_it_with_main', () => {
     [DESKTOP_IPC.takeLocalStorageRescue],
     'main is not told, so the next page load takes it again'
   );
+});
+
+test('unload clears the probe interval, storage listener, and hidden iframe', (t) => {
+  const winListeners = new Map();
+  const innerListeners = new Map();
+  let appended = null;
+  let removed = false;
+  const intervals = new Map();
+  let nextTimerId = 1;
+  const origWindow = globalThis.window;
+  const origDocument = globalThis.document;
+  const origSetInterval = globalThis.setInterval;
+  const origClearInterval = globalThis.clearInterval;
+  const addTo = (map, type, fn) => {
+    if (!map.has(type)) map.set(type, new Set());
+    map.get(type).add(fn);
+  };
+  const removeFrom = (map, type, fn) => map.get(type)?.delete(fn);
+  const innerWindow = {
+    localStorage: { length: 0 },
+    sessionStorage: { length: 0 },
+    addEventListener: (type, fn) => addTo(innerListeners, type, fn),
+    removeEventListener: (type, fn) => removeFrom(innerListeners, type, fn),
+  };
+  globalThis.window = {
+    sessionStorage: pageStorage(),
+    addEventListener: (type, fn) => addTo(winListeners, type, fn),
+    removeEventListener: (type, fn) => removeFrom(winListeners, type, fn),
+  };
+  globalThis.document = {
+    createElement: (tag) => {
+      assert.equal(tag, 'iframe');
+      return {
+        hidden: false,
+        contentWindow: innerWindow,
+        remove: () => {
+          removed = true;
+        },
+      };
+    },
+    documentElement: {
+      append: (el) => {
+        appended = el;
+      },
+    },
+  };
+  globalThis.setInterval = (fn, ms) => {
+    const id = nextTimerId++;
+    intervals.set(id, { fn, ms });
+    return id;
+  };
+  globalThis.clearInterval = (id) => {
+    intervals.delete(id);
+  };
+  t.after(() => {
+    globalThis.window = origWindow;
+    globalThis.document = origDocument;
+    globalThis.setInterval = origSetInterval;
+    globalThis.clearInterval = origClearInterval;
+  });
+
+  watchLink(taking(null), pageStorage(), false);
+  assert.ok(appended && appended.hidden, 'hidden probe iframe is appended');
+  assert.equal(intervals.size, 1, 'probe interval is active');
+  assert.equal(innerListeners.get('storage')?.size, 1, 'inner storage listener is active');
+
+  for (const listener of [...(winListeners.get('unload') ?? [])]) listener();
+  assert.equal(intervals.size, 0, 'unload clears the probe interval');
+  assert.equal(innerListeners.get('storage')?.size ?? 0, 0, 'unload removes the inner storage listener');
+  assert.equal(removed, true, 'unload removes the hidden iframe');
 });

@@ -11,6 +11,7 @@ export interface CoreObserversOptions {
   connection: Pick<ProtocolConnection, 'onStoreChange' | 'onEvent' | 'snapshot' | 'call'>;
   applyDesktopSettings(settings: DesktopSettings): void;
   releaseBrowserSession(sessionId: string): void;
+  forgetSuspendedBrowserSession?(sessionId: string): void;
 }
 
 /** Returns the removal of both observers. */
@@ -18,6 +19,7 @@ export function observeCoreForMain({
   connection,
   applyDesktopSettings,
   releaseBrowserSession,
+  forgetSuspendedBrowserSession,
 }: CoreObserversOptions): () => void {
   // Each settings change supersedes the paged read still in flight, which would otherwise overwrite newer values.
   let latest = 0;
@@ -37,13 +39,15 @@ export function observeCoreForMain({
       () => undefined
     );
   });
-  // A thread removed from the app feed arrives as the `thread/deleted` notification (the store keeps no row for it).
   const offEvent = connection.onEvent((event) => {
     if (event.type !== 'notification') return;
     const { notification } = event as { notification: { method: string; params?: unknown } };
-    if (notification.method !== 'thread/deleted') return;
     const threadId = (notification.params as { threadId?: unknown } | undefined)?.threadId;
-    if (typeof threadId === 'string' && threadId) releaseBrowserSession(threadId);
+    if (typeof threadId !== 'string' || !threadId) return;
+    if (notification.method === 'thread/deleted') releaseBrowserSession(threadId);
+    else if (notification.method === 'thread/archived' || notification.method === 'thread/closed') {
+      forgetSuspendedBrowserSession?.(threadId);
+    }
   });
   return () => {
     closed = true;

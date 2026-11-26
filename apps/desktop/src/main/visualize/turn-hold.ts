@@ -1,9 +1,19 @@
 import { stat } from 'node:fs/promises';
+import { isAbsolute } from 'node:path';
 
 import { MAX_VISUALIZE_GONE_OPENS, type VisualizeHostState, type VisualizeSessionState } from '../../shared/visualize';
 import type { VisualizeServiceContext } from './context';
+import type { HistoryEntry } from './history';
 import type { VisualizeServiceDeps } from './service';
-import { displayedPanes, type SessionState, shownLayout, type TabState, view } from './tab-state';
+import {
+  displayedPanes,
+  fileTargetsKey,
+  requestedPathsKey,
+  type SessionState,
+  shownLayout,
+  type TabState,
+  view,
+} from './tab-state';
 import { isFileMissing } from './targets';
 import { keepVersionTurn } from './version-thumbnails';
 
@@ -29,26 +39,64 @@ export interface TurnHold {
    *  applied leaves the panel on it. A selection made while a turn runs ends
    *  with that turn. */
   picked?: string;
+  /** Virtual page URLs whose revocation was deferred while `shown.state` still advertises them. */
+  deferredRevokes: Set<string>;
+  /** True when this hold started while the session was parked and `shown` has not yet been hydrated. */
+  fromParked?: boolean;
   /** What the session shows while the hold lasts, in every window, snapshot
    *  and paired device: its state as of the last turn whose end is applied,
    *  with what the user's own panel commands did to its tabs since, and when
    *  the oldest turn not shown yet started (ms): chat cards of opens made
    *  since then wait. */
-  shown: ShownState & { since: number };
+  shown: ShownState & { since: number; calls: string[] };
+}
+
+/** Whether `hold.shown` currently advertises `url` in any displayed pane. */
+export function holdReferencesUrl(hold: TurnHold, url: string): boolean {
+  return hold.shown.state.tabs.some((tab) => tab.panes.some((pane) => pane.url === url));
+}
+
+function flushDeferredRevokes(hold: TurnHold, revoke?: (url: string) => void | Promise<void>): void {
+  if (!hold.deferredRevokes.size) return;
+  for (const url of [...hold.deferredRevokes]) {
+    if (holdReferencesUrl(hold, url)) continue;
+    hold.deferredRevokes.delete(url);
+    if (revoke) void Promise.resolve(revoke(url)).catch(() => undefined);
+  }
+}
+
+function releaseAllDeferredRevokes(
+  hold: TurnHold,
+  revoke?: (url: string) => void | Promise<void>,
+  next?: TurnHold
+): void {
+  if (!hold.deferredRevokes.size) return;
+  const urls = [...hold.deferredRevokes];
+  hold.deferredRevokes.clear();
+  for (const url of urls) {
+    if (next && holdReferencesUrl(next, url)) next.deferredRevokes.add(url);
+    else if (revoke) void Promise.resolve(revoke(url)).catch(() => undefined);
+  }
 }
 
 /** One publication of what the session shows during the hold, to the window
  *  and the remote mirror; its consumers then know of the hold. */
 export function publishShown(
-  deps: Pick<VisualizeServiceDeps, 'publish' | 'publishHost'> | undefined,
+  deps: Pick<VisualizeServiceDeps, 'publish' | 'publishHost' | 'revokeInlinePage'> | undefined,
   hold: TurnHold,
   sessionId: string,
   effect: { reveal?: true; tab?: string; updated?: string } = {}
 ): void {
   hold.dirty = true;
-  const event = { held: true as const, heldSince: hold.shown.since, ...effect };
+  const event = {
+    held: true as const,
+    heldSince: hold.shown.since,
+    heldCalls: [...hold.shown.calls],
+    ...effect,
+  };
   deps?.publish({ sessionId, state: hold.shown.state, ...event });
   deps?.publishHost?.({ sessionId, state: hold.shown.host, ...event });
+  flushDeferredRevokes(hold, deps?.revokeInlinePage);
 }
 
 /** How a tab the session shows during the hold stands to the session's tabs:
@@ -91,26 +139,65 @@ export function refusePast(
   );
 }
 
-/** The tab the session shows of the file (or inline content) `key` during the hold. */
+/** The tab the session shows of the file (or inline content) `key` during the hold,
+ *  preferring a pre-turn tab over a running-turn tab that later recycled the same key. */
 export function shownOfKey(hold: TurnHold, key: string): string | undefined {
-  return hold.shown.state.tabs.find((tab) => hold.shown.keys.get(tab.id) === key)?.id;
+  return (
+    hold.shown.state.tabs.find((tab) => !hold.shown.turn.has(tab.id) && hold.shown.keys.get(tab.id) === key)?.id ??
+    hold.shown.state.tabs.find((tab) => hold.shown.keys.get(tab.id) === key)?.id
+  );
+}
+
+/** The non-turn shown tab matching `entry` during a hold. For file entries with known requested
+ *  paths, requires a matching requested path on `hold.shown.fileTabs` so a newly joined tab that
+ *  recycled `entry.key` for a different path never hijacks the history click. */
+export function shownOfHistoryEntry(hold: TurnHold, entry: HistoryEntry): string | undefined {
+  if (entry.content) {
+    const shown = shownOfKey(hold, entry.key);
+    return shown && !hold.shown.turn.has(shown) ? shown : undefined;
+  }
+  const entryRequested =
+    entry.cwd !== undefined
+      ? requestedPathsKey(entry.cwd, entry.targets)
+      : entry.targets.every((raw) => isAbsolute(raw))
+        ? requestedPathsKey('', entry.targets)
+        : null;
+  if (entryRequested === null) {
+    const shown = shownOfKey(hold, entry.key);
+    return shown && !hold.shown.turn.has(shown) ? shown : undefined;
+  }
+  return hold.shown.state.tabs.find((tab) => {
+    if (hold.shown.turn.has(tab.id)) return false;
+    const info = hold.shown.fileTabs.get(tab.id);
+    return (
+      info !== undefined &&
+      info.targets.length === entry.targets.length &&
+      requestedPathsKey(info.cwd, info.targets) === entryRequested
+    );
+  })?.id;
 }
 
 /** What the session shows of `tabId` becomes the tab as `now` has it, or goes when `now` has none. */
 function replaceShown(hold: TurnHold, tabId: string, now?: ShownState): void {
-  const { state, host, keys, turn, since } = hold.shown;
+  const { state, host, keys, fileTabs, history, turn, since, calls } = hold.shown;
   if (!state.tabs.some((tab) => tab.id === tabId)) return;
   const put = <T extends { id: string }>(tabs: T[], from: T[] = []): T[] =>
     tabs.flatMap((shown) => (shown.id === tabId ? from.filter((tab) => tab.id === tabId) : [shown]));
   const tabs = put(state.tabs, now?.state.tabs);
   const active = tabs.some((tab) => tab.id === state.active) ? state.active : (tabs.at(-1)?.id ?? null);
   const left = (id: string): boolean => tabs.some((tab) => tab.id === id);
+  const nextFileTabs = new Map([...fileTabs].filter(([id]) => left(id) && id !== tabId));
+  const updatedFileTab = left(tabId) ? now?.fileTabs.get(tabId) : undefined;
+  if (updatedFileTab) nextFileTabs.set(tabId, updatedFileTab);
   hold.shown = {
     state: { ...state, tabs, active },
     host: { ...host, tabs: put(host.tabs, now?.host.tabs), active },
     keys: new Map([...keys].filter(([id]) => left(id))),
+    fileTabs: nextFileTabs,
+    history,
     turn: new Set([...turn].filter(left)),
     since,
+    calls,
   };
 }
 
@@ -152,19 +239,48 @@ export function pickShown(
  *  remote mirror's, with the file (or inline content) each tab is of, and
  *  the tabs among them that are the running turn's own, shown as they were
  *  when the user asked to see them (`turnWork` on their views). */
+/** Frozen file-target identity of a shown file tab (no inline sources or live pointers). */
+export interface ShownFileTab {
+  cwd: string;
+  targets: readonly string[];
+  canonicalKey?: string;
+  missing?: boolean;
+}
+
+export function shownFileTabOf(tab: TabState): ShownFileTab {
+  const canonicalKey = tab.missing
+    ? tab.lastCanonicalKey
+    : tab.targets.length && tab.targets.every((target) => target.path)
+      ? fileTargetsKey(tab.targets)
+      : undefined;
+  return {
+    cwd: tab.cwd,
+    targets: tab.targets.map((target) => target.target),
+    ...(canonicalKey ? { canonicalKey } : {}),
+    ...(tab.missing ? { missing: true } : {}),
+  };
+}
+
 export interface ShownState {
   state: VisualizeSessionState;
   host: VisualizeHostState;
   keys: ReadonlyMap<string, string>;
+  fileTabs: ReadonlyMap<string, ShownFileTab>;
+  history: readonly HistoryEntry[];
   turn: ReadonlySet<string>;
 }
 
 /** The session's state right now, kept apart from the tabs it was read from. */
 export function shownNow(ctx: Pick<VisualizeServiceContext, 'views' | 'sessions'>, sessionId: string): ShownState {
-  const tabs = ctx.sessions.get(sessionId)?.tabs ?? [];
+  const state = ctx.sessions.get(sessionId);
+  const tabs = state?.tabs ?? [];
   return {
     ...structuredClone({ state: ctx.views.stateOf(sessionId), host: ctx.views.hostStateOf(sessionId) }),
     keys: new Map(tabs.filter((tab) => !tab.url && !tab.verify).map((tab) => [tab.id, tab.key])),
+    fileTabs: new Map(
+      tabs.filter((tab) => !tab.url && !tab.verify && !tab.inline).map((tab) => [tab.id, shownFileTabOf(tab)])
+    ),
+    history: structuredClone(state?.history ?? []),
     turn: new Set(),
   };
 }
@@ -188,8 +304,9 @@ export function joinShown(
   const now = shownNow(ctx, sessionId);
   const key = now.keys.get(tabId);
   if (key === undefined || !now.state.tabs.some((tab) => tab.id === tabId)) return;
-  const { state, host, keys, since } = hold.shown;
-  const other = (id: string): boolean => id !== tabId && keys.get(id) !== key;
+  const { state, host, keys, fileTabs, history, since, calls } = hold.shown;
+  // Never drop a pre-turn shown tab just because a post-turn tab recycled its old canonical key.
+  const other = (id: string): boolean => id !== tabId && (!hold.shown.turn.has(id) || keys.get(id) !== key);
   const put = <T extends { id: string }>(tabs: T[], from: T[]): T[] => {
     const tab = from
       .filter((candidate) => candidate.id === tabId)
@@ -200,12 +317,18 @@ export function joinShown(
       return other(shown.id) ? [shown] : [];
     });
   };
+  const nextFileTabs = new Map([...fileTabs].filter(([id]) => other(id)));
+  const joinedFileTab = now.fileTabs.get(tabId);
+  if (joinedFileTab) nextFileTabs.set(tabId, joinedFileTab);
   hold.shown = {
     state: { ...state, tabs: put(state.tabs, now.state.tabs), active: tabId },
     host: { ...host, tabs: put(host.tabs, now.host.tabs), active: tabId },
     keys: new Map([...[...keys].filter(([id]) => other(id)), [tabId, key]]),
+    fileTabs: nextFileTabs,
+    history,
     turn: new Set([...[...hold.shown.turn].filter(other), ...(turn ? [tabId] : [])]),
     since,
+    calls,
   };
 }
 
@@ -241,7 +364,10 @@ export function noteReveal(hold: TurnHold, tabId: string, callId?: string): void
   const index = hold.reveal.indexOf(tabId);
   if (index >= 0) hold.reveal.splice(index, 1);
   hold.reveal.push(tabId);
-  if (callId) hold.opens.push({ tab: tabId, call: callId });
+  if (callId) {
+    hold.opens.push({ tab: tabId, call: callId });
+    if (!hold.shown.calls.includes(callId)) hold.shown.calls = [...hold.shown.calls, callId];
+  }
 }
 
 /** Whether `tab` is drawn and read off screen: a turn holds the panel, or the
@@ -326,7 +452,11 @@ export function createTurnHolds(
     VisualizeServiceContext,
     'holds' | 'sessions' | 'publish' | 'reloads' | 'thumbnails' | 'versions' | 'tabs' | 'views'
   > &
-    Partial<Pick<VisualizeServiceContext, 'deps'>>
+    Partial<Pick<VisualizeServiceContext, 'deps'>> & {
+      onTurnIdle?: (sessionId: string) => void | Promise<void>;
+      parkedShown?: (sessionId: string) => ShownState | null;
+      publishParked?: (sessionId: string) => void;
+    }
 ) {
   const { holds } = ctx;
   /** Each session's turn end being applied (the latest, which follows the ones before it). */
@@ -337,6 +467,7 @@ export function createTurnHolds(
   const start = (sessionId: string, before?: TurnHold): void => {
     const since = Date.now();
     if (before) before.nextSince = since;
+    const parked = !before && !ctx.sessions.has(sessionId) ? (ctx.parkedShown?.(sessionId) ?? null) : null;
     holds.set(sessionId, {
       reveal: [],
       opens: [],
@@ -344,7 +475,9 @@ export function createTurnHolds(
       dirty: false,
       flushing: false,
       since,
-      shown: before?.shown ?? { ...shownNow(ctx, sessionId), since },
+      deferredRevokes: new Set(),
+      ...(parked ? { fromParked: true } : {}),
+      shown: before?.shown ?? { ...(parked ?? shownNow(ctx, sessionId)), since, calls: [] },
     });
   };
 
@@ -406,11 +539,23 @@ export function createTurnHolds(
       // until the running turn ends. Nothing of the running turn is in it: what its agent asks for waits for this end
       // (`ended`), and its file changes are only marked.
       const told = Boolean(shown) || hold.dirty || next.dirty;
-      next.shown = { ...shownNow(ctx, sessionId), since: hold.nextSince ?? next.since };
+      const parked = !state ? (ctx.parkedShown?.(sessionId) ?? null) : null;
+      next.fromParked = parked !== null;
+      next.shown = {
+        ...(parked ?? shownNow(ctx, sessionId)),
+        since: hold.nextSince ?? next.since,
+        calls: [...new Set(next.opens.map((open) => open.call))],
+      };
       if (told && over) publishShown(ctx.deps, next, sessionId, shown ? { updated: shown } : {});
       else if (told) publishShown(ctx.deps, next, sessionId, shown ? { reveal: true, tab: shown } : {});
-    } else if (state && shown) ctx.publish(sessionId, over ? undefined : shown, over ? shown : undefined);
-    else if (state && hold.dirty) ctx.publish(sessionId);
+      releaseAllDeferredRevokes(hold, ctx.deps?.revokeInlinePage, next);
+    } else {
+      if (state && shown) ctx.publish(sessionId, over ? undefined : shown, over ? shown : undefined);
+      else if (state && hold.dirty) ctx.publish(sessionId);
+      else if (!state && hold.dirty) ctx.publishParked?.(sessionId);
+      releaseAllDeferredRevokes(hold, ctx.deps?.revokeInlinePage);
+    }
+    if (!next) await ctx.onTurnIdle?.(sessionId);
     if (failure) throw failure;
   };
 
@@ -442,8 +587,10 @@ export function createTurnHolds(
     setTurnActive,
     /** The session is deleted: its held turn goes without publishing anything. */
     discard(sessionId: string): void {
+      const hold = holds.get(sessionId);
       holds.delete(sessionId);
       ends.delete(sessionId);
+      if (hold) releaseAllDeferredRevokes(hold, ctx.deps?.revokeInlinePage);
     },
     /** Resolves once no turn end of the session is being applied. What an agent asks for meanwhile is the next turn's:
      *  it runs after the end, so that end's result holds nothing of it. */

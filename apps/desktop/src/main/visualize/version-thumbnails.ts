@@ -3,9 +3,11 @@ import type { VisualizeServiceContext } from './context';
 import type { TabState } from './tab-state';
 
 /** The version the tab draws now: a kept one it shows, else its newest (0
- *  without versions). */
+ *  without versions or when live files were not kept as a version). */
 export function shownVersionOf(tab: TabState): number {
-  return tab.shown?.n ?? tab.versions?.at(-1)?.n ?? 0;
+  if (tab.shown) return tab.shown.n;
+  if (tab.liveUnkept || tab.historyFull) return 0;
+  return tab.versions?.at(-1)?.n ?? 0;
 }
 
 /** Record `thumbnail` as the tab's card picture of version `n`. */
@@ -33,6 +35,7 @@ export function keepVersionTurn(
   tab: TabState,
   turn: VisualizeVersionTurn
 ): void {
+  if (tab.liveUnkept || tab.historyFull) return;
   const n = tab.versions?.at(-1)?.n ?? 0;
   const listed = tab.versions?.find((candidate) => candidate.n === n);
   if (!n || !listed) return;
@@ -44,14 +47,14 @@ export function keepVersionTurn(
 }
 
 /** The kept card picture of the tab's version `n`; '' when none was taken. */
-export function versionThumbnail(
+export async function versionThumbnail(
   ctx: Pick<VisualizeServiceContext, 'versions'>,
   sessionId: string,
   tab: TabState,
   n: number
-): string {
+): Promise<string> {
   if (tab.thumbnail && tab.thumbnailVersion === n) return tab.thumbnail;
   if (!n) return '';
   if (tab.inline) return tab.inlineHistory?.find((candidate) => candidate.n === n)?.thumbnail ?? '';
-  return ctx.versions?.get(sessionId, tab.id, n)?.thumbnail ?? '';
+  return (await ctx.versions?.readThumbnail(sessionId, tab.id, n)) ?? '';
 }

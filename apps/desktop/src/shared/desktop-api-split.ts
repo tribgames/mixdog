@@ -169,6 +169,7 @@ export const DIRECT_KEYS = {
     'claimTerminalRun',
     'termEnsure',
     'termAttach',
+    'termDetach',
     'termAcknowledge',
     'subscribeTermData',
     'subscribeTermSizeOwner',

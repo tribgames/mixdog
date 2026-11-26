@@ -28,11 +28,15 @@ export const CORE_PORT_RETRY_CHANNEL = 'mixdog:core-port:retry';
 /** Close code of every socket `closeAll` ends. */
 export const CLOSE_ALL_CODE = 4000;
 const MAX_INBOUND_BYTES = 16 * 1024 * 1024;
+export const SOCKET_HANDSHAKE_TIMEOUT_MS = 5_000;
 
 export interface RelaySocket {
   once(event: 'open', listener: () => void): unknown;
   once(event: 'error', listener: (error: Error) => void): unknown;
+  once(event: 'close', listener: (code: number, reason: { toString(encoding?: string): string }) => void): unknown;
   once(event: 'unexpected-response', listener: (request: unknown, response: { statusCode?: number }) => void): unknown;
+  off?(event: string, listener: (...args: never[]) => void): unknown;
+  removeListener?(event: string, listener: (...args: never[]) => void): unknown;
   on(event: 'message', listener: (data: { toString(encoding?: string): string }, isBinary: boolean) => void): unknown;
   on(event: 'close', listener: (code: number, reason: { toString(encoding?: string): string }) => void): unknown;
   on(event: 'error', listener: (error: Error) => void): unknown;
@@ -105,6 +109,7 @@ function launchFailedOf(error: unknown): BootFailure | null {
 function defaultSocket(url: string, headers: Record<string, string>): RelaySocket {
   return new WebSocket(url, {
     headers,
+    handshakeTimeout: SOCKET_HANDSHAKE_TIMEOUT_MS,
     maxPayload: MAX_INBOUND_BYTES,
     perMessageDeflate: false,
   }) as unknown as RelaySocket;
@@ -168,17 +173,17 @@ export class CorePortRelay {
     const superseded = (): Error => new Error(`The core port open ${generation} was superseded.`);
     entry.stopReports = this.relayReports(webContents, current);
     try {
-      const scope = await this.options.coreWindowScope();
+      const [scope, endpoints] = await Promise.all([
+        this.options.coreWindowScope(),
+        this.options.endpointFor(webContents.id, slot),
+      ]);
+      if (!current()) throw superseded();
       if (scope === null && !this.loggedNoScope) {
         this.loggedNoScope = true;
         this.log('[mixdog] core-lacks-window-scope: opening the window port without it');
       }
-      if (!current()) throw superseded();
-      const endpoint = (await this.options.endpointFor(webContents.id, slot)).find(
-        (candidate) => candidate.slot === slot
-      );
+      const endpoint = endpoints.find((candidate) => candidate.slot === slot);
       if (!endpoint) throw new Error(`No core endpoint for slot "${slot}".`);
-      if (!current()) throw superseded();
       const socket = (this.options.createSocket ?? defaultSocket)(endpoint.url, {
         Authorization: `Bearer ${endpoint.token}`,
         'Mixdog-Window': windowId,
@@ -205,12 +210,38 @@ export class CorePortRelay {
         entry.port.close();
       });
       await new Promise<void>((resolveOpen, rejectOpen) => {
-        socket.once('open', () => resolveOpen());
-        socket.once('error', rejectOpen);
-        socket.once('unexpected-response', (_request, response) => {
+        const remove = (event: string, listener: (...args: never[]) => void): void => {
+          if (typeof socket.off === 'function') socket.off(event, listener);
+          else socket.removeListener?.(event, listener);
+        };
+        const cleanup = (): void => {
+          remove('open', onOpen);
+          remove('error', onError);
+          remove('close', onClose);
+          remove('unexpected-response', onUnexpectedResponse);
+        };
+        const onOpen = (): void => {
+          cleanup();
+          resolveOpen();
+        };
+        const onError = (error: Error): void => {
+          cleanup();
+          rejectOpen(error);
+        };
+        const onClose = (code: number, reason: { toString(encoding?: string): string }): void => {
+          cleanup();
+          const text = reason ? reason.toString('utf8') : '';
+          rejectOpen(new Error(`The core socket closed before opening (code ${code}${text ? `: ${text}` : ''}).`));
+        };
+        const onUnexpectedResponse = (_request: unknown, response: { statusCode?: number }): void => {
+          cleanup();
           socket.terminate();
           rejectOpen(new Error(`The core refused the connection (HTTP ${response.statusCode}).`));
-        });
+        };
+        socket.once('open', onOpen);
+        socket.once('error', onError);
+        socket.once('close', onClose);
+        socket.once('unexpected-response', onUnexpectedResponse);
       });
       entry.openedAt = Date.now();
       // `replaced`: a live link of this window and slot was still open and was ended for this one; otherwise the last one had closed already (a reconnect) or there was none.

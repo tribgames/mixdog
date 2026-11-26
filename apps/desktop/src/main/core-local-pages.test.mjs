@@ -134,3 +134,20 @@ test('assetType asks the core with root, file and data root', async () => {
   assert.equal(await pages.assetType('/r', '/r/a/s.css', '/r/a'), 'text/css');
   assert.deepEqual(calls[0], ['localPageAssetType', ['/r', '/r/a/s.css', '/r/a']]);
 });
+
+test('revokeOwner revokes one virtual lease immediately and owner destroy revokes only remaining leases', async () => {
+  const core = fakeCore();
+  const pages = createCoreLocalPages(core.invoke);
+  const owner = fakeOwner(11);
+  await pages.virtual({ 'a.html': { type: 'text/html', body: Buffer.from('a') } }, { owner, ownerId: 'wc:11:v1' });
+  await pages.virtual({ 'b.html': { type: 'text/html', body: Buffer.from('b') } }, { owner, ownerId: 'wc:11:v2' });
+  assert.equal(owner.count(), 1, 'destroy listener registered once for multiple ownerIds');
+
+  await pages.revokeOwner('wc:11:v1');
+  assert.deepEqual(core.calls.at(-1), ['localPageRevokeOwner', ['wc:11:v1']]);
+
+  core.calls.length = 0;
+  owner.destroy();
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(core.calls, [['localPageRevokeOwner', ['wc:11:v2']]]);
+});

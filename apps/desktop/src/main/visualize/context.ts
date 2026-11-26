@@ -37,6 +37,10 @@ export interface VisualizeServiceContext {
   pendingReloads: Set<Promise<void>>;
   /** The next start order of an open or file reload (`TabState.loadedStamp`). */
   nextLoadStamp(): number;
+  /** Monotonic release epoch for `sessionId` (bumped on `releaseSession` or `dispose`). */
+  sessionReleaseEpoch?(sessionId: string): number;
+  /** True when `sessionId` was released or the service disposed since `epoch`. */
+  isSessionReleased?(sessionId: string, epoch: number): boolean;
   /** Sessions whose agent turn is running (turn-hold.ts): what the turn
    *  opens and changes is kept from the panel until the turn ends. */
   holds: Map<string, TurnHold>;

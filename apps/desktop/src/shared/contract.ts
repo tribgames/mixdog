@@ -828,6 +828,8 @@ export interface DesktopApi {
   termAttach?(
     id: string
   ): Promise<{ id: string; replay: string; sizeOwner?: { cols: number; rows: number; own: boolean } } | null>;
+  /** Detach this window's output feed subscription for a hidden terminal without ending its PTY. */
+  termDetach?(id: string): void;
   termWrite?(id: string, data: string): void;
   /** `phoneOwner`: the phone showing this terminal owns the PTY size (a
    *  non-positive size releases it); other views follow instead of fitting. */

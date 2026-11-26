@@ -8,7 +8,7 @@ import {
   publishShown,
   refusePast,
   shownAs,
-  shownOfKey,
+  shownOfHistoryEntry,
   type TurnHold,
 } from './turn-hold';
 import { versionThumbnail } from './version-thumbnails';
@@ -25,6 +25,7 @@ export function createPanelCommands(
     | 'exports'
     | 'tabVersions'
     | 'problems'
+    | 'leases'
     | 'reloads'
     | 'thumbnails'
     | 'publish'
@@ -56,13 +57,23 @@ export function createPanelCommands(
   ): Promise<VisualizeCommandResult | undefined> => {
     const { sessionId } = command;
     if (command.action === 'history') {
-      const entry = sessions.get(sessionId)?.history.find((candidate) => candidate.id === command.entry);
+      const entry =
+        hold.shown.history.find((candidate) => candidate.id === command.entry) ??
+        sessions.get(sessionId)?.history.find((candidate) => candidate.id === command.entry);
       if (!entry) throw new Error("that visual is no longer in this session's list");
       // A visual the session shows is selected; one it does not, or shows as the running turn's own, is the user's
       // own open (as a reopen is), which decides how it is seen.
-      const shown = shownOfKey(hold, entry.key);
-      if (shown && !hold.shown.turn.has(shown)) pick(sessionId, hold, shown);
-      else await ctx.opens.reopen(sessionId, entry.targets, entry.content, entry.label);
+      const shown = shownOfHistoryEntry(hold, entry);
+      if (shown) pick(sessionId, hold, shown);
+      else {
+        const content = entry.content?.deferred
+          ? (sessions
+              .get(sessionId)
+              ?.history.find((candidate) => candidate.id === entry.id || candidate.key === entry.key)?.content ??
+            entry.content)
+          : entry.content;
+        await ctx.opens.reopen(sessionId, entry.targets, content, entry.label, entry.cwd);
+      }
       return;
     }
     const as = shownAs(ctx, hold, sessionId, command.tabId);
@@ -94,19 +105,26 @@ export function createPanelCommands(
       return;
     }
     if (command.action === 'reopen') {
-      await ctx.opens.reopen(command.sessionId, command.targets, command.content, command.label);
+      await ctx.opens.reopen(
+        command.sessionId,
+        command.targets,
+        command.content,
+        command.label,
+        undefined,
+        command.tabId
+      );
       return;
     }
     if (command.action === 'history') {
       const state = sessions.get(command.sessionId);
       const entry = state?.history.find((candidate) => candidate.id === command.entry);
       if (!state || !entry) throw new Error("that visual is no longer in this session's list");
-      const live = state.tabs.find((candidate) => candidate.key === entry.key && !candidate.url);
+      const live = state.tabs.find((candidate) => candidate.key === entry.key && !candidate.url && !candidate.verify);
       if (live) {
         select(command.sessionId, state, live);
         return;
       }
-      await ctx.opens.reopen(command.sessionId, entry.targets, entry.content, entry.label);
+      await ctx.opens.reopen(command.sessionId, entry.targets, entry.content, entry.label, entry.cwd);
       return;
     }
     const state = sessions.get(command.sessionId);
@@ -129,6 +147,7 @@ export function createPanelCommands(
     if (command.action === 'network') {
       if (!!tab.allowNetwork === command.allow) return;
       tab.allowNetwork = command.allow;
+      ctx.leases.updatePolicy(command.sessionId, tab);
       // Inline pages are held in memory, not reloaded from files: remount them.
       if (tab.shown || tab.inline) {
         // A kept version is on screen: remount its pages under the new policy.
@@ -153,7 +172,7 @@ export function createPanelCommands(
       // A card's picture is a read: it changes nothing and never lifts a hold.
       if (command.action === 'thumbnail') {
         const tab = sessions.get(command.sessionId)?.tabs.find((candidate) => candidate.id === command.tabId);
-        const thumbnail = tab && !tab.url ? versionThumbnail(ctx, command.sessionId, tab, command.version) : '';
+        const thumbnail = tab && !tab.url ? await versionThumbnail(ctx, command.sessionId, tab, command.version) : '';
         return thumbnail ? { thumbnail } : {};
       }
       // No command lifts a running turn's hold. A pane's own reports name the tab the page was drawn from, and a

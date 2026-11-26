@@ -72,7 +72,7 @@ export function createThumbnails(
           if (tab.url) return;
           const n = shownVersionOf(tab);
           // (Without kept versions the number does not tell what changed.)
-          if (n && !tab.historyFull && tab.thumbnail && tab.thumbnailVersion === n) return;
+          if (n && !tab.historyFull && !tab.liveUnkept && tab.thumbnail && tab.thumbnailVersion === n) return;
           cancel(tab);
           const files = shownLayout(tab, tab.shown?.targets ?? [], tab.targets).map((file) => file.path);
           const taken = take?.(sessionId, view(tab), files, controller.signal).catch((error: unknown) => {

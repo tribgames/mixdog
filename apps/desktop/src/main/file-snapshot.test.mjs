@@ -134,3 +134,64 @@ test('the capture window may only load file: resources of the project', () => {
   assert.equal(snapshotKind('a.PNG'), 'image');
   assert.equal(snapshotKind('a.js'), null);
 });
+
+test('clear releases cached snapshot data URLs so idle reclaim drops them from the heap', async () => {
+  const root = project();
+  let renders = 0;
+  const snapshots = service(async () => {
+    renders += 1;
+    return `data:image/png;base64,R${renders}`;
+  });
+  const first = await snapshots.capture(root, 'design/index.html');
+  assert.equal(renders, 1);
+  assert.equal(await snapshots.capture(root, 'design/index.html'), first);
+  assert.equal(renders, 1, 'served from cache before reclaim');
+
+  snapshots.clear();
+  const after = await snapshots.capture(root, 'design/index.html');
+  assert.equal(renders, 2, 're-rendered after clear released the cached data URL');
+  assert.notEqual(after.dataUrl, first.dataUrl);
+});
+
+test('clear detaches tail retention and prevents pre-clear queued captures from refilling the cache', async () => {
+  const root = project();
+  writeFileSync(join(root, 'b.html'), '<p>b</p>');
+  let renders = 0;
+  let active = 0;
+  let peak = 0;
+  let firstStarted;
+  const firstWaiting = new Promise((resolve) => (firstStarted = resolve));
+  let releaseFirst;
+
+  const snapshots = service(async () => {
+    renders += 1;
+    active += 1;
+    peak = Math.max(peak, active);
+    const id = renders;
+    if (id === 1) {
+      firstStarted();
+      await new Promise((resolve) => (releaseFirst = resolve));
+    }
+    active -= 1;
+    return `data:image/png;base64,R${id}`;
+  });
+
+  // Start first capture and queue a second capture behind it, then call clear() before either completes.
+  const firstPending = snapshots.capture(root, 'design/index.html');
+  const secondPending = snapshots.capture(root, 'b.html');
+  await firstWaiting;
+  snapshots.clear();
+  releaseFirst();
+
+  const [first, second] = await Promise.all([firstPending, secondPending]);
+  assert.equal(peak, 1, 'captures stay serialized across clear');
+  assert.equal(first.dataUrl, 'data:image/png;base64,R1');
+  assert.equal(second.dataUrl, 'data:image/png;base64,R2');
+
+  // Neither pre-clear capture may have refilled the cleared cache.
+  const afterFirst = await snapshots.capture(root, 'design/index.html');
+  const afterSecond = await snapshots.capture(root, 'b.html');
+  assert.equal(renders, 4, 'both files re-render because pre-clear completions did not refill cache');
+  assert.equal(afterFirst.dataUrl, 'data:image/png;base64,R3');
+  assert.equal(afterSecond.dataUrl, 'data:image/png;base64,R4');
+});

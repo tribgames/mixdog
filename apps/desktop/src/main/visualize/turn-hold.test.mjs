@@ -11,6 +11,7 @@ import {
   applyVisualizeEvent,
   hydrateVisualizeStates,
   resyncVisualizeStates,
+  visualizeHeldCalls,
   visualizeHeldSince,
   visualizeStateFor,
   visualizeUpdatedTabs,
@@ -882,6 +883,182 @@ test('a tab the user clicks while a turn’s end is applied shows at once and st
     assert.equal(t.service.snapshot()[0].active, 'v1');
   } finally {
     resyncVisualizeStates([]);
+    t.cleanup();
+  }
+});
+
+test('heldCalls travels through events and snapshots, hides skewed calls mid-turn, and hands off cleanly across back-to-back turns', async () => {
+  const published = [];
+  const t = setup({ publish: (event) => published.push(structuredClone(event)) });
+  resyncVisualizeStates([]);
+  try {
+    await t.service.setTurnActive(SESSION, true);
+    for (const event of published.splice(0)) applyVisualizeEvent(event);
+
+    await t.service.execute({
+      sessionId: SESSION,
+      cwd: t.cwd,
+      callId: 'call-turn-1',
+      action: 'open',
+      input: { targets: ['site/a.html'] },
+    });
+    for (const event of published.splice(0)) applyVisualizeEvent(event);
+
+    const heldSince = visualizeHeldSince(SESSION);
+    assert.equal(typeof heldSince, 'number');
+    assert.deepEqual([...(visualizeHeldCalls(SESSION) ?? [])], ['call-turn-1']);
+    assert.deepEqual(t.service.snapshot()[0].heldCalls, ['call-turn-1']);
+    assert.deepEqual(remoteVisualizeState(t.service.snapshot()[0]).heldCalls, ['call-turn-1']);
+
+    // Even if core stamped call.at earlier than main's heldSince (clock skew), heldCalls hides it.
+    const skewedCall = {
+      id: 'call-turn-1',
+      callId: 'call-turn-1',
+      pending: false,
+      targets: ['site/a.html'],
+      label: 'a.html',
+      tabId: 'v1',
+      at: heldSince - 50,
+    };
+    assert.deepEqual(visualizeCardsShown([skewedCall], heldSince, visualizeHeldCalls(SESSION)), []);
+
+    // A fresh window hydrated mid-turn receives heldCalls from the snapshot too.
+    resyncVisualizeStates([]);
+    hydrateVisualizeStates(t.service.snapshot());
+    assert.deepEqual([...(visualizeHeldCalls(SESSION) ?? [])], ['call-turn-1']);
+
+    // Turn 1 ends and Turn 2 opens back-to-back before Turn 1 finishes flushing.
+    const picture = heldPicture();
+    const t2Events = [];
+    const t2 = setup({ thumbnailOffscreen: picture.take, publish: (event) => t2Events.push(structuredClone(event)) });
+    resyncVisualizeStates([]);
+    try {
+      await t2.service.setTurnActive(SESSION, true);
+      await t2.service.execute({
+        sessionId: SESSION,
+        cwd: t2.cwd,
+        callId: 'call-a',
+        action: 'open',
+        input: { targets: ['site/a.html'] },
+      });
+      for (const event of t2Events.splice(0)) applyVisualizeEvent(event);
+      assert.deepEqual([...(visualizeHeldCalls(SESSION) ?? [])], ['call-a']);
+
+      const ending = t2.service.setTurnActive(SESSION, false);
+      await picture.asked;
+      await t2.service.setTurnActive(SESSION, true);
+      await t2.service.execute({
+        sessionId: SESSION,
+        cwd: t2.cwd,
+        callId: 'call-b',
+        action: 'open',
+        input: { targets: ['site/b.html'] },
+      });
+      picture.release();
+      await ending;
+      for (const event of t2Events.splice(0)) applyVisualizeEvent(event);
+      assert.deepEqual(
+        [...(visualizeHeldCalls(SESSION) ?? [])],
+        ['call-b'],
+        'Turn 1 call is released while Turn 2 call stays held'
+      );
+
+      await t2.service.setTurnActive(SESSION, false);
+      for (const event of t2Events.splice(0)) applyVisualizeEvent(event);
+      assert.equal(visualizeHeldCalls(SESSION), null, 'heldCalls clears at the true end');
+      assert.equal(t2.service.snapshot()[0].heldCalls, undefined);
+    } finally {
+      t2.cleanup();
+    }
+  } finally {
+    resyncVisualizeStates([]);
+    t.cleanup();
+  }
+});
+
+test('same-millisecond back-to-back handoff with no opens in the next turn clears Turn 1 heldCalls', async () => {
+  const picture = heldPicture();
+  const published = [];
+  const t = setup({ thumbnailOffscreen: picture.take, publish: (event) => published.push(structuredClone(event)) });
+  mock.timers.enable({ apis: ['Date'], now: 5_000 });
+  resyncVisualizeStates([]);
+  try {
+    await t.service.setTurnActive(SESSION, true);
+    await t.service.execute({
+      sessionId: SESSION,
+      cwd: t.cwd,
+      callId: 'call-same-ms',
+      action: 'open',
+      input: { targets: ['site/a.html'] },
+    });
+    for (const event of published.splice(0)) applyVisualizeEvent(event);
+    assert.equal(visualizeHeldSince(SESSION), 5_000);
+    assert.deepEqual([...(visualizeHeldCalls(SESSION) ?? [])], ['call-same-ms']);
+
+    // Turn 1 starts flushing and Turn 2 starts in the exact same millisecond with no opens yet.
+    const ending = t.service.setTurnActive(SESSION, false);
+    await picture.asked;
+    await t.service.setTurnActive(SESSION, true);
+    picture.release();
+    await ending;
+
+    const handoff = published.at(-1);
+    assert.equal(handoff.held, true);
+    assert.equal(handoff.heldSince, 5_000);
+    assert.deepEqual(handoff.heldCalls, [], 'publishShown explicitly publishes empty heldCalls on handoff');
+    for (const event of published.splice(0)) applyVisualizeEvent(event);
+    assert.equal(visualizeHeldSince(SESSION), 5_000);
+    assert.equal(
+      visualizeHeldCalls(SESSION),
+      null,
+      'Turn 1 call is not retained when Turn 2 starts in the same millisecond with no opens yet'
+    );
+  } finally {
+    resyncVisualizeStates([]);
+    mock.timers.reset();
+    t.cleanup();
+  }
+});
+
+test('updating or closing an inline virtual page during a held turn defers revoking the held URL until turn end', async () => {
+  let virtualSeq = 0;
+  const revoked = [];
+  const t = setup({
+    prepareInlinePage: async () => `http://127.0.0.1:4100/virtual-${++virtualSeq}/index.html`,
+    revokeInlinePage: (url) => revoked.push(url),
+  });
+  try {
+    const opened = await t.run('open', { content: { kind: 'html', title: 'Widget', source: '<p>v1</p>' } });
+    const tabId = opened.tabs[0].id;
+    const url1 = t.service.snapshot()[0].tabs[0].panes[0].url;
+    assert.ok(url1);
+
+    await t.service.setTurnActive(SESSION, true);
+
+    // Mid-turn update replaces the tab's virtual page; held snapshot still advertises url1 so url1 stays live.
+    await t.run('open', { content: { kind: 'html', title: 'Widget', source: '<p>v2</p>' } });
+    assert.equal(revoked.includes(url1), false, 'held virtual page URL must not be revoked while turn is active');
+    assert.equal(t.service.snapshot()[0].tabs[0].panes[0].url, url1);
+
+    // A second mid-turn update revokes the intermediate url2 immediately while still keeping url1 alive.
+    await t.run('open', { content: { kind: 'html', title: 'Widget', source: '<p>v3</p>' } });
+    assert.equal(revoked.includes(url1), false, 'held url1 remains live across multiple mid-turn updates');
+    assert.equal(revoked.length, 1, 'unreferenced intermediate mid-turn virtual page is revoked immediately');
+
+    await t.service.setTurnActive(SESSION, false);
+    assert.equal(revoked.includes(url1), true, 'held url1 is revoked once the turn ends');
+    const url3 = t.service.snapshot()[0].tabs[0].panes[0].url;
+    assert.ok(url3 && url3 !== url1);
+
+    // Closing an inline tab during a held turn also defers revoking its held URL until turn end.
+    await t.service.setTurnActive(SESSION, true);
+    await t.run('close', { tab: tabId });
+    assert.equal(revoked.includes(url3), false, 'closing inline tab mid-turn keeps held url3 alive until turn end');
+    assert.equal(t.service.snapshot()[0].tabs[0].panes[0].url, url3);
+
+    await t.service.setTurnActive(SESSION, false);
+    assert.equal(revoked.includes(url3), true, 'closed inline tab url3 is revoked once the turn ends');
+  } finally {
     t.cleanup();
   }
 });

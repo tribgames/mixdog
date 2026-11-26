@@ -283,6 +283,7 @@ export class CookieAutoImporter {
   private cancelStart: (() => void) | null = null;
   private unwatch: (() => void) | undefined;
   private stopped = false;
+  private deferred = false;
   private current: Promise<void> | null = null;
   private runningProfile: string | null = null;
   private checkingChrome = false;
@@ -304,17 +305,36 @@ export class CookieAutoImporter {
     return next;
   }
 
-  /** App start: read the saved setting; when on, the first run follows shortly. */
-  async start(): Promise<void> {
+  /** App start: read the saved setting; when on, the first run follows shortly
+   *  (or waits for `activate()` when `deferRun` keeps the browser partition lazy). */
+  async start(options?: { deferRun?: boolean }): Promise<void> {
     this.stopped = false;
+    this.deferred = options?.deferRun === true;
     await this.changeSettings(async () => {
       this.settings = await this.deps.settings.read();
-      this.arm(START_DELAY_MS);
+      if (this.deferred) {
+        this.disarm();
+        await this.syncWatch();
+      } else {
+        this.arm(START_DELAY_MS);
+      }
+    });
+  }
+
+  /** First Browser Use: lift deferred startup and run immediately without the startup delay. */
+  async activate(): Promise<void> {
+    await this.changeSettings(async () => {
+      if (!this.deferred) return;
+      this.deferred = false;
+      if (!this.stopped && this.settings.enabled && !this.importedSinceStart) {
+        this.arm(0);
+      }
     });
   }
 
   stop(): void {
     this.stopped = true;
+    this.deferred = false;
     this.disarm();
   }
 
@@ -332,6 +352,7 @@ export class CookieAutoImporter {
   }
 
   async status(): Promise<DesktopCookieAutoImportStatus> {
+    await this.settingsWrites;
     const { enabled, profileId } = this.settings;
     const [state, key] = await Promise.all([this.deps.state.read(), this.deps.keyStatus()]);
     // Recorded errors belong to a setup that once worked (this profile was
@@ -382,6 +403,7 @@ export class CookieAutoImporter {
           lastError: undefined,
         });
       }
+      this.deferred = false;
       this.arm(0);
     });
     return await this.status();
@@ -446,6 +468,7 @@ export class CookieAutoImporter {
     const mine: { stop?: () => void } = {};
     mine.stop = this.deps.watchChromeExit(
       () => {
+        if (this.deferred) return;
         if (this.current) this.exitedDuringRun = true;
         else void this.attempt();
       },

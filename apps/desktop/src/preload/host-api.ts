@@ -52,14 +52,29 @@ export function createHostApi({
       .then(() => sendQuietly(DESKTOP_IPC.editorBackupsFlushed, request));
   });
   // Each notice is raised once, so every one sent before the toast region
-  // subscribes is held for it, not only the newest.
-  const heldNotices: DesktopNotice[] = [];
+  // subscribes is held for it by key, and holding ends once it mounts or unloads.
+  const heldNotices = new Map<string, DesktopNotice>();
+  let holdNotices = true;
   const noticeListeners = new Set<(notice: DesktopNotice) => void>();
+  const dropHeldNotices = (): void => {
+    holdNotices = false;
+    heldNotices.clear();
+  };
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('pagehide', dropHeldNotices, { once: true });
+    window.addEventListener('unload', dropHeldNotices, { once: true });
+  }
   ipcRenderer.on(DESKTOP_IPC.desktopNotice, (_event, value: unknown) => {
     const notice = readDesktopNotice(value);
     if (!notice) return;
-    if (noticeListeners.size === 0) heldNotices.push(notice);
-    else for (const listener of [...noticeListeners]) listener(notice);
+    if (noticeListeners.size === 0) {
+      if (holdNotices) {
+        heldNotices.delete(notice.key);
+        heldNotices.set(notice.key, notice);
+      }
+      return;
+    }
+    for (const listener of [...noticeListeners]) listener(notice);
   });
 
   return {
@@ -114,8 +129,11 @@ export function createHostApi({
     openServerDownload: (path, confirmedPath) => invokeIpc(DESKTOP_IPC.openServerDownload, path, confirmedPath),
     serverTrashInfo: (projectPath) => invokeIpc(DESKTOP_IPC.serverTrashInfo, projectPath),
     subscribeDesktopNotices: (listener) => {
+      holdNotices = false;
       noticeListeners.add(listener);
-      for (const notice of heldNotices.splice(0)) listener(notice);
+      const queued = [...heldNotices.values()];
+      heldNotices.clear();
+      for (const notice of queued) listener(notice);
       return () => {
         noticeListeners.delete(listener);
       };

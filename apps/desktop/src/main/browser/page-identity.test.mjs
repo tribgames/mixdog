@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { registerHooks } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setImmediate as settle } from 'node:timers/promises';
@@ -479,4 +480,413 @@ test('a restored snapshot never evicts what this session recorded live', () => {
   // The oldest saved page made room; the newest saved ones are back.
   assert.equal(store.lookup('https://s.test/0'), null);
   assert.equal(store.lookup('https://s.test/299').title, 'S299');
+});
+
+test('page-identity.bin is loaded on first lookup, not at startup, and thumbnails are served from disk', async (t) => {
+  registerHooks({
+    resolve: (specifier, context, next) =>
+      specifier === 'electron'
+        ? {
+            url: 'data:text/javascript,export const nativeImage={createFromBuffer:()=>({isEmpty:()=>true,toDataURL:()=>""})};',
+            shortCircuit: true,
+          }
+        : next(specifier, context),
+  });
+  const { createBrowserHostPageIdentity } = await import('./host-page-identity.ts');
+  const { PAGE_THUMB_PREFIX, readBrowserPageThumbnail, resolveBrowserPageThumbnail } = await import(
+    './page-thumbnail-disk.ts'
+  );
+
+  const directory = await mkdtemp(join(tmpdir(), 'page-identity-lazy-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+
+  let decryptCalls = 0;
+  const seal = {
+    encrypt: async (text) => Buffer.from(`sealed:${text}`),
+    decrypt: async (data) => {
+      decryptCalls += 1;
+      const text = data.toString();
+      return text.startsWith('sealed:') ? text.slice(7) : null;
+    },
+  };
+
+  // Seed a legacy page-identity.bin containing a base64 thumbnail payload.
+  const jpgBytes = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+  const legacyDataUrl = `data:image/jpeg;base64,${jpgBytes.toString('base64')}`;
+  const seeded = createBrowserPageIdentityStore();
+  seeded.update('https://lazy.test/doc', { title: 'Lazy Doc', thumbnail: legacyDataUrl });
+  const seedFile = createBrowserPageIdentityFile({ store: seeded, directory, saveDelayMs: 60_000, ...seal });
+  seedFile.schedule();
+  await seedFile.flush();
+  decryptCalls = 0;
+
+  // Startup construction must not read page-identity.bin.
+  const announced = [];
+  const host = createBrowserHostPageIdentity({
+    partitionSession: () => assert.fail('partitionSession must not be created on lookup'),
+    directory,
+    announce: (origin) => announced.push(origin),
+    ...seal,
+  });
+  await settle();
+  assert.equal(decryptCalls, 0, 'page-identity.bin must not be read at startup');
+
+  // Flushing without changes must not read page-identity.bin either.
+  await host.file.flush();
+  assert.equal(decryptCalls, 0);
+
+  // First lookup triggers lazy loading from disk and announces the loaded origin.
+  host.store.lookup('https://lazy.test/doc');
+  await host.file.ensureLoaded();
+  await settle();
+  assert.equal(decryptCalls, 1, 'page-identity.bin loaded on first lookup');
+  assert.deepEqual(announced, ['https://lazy.test']);
+
+  const loaded = host.store.lookup('https://lazy.test/doc');
+  assert.equal(loaded?.title, 'Lazy Doc');
+  assert.ok(loaded?.thumbnail?.startsWith(PAGE_THUMB_PREFIX), 'thumbnail migrated to disk media URL');
+  assert.equal(loaded?.thumbnail?.startsWith('data:'), false, 'no base64 thumbnail retained in memory');
+
+  // Snapshot stores only the compact disk URL, never base64 image bytes.
+  const snap = host.store.snapshot();
+  assert.ok(snap.thumbnails[0][1].startsWith(PAGE_THUMB_PREFIX));
+
+  // Migrating legacy inline base64 thumbnails schedules a rewrite of page-identity.bin.
+  await host.file.flush();
+  const rewritten = (await readFile(host.file.file)).toString();
+  assert.equal(rewritten.includes('data:image/'), false, 'page-identity.bin drops migrated inline base64 payloads');
+  assert.equal(rewritten.includes(PAGE_THUMB_PREFIX), true, 'page-identity.bin persists disk thumbnail URLs');
+
+  // Disk file is encrypted (never plaintext image bytes), and the media reader decrypts exact bytes with its token.
+  const loadedUrl = new URL(loaded.thumbnail);
+  const fileName = loadedUrl.pathname.replace(/^\/+/, '');
+  const token = loadedUrl.searchParams.get('t') ?? '';
+  assert.ok(token.length >= 32, 'thumbnail URL includes a runtime capability token');
+  const resolved = resolveBrowserPageThumbnail(fileName);
+  assert.ok(resolved, 'disk thumbnail resolves for mixdog-media://page-thumb/');
+  assert.equal(resolved.mime, 'image/jpeg');
+  const rawMigrated = await readFile(resolved.path);
+  assert.equal(rawMigrated.equals(jpgBytes), false, 'thumbnail file on disk must be encrypted, not plaintext');
+  assert.equal(rawMigrated.includes(jpgBytes), false, 'plaintext JPEG bytes must not appear on disk');
+  assert.equal(await readBrowserPageThumbnail(fileName, ''), null, 'missing token cannot decrypt thumbnail');
+  const decryptedMigrated = await readBrowserPageThumbnail(fileName, token);
+  assert.equal(decryptedMigrated?.mime, 'image/jpeg');
+  assert.deepEqual(decryptedMigrated?.bytes, jpgBytes);
+
+  // Live updates also write encrypted thumbnails to disk rather than storing base64 in memory.
+  const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+  host.store.update('https://live.test/page', {
+    title: 'Live',
+    thumbnail: `data:image/png;base64,${pngBytes.toString('base64')}`,
+  });
+  const live = host.store.lookup('https://live.test/page');
+  assert.ok(live?.thumbnail?.startsWith(PAGE_THUMB_PREFIX));
+  const liveUrl = new URL(live.thumbnail);
+  const liveFileName = liveUrl.pathname.replace(/^\/+/, '');
+  const liveToken = liveUrl.searchParams.get('t') ?? '';
+  const decryptedLive = await readBrowserPageThumbnail(liveFileName, liveToken);
+  assert.equal(decryptedLive?.mime, 'image/png');
+  assert.deepEqual(decryptedLive?.bytes, pngBytes);
+  const liveResolved = resolveBrowserPageThumbnail(liveFileName);
+  assert.ok(liveResolved);
+  assert.equal((await readFile(liveResolved.path)).includes(pngBytes), false, 'live PNG bytes are encrypted on disk');
+
+  // Disposing previews tears down disk thumbnail registration so directories do not leak.
+  host.previews.dispose();
+  assert.equal(resolveBrowserPageThumbnail(liveFileName), null, 'disposing host unregisters thumbnail directory');
+  assert.equal(await readBrowserPageThumbnail(liveFileName, liveToken), null);
+
+  // Restoring in a new host instance re-mints a fresh runtime token and rejects the old run's token.
+  const restarted = createBrowserHostPageIdentity({
+    partitionSession: () => assert.fail('partitionSession unused'),
+    directory,
+    announce: () => {},
+    ...seal,
+  });
+  t.after(() => restarted.dispose());
+  await restarted.file.ensureLoaded();
+  const restored = restarted.store.lookup('https://lazy.test/doc');
+  assert.ok(restored?.thumbnail?.startsWith(PAGE_THUMB_PREFIX));
+  const restartedUrl = new URL(restored.thumbnail);
+  const restartedToken = restartedUrl.searchParams.get('t') ?? '';
+  assert.notEqual(restartedToken, token, 'restored thumbnail rotates capability token on restart');
+  assert.equal(await readBrowserPageThumbnail(fileName, token), null, 'prior run token is rejected after restart');
+  assert.deepEqual((await readBrowserPageThumbnail(fileName, restartedToken))?.bytes, jpgBytes);
+});
+
+test('disk page thumbnail storage skips plaintext writes when safeStorage encryption is unavailable', async (t) => {
+  const { createBrowserHostPageIdentity } = await import('./host-page-identity.ts');
+  const { readBrowserPageThumbnail } = await import('./page-thumbnail-disk.ts');
+  const { readdir } = await import('node:fs/promises');
+
+  const directory = await mkdtemp(join(tmpdir(), 'page-thumb-no-encrypt-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+
+  const host = createBrowserHostPageIdentity({
+    partitionSession: () => assert.fail('partitionSession unused'),
+    directory,
+    announce: () => {},
+    encrypt: async () => null,
+    decrypt: async () => null,
+  });
+  t.after(() => host.dispose());
+
+  const secretPng = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xde, 0xad, 0xbe, 0xef]);
+  host.store.update('https://bank.test/account', {
+    title: 'Account',
+    thumbnail: `data:image/png;base64,${secretPng.toString('base64')}`,
+  });
+  await host.file.flush();
+
+  const thumbDir = join(directory, 'page-thumbnails');
+  const files = await readdir(thumbDir).catch(() => []);
+  assert.deepEqual(files, [], 'no plaintext thumbnail file written when encryption is unavailable');
+  const looked = host.store.lookup('https://bank.test/account');
+  assert.equal(looked?.title, 'Account');
+  assert.equal(looked?.thumbnail, undefined, 'failed unencrypted thumbnail URL is dropped from memory');
+  assert.equal(await readBrowserPageThumbnail(`${'0'.repeat(32)}.png`, '0'.repeat(32)), null);
+});
+
+test('disk page thumbnail storage serializes remove and put on the same path without leaking per-path state', async (t) => {
+  const { createDiskPageThumbnailStorage, readBrowserPageThumbnail } = await import('./page-thumbnail-disk.ts');
+  const { readdir } = await import('node:fs/promises');
+
+  const directory = await mkdtemp(join(tmpdir(), 'page-thumb-race-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+
+  let holdFirstEncrypt = true;
+  let firstEncryptStarted;
+  const firstEncryptWaiting = new Promise((resolve) => (firstEncryptStarted = resolve));
+  let releaseFirstEncrypt;
+  let encryptCalls = 0;
+  const storage = createDiskPageThumbnailStorage(directory, {
+    encrypt: async (text) => {
+      encryptCalls += 1;
+      if (encryptCalls === 1 && holdFirstEncrypt) {
+        holdFirstEncrypt = false;
+        firstEncryptStarted();
+        await new Promise((resolve) => (releaseFirstEncrypt = resolve));
+      }
+      return Buffer.from(`enc:${text}`);
+    },
+    decrypt: async (data) => {
+      const text = data.toString();
+      return text.startsWith('enc:') ? text.slice(4) : null;
+    },
+  });
+  t.after(() => storage.dispose());
+
+  const firstBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x01]);
+  const secondBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x02]);
+  const firstUrl = storage.put('https://race.test/page', `data:image/png;base64,${firstBytes.toString('base64')}`);
+  assert.ok(firstUrl);
+  await firstEncryptWaiting;
+  // Queue a remove followed immediately by a fresh put for the same key while the first write is still pending.
+  storage.remove(firstUrl);
+  const secondUrl = storage.put('https://race.test/page', `data:image/png;base64,${secondBytes.toString('base64')}`);
+  assert.ok(secondUrl);
+  releaseFirstEncrypt();
+  await storage.settled();
+
+  const parsedSecond = new URL(secondUrl);
+  const read = await readBrowserPageThumbnail(
+    parsedSecond.pathname.replace(/^\/+/, ''),
+    parsedSecond.searchParams.get('t') ?? ''
+  );
+  assert.deepEqual(read?.bytes, secondBytes, 'remove never unlinks a subsequent put on the same path');
+
+  // Remove many distinct URLs and confirm disk and queues drain cleanly.
+  const urls = [];
+  for (let i = 0; i < 40; i += 1) {
+    const u = storage.put(`https://evict.test/${i}`, `data:image/png;base64,${firstBytes.toString('base64')}`);
+    assert.ok(u);
+    urls.push(u);
+  }
+  await storage.settled();
+  for (const u of urls) storage.remove(u);
+  storage.remove(secondUrl);
+  await storage.settled();
+  assert.deepEqual(await readdir(directory), [], 'all removed encrypted thumbnails are cleaned from disk');
+});
+
+test('browser host shutdown flushes pending encrypted thumbnails before disposing storage and drops aborted writes on direct dispose', async (t) => {
+  const { createBrowserHostPageIdentity } = await import('./host-page-identity.ts');
+  const { createBrowserHostLifecycleMethods } = await import('./host-methods.ts');
+  const { readBrowserPageThumbnail } = await import('./page-thumbnail-disk.ts');
+  const { readdir } = await import('node:fs/promises');
+
+  const directory = await mkdtemp(join(tmpdir(), 'page-thumb-shutdown-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+
+  let holdThumbEncrypt = true;
+  let releaseThumbEncrypt;
+  let thumbEncryptStarted;
+  const thumbEncryptWaiting = new Promise((resolve) => (thumbEncryptStarted = resolve));
+  const seal = {
+    encrypt: async (text) => {
+      if (holdThumbEncrypt && !text.startsWith('{')) {
+        holdThumbEncrypt = false;
+        thumbEncryptStarted();
+        await new Promise((resolve) => (releaseThumbEncrypt = resolve));
+      }
+      return Buffer.from(`sealed:${text}`);
+    },
+    decrypt: async (data) => {
+      const text = data.toString();
+      return text.startsWith('sealed:') ? text.slice(7) : null;
+    },
+  };
+
+  const host = createBrowserHostPageIdentity({
+    partitionSession: () => assert.fail('partitionSession unused'),
+    directory,
+    announce: () => {},
+    ...seal,
+  });
+  const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xaa, 0xbb]);
+  host.store.update('https://shutdown.test/doc', {
+    title: 'Shutdown Doc',
+    thumbnail: `data:image/png;base64,${pngBytes.toString('base64')}`,
+  });
+  await thumbEncryptWaiting;
+
+  const lifecycle = createBrowserHostLifecycleMethods({
+    bridge: { start() {}, stop: async () => {} },
+    remoteTabs: { dispose() {} },
+    userReclaimTimer: setInterval(() => {}, 60_000),
+    stopFollowingScale() {},
+    presentationReads: { dispose() {} },
+    stopSessionAutosave() {},
+    sessionStore: { save: async () => 0 },
+    pagePreviews: host.previews,
+    pageIdentityFile: host.file,
+    cookieJar: { dispose: async () => {} },
+    partition: { dispose() {} },
+    visibleGuests: () => [],
+    detach: async () => {},
+    lifecycle: { destroyAllPrimaryPages() {} },
+  });
+
+  // Start real shutdown while thumbnail encryption is still pending, then let it finish.
+  const shuttingDown = lifecycle.dispose();
+  releaseThumbEncrypt();
+  await shuttingDown;
+
+  // Encrypted thumbnail file must exist on disk and be restored cleanly on the next startup.
+  const files = await readdir(join(directory, 'page-thumbnails'));
+  assert.equal(files.length, 1, 'shutdown flushes pending encrypted thumbnail file before disposing');
+
+  const restarted = createBrowserHostPageIdentity({
+    partitionSession: () => assert.fail('partitionSession unused'),
+    directory,
+    announce: () => {},
+    encrypt: async (text) => Buffer.from(`sealed:${text}`),
+    decrypt: seal.decrypt,
+  });
+  t.after(() => restarted.dispose());
+  await restarted.file.ensureLoaded();
+  const restored = restarted.store.lookup('https://shutdown.test/doc');
+  assert.ok(restored?.thumbnail);
+  const parsed = new URL(restored.thumbnail);
+  assert.deepEqual(
+    (await readBrowserPageThumbnail(parsed.pathname.replace(/^\/+/, ''), parsed.searchParams.get('t') ?? ''))?.bytes,
+    pngBytes
+  );
+
+  // Direct dispose before flush rolls back unpersisted thumbnail URLs so flush never persists a dead URL.
+  const dir2 = await mkdtemp(join(tmpdir(), 'page-thumb-direct-dispose-'));
+  t.after(() => rm(dir2, { recursive: true, force: true }));
+  let releaseDirect;
+  let directStarted;
+  const directWaiting = new Promise((resolve) => (directStarted = resolve));
+  let directThumb = true;
+  const host2 = createBrowserHostPageIdentity({
+    partitionSession: () => assert.fail('partitionSession unused'),
+    directory: dir2,
+    announce: () => {},
+    encrypt: async (text) => {
+      if (directThumb && !text.startsWith('{')) {
+        directThumb = false;
+        directStarted();
+        await new Promise((resolve) => (releaseDirect = resolve));
+      }
+      return Buffer.from(`sealed:${text}`);
+    },
+    decrypt: seal.decrypt,
+  });
+  host2.store.update('https://aborted.test/page', {
+    title: 'Aborted',
+    thumbnail: `data:image/png;base64,${pngBytes.toString('base64')}`,
+  });
+  await directWaiting;
+  host2.previews.dispose();
+  releaseDirect();
+  await host2.file.flush();
+  assert.equal(host2.store.lookup('https://aborted.test/page')?.thumbnail, undefined);
+  assert.deepEqual(host2.store.snapshot().thumbnails, []);
+});
+
+test('dropThumbnail notifies subscribers when a failed thumbnail write rolls back, and ignores stale rollbacks', async (t) => {
+  const { createBrowserHostPageIdentity } = await import('./host-page-identity.ts');
+
+  // Unit check: store.dropThumbnail fires onChange only when it actually removes the matching thumbnail URL.
+  const changed = [];
+  const store = createBrowserPageIdentityStore({ onChange: (origin) => changed.push(origin) });
+  store.update('https://rollback.test/item', { title: 'Item', thumbnail: 'data:image/png;base64,AAAA' });
+  assert.deepEqual(changed, ['https://rollback.test']);
+
+  store.dropThumbnail('https://rollback.test/item', 'data:image/png;base64,STALE');
+  assert.deepEqual(changed, ['https://rollback.test'], 'mismatching expectedUrl does not fire onChange');
+  assert.equal(store.lookup('https://rollback.test/item')?.thumbnail, 'data:image/png;base64,AAAA');
+
+  store.dropThumbnail('https://rollback.test/item', 'data:image/png;base64,AAAA');
+  assert.deepEqual(changed, ['https://rollback.test', 'https://rollback.test'], 'removing thumbnail fires onChange');
+  assert.equal(store.lookup('https://rollback.test/item')?.thumbnail, undefined);
+
+  store.dropThumbnail('https://rollback.test/item', 'data:image/png;base64,AAAA');
+  assert.deepEqual(changed, ['https://rollback.test', 'https://rollback.test'], 'duplicate drop does not re-fire');
+
+  // Host check: an async failed disk thumbnail write announces the origin again so renderer caches drop the dead URL.
+  const directory = await mkdtemp(join(tmpdir(), 'page-thumb-rollback-notify-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+
+  let encryptStarted;
+  const encryptWaiting = new Promise((resolve) => (encryptStarted = resolve));
+  let releaseEncrypt;
+  const announced = [];
+  const host = createBrowserHostPageIdentity({
+    partitionSession: () => assert.fail('partitionSession unused'),
+    directory,
+    announce: (origin) => announced.push(origin),
+    encrypt: async (text) => {
+      if (!text.startsWith('{')) {
+        encryptStarted();
+        await new Promise((resolve) => (releaseEncrypt = resolve));
+        return null;
+      }
+      return Buffer.from(`sealed:${text}`);
+    },
+    decrypt: async () => null,
+  });
+  t.after(() => host.dispose());
+
+  const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x01, 0x02]);
+  host.store.update('https://bank.test/account', {
+    title: 'Account',
+    thumbnail: `data:image/png;base64,${pngBytes.toString('base64')}`,
+  });
+  await encryptWaiting;
+  await settle();
+  assert.ok(host.store.lookup('https://bank.test/account')?.thumbnail, 'optimistic URL is visible before write fails');
+  assert.deepEqual(announced, ['https://bank.test']);
+
+  releaseEncrypt();
+  await host.file.flush();
+  await settle();
+  assert.equal(host.store.lookup('https://bank.test/account')?.thumbnail, undefined, 'failed thumbnail URL is removed');
+  assert.deepEqual(
+    announced,
+    ['https://bank.test', 'https://bank.test'],
+    'rollback announces the origin so renderer caches drop the dead thumbnail URL'
+  );
 });

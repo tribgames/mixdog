@@ -8,6 +8,7 @@ function setup() {
   let event;
   const applied = [];
   const released = [];
+  const forgotten = [];
   const entries = [
     { section: 'desktop-ignored', key: null, revision: 1, value: {} },
     { section: 'config', key: 'desktop', revision: 1, value: { keepAwake: false } },
@@ -31,8 +32,9 @@ function setup() {
     connection,
     applyDesktopSettings: (s) => applied.push(s),
     releaseBrowserSession: (id) => released.push(id),
+    forgetSuspendedBrowserSession: (id) => forgotten.push(id),
   });
-  return { push: (c) => store?.(c), emit: (e) => event?.(e), applied, released, off };
+  return { push: (c) => store?.(c), emit: (e) => event?.(e), applied, released, forgotten, off };
 }
 
 test('keep_awake_on_config_change', () => {
@@ -53,9 +55,11 @@ test('release_on_thread_removed', () => {
   const t = setup();
   t.emit({ type: 'notification', notification: { method: 'thread/deleted', params: { threadId: 's1' } } });
   t.emit({ type: 'notification', notification: { method: 'thread/archived', params: { threadId: 's2' } } });
+  t.emit({ type: 'notification', notification: { method: 'thread/closed', params: { threadId: 's3' } } });
   t.emit({ type: 'notification', notification: { method: 'thread/deleted', params: {} } });
   t.emit({ type: 'status', status: { state: 'ready' } });
   assert.deepEqual(t.released, ['s1']);
+  assert.deepEqual(t.forgotten, ['s2', 's3']);
 });
 
 test('a paged config read that a newer change or the unsubscribe superseded is discarded', async () => {

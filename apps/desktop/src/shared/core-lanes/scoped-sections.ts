@@ -6,7 +6,7 @@ import { SECTION_NAMES } from '../contract-sections';
 
 export interface ScopedFeedRoute {
   /** The windows watching the feed. */
-  readonly windows: Set<{ push(push: DesktopSectionsPush): void }>;
+  readonly windows: Set<{ push(push: DesktopSectionsPush): void; feedLost?(feedId: string): void }>;
   /** The sections the feed delivered and still holds, by `section\0key`: what a window that starts watching is given. */
   readonly held: Map<string, DesktopSectionEntry>;
 }
@@ -46,15 +46,40 @@ function apply(route: ScopedFeedRoute, update: SectionUpdateParams): DesktopSect
   return [{ section, key, entry }];
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** Extracts section updates from either `state.sections` arrays (`ScopedSectionsView`) or
+ *  `{ [section]: { [key]: { revision, value } } }` maps (`lsp:<root>`). Returns `null` when
+ *  `params.state` is not a section snapshot. */
+function snapshotUpdates(params: unknown): SectionUpdateParams[] | null {
+  const state = (params as { state?: unknown } | null)?.state;
+  if (!isRecord(state)) return null;
+  if (Array.isArray(state.sections)) return state.sections.filter(isSectionUpdate);
+  const entries = Object.entries(state);
+  if (entries.length === 0) return [];
+  let recognized = false;
+  const updates: SectionUpdateParams[] = [];
+  for (const [section, rows] of entries) {
+    if (!(SECTION_NAMES as readonly string[]).includes(section) || !isRecord(rows)) continue;
+    recognized = true;
+    for (const [key, row] of Object.entries(rows)) {
+      if (!isRecord(row) || typeof row.revision !== 'number' || !('value' in row)) continue;
+      updates.push({ section, key, revision: row.revision, value: row.value });
+    }
+  }
+  return recognized ? updates : null;
+}
+
 /** The changes a scoped feed's notification makes: a section update is one change; `feed/snapshot` is the feed's whole
  *  state, so what the feed held before and the snapshot lacks is removed. Other notifications change nothing. */
 export function scopedSectionChanges(route: ScopedFeedRoute, method: string, params: unknown): DesktopSectionChange[] {
   if (method === 'feed/snapshot') {
-    const sections = (params as { state?: { sections?: unknown } } | null)?.state?.sections;
-    if (!Array.isArray(sections)) return [];
+    const updates = snapshotUpdates(params);
+    if (!updates) return [];
     const before = new Map(route.held);
     route.held.clear();
-    const changes = sections.filter(isSectionUpdate).flatMap((update) => apply(route, update));
+    const changes = updates.flatMap((update) => apply(route, update));
     for (const [id, gone] of before) {
       if (!route.held.has(id)) changes.push({ section: gone.section, key: gone.key, entry: null });
     }

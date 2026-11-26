@@ -228,9 +228,14 @@ export const DESKTOP_TITLEBAR_WINDOW_OPTIONS = Object.freeze({
  *  neither pins the native theme nor persists the choice. */
 export function setWindowTitleBarBand(window: DesktopTitleBarWindow, light: boolean): void {
   titleBarThemes.set(window as object, light);
-  window.setBackgroundColor(light ? DESKTOP_LIGHT_BACKGROUND_COLOR : DESKTOP_BACKGROUND_COLOR);
+  if (micaWindows.has(window as object)) window.setBackgroundColor(CLEAR_BACKGROUND_COLOR);
+  else window.setBackgroundColor(light ? DESKTOP_LIGHT_BACKGROUND_COLOR : DESKTOP_BACKGROUND_COLOR);
   if (!HAS_TITLEBAR_OVERLAY) return;
   window.setTitleBarOverlay(currentTitleBarOverlay(window));
+}
+
+export function _markMicaWindowForTest(window: object): void {
+  micaWindows.add(window);
 }
 
 // Shared by the real entry and the excluded capture harness so evidence uses

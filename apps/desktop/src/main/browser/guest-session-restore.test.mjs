@@ -153,3 +153,23 @@ test('a restore deleted while its primary is being made takes that primary down'
   assert.equal(h.discarded.length, 1);
   assert.equal(h.ids.get(h.discarded[0]), 'p2');
 });
+
+test('ended sessions and non-restorable stand-ins leave no suspended descriptors behind', async () => {
+  const h = harness([]);
+  const standIn = h.make('about:blank', 'p1');
+  standIn.primary = true;
+  h.standIns.add(standIn);
+  h.live.set('x', [standIn]);
+  h.restore.releaseSession('x', true);
+  assert.equal(h.restore.hasSuspended('x'), false, 'blank stand-in alone is not stored');
+
+  const page = h.make('https://example.test/ended', 'p2');
+  page.primary = true;
+  h.live.set('x', [page]);
+  h.restore.releaseSession('x', true);
+  assert.equal(h.restore.hasSuspended('x'), true);
+  h.restore.forgetSession('x');
+  assert.equal(h.restore.hasSuspended('x'), false, 'ended session drops its suspended descriptors');
+  await h.restore.restoreSession('x');
+  assert.deepEqual(h.live.get('x') ?? [], [], 'nothing restores after the session ended');
+});

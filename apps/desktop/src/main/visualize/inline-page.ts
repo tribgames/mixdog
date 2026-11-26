@@ -1,5 +1,6 @@
 import { INLINE_ECHARTS_FILE, INLINE_PAGE_FILE, inlinePageDocument } from '../../shared/visualize-inline-page';
 import type { VisualizeInlineContent } from '../../shared/visualize';
+import { readVisualizeVendorAsset } from './vendor-asset';
 
 /** One in-memory file of a virtual page (nothing on disk). */
 export interface VirtualPageFile {
@@ -10,10 +11,9 @@ export interface VirtualPageFile {
 const JS = 'text/javascript; charset=utf-8';
 const HTML = 'text/html; charset=utf-8';
 
-/** The ECharts library as bundled with the app (a build-time virtual module,
- *  loaded on first use). */
-async function bundledEchartsSource(): Promise<string> {
-  return (await import('virtual:mixdog-echarts-source')).default;
+/** The ECharts library shipped as an asset file, read from disk when served. */
+export function bundledEchartsSource(): Promise<string> {
+  return readVisualizeVendorAsset('echarts.min.js', 'echarts/dist/echarts.min.js');
 }
 
 export async function inlinePageFiles(

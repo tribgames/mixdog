@@ -5,6 +5,8 @@ import type { BrowserSessionRegistry } from './session-registry';
 
 export function createBrowserPageOwner(host: {
   sessions: BrowserSessionRegistry;
+  /** Runs before a new page window is created (for example, awaiting cookie restoration). */
+  beforeCreate?(): Promise<void>;
   create(): { window: BaseWindow; guest: WebContents };
   initialize(guest: WebContents): void;
   adoptPage(guest: WebContents, pageId: string): void;
@@ -12,6 +14,7 @@ export function createBrowserPageOwner(host: {
   busy?(sessionId: string, guest: WebContents): boolean;
 }) {
   const pages = new Map<string, { window: BaseWindow; guest: WebContents; ready: Promise<void> }>();
+  const pendingCreates = new Map<string, Promise<WebContents>>();
   // Sessions whose page went away without a release: the next page the host
   // creates for them replaces a closed one instead of being a user's tab.
   const vacated = new Set<string>();
@@ -20,8 +23,7 @@ export function createBrowserPageOwner(host: {
   // agent command needed one) that no person has taken since.
   const implicitBlanks = new Map<string, WebContents>();
 
-  /** `pageId`: the tab id the page takes, when it recreates an unloaded one. */
-  async function ensure(sessionId: string, pageId?: string): Promise<WebContents> {
+  async function createAndReady(sessionId: string, pageId?: string): Promise<WebContents> {
     let entry = pages.get(sessionId);
     if (!entry || entry.window.isDestroyed()) {
       const replacing = vacated.delete(sessionId) || entry !== undefined;
@@ -59,15 +61,50 @@ export function createBrowserPageOwner(host: {
     return entry.guest;
   }
 
+  /** `pageId`: the tab id the page takes, when it recreates an unloaded one. */
+  async function ensure(sessionId: string, pageId?: string): Promise<WebContents> {
+    const existing = pages.get(sessionId);
+    if (existing && !existing.window.isDestroyed()) {
+      await existing.ready;
+      return existing.guest;
+    }
+    if (host.beforeCreate) {
+      const inflight = pendingCreates.get(sessionId);
+      if (inflight) return await inflight;
+      const beforeCreate = host.beforeCreate;
+      const work: Promise<WebContents> = beforeCreate().then(async () => {
+        if (pendingCreates.get(sessionId) !== work) {
+          throw new Error('Browser page creation cancelled.');
+        }
+        return await createAndReady(sessionId, pageId);
+      });
+      pendingCreates.set(sessionId, work);
+      try {
+        return await work;
+      } finally {
+        if (pendingCreates.get(sessionId) === work) pendingCreates.delete(sessionId);
+      }
+    }
+    return await createAndReady(sessionId, pageId);
+  }
+
   /** A page still committing its initial document; settles once it is usable
    *  (or gone). Callers must not drive a guest before this settles: a load
    *  started earlier aborts the initial one, and the failed page is destroyed. */
   function settled(sessionId: string): Promise<void> {
     const entry = pages.get(sessionId);
-    return entry ? entry.ready.catch(() => {}) : Promise.resolve();
+    if (entry) return entry.ready.catch(() => {});
+    const pending = pendingCreates.get(sessionId);
+    return pending
+      ? pending.then(
+          () => {},
+          () => {}
+        )
+      : Promise.resolve();
   }
 
   function release(sessionId: string): void {
+    pendingCreates.delete(sessionId);
     const entry = pages.get(sessionId);
     pages.delete(sessionId);
     vacated.delete(sessionId);
@@ -81,6 +118,7 @@ export function createBrowserPageOwner(host: {
   }
 
   function dispose(): void {
+    pendingCreates.clear();
     for (const sessionId of [...pages.keys()]) release(sessionId);
   }
 

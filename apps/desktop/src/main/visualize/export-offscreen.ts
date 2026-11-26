@@ -1,6 +1,7 @@
 import type { VisualizeInlineContent } from '../../shared/visualize';
 import { INLINE_CHART_RENDERED } from '../../shared/visualize-inline-page';
 import { inlinePageFiles, type VirtualPageFile } from './inline-page';
+import { readVisualizeVendorAsset } from './vendor-asset';
 
 /** An in-memory page (`index.html` plus siblings) and, when it draws after
  *  the load, the script that answers `true` once it has (an error text when
@@ -67,10 +68,9 @@ const MERMAID_READY =
 
 const CHART_READY = `document.documentElement.hasAttribute('${INLINE_CHART_RENDERED}')`;
 
-/** The Mermaid browser build as bundled with the app (a build-time virtual
- *  module, loaded on first use). */
-export async function bundledMermaidSource(): Promise<string> {
-  return (await import('virtual:mixdog-mermaid-source')).default;
+/** The Mermaid browser build shipped as an asset file, read from disk when served. */
+export function bundledMermaidSource(): Promise<string> {
+  return readVisualizeVendorAsset('mermaid.min.js', 'mermaid/dist/mermaid.min.js');
 }
 
 function mermaidDocument(source: string, library: string): ExportDocument {

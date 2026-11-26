@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 
 import { MAX_VERSION_TURNS, type VisualizeVersionTurn, type VisualizeVersionView } from '../../shared/visualize';
@@ -117,6 +117,32 @@ export interface VisualizeRestoreChange {
   asset: boolean;
 }
 
+async function fileMatchesKept(path: string, root: string, data: Buffer): Promise<boolean> {
+  const real = await realpath(path).catch(() => null);
+  if (!real || !insidePath(root, real)) return false;
+  const info = await stat(real).catch(() => null);
+  if (!info?.isFile() || info.size !== data.length) return false;
+  const current = await readFile(real).catch(() => null);
+  return current?.equals(data) === true;
+}
+
+/** Kept page assets of `version` that differ from the current files on disk,
+ *  by their root-qualified `keptAssetNames` names. Never reads live pane files,
+ *  and rejects size-mismatched live assets via `stat` without reading them. */
+export async function changedRestoreAssets(version: VisualizeVersion): Promise<string[]> {
+  if (!version.assets.length) return [];
+  const names = keptAssetNames(version);
+  const changed: string[] = [];
+  for (const kept of version.assets) {
+    const { root, rel } = keptLocation(version, kept);
+    const data = await readFile(join(version.dir, ...kept.split('/')));
+    if (!(await fileMatchesKept(join(root, ...rel.split('/')), root, data))) {
+      changed.push(names.get(kept) ?? kept);
+    }
+  }
+  return changed;
+}
+
 /** The files of `version` that differ from the current ones (a missing file,
  *  or one resolving outside its root, differs): page assets first, back in
  *  the folder they were kept from, then each pane at `panePaths[i]`, its
@@ -140,9 +166,7 @@ export async function versionChanges(
   const changes: VisualizeRestoreChange[] = [];
   for (const { kept, ...entry } of entries) {
     const data = await readFile(join(version.dir, ...kept.split('/')));
-    const real = await realpath(entry.path).catch(() => null);
-    const current = real && insidePath(entry.root, real) ? await readFile(real).catch(() => null) : null;
-    if (!current?.equals(data)) changes.push({ ...entry, data });
+    if (!(await fileMatchesKept(entry.path, entry.root, data))) changes.push({ ...entry, data });
   }
   return changes;
 }
@@ -256,7 +280,12 @@ interface SnapshotEnv {
   maxSnapshotBytes: number;
 }
 
-/** One queued snapshot of a tab's files (see the store's `snapshot`). */
+export type SnapshotOutcome =
+  | { status: 'recorded'; version: VisualizeVersion }
+  | { status: 'unchanged' }
+  | { status: 'too-large' };
+
+/** One queued snapshot of a tab's files (see the store's `record`/`snapshot`). */
 async function takeSnapshot(
   { sessions, root, sessionFloor, evict, maxSessionBytes, maxSnapshotBytes }: SnapshotEnv,
   history: TabHistory,
@@ -264,11 +293,11 @@ async function takeSnapshot(
   tabId: string,
   sources: SnapshotSource[],
   label: string | undefined
-): Promise<VisualizeVersion | null> {
+): Promise<SnapshotOutcome> {
   const collected = await collectSnapshot(sources, maxSnapshotBytes);
-  if (!collected) return null;
+  if (!collected) return { status: 'too-large' };
   const hash = snapshotHash(collected);
-  if (history.versions.at(-1)?.hash === hash) return null;
+  if (history.versions.at(-1)?.hash === hash) return { status: 'unchanged' };
   if (sessionFloor(sessionId, tabId) + collected.bytes > maxSessionBytes) {
     throw new VersionHistoryFullError(maxSessionBytes);
   }
@@ -283,7 +312,7 @@ async function takeSnapshot(
   if (sessions.get(sessionId)?.get(tabId) !== history) {
     // The tab closed while its files were written.
     await rm(dir, { recursive: true, force: true });
-    return null;
+    return { status: 'unchanged' };
   }
   // Checked again together with the commit (no await in between): other
   // tabs' snapshots or the shown version may have changed meanwhile.
@@ -304,7 +333,7 @@ async function takeSnapshot(
   };
   history.versions.push(version);
   await evict(sessionId);
-  return version;
+  return { status: 'recorded', version };
 }
 
 export function createVisualizeVersionStore(
@@ -361,7 +390,24 @@ export function createVisualizeVersionStore(
       ?.get(tabId)
       ?.versions.find((version) => version.n === n);
 
+  const record = (
+    sessionId: string,
+    tabId: string,
+    sources: SnapshotSource[],
+    label?: string
+  ): Promise<SnapshotOutcome> => {
+    const history = historyIn(sessions, sessionId, tabId);
+    const run = () => takeSnapshot(snapshotEnv, history, sessionId, tabId, sources, label);
+    const result = history.chain.then(run, run);
+    history.chain = result.catch(() => {});
+    return result;
+  };
+
   return {
+    /** Keep the tab's current files as a new version, distinguishing
+     *  `unchanged` from `too-large` so callers know when live diverged without
+     *  a snapshot. Rejects with VersionHistoryFullError when full. */
+    record,
     /** Keep the tab's current files as a new version unless they match the
      *  newest one (or a pane is too large). Resolves to the new version;
      *  rejects with VersionHistoryFullError, keeping and evicting nothing,
@@ -372,11 +418,9 @@ export function createVisualizeVersionStore(
       sources: SnapshotSource[],
       label?: string
     ): Promise<VisualizeVersion | null> {
-      const history = historyIn(sessions, sessionId, tabId);
-      const run = () => takeSnapshot(snapshotEnv, history, sessionId, tabId, sources, label);
-      const result = history.chain.then(run, run);
-      history.chain = result.catch(() => {});
-      return result;
+      return record(sessionId, tabId, sources, label).then((outcome) =>
+        outcome.status === 'recorded' ? outcome.version : null
+      );
     },
     list(sessionId: string, tabId: string): VisualizeVersion[] {
       return [...(sessions.get(sessionId)?.get(tabId)?.versions ?? [])];
@@ -399,11 +443,33 @@ export function createVisualizeVersionStore(
         if (sessions.get(sessionId)?.get(tabId) !== history || !history.versions.includes(version)) return;
         try {
           await writeFile(thumbnailFile(version), png);
+          if (version.thumbnail === thumbnail) version.thumbnail = undefined;
         } catch (error) {
           console.warn('visualize card picture write failed:', (error as Error).message);
         }
       });
       return true;
+    },
+    /** Read kept version `n`'s card picture from memory (if a write is still
+     *  in flight) or from `<dir>.png` on disk. */
+    async readThumbnail(sessionId: string, tabId: string, n: number): Promise<string> {
+      const history = sessions.get(sessionId)?.get(tabId);
+      const version = history?.versions.find((candidate) => candidate.n === n);
+      if (!history || !version) return '';
+      if (version.thumbnail) return version.thumbnail;
+      await history.chain.catch(() => {});
+      const current = sessions
+        .get(sessionId)
+        ?.get(tabId)
+        ?.versions.find((candidate) => candidate.n === n);
+      if (!current) return '';
+      if (current.thumbnail) return current.thumbnail;
+      try {
+        const bytes = await readFile(thumbnailFile(current));
+        return bytes.length ? `data:image/png;base64,${bytes.toString('base64')}` : '';
+      } catch {
+        return '';
+      }
     },
     /** Remember that the turn `turn` ended on kept version `n` (it lives and
      *  goes with the version). False without that version. */

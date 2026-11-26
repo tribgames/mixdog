@@ -6,7 +6,7 @@ import { type BrowserUrlPolicy, normalizeAgentUrl } from './url-policy';
 
 interface BrowserPageStateHost {
   /** The partition every agent page shares, and where its cookies live. */
-  partitionSession: Session;
+  partitionSession: Session | (() => Session);
   /** Read at call time: the policy can change while the host runs. */
   urlPolicy(): BrowserUrlPolicy;
   evaluate<T>(guest: WebContents, script: string, signal?: AbortSignal): Promise<T>;
@@ -25,9 +25,12 @@ export function browserStorageKeyIsSensitive(name: string): boolean {
 }
 
 export function createBrowserPageState(host: BrowserPageStateHost) {
-  const { partitionSession, urlPolicy, evaluate, invalidateInteractionState, formatEvaluationValue } = host;
+  const { urlPolicy, evaluate, invalidateInteractionState, formatEvaluationValue } = host;
+  const resolvePartitionSession = (): Session =>
+    typeof host.partitionSession === 'function' ? host.partitionSession() : host.partitionSession;
 
   async function cookiesResult(guest: WebContents, command: BrowserCommand): Promise<BrowserCommandResult> {
+    const partitionSession = resolvePartitionSession();
     const operation = String(command.operation || 'list').toLowerCase();
     const currentUrl = command.url ? normalizeAgentUrl(command.url, urlPolicy()) : guest.getURL();
     if (operation === 'list') {

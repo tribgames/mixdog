@@ -1927,8 +1927,8 @@ test('page problems are captured per tab, reported in results, deduped, capped a
     service.reportNavigation(pane(), 200);
     assert.equal(problems(), undefined);
     assert.equal(events.at(-1).state.tabs[0].problems, undefined);
-    service.reportNavigation(pane(), 404);
-    assert.match(problems()[0].message, /HTTP 404/);
+    service.reportNavigation(pane(), 500);
+    assert.match(problems()[0].message, /HTTP 500/);
 
     // The cap: later distinct problems are dropped, repeats still count.
     for (let index = 0; index < MAX_VISUALIZE_PROBLEMS + 15; index += 1) report({ message: `error ${index}` });
@@ -2325,7 +2325,9 @@ test('a deleted session releases its tabs, watchers, kept versions and remembere
     assert.equal(service.tabView('s1', 'v1'), null);
     assert.equal(watched.size, 1, 'the deleted session no longer watches its files');
     assert.deepEqual(
-      readdirSync(join(root, 'app-data', 'visualize-versions'), { recursive: true }).filter((name) => /v1/.test(name) && /s1/.test(name)),
+      readdirSync(join(root, 'app-data', 'visualize-versions'), { recursive: true }).filter(
+        (name) => /v1/.test(name) && /s1/.test(name)
+      ),
       [],
       'its kept versions are removed'
     );

@@ -110,3 +110,22 @@ test('every notice raised before the toast region subscribes is held for it', ()
   raise({}, { key: 'e', code: 'secret-storage-failed' });
   assert.deepEqual(seen, ['a', 'c', 'd']);
 });
+
+test('held notices deduplicate by key and stop accumulating after unsubscribe', () => {
+  const { deps, handlers } = makeDeps();
+  const api = createHostApi(deps);
+  const raise = handlers.get(DESKTOP_IPC.desktopNotice);
+  for (let i = 0; i < 10; i += 1) {
+    raise({}, { key: 'dup', code: 'secret-storage-failed', params: { n: String(i) } });
+  }
+  const first = [];
+  const stop = api.subscribeDesktopNotices((notice) => first.push([notice.key, notice.params.n]));
+  assert.deepEqual(first, [['dup', '9']], 'repeated keys overwrite rather than growing heldNotices');
+  stop();
+  raise({}, { key: 'after-unmount-1', code: 'secret-storage-failed' });
+  raise({}, { key: 'after-unmount-2', code: 'conversation-save-failed' });
+  const second = [];
+  const stop2 = api.subscribeDesktopNotices((notice) => second.push(notice.key));
+  stop2();
+  assert.deepEqual(second, [], 'notices raised after listener teardown are not buffered');
+});

@@ -15,6 +15,10 @@ export interface HistoryEntry {
   kind: VisualizeHistoryItem['kind'];
   /** File targets as the agent named them; empty for inline content. */
   targets: string[];
+  /** Working directory the file targets were resolved against (absent for inline or legacy entries). */
+  cwd?: string;
+  /** Last resolved canonical file targets key (absent for inline, unresolved, or legacy entries). */
+  canonicalKey?: string;
   content?: VisualizeInlineContent;
   at: number;
   versions: number;
@@ -38,6 +42,34 @@ export function rememberHistory(entries: HistoryEntry[], entry: HistoryEntry): H
     kept.push(candidate);
   }
   return kept;
+}
+
+/** Migrate a tab's history entry when its reuse identity changes (`oldKey` -> `newKey`),
+ *  updating its canonical key when known and removing any stale duplicate under `newKey`. */
+export function rekeyHistory(
+  entries: HistoryEntry[],
+  oldKey: string,
+  newKey: string,
+  canonicalKey?: string
+): HistoryEntry[] {
+  const existing = entries.find((entry) => entry.key === oldKey);
+  if (!existing) return entries;
+  if (oldKey === newKey && (canonicalKey === undefined || existing.canonicalKey === canonicalKey)) return entries;
+  const migrated: HistoryEntry[] = [];
+  for (const entry of entries) {
+    if (entry.key === oldKey) {
+      const nextCanonical = canonicalKey ?? entry.canonicalKey;
+      migrated.push({
+        ...entry,
+        id: historyId(newKey),
+        key: newKey,
+        ...(nextCanonical ? { canonicalKey: nextCanonical } : {}),
+      });
+    } else if (entry.key !== newKey) {
+      migrated.push(entry);
+    }
+  }
+  return migrated;
 }
 
 /** The list the panel draws; `open` maps an open tab's key to its version count. */

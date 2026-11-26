@@ -4,12 +4,24 @@ import { relative } from 'node:path';
 import type { VisualizeInlineContent } from '../../shared/visualize';
 import { MAX_VISUALIZE_VERSIONS } from '../../shared/visualize';
 import type { VisualizeServiceContext } from './context';
+import type { HistoryEntry } from './history';
 import { loadIsCurrent } from './reloads';
 import {
   displayedPanes,
   type FileTarget,
+  fileTargetsKey,
+  findClosedRequestedHistory,
+  findClosedRequestedHistoryExact,
+  findFileTab,
+  findVerifyRequestedTab,
+  historyEntryMatchesRequestedTab,
   inlineKey,
+  installLivePanes,
   problemsOf,
+  rekeyFileTab,
+  requestedPathsKey,
+  requestedTargetsKey,
+  resolveFileTabKey,
   sameInline,
   summary,
   type TabState,
@@ -20,13 +32,23 @@ import {
 } from './tab-state';
 import {
   insidePath,
+  liveFilesFingerprint,
   parseVisualizeRequest,
   resolveVisualizeTarget,
   type VisualizeRequest,
   type VisualizeTarget,
 } from './targets';
 import { checkTabOffscreen } from './read-actions';
-import { heldTurn, joinShown, offscreen, publishShown, selectShown, shownAs, shownOfKey } from './turn-hold';
+import {
+  heldTurn,
+  joinShown,
+  offscreen,
+  publishShown,
+  selectShown,
+  shownAs,
+  shownOfKey,
+  type TurnHold,
+} from './turn-hold';
 import { shownVersionOf } from './version-thumbnails';
 
 type OpenRequest = Extract<VisualizeRequest, { action: 'open' }>;
@@ -38,6 +60,8 @@ type OpenContext = Pick<
   | 'sessionOf'
   | 'sessionCwds'
   | 'nextLoadStamp'
+  | 'sessionReleaseEpoch'
+  | 'isSessionReleased'
   | 'panes'
   | 'tabs'
   | 'leases'
@@ -79,6 +103,156 @@ function viewsWithoutOpening(
   return true;
 }
 
+const isPreTurnPast = (
+  ctx: Pick<OpenContext, 'holds' | 'sessions'>,
+  hold: TurnHold | undefined,
+  sessionId: string,
+  tabId: string
+): boolean => hold !== undefined && !hold.shown.turn.has(tabId) && shownAs(ctx, hold, sessionId, tabId) === 'past';
+
+/** Find a shown file tab inside `hold.shown` by requested path (exact, then Windows folded),
+ *  reporting whether a closed history entry owns `(cwd, files)` so canonical fallback is blocked. */
+function findHeldFileTabByRequested(
+  hold: TurnHold,
+  cwd: string,
+  files: readonly FileTarget[],
+  canonicalKey: string,
+  { turnOnly, liveHistory }: { turnOnly: boolean; liveHistory?: readonly HistoryEntry[] }
+): { tabId?: string; closedHistory: boolean } {
+  const shownIds = new Set(hold.shown.state.tabs.map((tab) => tab.id));
+  const entries = [...hold.shown.fileTabs.entries()].filter(
+    ([id]) => shownIds.has(id) && hold.shown.turn.has(id) === turnOnly
+  );
+  const requestedKey = requestedTargetsKey(cwd, files);
+  const canonicalMatches = (info: { missing?: boolean; canonicalKey?: string }): boolean =>
+    info.missing
+      ? process.platform === 'win32'
+        ? info.canonicalKey?.toLowerCase() === canonicalKey.toLowerCase()
+        : info.canonicalKey === canonicalKey
+      : info.canonicalKey === canonicalKey;
+  const byExact = entries.find(
+    ([, info]) =>
+      info.targets.length === files.length &&
+      requestedPathsKey(info.cwd, info.targets) === requestedKey &&
+      (!turnOnly || canonicalMatches(info))
+  );
+  if (byExact) return { tabId: byExact[0], closedHistory: false };
+  const openEntries = turnOnly
+    ? [...hold.shown.fileTabs.entries()].filter(([id]) => shownIds.has(id) && !hold.shown.turn.has(id))
+    : entries;
+  const isOpen = (entry: HistoryEntry): boolean =>
+    openEntries.some(
+      ([id, info]) => hold.shown.keys.get(id) === entry.key && historyEntryMatchesRequestedTab(entry, info)
+    );
+  const history = liveHistory ? [...hold.shown.history, ...liveHistory] : hold.shown.history;
+  if (findClosedRequestedHistoryExact({ isOpen, history }, cwd, files, canonicalKey)) {
+    return { closedHistory: true };
+  }
+  if (process.platform === 'win32') {
+    const foldedRequestedKey = requestedKey.toLowerCase();
+    const byFolded = entries.find(
+      ([, info]) =>
+        info.targets.length === files.length &&
+        requestedPathsKey(info.cwd, info.targets).toLowerCase() === foldedRequestedKey &&
+        canonicalMatches(info)
+    );
+    if (byFolded) return { tabId: byFolded[0], closedHistory: false };
+  }
+  if (findClosedRequestedHistory({ isOpen, history }, cwd, files, canonicalKey)) {
+    return { closedHistory: true };
+  }
+  return { closedHistory: false };
+}
+
+function findHeldFileTabByCanonical(
+  hold: TurnHold,
+  canonicalKey: string,
+  { turnOnly }: { turnOnly: boolean }
+): string | undefined {
+  const shownIds = new Set(hold.shown.state.tabs.map((tab) => tab.id));
+  const entries = [...hold.shown.fileTabs.entries()].filter(
+    ([id]) => shownIds.has(id) && hold.shown.turn.has(id) === turnOnly
+  );
+  return (
+    entries.find(([id, info]) => !info.missing && hold.shown.keys.get(id) === canonicalKey)?.[0] ??
+    entries.find(([, info]) => !info.missing && info.canonicalKey === canonicalKey)?.[0]
+  );
+}
+
+/** File-open counterpart to `viewsWithoutOpening`: matches frozen pre-turn tabs strictly against
+ *  `hold.shown`, prioritizes exact/folded hidden verify tabs ahead of canonical fallbacks, and
+ *  honors frozen closed history before matching live or turn-only tabs by canonical target. */
+function viewFileWithoutOpening(
+  ctx: Pick<OpenContext, 'deps' | 'holds' | 'sessions' | 'views'>,
+  sessionId: string,
+  cwd: string,
+  files: readonly FileTarget[],
+  canonicalKey: string
+): boolean {
+  const hold = ctx.holds.get(sessionId);
+  if (!hold) return false;
+  const selectOrOpen = (tabId: string): boolean => {
+    if (shownAs(ctx, hold, sessionId, tabId) === 'live') return false;
+    selectShown(hold, tabId);
+    hold.picked = tabId;
+    publishShown(ctx.deps, hold, sessionId, { reveal: true, tab: tabId });
+    return true;
+  };
+  const preTurnRequested = findHeldFileTabByRequested(hold, cwd, files, canonicalKey, { turnOnly: false });
+  if (preTurnRequested.tabId) return selectOrOpen(preTurnRequested.tabId);
+
+  const currentState = ctx.sessions.get(sessionId);
+  const liveCandidates = (currentState?.tabs ?? []).filter(
+    (candidate) => !isPreTurnPast(ctx, hold, sessionId, candidate.id)
+  );
+  if (findVerifyRequestedTab(liveCandidates, cwd, files, canonicalKey)) return false;
+
+  if (!preTurnRequested.closedHistory) {
+    const preTurnCanonical = findHeldFileTabByCanonical(hold, canonicalKey, { turnOnly: false });
+    if (preTurnCanonical) return selectOrOpen(preTurnCanonical);
+  }
+
+  const combinedHistory = [...(currentState?.history ?? []), ...hold.shown.history];
+  const own = findFileTab(liveCandidates, cwd, files, canonicalKey, combinedHistory, {
+    ignoreVerify: true,
+  });
+  if (own) {
+    if (shownAs(ctx, hold, sessionId, own.id) === 'live') return false;
+    if (own.missing || fileTargetsKey(own.targets) !== canonicalKey) return false;
+    joinShown(ctx, hold, sessionId, own.id, true);
+    hold.picked = own.id;
+    publishShown(ctx.deps, hold, sessionId, { reveal: true, tab: own.id });
+    return true;
+  }
+  const turnRequested = findHeldFileTabByRequested(hold, cwd, files, canonicalKey, {
+    turnOnly: true,
+    liveHistory: currentState?.history,
+  });
+  const turnTab =
+    turnRequested.tabId ??
+    (!turnRequested.closedHistory ? findHeldFileTabByCanonical(hold, canonicalKey, { turnOnly: true }) : undefined);
+  if (!turnTab) return false;
+  selectShown(hold, turnTab);
+  hold.picked = turnTab;
+  publishShown(ctx.deps, hold, sessionId, { reveal: true, tab: turnTab });
+  return true;
+}
+
+/** Select a pre-turn picture already shown during a hold (no open needed). */
+function selectHeldPicture(
+  ctx: Pick<OpenContext, 'deps' | 'holds' | 'sessions'>,
+  sessionId: string,
+  tabId: string
+): boolean {
+  const hold = ctx.holds.get(sessionId);
+  if (!hold || !tabId || hold.shown.turn.has(tabId)) return false;
+  if (shownAs(ctx, hold, sessionId, tabId) !== 'past') return false;
+  selectShown(hold, tabId);
+  hold.picked = tabId;
+  publishShown(ctx.deps, hold, sessionId, { reveal: true, tab: tabId });
+  return true;
+}
+
 /** A reopened tab goes to the end of the session's tabs, like a fresh open. */
 function moveToEnd(tabs: TabState[], tab: TabState): void {
   tabs.splice(tabs.indexOf(tab), 1);
@@ -92,6 +266,11 @@ function addNewTab(
   fields: Pick<TabState, 'label' | 'key' | 'cwd'> & Partial<TabState>
 ): TabState {
   state.counter += 1;
+  const lastCanonicalKey =
+    fields.lastCanonicalKey ??
+    (fields.targets?.length && fields.targets.every((target) => target.path)
+      ? fileTargetsKey(fields.targets)
+      : undefined);
   const tab: TabState = {
     id: `v${state.counter}`,
     revision: 0,
@@ -103,6 +282,7 @@ function addNewTab(
     problems: [],
     problemSeq: 0,
     ...fields,
+    ...(lastCanonicalKey ? { lastCanonicalKey } : {}),
   };
   ctx.tabs.addTab(sessionId, tab);
   return tab;
@@ -119,8 +299,7 @@ function reuseTab(
 ): void {
   tab.label = label ?? tab.label;
   tab.cwd = cwd;
-  tab.panes = panes;
-  Object.assign(tab, fields);
+  installLivePanes(tab, panes, fields);
   tab.problems = [];
   ctx.thumbnails.invalidate(tab);
   moveToEnd(tabs, tab);
@@ -131,11 +310,21 @@ function reuseTab(
 async function finishOpen(
   ctx: Pick<
     OpenContext,
-    'deps' | 'sessionOf' | 'sessionCwds' | 'thumbnails' | 'views' | 'publish' | 'problems' | 'holds' | 'panelSize'
+    | 'deps'
+    | 'sessionOf'
+    | 'sessionCwds'
+    | 'isSessionReleased'
+    | 'thumbnails'
+    | 'views'
+    | 'publish'
+    | 'problems'
+    | 'holds'
+    | 'panelSize'
   >,
   request: OpenRequest,
   tab: TabState,
   open: {
+    releaseEpoch: number;
     held: boolean;
     user: boolean;
     versionError: Error | null;
@@ -160,8 +349,10 @@ async function finishOpen(
   let loaded = '';
   if (held || verify) loaded = await heldLoadCheck(ctx, sessionId, cwd, tab);
   else await open.settle();
-  if (open.recordsCwd()) ctx.sessionCwds.set(sessionId, cwd);
-  if (!verify) ctx.thumbnails.refresh(sessionId, tab);
+  if (!ctx.isSessionReleased?.(sessionId, open.releaseEpoch) && !tab.lifetime.signal.aborted) {
+    if (open.recordsCwd()) ctx.sessionCwds.set(sessionId, cwd);
+    if (!verify) ctx.thumbnails.refresh(sessionId, tab);
+  }
   return {
     text: withProblems(
       tab,
@@ -308,6 +499,8 @@ async function openInline(
     | 'sessions'
     | 'sessionOf'
     | 'sessionCwds'
+    | 'sessionReleaseEpoch'
+    | 'isSessionReleased'
     | 'panes'
     | 'tabs'
     | 'leases'
@@ -325,14 +518,21 @@ async function openInline(
 ): Promise<VisualizeResult> {
   const { sessionOf } = ctx;
   const { sessionId, cwd } = request;
+  const releaseEpoch = ctx.sessionReleaseEpoch?.(sessionId) ?? 0;
   const held = !user && heldTurn(ctx, sessionId) !== null;
   const verify = request.verify === true;
-  const state = sessionOf(sessionId);
   const key = inlineKey(content);
   if (user && viewsWithoutOpening(ctx, sessionId, key)) return { text: '' };
   const pane = await ctx.panes.inlinePaneFor(content);
+  if (ctx.isSessionReleased?.(sessionId, releaseEpoch)) {
+    ctx.tabs.releasePanes([pane]);
+    throw new Error(`visualize session "${sessionId}" was released`);
+  }
+  const state = sessionOf(sessionId);
   let tab = state.tabs.find((candidate) => candidate.key === key);
   if (tab) {
+    ctx.tabs.releasePanes(tab.panes);
+    if (tab.shown) ctx.tabs.releasePanes(tab.shown.panes);
     reuseTab(ctx, state.tabs, tab, request.label, cwd, [pane], { inline: content });
   } else {
     tab = addNewTab(ctx, state, sessionId, {
@@ -350,7 +550,7 @@ async function openInline(
   tab.rendered = new Set();
   tab.shown = null;
   tab.compare = false;
-  ctx.leases.claimLeases(tab, tab.panes);
+  ctx.leases.claimLeases(sessionId, tab, tab.panes);
   const history = tab.inlineHistory ?? [];
   if (!history.length || !sameInline(history[history.length - 1].content, content)) {
     history.push({ n: (history.at(-1)?.n ?? 0) + 1, at: Date.now(), content });
@@ -360,8 +560,17 @@ async function openInline(
   tab.versions = history.map(({ n, at, turns }) => ({ n, at, ...(turns?.length ? { turns } : {}) }));
   const versionError =
     request.version === undefined ? null : await selectRequested(ctx, sessionId, tab, request.version);
+  if (ctx.isSessionReleased?.(sessionId, releaseEpoch)) {
+    ctx.tabs.end(tab);
+    throw new Error(`visualize session "${sessionId}" was released`);
+  }
+  if (tab.lifetime.signal.aborted) {
+    ctx.tabs.end(tab);
+    throw new Error(`visualize tab "${tab.id}" was closed`);
+  }
   const target = tab;
   return finishOpen(ctx, request, target, {
+    releaseEpoch,
     held,
     user,
     versionError,
@@ -427,8 +636,12 @@ export function createOpenActions(ctx: OpenContext) {
     if (!deps.windowAvailable()) throw new Error('the Mixdog desktop window is not open');
     if (request.content) return openInline(ctx, request, request.content, user);
     const { sessionId, cwd } = request;
+    const releaseEpoch = ctx.sessionReleaseEpoch?.(sessionId) ?? 0;
     const stamp = ctx.nextLoadStamp();
     const targets = await Promise.all(request.targets.map((target) => resolveVisualizeTarget(cwd, target)));
+    if (ctx.isSessionReleased?.(sessionId, releaseEpoch)) {
+      throw new Error(`visualize session "${sessionId}" was released`);
+    }
     const web = targets.filter((target) => target.kind === 'url');
     if (web.length) {
       if (targets.length > 1) {
@@ -441,37 +654,65 @@ export function createOpenActions(ctx: OpenContext) {
       return openUrl(ctx, request, web[0]);
     }
     const files = targets as FileTarget[];
-    const key = files.map((target) => target.path).join('\0');
-    if (user && viewsWithoutOpening(ctx, sessionId, key)) return { text: '' };
+    const key = fileTargetsKey(files);
+    if (user && viewFileWithoutOpening(ctx, sessionId, cwd, files, key)) return { text: '' };
     const panes = await ctx.panes.preparePanes(files);
+    if (ctx.isSessionReleased?.(sessionId, releaseEpoch)) {
+      ctx.tabs.releasePanes(panes);
+      throw new Error(`visualize session "${sessionId}" was released`);
+    }
+    const liveStat = await liveFilesFingerprint(files);
+    if (ctx.isSessionReleased?.(sessionId, releaseEpoch)) {
+      ctx.tabs.releasePanes(panes);
+      throw new Error(`visualize session "${sessionId}" was released`);
+    }
     const state = sessionOf(sessionId);
-    let tab = state.tabs.find((candidate) => candidate.key === key);
+    const activeHold = user ? ctx.holds.get(sessionId) : undefined;
+    const openCandidates = activeHold
+      ? state.tabs.filter((candidate) => !isPreTurnPast(ctx, activeHold, sessionId, candidate.id))
+      : state.tabs;
+    const openHistory = activeHold ? [...state.history, ...activeHold.shown.history] : state.history;
+    let tab =
+      findFileTab(openCandidates, cwd, files, key, openHistory) ??
+      findVerifyRequestedTab(openCandidates, cwd, files, key);
     const verify = request.verify === true;
+    const wasVerify = tab?.verify === true;
     const label = request.label ?? files.map((target) => target.label).join(' · ');
     // A reload or reopen started after this open already committed newer
     // files and cwd: this open's resolution is stale and is dropped.
     const stale = tab !== undefined && !loadIsCurrent(tab, stamp);
     if (tab && stale) {
+      ctx.tabs.releasePanes(panes);
       tab.label = request.label ?? tab.label;
       moveToEnd(state.tabs, tab);
     } else if (tab) {
       ctx.tabs.dispose(tab);
-      reuseTab(ctx, state.tabs, tab, request.label, cwd, panes, { loadedStamp: stamp, targets: files });
+      reuseTab(ctx, state.tabs, tab, request.label, cwd, panes, {
+        loadedStamp: stamp,
+        targets: files,
+        ...(liveStat ? { liveStat } : { liveStat: undefined }),
+      });
+      if (!wasVerify || verify) rekeyFileTab(state, tab, files);
     } else {
+      const tabKey = resolveFileTabKey(state, cwd, files, { syncHistory: !verify });
       tab = addNewTab(ctx, state, sessionId, {
         label,
-        key,
+        key: tabKey,
         cwd,
         loadedStamp: stamp,
         targets: files,
         panes,
         allowNetwork: true,
+        ...(liveStat ? { liveStat } : {}),
         ...(verify ? { verify: true } : {}),
       });
     }
     promoteVerify(ctx, sessionId, tab, verify);
+    if (wasVerify && !verify) {
+      resolveFileTabKey(state, tab.cwd, tab.targets, { tab, syncHistory: true, promoteFromVerify: true });
+    }
     if (!stale) {
-      ctx.leases.claimLeases(tab, panes);
+      ctx.leases.claimLeases(sessionId, tab, panes);
       ctx.reloads.watchTab(sessionId, tab);
     }
     // An agent open shows the live files; a kept version only on request.
@@ -480,11 +721,32 @@ export function createOpenActions(ctx: OpenContext) {
     tab.compare = false;
     tab.pendingReload = false;
     await ctx.tabVersions.recordVersion(sessionId, tab);
+    if (ctx.isSessionReleased?.(sessionId, releaseEpoch)) {
+      ctx.tabs.end(tab);
+      ctx.tabVersions.dropVersions(sessionId, tab.id);
+      throw new Error(`visualize session "${sessionId}" was released`);
+    }
+    if (tab.lifetime.signal.aborted) {
+      ctx.tabs.end(tab);
+      ctx.tabVersions.dropVersions(sessionId, tab.id);
+      throw new Error(`visualize tab "${tab.id}" was closed`);
+    }
     const versionError =
       request.version === undefined ? null : await selectRequested(ctx, sessionId, tab, request.version);
+    if (ctx.isSessionReleased?.(sessionId, releaseEpoch)) {
+      ctx.tabs.end(tab);
+      ctx.tabVersions.dropVersions(sessionId, tab.id);
+      throw new Error(`visualize session "${sessionId}" was released`);
+    }
+    if (tab.lifetime.signal.aborted) {
+      ctx.tabs.end(tab);
+      ctx.tabVersions.dropVersions(sessionId, tab.id);
+      throw new Error(`visualize tab "${tab.id}" was closed`);
+    }
     const held = !user && heldTurn(ctx, sessionId) !== null;
     const target = tab;
     return finishOpen(ctx, request, target, {
+      releaseEpoch,
       held,
       user,
       versionError,
@@ -508,9 +770,16 @@ export function createOpenActions(ctx: OpenContext) {
       sessionId: string,
       targets: string[],
       content: VisualizeInlineContent | undefined,
-      label: string | undefined
+      label: string | undefined,
+      preferredCwd?: string,
+      preferredTabId?: string
     ): Promise<void> {
-      const cwd = sessionCwds.get(sessionId) ?? (await deps.sessionCwd?.(sessionId)) ?? null;
+      if (preferredTabId && selectHeldPicture(ctx, sessionId, preferredTabId)) return;
+      const tabCwd = preferredTabId
+        ? (ctx.holds.get(sessionId)?.shown.host.tabs.find((tab) => tab.id === preferredTabId)?.cwd ??
+          ctx.sessions.get(sessionId)?.tabs.find((tab) => tab.id === preferredTabId && !tab.url && !tab.verify)?.cwd)
+        : undefined;
+      const cwd = preferredCwd ?? tabCwd ?? sessionCwds.get(sessionId) ?? (await deps.sessionCwd?.(sessionId)) ?? null;
       if (!cwd) throw new Error("the session's working directory is unknown; ask the agent to show it again");
       await open(
         parseVisualizeRequest({

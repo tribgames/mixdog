@@ -537,3 +537,41 @@ test('an open superseded while its channel is being made closes both ends of tha
   assert.equal(made[0].port2.isClosed, true, 'the end that was never delivered is closed too');
   assert.equal(made[1].port2.isClosed, false);
 });
+
+test('open rejects immediately if the socket closes before opening and cleans up open-phase listeners', async () => {
+  const sockets = [];
+  let failFirst = true;
+  const relay = new CorePortRelay({
+    coreWindowScope: async () => 1,
+    endpointFor: async () => [
+      { slot: 'primary', url: 'ws://127.0.0.1:1/rpc', token: 'tok', target: 'local', role: 'main' },
+    ],
+    createSocket: () => {
+      const socket = new FakeSocket();
+      sockets.push(socket);
+      if (failFirst) {
+        failFirst = false;
+        queueMicrotask(() => socket.emit('close', 1006, Buffer.from('dropped')));
+      } else {
+        queueMicrotask(() => socket.emit('open'));
+      }
+      return socket;
+    },
+    createChannel: () => ({ port1: new FakePort(), port2: new FakePort() }),
+    log: () => {},
+  });
+  const wc = webContents();
+  await assert.rejects(relay.open(wc), /closed before opening.*1006.*dropped/);
+  assert.equal(sockets[0].terminated, true);
+  assert.equal(sockets[0].listenerCount('open'), 0);
+  assert.equal(sockets[0].listenerCount('unexpected-response'), 0);
+  assert.equal(sockets[0].listenerCount('error'), 1);
+  assert.equal(sockets[0].listenerCount('close'), 1);
+
+  const opened = await relay.open(wc);
+  assert.equal(typeof opened.generation, 'number');
+  assert.equal(sockets[1].listenerCount('open'), 0);
+  assert.equal(sockets[1].listenerCount('unexpected-response'), 0);
+  assert.equal(sockets[1].listenerCount('error'), 1);
+  assert.equal(sockets[1].listenerCount('close'), 1);
+});

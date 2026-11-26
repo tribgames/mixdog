@@ -42,7 +42,8 @@ const blobCore = (core: Pick<ProtocolConnection, 'call'> | undefined): Pick<Prot
 };
 
 export function createCoreLocalPages(invoke: Invoke, core?: Pick<ProtocolConnection, 'call'>): CoreLocalPages {
-  const watched = new WeakSet<object>();
+  const ownerIdsByOwner = new WeakMap<object, Set<string>>();
+  const ownerSetById = new Map<string, Set<string>>();
   const queued = new Set<string>();
   let cachedOrigin: Promise<string> | null = null;
 
@@ -56,14 +57,27 @@ export function createCoreLocalPages(invoke: Invoke, core?: Pick<ProtocolConnect
     }
   };
 
-  // The owner's id, watched so its pages are revoked in the core when it closes.
+  // The owner's id, watched so every lease registered for it is revoked in the core when it closes.
   const ownerFor = (access: { ownerId?: string; owner?: PageOwner }): string | undefined => {
     const { owner } = access;
     if (owner?.isDestroyed()) throw new LocalAccessDeniedError('The preview owner is closed.');
     const ownerId = access.ownerId || (owner ? ownerIdOf(owner) : undefined);
-    if (owner && ownerId && !watched.has(owner)) {
-      watched.add(owner);
-      owner.once('destroyed', () => void sendRevoke(ownerId));
+    if (owner && ownerId) {
+      let ids = ownerIdsByOwner.get(owner);
+      if (!ids) {
+        ids = new Set();
+        ownerIdsByOwner.set(owner, ids);
+        owner.once('destroyed', () => {
+          const toRevoke = [...ids!];
+          ids!.clear();
+          for (const id of toRevoke) {
+            ownerSetById.delete(id);
+            void sendRevoke(id);
+          }
+        });
+      }
+      ids.add(ownerId);
+      ownerSetById.set(ownerId, ids);
     }
     return ownerId;
   };
@@ -111,8 +125,18 @@ export function createCoreLocalPages(invoke: Invoke, core?: Pick<ProtocolConnect
       return origin;
     },
     async revokeOwner(ownerId) {
-      await invoke<void>('localPageRevokeOwner', [ownerId]);
-      queued.delete(ownerId);
+      const set = ownerSetById.get(ownerId);
+      if (set) {
+        set.delete(ownerId);
+        ownerSetById.delete(ownerId);
+      }
+      try {
+        await invoke<void>('localPageRevokeOwner', [ownerId]);
+        queued.delete(ownerId);
+      } catch (error) {
+        queued.add(ownerId);
+        throw error;
+      }
     },
   };
 }
