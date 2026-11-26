@@ -1,7 +1,7 @@
-//! The one client capability offered to an agent: reading a text file of the session's folder.
+//! The one client capability offered to an agent: reading a text file of the session's folder, or of the folder its
+//! attachments are kept in.
 //! Writing is not offered, so the agent keeps editing with its own tools and reports diffs.
 
-use std::path::Component;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -19,6 +19,17 @@ use crate::connection::RpcError;
 #[async_trait]
 pub trait TextFiles: Send + Sync {
     async fn read(&self, path: AbsPath) -> Result<String, String>;
+    /// Up to `len` bytes of the file at `path` from `offset`, none at its end. This default reads the whole file.
+    async fn read_bytes(&self, path: AbsPath, offset: u64, len: u64) -> Result<Vec<u8>, String> {
+        let bytes = self.read(path).await?.into_bytes();
+        let start = usize::try_from(offset).unwrap_or(usize::MAX).min(bytes.len());
+        let end = start.saturating_add(usize::try_from(len).unwrap_or(usize::MAX)).min(bytes.len());
+        Ok(bytes[start..end].to_vec())
+    }
+    /// The folders beside a session's own whose files its agent may read: where the attachments it is linked to are kept.
+    fn readable_roots(&self) -> Vec<AbsPath> {
+        Vec::new()
+    }
     /// `path` with every link on it followed: the place a read of it reaches.
     async fn resolved(&self, path: AbsPath) -> Result<AbsPath, String>;
     /// Puts `text` in a new file at `path`, its folders made: the file appears with all of its text at once, and one
@@ -71,7 +82,12 @@ pub struct ServiceFiles {
 impl TextFiles for ServiceFiles {
     async fn read(&self, path: AbsPath) -> Result<String, String> {
         let read = self.files.read(self.lane, path, ReadRange::default()).await.map_err(|error| format!("{:?}", error.kind))?;
-        String::from_utf8(read.bytes).map_err(|_| "the file is not UTF-8 text".to_owned())
+        String::from_utf8(read.bytes).map_err(|_| NOT_TEXT.to_owned())
+    }
+
+    async fn read_bytes(&self, path: AbsPath, offset: u64, len: u64) -> Result<Vec<u8>, String> {
+        let read = self.files.read(self.lane, path, ReadRange { offset, max_len: Some(len) }).await.map_err(|error| format!("{:?}", error.kind))?;
+        Ok(read.bytes)
     }
 
     async fn resolved(&self, path: AbsPath) -> Result<AbsPath, String> {
@@ -186,42 +202,287 @@ impl TextFiles for ServiceFiles {
     }
 }
 
-/// The place to read for `path`, when it names one inside `cwd` without leaving it, by its name and by where its links
-/// lead: a link or junction inside the folder that points out of it is outside. The place is the resolved one that was
-/// checked, so a link changed after the check leads the read nowhere else.
-async fn inside(files: &dyn TextFiles, cwd: &AbsPath, path: &str) -> Option<AbsPath> {
-    let path = AbsPath::new(path)?;
-    let rest = path.as_path().strip_prefix(cwd.as_path()).ok()?;
-    if !rest.components().all(|part| matches!(part, Component::Normal(_))) {
+/// The protocol's answer to a request about a resource that is not there (`RESOURCE_NOT_FOUND`).
+pub(crate) const RESOURCE_NOT_FOUND: i64 = -32002;
+
+const NOT_TEXT: &str = "the file is not UTF-8 text";
+
+/// How much of a file a read of some of its lines takes at a time.
+const READ_CHUNK: u64 = 64 * 1024;
+
+/// Where a read the agent asked for goes.
+enum Place {
+    /// The resolved file.
+    File(AbsPath),
+    /// Nothing is there.
+    Missing,
+}
+
+/// `path` with every link on it followed: the deepest part of it that is there resolved, with the names below it that
+/// are not. `None` for a path that steps out of a part that is not there.
+async fn resolved(files: &dyn TextFiles, path: AbsPath) -> Option<(std::path::PathBuf, bool)> {
+    let mut at = path.as_path().to_path_buf();
+    let mut missing = Vec::new();
+    loop {
+        if let Ok(found) = files.resolved(AbsPath::new(at.clone())?).await {
+            let mut place = found.as_path().to_path_buf();
+            place.extend(missing.iter().rev());
+            return Some((place, !missing.is_empty()));
+        }
+        missing.push(at.file_name()?.to_owned());
+        at.pop();
+    }
+}
+
+/// The place to read for `path`, when it names one inside one of `roots` or one of the exact files in `allowed_files`
+/// by where it resolves to: a link or junction inside a folder that points out of it is outside, and names are compared
+/// as the file system resolves them, so a name that differs only in case from the folder's on a system that ignores
+/// case is inside. The place is the resolved one that was checked, so a link changed after the check leads the read
+/// nowhere else.
+async fn inside(files: &dyn TextFiles, roots: &[AbsPath], allowed_files: &[AbsPath], path: &str) -> Option<Place> {
+    let (place, missing) = resolved(files, AbsPath::new(path)?).await?;
+    let mut folders = Vec::new();
+    for root in roots {
+        folders.extend(files.resolved(root.clone()).await);
+    }
+    let in_root = folders.iter().any(|folder| place.starts_with(folder.as_path()));
+    let mut in_attached = false;
+    if !in_root {
+        for allowed in allowed_files {
+            if let Some((allowed_place, _)) = resolved(files, allowed.clone()).await
+                && place == allowed_place
+            {
+                in_attached = true;
+                break;
+            }
+        }
+    }
+    if !in_root && !in_attached {
         return None;
     }
-    // A place that cannot be resolved (no such file) leads nowhere: its read tells why.
-    let Ok(place) = files.resolved(path.clone()).await else { return Some(path) };
-    let folder = files.resolved(cwd.clone()).await.ok()?;
-    place.as_path().starts_with(folder.as_path()).then_some(place)
+    Some(if missing { Place::Missing } else { Place::File(AbsPath::new(place)?) })
+}
+
+/// The file `path` names, resolved, where it is there and inside one of `roots` as [`inside`] tells.
+pub(crate) async fn inside_file(files: &dyn TextFiles, roots: &[AbsPath], path: &str) -> Option<AbsPath> {
+    match inside(files, roots, &[], path).await? {
+        Place::File(path) => Some(path),
+        Place::Missing => None,
+    }
 }
 
 fn invalid(message: &str) -> RpcError {
     RpcError { code: -32602, message: message.to_owned(), data: Value::Null }
 }
 
-/// The answer to the agent's `fs/read_text_file`: `line` is 1-based, `limit` counts lines.
-pub async fn read_text_file(files: &dyn TextFiles, cwd: &AbsPath, params: &Value) -> Result<Value, RpcError> {
-    let requested = params.get("path").and_then(Value::as_str).ok_or_else(|| invalid("path is required"))?;
-    let Some(path) = inside(files, cwd, requested).await else {
-        return Err(invalid(&format!("{} is outside the session's folder {}", requested, Path::display(cwd.as_path()))));
-    };
-    let text = files.read(path).await.map_err(|message| RpcError { code: -32603, message, data: Value::Null })?;
-    let first = params.get("line").and_then(Value::as_u64).unwrap_or(1).max(1) as usize - 1;
-    let content = match (first, params.get("limit").and_then(Value::as_u64)) {
-        (0, None) => text,
-        (first, limit) => {
-            let lines = text.split_inclusive('\n').skip(first);
-            match limit {
-                Some(limit) => lines.take(limit as usize).collect(),
-                None => lines.collect(),
+/// The request's `key`, a whole number of at least 1, where it gives one.
+fn count(params: &Value, key: &str) -> Result<Option<usize>, RpcError> {
+    match params.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => value
+            .as_u64()
+            .filter(|count| *count > 0)
+            .and_then(|count| usize::try_from(count).ok())
+            .map(Some)
+            .ok_or_else(|| invalid(&format!("{key} must be a whole number of at least 1"))),
+    }
+}
+
+/// The lines of the file at `path` from line `first` (0-based), `limit` of them where it is given, read a chunk at a
+/// time up to the last line they take.
+async fn lines(files: &dyn TextFiles, path: AbsPath, first: usize, limit: Option<usize>) -> Result<String, String> {
+    let last = limit.map(|limit| first.saturating_add(limit));
+    let (mut taken, mut line, mut offset) = (Vec::new(), 0_usize, 0_u64);
+    'read: loop {
+        let chunk = files.read_bytes(path.clone(), offset, READ_CHUNK).await?;
+        if chunk.is_empty() {
+            break;
+        }
+        offset += chunk.len() as u64;
+        for byte in chunk {
+            if line >= first {
+                taken.push(byte);
+            }
+            if byte == b'\n' {
+                line += 1;
+                if last == Some(line) {
+                    break 'read;
+                }
             }
         }
+    }
+    String::from_utf8(taken).map_err(|_| NOT_TEXT.to_owned())
+}
+
+/// The answer to the agent's `fs/read_text_file` of a file in `cwd`, in a folder of [`TextFiles::readable_roots`], or
+/// in `allowed_files` (attached files linked into this session's prompts): `line` is 1-based, `limit` counts lines.
+pub async fn read_text_file_with(files: &dyn TextFiles, cwd: &AbsPath, allowed_files: &[AbsPath], params: &Value) -> Result<Value, RpcError> {
+    let requested = params.get("path").and_then(Value::as_str).ok_or_else(|| invalid("path is required"))?;
+    let (line, limit) = (count(params, "line")?, count(params, "limit")?);
+    let roots: Vec<AbsPath> = std::iter::once(cwd.clone()).chain(files.readable_roots()).collect();
+    let path = match inside(files, &roots, allowed_files, requested).await {
+        Some(Place::File(path)) => path,
+        Some(Place::Missing) => return Err(RpcError { code: RESOURCE_NOT_FOUND, message: format!("{requested} was not found"), data: Value::Null }),
+        None => return Err(invalid(&format!("{} is outside the session's folder {}", requested, Path::display(cwd.as_path())))),
     };
+    let content = match (line, limit) {
+        (None, None) => files.read(path).await,
+        (line, limit) => lines(files, path, line.unwrap_or(1) - 1, limit).await,
+    };
+    let content = content.map_err(|message| {
+        let code = if message == "NotFound" { RESOURCE_NOT_FOUND } else { -32603 };
+        RpcError { code, message, data: Value::Null }
+    })?;
     Ok(json!({ "content": content }))
+}
+
+/// The answer to the agent's `fs/read_text_file` of a file in `cwd` or in a folder of [`TextFiles::readable_roots`]:
+/// `line` is 1-based, `limit` counts lines.
+pub async fn read_text_file(files: &dyn TextFiles, cwd: &AbsPath, params: &Value) -> Result<Value, RpcError> {
+    read_text_file_with(files, cwd, &[], params).await
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::*;
+
+    /// Files in memory under one folder, each read noted as the bytes it asked for (`None` for a whole read).
+    struct Memory {
+        folder: AbsPath,
+        files: Vec<(AbsPath, String)>,
+        reads: Mutex<Vec<Option<(u64, u64)>>>,
+    }
+
+    impl Memory {
+        fn of(name: &str, text: String) -> Self {
+            let folder = AbsPath::new(std::env::temp_dir().join("memory")).expect("absolute");
+            Self { files: vec![(folder.join(name), text)], folder, reads: Mutex::default() }
+        }
+
+        fn text(&self, path: &AbsPath) -> Result<String, String> {
+            self.files.iter().find(|(at, _)| at == path).map(|(_, text)| text.clone()).ok_or_else(|| "NotFound".to_owned())
+        }
+    }
+
+    #[async_trait]
+    impl TextFiles for Memory {
+        async fn read(&self, path: AbsPath) -> Result<String, String> {
+            self.reads.lock().unwrap().push(None);
+            self.text(&path)
+        }
+
+        async fn read_bytes(&self, path: AbsPath, offset: u64, len: u64) -> Result<Vec<u8>, String> {
+            self.reads.lock().unwrap().push(Some((offset, len)));
+            let bytes = self.text(&path)?.into_bytes();
+            let start = (offset as usize).min(bytes.len());
+            Ok(bytes[start..(start + len as usize).min(bytes.len())].to_vec())
+        }
+
+        async fn resolved(&self, path: AbsPath) -> Result<AbsPath, String> {
+            let there = path == self.folder || self.files.iter().any(|(at, _)| *at == path);
+            if there { Ok(path) } else { Err("NotFound".to_owned()) }
+        }
+
+        async fn create(&self, _: AbsPath, _: String) -> Result<(), String> {
+            Err("read-only".to_owned())
+        }
+    }
+
+    /// A read of some lines of a long file takes the chunk that holds them and nothing after it.
+    #[tokio::test]
+    async fn a_read_of_some_lines_reads_only_as_far_as_its_last_line() {
+        let text: String = (1..=300_000).map(|n| format!("line {n}\n")).collect();
+        let files = Memory::of("big.txt", text);
+        let path = files.folder.join("big.txt");
+        let asked = json!({ "path": path.as_path(), "line": 2, "limit": 2 });
+        let read = read_text_file(&files, &files.folder, &asked).await.expect("the lines");
+        assert_eq!(read["content"], "line 2\nline 3\n");
+        assert_eq!(*files.reads.lock().unwrap(), [Some((0, READ_CHUNK))], "the read went past the lines it was asked for");
+    }
+
+    /// A `line` or a `limit` that is no whole number of at least 1 is the request's error, and nothing is read.
+    #[tokio::test]
+    async fn a_line_or_limit_that_is_no_whole_number_of_at_least_one_is_refused() {
+        let files = Memory::of("a.txt", "one\ntwo\n".to_owned());
+        let path = files.folder.join("a.txt");
+        for key in ["line", "limit"] {
+            for value in [json!(0), json!(-1), json!(1.5), json!("2")] {
+                let mut asked = json!({ "path": path.as_path() });
+                asked[key] = value.clone();
+                let refused = read_text_file(&files, &files.folder, &asked).await.expect_err("an invalid request");
+                assert_eq!(refused.code, -32602, "{key}={value}: {}", refused.message);
+            }
+        }
+        assert!(files.reads.lock().unwrap().is_empty());
+    }
+
+    /// A missing file inside `cwd` returns `RESOURCE_NOT_FOUND` (-32002), a case-variant path canonicalizing inside
+    /// `cwd` is accepted, and an attached file outside `cwd` is readable while unattached siblings are refused.
+    #[tokio::test]
+    async fn missing_file_casing_and_attached_outside_cwd_behave_correctly() {
+        struct CasingMemory {
+            folder: AbsPath,
+            outside: AbsPath,
+            files: Vec<(AbsPath, String)>,
+        }
+        #[async_trait]
+        impl TextFiles for CasingMemory {
+            async fn read(&self, path: AbsPath) -> Result<String, String> {
+                self.files
+                    .iter()
+                    .find(|(at, _)| at.as_path().to_string_lossy().eq_ignore_ascii_case(&path.as_path().to_string_lossy()))
+                    .map(|(_, text)| text.clone())
+                    .ok_or_else(|| "NotFound".to_owned())
+            }
+            async fn resolved(&self, path: AbsPath) -> Result<AbsPath, String> {
+                let raw = path.as_path().to_string_lossy();
+                if self.folder.as_path().to_string_lossy().eq_ignore_ascii_case(&raw) {
+                    return Ok(self.folder.clone());
+                }
+                if self.outside.as_path().to_string_lossy().eq_ignore_ascii_case(&raw) {
+                    return Ok(self.outside.clone());
+                }
+                self.files
+                    .iter()
+                    .find(|(at, _)| at.as_path().to_string_lossy().eq_ignore_ascii_case(&raw))
+                    .map(|(at, _)| at.clone())
+                    .ok_or_else(|| "NotFound".to_owned())
+            }
+            async fn create(&self, _: AbsPath, _: String) -> Result<(), String> {
+                Err("read-only".to_owned())
+            }
+        }
+
+        let base = std::env::temp_dir().join("mixdog-acp-files-case-test");
+        let folder = AbsPath::new(base.join("WorkDir")).expect("absolute");
+        let outside = AbsPath::new(base.join("Blobs")).expect("absolute");
+        let attached = outside.join("attached.txt");
+        let sibling = outside.join("secret.txt");
+        let files = CasingMemory {
+            files: vec![(folder.join("Note.txt"), "inside".into()), (attached.clone(), "blob-text".into()), (sibling.clone(), "nope".into())],
+            folder: folder.clone(),
+            outside,
+        };
+
+        // Missing file inside cwd -> -32002 (RESOURCE_NOT_FOUND).
+        let missing = read_text_file(&files, &folder, &json!({ "path": folder.join("absent.txt").as_path() })).await.expect_err("missing");
+        assert_eq!(missing.code, RESOURCE_NOT_FOUND);
+
+        // Case-variant path canonicalizing inside cwd -> allowed.
+        let lower_path = folder.join("Note.txt").as_path().to_string_lossy().to_ascii_lowercase();
+        let read = read_text_file(&files, &folder, &json!({ "path": lower_path })).await.expect("case-variant passes");
+        assert_eq!(read["content"], "inside");
+
+        // Attached file outside cwd -> allowed only for the session whose allowed_files includes it; sibling and other sessions still refused.
+        let denied_before = read_text_file(&files, &folder, &json!({ "path": attached.as_path() })).await.expect_err("outside before allow");
+        assert_eq!(denied_before.code, -32602);
+        let allowed = read_text_file_with(&files, &folder, std::slice::from_ref(&attached), &json!({ "path": attached.as_path() })).await.expect("attached allowed");
+        assert_eq!(allowed["content"], "blob-text");
+        let denied_other_session = read_text_file_with(&files, &folder, &[], &json!({ "path": attached.as_path() })).await.expect_err("other session denied");
+        assert_eq!(denied_other_session.code, -32602);
+        let denied_sibling = read_text_file_with(&files, &folder, std::slice::from_ref(&attached), &json!({ "path": sibling.as_path() })).await.expect_err("sibling still denied");
+        assert_eq!(denied_sibling.code, -32602);
+    }
 }

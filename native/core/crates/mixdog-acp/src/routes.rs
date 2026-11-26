@@ -75,7 +75,7 @@ impl RouteFacts for AgentRouteFacts {
     async fn ensure_ready(&self, config: &Map<String, Value>, provider: &str) -> Result<(), String> {
         match self.agents.preset_of_route(provider) {
             Some(preset) => {
-                self.agents.ready_program(preset).await.map(drop).map_err(|refusal| refusal.message(preset))?;
+                self.agents.ensure_checked(preset).await.map_err(|refusal| refusal.message(preset))?;
                 self.agents.selectable(preset).map_err(|refusal| refusal.message(preset))
             }
             None => self.inner.ensure_ready(config, provider).await,

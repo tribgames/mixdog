@@ -402,6 +402,7 @@ mod tests {
     /// rename finishes, so the next install cannot acquire the gate and remove `.staging-*` underneath it.
     #[tokio::test]
     async fn cancelling_place_mid_rename_keeps_unpacking_held_until_rename_ends() {
+        let _ = mixdog_rt::testing::tokens();
         use tokio::sync::Notify;
 
         use crate::agents::AgentsParts;
@@ -420,12 +421,14 @@ mod tests {
         struct NoRefusals;
         #[async_trait]
         impl Refusals for NoRefusals {
-            async fn read(&self) -> Result<std::collections::HashMap<String, String>, String> {
-                Ok(std::collections::HashMap::new())
+            async fn read(&self) -> std::collections::HashMap<String, String> {
+                std::collections::HashMap::new()
             }
-            async fn write(&self, _: &std::collections::HashMap<String, String>) -> Result<(), String> {
-                Ok(())
+            async fn keep(&self, _: std::collections::HashMap<String, String>) {}
+            async fn read_windows(&self) -> crate::agents::Windows {
+                std::collections::HashMap::new()
             }
+            async fn keep_windows(&self, _: crate::agents::Windows) {}
         }
 
         struct NoProcesses;

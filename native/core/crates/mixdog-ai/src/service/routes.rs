@@ -253,8 +253,8 @@ pub fn web_search_route_or_default(candidates: &[&Value]) -> Result<Value, Strin
 
 // hosted web-search capability
 
-const NON_CHAT_ID: [&str; 13] =
-    ["embedding", "rerank", "moderation", "image", "imagen", "imagine", "video", "veo", "audio", "tts", "stt", "aqa", "search-preview"];
+const NON_CHAT_ID: [&str; 14] =
+    ["embedding", "rerank", "moderation", "image", "imagen", "imagine", "video", "veo", "audio", "tts", "stt", "whisper", "aqa", "search-preview"];
 
 fn non_chat(id: &str) -> bool {
     NON_CHAT_ID.iter().any(|p| id.contains(p))

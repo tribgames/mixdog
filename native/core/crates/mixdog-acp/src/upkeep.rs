@@ -877,6 +877,39 @@ impl Agents {
         if failed.is_empty() { Ok(()) } else { Err(failed.join("\n")) }
     }
 
+    /// Read-only readiness check for route validation: starts one initial look if `preset` has never been checked,
+    /// waits for an in-flight check without cancelling updates, and returns the resulting readiness.
+    pub(crate) async fn ensure_checked(self: &Arc<Self>, preset: &AgentPreset) -> Result<(), crate::agents::Refusal> {
+        use crate::agents::Refusal;
+        let mut looked = false;
+        loop {
+            if !self.enabled() {
+                return Err(Refusal::Off);
+            }
+            let (done, mut stepped) = {
+                let mut slots = lock(&self.slots);
+                let slot = slots.entry(preset.id.clone()).or_default();
+                let running = slot.running.as_ref().map(|running| (*running.step.borrow(), running.done.clone(), running.step.subscribe()));
+                match (running, slot.readiness.clone()) {
+                    (_, Some(Readiness::Ready { .. })) => return Ok(()),
+                    (Some((Step::Installing, ..)), found) => return Err(Refusal::NotReady(found.unwrap_or(Readiness::NotInstalled))),
+                    (Some((_, done, stepped)), None) => (done, stepped),
+                    (_, Some(other)) => return Err(Refusal::NotReady(other)),
+                    (None, None) if looked => return Err(Refusal::Off),
+                    (None, None) => {
+                        looked = true;
+                        drop(self.share_check(&mut slots, preset, Plan::Look));
+                        continue;
+                    }
+                }
+            };
+            tokio::select! {
+                () = ended(done) => {}
+                _ = stepped.changed() => {}
+            }
+        }
+    }
+
     /// The CLI a session of `preset` starts on, once its check says it is ready. A state that is not ready is
     /// looked at once more first: the user may have installed or signed in outside the app. A stalled installer or update
     /// holds no turn: the turn holds the CLI against an update from its start, so none begins while it waits and one

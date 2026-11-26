@@ -34,7 +34,7 @@ use crate::connection::RpcError;
 use crate::connection::Temp;
 use crate::connection::remove_folder;
 use crate::files::TextFiles;
-use crate::files::read_text_file;
+use crate::files::read_text_file_with;
 use crate::preset::AgentPreset;
 use crate::session::AgentSession;
 use crate::session::Program;
@@ -471,8 +471,9 @@ impl SharedServer {
         match message {
             Incoming::Request { id, method, params } if method == "fs/read_text_file" => {
                 let (connection, files, cwd) = (self.connection.clone(), self.files.clone(), session.cwd.clone());
+                let allowed = session.attached_files();
                 drop(mixdog_rt::spawn("acp.shared.read", TaskClass::Work, async move {
-                    connection.respond(id, read_text_file(files.as_ref(), &cwd, &params).await).await;
+                    connection.respond(id, read_text_file_with(files.as_ref(), &cwd, &allowed, &params).await).await;
                 }));
                 None
             }
@@ -1285,8 +1286,9 @@ mod tests {
 
         let _ = mixdog_rt::testing::tokens();
         let killed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let kill_notify = Arc::new(tokio::sync::Notify::new());
         let processes: Arc<dyn mixdog_core_api::domain::process::ProcessManager> =
-            Arc::new(StalledWriteProcesses { killed: killed.clone(), kill_notify: Arc::new(tokio::sync::Notify::new()) });
+            Arc::new(StalledWriteProcesses { killed: killed.clone(), kill_notify: kill_notify.clone() });
         let cwd = AbsPath::new(std::env::current_dir().expect("cwd")).expect("abs cwd");
         let (connection, _rx) = Connection::start(
             processes.clone(),

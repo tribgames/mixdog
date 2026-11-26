@@ -25,7 +25,7 @@ use crate::connection::Launch;
 use crate::connection::RpcError;
 use crate::connection::Temp;
 use crate::files::TextFiles;
-use crate::files::read_text_file;
+use crate::files::read_text_file_with;
 use mixdog_tools::policy::GrantKey;
 
 use crate::mcp::Handover;
@@ -277,6 +277,8 @@ pub struct AgentSession {
     context: Mutex<Option<ContextUse>>,
     /// How many reports of its context the agent has made.
     reports: std::sync::atomic::AtomicU64,
+    /// The highest context report count already delivered to a turn.
+    reported_reports: std::sync::atomic::AtomicU64,
     /// Mixdog's prompt, where the agent's system prompt took none of it: the next prompt's text carries it.
     unsent: Mutex<Option<String>>,
     /// Set once the agent connected to the session's tool server; `None` for a session that was handed none. The agent
@@ -288,6 +290,8 @@ pub struct AgentSession {
     /// Calls of Mixdog tools that went on past the agent's deadline for them, each as its tool, its arguments and its
     /// background task.
     kept: Mutex<Vec<(String, Value, String)>>,
+    /// Attached files linked into this session's prompts from outside `cwd`, readable only while this session lives.
+    attached: Mutex<HashSet<AbsPath>>,
     /// Told when the agent closed a cancelled prompt.
     closed_prompt: tokio::sync::Notify,
     /// The cancels told the agent in a task of their own that are not written yet: a prompt is written after them.
@@ -717,12 +721,14 @@ impl AgentSession {
             closes: offered(capabilities.pointer("/agentCapabilities/sessionCapabilities/close")),
             context: Mutex::default(),
             reports: std::sync::atomic::AtomicU64::new(0),
+            reported_reports: std::sync::atomic::AtomicU64::new(0),
             unsent: Mutex::new(unsent),
             connected,
             told_unconnected: AtomicBool::new(false),
             models: Mutex::new(Models::of(&answer)),
             routing: Mutex::default(),
             kept: Mutex::default(),
+            attached: Mutex::default(),
             closed_prompt: tokio::sync::Notify::new(),
             cancels: watch::Sender::new(0),
             wake,
@@ -810,6 +816,19 @@ impl AgentSession {
         let mut routing = lock(&self.routing);
         routing.turn = None;
         routing.ended = true;
+        lock(&self.attached).clear();
+    }
+
+    /// Allows this session's agent to read the attached file at `path` through `fs/read_text_file`.
+    pub(crate) fn allow_attached(&self, path: &str) {
+        if let Some(path) = AbsPath::new(path) {
+            lock(&self.attached).insert(path);
+        }
+    }
+
+    /// The attached files this session's agent is allowed to read through `fs/read_text_file`.
+    pub(crate) fn attached_files(&self) -> Vec<AbsPath> {
+        lock(&self.attached).iter().cloned().collect()
     }
 
     pub fn models(&self) -> Models {
@@ -1059,6 +1078,26 @@ impl AgentSession {
         self.reports.load(std::sync::atomic::Ordering::SeqCst)
     }
 
+    /// The agent's latest context report if it has not yet been delivered to a turn, paired with its report count.
+    pub fn unreported_context(&self) -> Option<(u64, ContextUse)> {
+        let count = self.reports.load(std::sync::atomic::Ordering::SeqCst);
+        if count > self.reported_reports.load(std::sync::atomic::Ordering::SeqCst) {
+            (*lock(&self.context)).map(|context| (count, context))
+        } else {
+            None
+        }
+    }
+
+    /// Marks context reports through `count` as delivered so later turns without a new report do not re-emit them.
+    pub fn mark_context_reported(&self, count: u64) {
+        self.reported_reports.fetch_max(count, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The highest context report count already delivered to a turn.
+    pub fn reported_context_reports(&self) -> u64 {
+        self.reported_reports.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     /// The agent's last report of its own context; `None` until it made one.
     pub fn context_use(&self) -> Option<ContextUse> {
         *lock(&self.context)
@@ -1086,12 +1125,15 @@ impl AgentSession {
             closes: false,
             context: Mutex::default(),
             reports: std::sync::atomic::AtomicU64::new(0),
+            reported_reports: std::sync::atomic::AtomicU64::new(0),
             unsent: Mutex::default(),
             connected: None,
             told_unconnected: AtomicBool::new(false),
             models: Mutex::default(),
             routing: Mutex::default(),
             kept: Mutex::default(),
+            attached: Mutex::default(),
+            cancels: tokio::sync::watch::channel(0).0,
             closed_prompt: tokio::sync::Notify::new(),
             wake: Arc::new(|| {}),
         })
@@ -1239,8 +1281,9 @@ async fn route(
             Incoming::Request { id, method, params } if method == "fs/read_text_file" => {
                 if params.get("sessionId").and_then(Value::as_str) == Some(session.session_id.as_str()) {
                     let (connection, files, cwd) = (session.connection.clone(), files.clone(), session.cwd.clone());
+                    let allowed = session.attached_files();
                     drop(mixdog_rt::spawn("acp.read_file", mixdog_rt::TaskClass::Work, async move {
-                        connection.respond(id, read_text_file(files.as_ref(), &cwd, &params).await).await;
+                        connection.respond(id, read_text_file_with(files.as_ref(), &cwd, &allowed, &params).await).await;
                     }));
                 } else {
                     session.connection.respond(id, unheld(&method)).await;
@@ -1379,7 +1422,9 @@ mod tests {
         let program = Program { path: "server".into(), args: vec!["--uid=".into()], env: vec![("GEMINI_HOME".into(), "home".into())] };
         let started = launch(&official, &program, here());
         assert_eq!((started.program.as_str(), started.args.as_slice()), ("server", ["--uid=".to_owned()].as_slice()));
-        assert_eq!(started.env, [("AGY_ACP_FORCE_FILE_STORAGE".to_owned(), "1".to_owned()), ("GEMINI_HOME".to_owned(), "home".to_owned())]);
+        let mut expected = official.env.clone();
+        expected.push(("GEMINI_HOME".to_owned(), "home".to_owned()));
+        assert_eq!(started.env, expected);
     }
 
     #[test]
@@ -1489,12 +1534,15 @@ mod tests {
             closes: false,
             context: Mutex::default(),
             reports: std::sync::atomic::AtomicU64::new(0),
+            reported_reports: std::sync::atomic::AtomicU64::new(0),
             unsent: Mutex::default(),
             connected: None,
             told_unconnected: AtomicBool::new(false),
             models: Mutex::default(),
             routing: Mutex::default(),
             kept: Mutex::default(),
+            attached: Mutex::default(),
+            cancels: tokio::sync::watch::channel(0).0,
             closed_prompt: tokio::sync::Notify::new(),
             wake: Arc::new(|| {}),
         };

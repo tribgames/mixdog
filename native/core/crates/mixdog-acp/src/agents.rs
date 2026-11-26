@@ -726,7 +726,7 @@ impl Agents {
         let _held = self.hold_shared(thread, preset);
         match self.resolve_running(thread, preset, &cwd, stored).await? {
             ExistingSession::Reuse(running) => Ok(running),
-            ExistingSession::Open { stored, .. } => self.open_session(thread, preset, cwd, stored, rules).await,
+            ExistingSession::Open { stored, abandoned } => self.open_session(thread, preset, cwd, stored, rules, abandoned).await,
         }
     }
 
@@ -788,6 +788,7 @@ impl Agents {
         cwd: AbsPath,
         stored: Option<crate::runs::Stored>,
         rules: Option<String>,
+        abandoned: bool,
     ) -> Result<Arc<AgentSession>, Refusal> {
         if !self.enabled() {
             return Err(Refusal::Off);
@@ -842,7 +843,7 @@ impl Agents {
             ProcessScope::Shared => {
                 let mut result = Err(Fault::Start(format!("{} did not open a session in time", preset.label)));
                 for attempt in 0..2 {
-                    let attempt_deadline = (attempt > 0).then(|| tokio::time::Instant::now() + self.shared_open_timeout());
+                    let attempt_deadline = (abandoned || attempt > 0).then(|| tokio::time::Instant::now() + self.shared_open_timeout());
                     let (lease, existing) = match self.shared_server_bounded(preset, &program, attempt_deadline).await {
                         Ok(found) => found,
                         Err(fault) => {
@@ -877,10 +878,10 @@ impl Agents {
                                 "[acp] {}'s shared server did not open a session within {:?}: {}",
                                 preset.id,
                                 self.shared_open_timeout(),
-                                if attempt == 0 { "replacing it" } else { "giving up" }
+                                if existing && attempt == 0 { "replacing it" } else { "giving up" }
                             );
                             self.retire_wedged_shared(&server);
-                            if attempt == 0 {
+                            if existing && attempt == 0 {
                                 continue;
                             }
                             result = Err(Fault::Start(format!("{} did not open a session in time", preset.label)));

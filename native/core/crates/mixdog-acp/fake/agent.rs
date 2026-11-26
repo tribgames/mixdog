@@ -303,6 +303,143 @@ impl Agent {
                 self.say(&format!("files={} lead={}", Value::Array(files), lead.join("|")));
                 self.end(&id);
             }
+            // Non-text content in message chunks and official Antigravity generate_image tool_call_update.
+            "nontext" => {
+                self.update(json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "audio", "mimeType": "audio/wav", "data": "UklG" } }));
+                self.update(json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "resource", "resource": { "uri": "file:///w/doc.txt", "text": "inline resource" } } }));
+                self.update(json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "resource_link", "name": "link.md", "uri": "file:///w/link.md" } }));
+                self.update(json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "image", "mimeType": "image/png", "data": "iVBORw==" } }));
+                self.update(json!({
+                    "sessionUpdate": "tool_call", "toolCallId": "g1", "title": "Run generate_image?", "kind": "other", "status": "pending",
+                    "rawInput": { "Prompt": "a red fox" },
+                }));
+                self.update(json!({
+                    "sessionUpdate": "tool_call_update", "toolCallId": "g1", "title": "Running generate_image", "kind": "other", "status": "in_progress",
+                }));
+                self.update(json!({
+                    "sessionUpdate": "tool_call_update", "toolCallId": "g1", "status": "completed",
+                    "rawOutput": { "imageName": "fox.png", "imagePath": "/home/antigravity-acp/brain/c1/fox.png", "prompt": "a red fox", "aspectRatio": "16:9" },
+                    "content": [{ "type": "content", "content": { "type": "image", "data": "aW1n", "mimeType": "image/png", "uri": "file:///home/antigravity-acp/brain/c1/fox.png" } }],
+                }));
+                self.end(&id);
+            }
+            // agy CLI shape: "Generated image is saved at <path>." with no image block.
+            "agyimage" => {
+                let path = rest.trim();
+                self.update(json!({
+                    "sessionUpdate": "tool_call", "toolCallId": "g2", "name": "generate_image", "title": "generate_image", "kind": "other", "status": "in_progress",
+                    "rawInput": { "Prompt": "a cat" },
+                }));
+                self.update(json!({
+                    "sessionUpdate": "tool_call_update", "toolCallId": "g2", "status": "completed",
+                    "content": [{ "type": "content", "content": { "type": "text", "text": format!("Generated image is saved at {path}.") } }],
+                }));
+                self.end(&id);
+            }
+            // generate_image recognized only on tool_call_update via rawOutput.{imageName, imagePath} after opening as other.
+            "lateimage" => {
+                self.update(json!({
+                    "sessionUpdate": "tool_call", "toolCallId": "g3", "title": "Working", "kind": "other", "status": "in_progress",
+                }));
+                self.update(json!({
+                    "sessionUpdate": "tool_call_update", "toolCallId": "g3", "status": "completed",
+                    "rawOutput": { "imageName": "owl.png", "imagePath": "/tmp/owl.png", "prompt": "an owl", "aspectRatio": "1:1" },
+                    "content": [{ "type": "content", "content": { "type": "image", "data": "aW1n", "mimeType": "image/png" } }],
+                }));
+                self.end(&id);
+            }
+            // Background generate_image left open in turn 1 and finished in turn 2 (exercises Reply::late_result).
+            "bgimage" => {
+                self.update(json!({
+                    "sessionUpdate": "tool_call", "toolCallId": "bg1", "title": "Running generate_image", "kind": "other", "status": "in_progress",
+                    "rawInput": { "prompt": "a deer" },
+                }));
+                self.end(&id);
+            }
+            "finishbgimage" => {
+                self.update(json!({
+                    "sessionUpdate": "tool_call_update", "toolCallId": "bg1", "status": "completed",
+                    "rawOutput": { "imageName": "deer.png", "imagePath": "/tmp/deer.png", "prompt": "a deer" },
+                    "content": [{ "type": "content", "content": { "type": "image", "data": "aW1n", "mimeType": "image/png" } }],
+                }));
+                self.end(&id);
+            }
+            // Usage with usage_update.cost, cachedWriteTokens, and thoughtTokens.
+            "costusage" => {
+                self.say("costed");
+                self.update(json!({ "sessionUpdate": "usage_update", "used": 500, "size": 10000, "cost": { "amount": 0.042, "currency": "USD" } }));
+                answer(&id, json!({ "stopReason": "end_turn", "usage": { "inputTokens": 200, "outputTokens": 100, "cachedReadTokens": 800, "cachedWriteTokens": 300, "thoughtTokens": 50, "totalTokens": 1450 } }));
+            }
+            // Completed turn with no usage_update (must not re-report an earlier turn's context).
+            "plainusage" => {
+                self.say("plain");
+                answer(&id, json!({ "stopReason": "end_turn", "usage": { "inputTokens": 10, "outputTokens": 5 } }));
+            }
+            // Agent-side cancel carrying usage.
+            "agentcancel" => {
+                self.say("stopping");
+                answer(&id, json!({ "stopReason": "cancelled", "usage": { "inputTokens": 33, "outputTokens": 7 } }));
+            }
+            // Closes prompt with a cut-short stopReason while leaving a tool call open.
+            "stopreason" => {
+                let reason = rest.trim();
+                self.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "sr1", "title": "Open work", "kind": "execute", "status": "in_progress" }));
+                self.say("partial");
+                answer(&id, json!({ "stopReason": reason }));
+            }
+            // Permission request offering only allow_once and reject_always (no reject_once).
+            "rejectonly" => {
+                let options = json!([
+                    { "optionId": "once", "name": "Allow", "kind": "allow_once" },
+                    { "optionId": "deny_always", "name": "Never", "kind": "reject_always" },
+                ]);
+                let call = if rest.trim().is_empty() {
+                    json!({ "sessionUpdate": "tool_call", "toolCallId": "p1", "name": "run_command", "title": "Run it", "kind": "execute", "status": "pending", "rawInput": {} })
+                } else {
+                    json!({ "sessionUpdate": "tool_call", "toolCallId": "p1", "name": "read_file", "title": format!("Read {}", rest.trim()), "kind": "read", "status": "pending", "locations": [{ "path": rest.trim() }], "rawInput": {} })
+                };
+                self.ask(id, call, options);
+            }
+            // Two permission requests queued back-to-back to test cancellation dropping the first and skipping the second.
+            "twoasks" => {
+                let call1 = json!({ "sessionUpdate": "tool_call", "toolCallId": "p1", "name": "run_command", "title": "First", "kind": "execute", "status": "pending", "rawInput": {} });
+                let call2 = json!({ "sessionUpdate": "tool_call", "toolCallId": "p2", "name": "run_command", "title": "Second", "kind": "execute", "status": "pending", "rawInput": {} });
+                self.update(call1.clone());
+                self.request("session/request_permission", json!({ "toolCall": call1, "options": once_or_no }), Asked::Permission, true);
+                self.request("session/request_permission", json!({ "toolCall": call2, "options": once_or_no }), Asked::Permission, true);
+                self.session().asked = Some(id);
+            }
+            // Late tool_call_update arriving after the call already completed.
+            "lateupdate" => {
+                self.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Run check", "kind": "execute", "status": "in_progress", "rawInput": { "command": "check" } }));
+                self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed", "content": [{ "type": "content", "content": { "type": "text", "text": "initial" } }] }));
+                self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed", "content": [{ "type": "content", "content": { "type": "text", "text": "updated final" } }] }));
+                self.end(&id);
+            }
+            // RPC error carrying structured data that classifies the failure.
+            "errdata" => {
+                send(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32603, "message": "Internal error", "data": "Session not found" } }));
+            }
+            // Two concurrent MCP tool calls where the first blocks while the second finishes and streams an update.
+            "concurrent" => {
+                let server = self.held().servers[0].clone();
+                let mut parts = rest.split_whitespace();
+                let first = parts.next().unwrap_or("slow").to_owned();
+                let second = parts.next().unwrap_or("fast").to_owned();
+                let ready = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ready listener");
+                let port = ready.local_addr().expect("ready addr").port();
+                let first_handle = std::thread::spawn(move || {
+                    mcp(&server, &json!({ "jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": { "name": first, "arguments": { "readyPort": port } } }))
+                });
+                let _ = ready.accept().expect("first tool ready");
+                let second_answer = mcp(&self.held().servers[0], &json!({ "jsonrpc": "2.0", "id": 11, "method": "tools/call", "params": { "name": second, "arguments": {} } }));
+                let second_text = second_answer["result"]["content"][0]["text"].as_str().unwrap_or_default().to_owned();
+                self.say(&format!("second={second_text}"));
+                let first_answer = first_handle.join().unwrap();
+                let first_text = first_answer["result"]["content"][0]["text"].as_str().unwrap_or_default().to_owned();
+                self.say(&format!(" first={first_text}"));
+                self.end(&id);
+            }
             // A question that offers no answer for one call.
             "lasting" => {
                 let name = if rest.is_empty() { "run_command".to_owned() } else { format!("mcp_mixdog_{rest}") };
@@ -565,11 +702,14 @@ impl Agent {
             return;
         }
         self.current = session;
+        if what == Asked::Permission {
+            let outcome = &message["result"]["outcome"];
+            log(&format!("permission answered {} {}", self.current, outcome["outcome"].as_str().unwrap_or_default()));
+        }
         let Some(prompt) = self.session().asked.take() else { return };
         match what {
             Asked::Permission => {
                 let outcome = &message["result"]["outcome"];
-                log(&format!("permission answered {} {}", self.current, outcome["outcome"].as_str().unwrap_or_default()));
                 let selected = outcome["outcome"] == "selected";
                 self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "p1", "status": if selected { "completed" } else { "failed" } }));
                 self.say(&if selected { format!("option:{}", outcome["optionId"].as_str().unwrap_or_default()) } else { "cancelled".to_owned() });

@@ -105,6 +105,7 @@ pub struct AgentTurns {
     pub now_ms: Arc<dyn Fn() -> i64 + Send + Sync>,
     pub blobs: BlobStore,
     pub interactive: InteractiveIo,
+    pub media: Arc<mixdog_services::media::MediaStore>,
     /// Where the tokens the agent reports for a turn are recorded, as a provider's send records its own.
     pub ledger: Ledger,
     /// What prices a turn's row: the price table a provider's send and the ledger's own repricing use, so the row is
@@ -136,17 +137,20 @@ impl LedgerRoute {
     /// the time its model worked, priced by `pricing`. `None` for a report that holds no tokens (the agent reported its
     /// context only).
     fn row(&self, usage: &TurnUsage, now: i64, pricing: &dyn UsagePricing) -> Option<Result<UsageRow, String>> {
-        let input =
-            if mixdog_acp::surface::input_excludes_cache(usage) { usage.input_tokens } else { usage.input_tokens.saturating_sub(usage.cached_read_tokens) };
+        let input = if mixdog_acp::surface::input_excludes_cache(usage) {
+            usage.input_tokens
+        } else {
+            usage.input_tokens.saturating_sub(usage.cached_read_tokens).saturating_sub(usage.cached_write_tokens)
+        };
         let facts = Facts {
             input_tokens: Some(input as f64),
             input_tokens_known: None,
             output_tokens_known: true,
             output_tokens: usage.output_tokens as f64,
             cached_tokens: usage.cached_read_tokens as f64,
-            cache_write_tokens: 0.0,
+            cache_write_tokens: usage.cached_write_tokens as f64,
             cache_write_1h_tokens: 0.0,
-            cost_usd: None,
+            cost_usd: usage.cost.map(|ticks| ticks.0 as f64 / UsdTicks::PER_USD as f64),
             raw_service_tier: None,
         };
         if !facts.recordable() {
@@ -229,8 +233,8 @@ impl TurnSurface for Accounted {
 
     async fn usage(&self, usage: TurnUsage) -> Result<(), RunError> {
         let row = self.route.row(&usage, (self.now_ms)(), self.pricing.as_ref());
-        // The ledger's cost is the turn's wherever the turn's usage goes: the session's stats and the gateway's record of the ask.
-        let cost = row.as_ref().and_then(|row| row.as_ref().ok()).and_then(|row| row.cost_usd).and_then(UsdTicks::from_usd);
+        // The ledger's cost is the turn's wherever the turn's usage goes, keeping the agent's reported cost if unpriced.
+        let cost = row.as_ref().and_then(|row| row.as_ref().ok()).and_then(|row| row.cost_usd).and_then(UsdTicks::from_usd).or(usage.cost);
         let usage = TurnUsage { cost, ..usage };
         let settled = (mixdog_acp::surface::provider_usage(&usage), mixdog_acp::surface::input_excludes_cache(&usage));
         *self.report.usage.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(settled);
@@ -339,6 +343,7 @@ impl Conversation for Held {
 struct Stored {
     blobs: BlobStore,
     interactive: InteractiveIo,
+    media: Arc<mixdog_services::media::MediaStore>,
 }
 
 #[async_trait]
@@ -349,6 +354,45 @@ impl Attachments for Stored {
 
     fn path(&self, reference: &str) -> Option<String> {
         mixdog_core::run_host::attachment_store::stored_path(&self.blobs, reference).map(|path| path.to_string_lossy().into_owned())
+    }
+
+    async fn keep_image(&self, image: mixdog_acp::runs::ShownImage) -> Option<mixdog_acp::runs::KeptImage> {
+        if image.bytes.is_empty() || image.bytes.len() as u64 > mixdog_acp::turn::PICTURE_MAX_BYTES {
+            return None;
+        }
+        let result = self
+            .media
+            .run(move |store| {
+                let saved = store.save_asset(
+                    "image",
+                    &image.provider,
+                    &image.model,
+                    &image.prompt,
+                    image.options,
+                    &image.mime,
+                    &image.bytes,
+                    serde_json::Map::new(),
+                )?;
+                let asset_id = saved.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
+                let path = store.asset_path(&asset_id)?.map(|path| path.to_string_lossy().into_owned());
+                Ok::<_, mixdog_services::media::MediaError>(mixdog_acp::runs::KeptImage { asset_id, path })
+            })
+            .await;
+        match result {
+            Ok(Ok(kept)) if !kept.asset_id.is_empty() => Some(kept),
+            Ok(Ok(_)) => {
+                tracing::warn!("[acp] an agent's picture was saved without an asset id");
+                None
+            }
+            Ok(Err(error)) => {
+                tracing::warn!("[acp] an agent's picture could not be kept in the media store: {error}");
+                None
+            }
+            Err(error) => {
+                tracing::warn!("[acp] an agent's picture could not be kept in the media store: {error}");
+                None
+            }
+        }
     }
 }
 
@@ -406,7 +450,7 @@ impl OutsideAgents for AgentTurns {
             transcript,
             calls: Some(calls),
             conversation: Arc::new(Held(history)),
-            attachments: Arc::new(Stored { blobs: self.blobs.clone(), interactive: self.interactive }),
+            attachments: Arc::new(Stored { blobs: self.blobs.clone(), interactive: self.interactive, media: self.media.clone() }),
             on_tool_result: on_tool_result.map(|told| {
                 Arc::new(move |ui_diff: Option<String>| told(&mixdog_agent::agent_tool::flow::seams::ToolResultMessage { ui_diff }))
                     as mixdog_acp::turn::ToolResultHook
@@ -961,6 +1005,7 @@ mod tests {
             now_ms: Arc::new(|| 0_i64),
             blobs: BlobStore::new(dir.path()),
             interactive: mixdog_rt::testing::tokens().interactive_io,
+            media: Arc::new(mixdog_services::media::MediaStore::new(dir.path(), mixdog_rt::testing::tokens().durability_io)),
             ledger: Arc::new(|| None::<Arc<dyn UsageSink>>),
             pricing: Arc::new(mixdog_ai::catalog::CatalogPricing(warm_catalog(dir.path()).await)),
         };
@@ -1285,6 +1330,95 @@ mod tests {
         #[allow(clippy::disallowed_methods, reason = "the test seeds the file an earlier version wrote")]
         std::fs::write(dir.path().join("acp-agent-windows.json"), br#"{"antigravity":1048576,"agy":{"m":5}}"#).expect("the earlier file");
         assert_eq!(KeptRefusals::in_data_dir(dir.path(), lane).read_windows().await, HashMap::from([("agy".to_owned(), HashMap::from([("m".to_owned(), 5)]))]));
-        assert!(KeptRefusals::in_data_dir(dir.path(), lane).read().await.is_empty(), "the refusals are a file of their own");
+        assert_eq!(KeptRefusals::in_data_dir(dir.path(), lane).read().await, HashMap::new(), "the refusals are a file of their own");
+    }
+
+    #[tokio::test]
+    async fn stored_keep_image_persists_asset_readable_by_media_store_and_recovers_corrupt_index() {
+        let dir = tempfile::tempdir().expect("a data folder");
+        let tokens = mixdog_rt::testing::tokens();
+        let media = Arc::new(mixdog_services::media::MediaStore::new(dir.path(), tokens.durability_io));
+        let stored = Stored { blobs: BlobStore::new(dir.path()), interactive: tokens.interactive_io, media: media.clone() };
+        let png = b"\x89PNG\r\n\x1a\nfake-png-bytes".to_vec();
+        let first = stored
+            .keep_image(mixdog_acp::runs::ShownImage {
+                bytes: png.clone(),
+                mime: "image/png".into(),
+                prompt: "a red fox".into(),
+                options: serde_json::json!({ "aspect": "16:9" }),
+                provider: "acp-antigravity".into(),
+                model: "gemini-4-neon".into(),
+            })
+            .await
+            .expect("image kept");
+        let entry = media.resolve_file(&first.asset_id).expect("resolve").expect("asset exists in MediaStore");
+        assert_eq!(entry["id"], first.asset_id);
+        assert_eq!(entry["kind"], "image");
+        assert_eq!(entry["lane"], "acp-antigravity");
+        assert_eq!(entry["model"], "gemini-4-neon");
+        assert_eq!(entry["prompt"], "a red fox");
+        let on_disk = media.asset_path(&first.asset_id).expect("asset path").expect("path exists");
+        #[allow(clippy::disallowed_methods, reason = "test verifies persisted bytes on disk")]
+        let written = std::fs::read(&on_disk).expect("read asset");
+        assert_eq!(written, png);
+
+        // Corrupt `media/index.json` while a valid `.bak` holds the prior entry: `keep_image` must quarantine the
+        // corrupt file, recover from `.bak`, and preserve the prior asset alongside the new one.
+        let media_dir = dir.path().join("media");
+        let index_path = media_dir.join("index.json");
+        let bak_path = media_dir.join("index.json.bak");
+        #[allow(clippy::disallowed_methods, reason = "test seeds backup and corrupt index")]
+        {
+            std::fs::copy(&index_path, &bak_path).expect("seed backup");
+            std::fs::write(&index_path, b"{corrupt json").expect("corrupt index");
+        }
+        let second = stored
+            .keep_image(mixdog_acp::runs::ShownImage {
+                bytes: b"\x89PNG\r\n\x1a\nsecond".to_vec(),
+                mime: "image/png".into(),
+                prompt: "a blue jay".into(),
+                options: serde_json::json!({}),
+                provider: "acp-antigravity".into(),
+                model: "gemini-4-neon".into(),
+            })
+            .await
+            .expect("second image kept after recovery");
+        assert!(media.resolve_file(&first.asset_id).expect("resolve first").is_some(), "prior asset recovered from .bak");
+        assert!(media.resolve_file(&second.asset_id).expect("resolve second").is_some(), "new asset persisted");
+        #[allow(clippy::disallowed_methods, reason = "test verifies quarantine file exists")]
+        let quarantined = std::fs::read_dir(&media_dir)
+            .expect("list media dir")
+            .filter_map(Result::ok)
+            .any(|e| e.file_name().to_string_lossy().contains("index.json.corrupt-"));
+        assert!(quarantined, "corrupt index.json must be quarantined");
+    }
+
+    #[tokio::test]
+    async fn ledger_route_records_cached_write_and_reported_cost_without_double_subtracting() {
+        let dir = tempfile::tempdir().expect("a data folder");
+        let catalog = warm_catalog(dir.path()).await;
+        let pricing = mixdog_ai::catalog::CatalogPricing(catalog);
+        let route = LedgerRoute {
+            provider: "custom-api".into(),
+            session_id: "sess-1".into(),
+            owner_session_id: None,
+            source_type: String::new(),
+        };
+        let usage = TurnUsage {
+            input_tokens: 200,
+            output_tokens: 100,
+            cached_read_tokens: 800,
+            cached_write_tokens: 300,
+            thought_tokens: Some(50),
+            total_tokens: Some(1_450),
+            model: "unpriced-model".into(),
+            cost: UsdTicks::from_usd(0.042),
+            ..TurnUsage::default()
+        };
+        let row = route.row(&usage, 1_700_000_000_000, &pricing).expect("recordable").expect("row");
+        assert_eq!(row.input, 200.0, "exclusive input is not double-subtracted");
+        assert_eq!(row.cache_read, 800.0);
+        assert_eq!(row.cache_write, 300.0);
+        assert!((row.cost_usd.expect("reported cost preserved") - 0.042).abs() < 1e-9);
     }
 }

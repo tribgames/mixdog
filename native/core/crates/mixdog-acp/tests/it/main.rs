@@ -177,6 +177,10 @@ struct Turns {
     hold_attachment: Option<Arc<Notify>>,
     /// Optional counter incremented each time `Conversation::hand_over` runs.
     hand_over_calls: Option<Arc<AtomicUsize>>,
+    /// Extra attachment reference -> filesystem path mappings for attachment read tests.
+    extra_paths: HashMap<String, String>,
+    /// Images persisted via `Attachments::keep_image`, in order.
+    kept_images: Arc<Mutex<Vec<mixdog_acp::runs::ShownImage>>>,
 }
 
 #[async_trait]
@@ -232,7 +236,17 @@ impl Attachments for Turns {
     }
 
     fn path(&self, reference: &str) -> Option<String> {
+        if let Some(path) = self.extra_paths.get(reference) {
+            return Some(path.clone());
+        }
         matches!(reference, "note" | "paper").then(|| format!("{ATTACHMENTS}\\{reference}"))
+    }
+
+    async fn keep_image(&self, image: mixdog_acp::runs::ShownImage) -> Option<mixdog_acp::runs::KeptImage> {
+        let mut kept = self.kept_images.lock().unwrap();
+        let n = kept.len() + 1;
+        kept.push(image);
+        Some(mixdog_acp::runs::KeptImage { asset_id: format!("asset-{n}"), path: Some(format!("/media/asset-{n}.png")) })
     }
 }
 
@@ -248,6 +262,8 @@ struct Recorded {
     holds_asks: AtomicBool,
     /// Optional one-shot gate that pauses `approve` until the test sends a resolution.
     approve_gate: Mutex<Option<tokio::sync::oneshot::Receiver<ApprovalResolution>>>,
+    /// How many held approval futures were dropped (simulating held_requests.rs CancelGuard).
+    dropped_asks: std::sync::atomic::AtomicUsize,
     /// The calls gone on in the background that ended, by id, as the approvals heard of each.
     released: Mutex<Vec<String>>,
     /// The turn's own surface refuses a call's result row and stops the turn with this token; the closing one takes it.
@@ -394,6 +410,12 @@ impl TurnSurface for Surface {
     }
 
     async fn approve(&self, ask: ApprovalAsk) -> ApprovalResolution {
+        struct DropCount(Arc<Recorded>);
+        impl Drop for DropCount {
+            fn drop(&mut self) {
+                self.0.dropped_asks.fetch_add(1, Ordering::SeqCst);
+            }
+        }
         self.0.asks.lock().unwrap().push(ask);
         self.0.changed.notify_waiters();
         let gate = self.0.approve_gate.lock().unwrap().take();
@@ -401,6 +423,7 @@ impl TurnSurface for Surface {
             return gate.await.unwrap_or(ApprovalResolution::Unavailable { at: 0 });
         }
         if self.0.holds_asks.load(Ordering::SeqCst) {
+            let _guard = DropCount(self.0.clone());
             return std::future::pending().await;
         }
         self.0.answers.lock().unwrap().pop_front().unwrap_or(ApprovalResolution::Unavailable { at: 0 })
@@ -461,6 +484,14 @@ impl TextFiles for Files {
     async fn read(&self, path: AbsPath) -> Result<String, String> {
         self.0.lock().unwrap().push(path.as_path().to_path_buf());
         std::fs::read_to_string(path.as_path()).map_err(|error| error.to_string())
+    }
+
+    async fn read_bytes(&self, path: AbsPath, offset: u64, len: u64) -> Result<Vec<u8>, String> {
+        self.0.lock().unwrap().push(path.as_path().to_path_buf());
+        let bytes = std::fs::read(path.as_path()).map_err(|error| error.to_string())?;
+        let start = (offset as usize).min(bytes.len());
+        let end = start.saturating_add(len as usize).min(bytes.len());
+        Ok(bytes[start..end].to_vec())
     }
 
     async fn resolved(&self, path: AbsPath) -> Result<AbsPath, String> {
@@ -852,6 +883,7 @@ impl World {
             record: None,
             selected_window: None,
             attachments: None,
+            pictures: None,
         }
     }
 
@@ -873,6 +905,8 @@ impl World {
         turns: Turns,
     ) -> TurnEnd {
         let turns = Arc::new(turns);
+        let homes: Vec<AbsPath> = [self.dir.path().join("home"), home_of(self.dir.path(), &self.preset.id)].into_iter().filter_map(AbsPath::new).collect();
+        let pictures = mixdog_acp::turn::Pictures { keep: turns.clone(), files: Arc::new(Files(self.opened.clone())), homes };
         let request = TurnRequest {
             thread: thread(),
             cwd: self.cwd(),
@@ -882,7 +916,13 @@ impl World {
             conversation: turns.clone(),
             attachments: turns.clone(),
         };
-        let context = TurnContext { model: model.to_owned(), calls: turns.calls.clone(), selected_window: turns.selected_window, ..self.context(cancel) };
+        let context = TurnContext {
+            model: model.to_owned(),
+            calls: turns.calls.clone(),
+            selected_window: turns.selected_window,
+            pictures: Some(pictures),
+            ..self.context(cancel)
+        };
         mixdog_acp::runs::serve(&self.agents, &self.preset, request, Arc::new(surface.clone()), context).await
     }
 
@@ -2718,6 +2758,9 @@ impl Tool for Slow {
 
     async fn call(&self, ctx: &ToolContext, arguments: Value) -> ToolOutcome {
         self.ran.lock().unwrap().push((ctx.thread_id.clone(), SLOW.to_owned(), arguments.clone()));
+        if let Some(port) = arguments.get("readyPort").and_then(Value::as_u64).and_then(|port| u16::try_from(port).ok()) {
+            let _ = tokio::net::TcpStream::connect(("127.0.0.1", port)).await;
+        }
         self.release.acquire().await.expect("the test's release").forget();
         // A call that asks for silence ends with no output.
         let mut parts = if arguments["silent"] == true { Vec::new() } else { vec![ToolPart::Text(format!("{SLOW} ended with {arguments}"))] };
@@ -3754,7 +3797,7 @@ async fn the_agents_report_of_its_context_is_the_turns_reading_and_the_sessions_
 
     let next = Surface::default();
     within("the next turn", world.prompt(&thread(), &next, "whoami", None, CancellationToken::new())).await;
-    assert_eq!(usage(&next).expect("the next turn's usage").context, reported);
+    assert_eq!(usage(&next).and_then(|u| u.context), None);
     assert!(!next.events().iter().any(|event| matches!(event, Event::Header(_))), "{:?}", next.events());
 }
 
@@ -5002,7 +5045,6 @@ async fn an_official_sign_in_finished_on_another_machine_delivers_the_pasted_add
 /// (`Starting`) are released instead of blocking subsequent updates.
 #[tokio::test]
 async fn a_failed_pasted_redirect_through_oauth_flows_cancels_the_login_and_releases_the_update_lock() {
-    use mixdog_core_api::domain::common::EventSource;
     use mixdog_core_api::domain::process::ProcessEvent;
     use mixdog_core_api::feed_publisher::LoginFeeds;
     use mixdog_core_api::mock::MockLimits;
@@ -5309,7 +5351,10 @@ async fn the_official_server_signs_out_with_logout_on_its_running_server_or_a_sh
     within("the CLI's check", both.agents.look(&both.presets[1])).await;
     let status = both.agents.status();
     let flags = |agent: &Value| (agent["loginOpensBrowser"].clone(), agent["sharesExternalSignIn"].clone());
-    assert_eq!((flags(&status["agents"][0]), flags(&status["agents"][1])), ((json!(true), json!(false)), (json!(false), json!(true))));
+    assert_eq!(
+        (flags(&status["agents"][0]), flags(&status["agents"][1])),
+        ((json!(false), json!(false)), (json!(cfg!(windows) || cfg!(target_os = "macos")), json!(true)))
+    );
 }
 
 /// A sign-out asked while one of the same agent is under way (a second window, a second press) is refused at once: the
@@ -7089,4 +7134,393 @@ async fn a_read_that_names_another_session_than_the_processs_own_is_refused() {
     let note = world.dir.path().join("note.txt");
     let end = within("the turn", world.prompt(&thread(), &Surface::default(), &format!("readas sess-9 {}", note.display()), None, CancellationToken::new())).await;
     assert_eq!(completed_text(&end), "error:the read names no session this client holds open");
+}
+
+/// Item 1: A `resource_link` attachment pointing into a BlobStore outside `cwd` is readable by `fs/read_text_file`
+/// only for the session it was attached to, while siblings, unrelated sessions in the same `cwd`, and reopened sessions
+/// after release are denied.
+#[tokio::test]
+async fn attached_resource_link_outside_cwd_is_readable_by_agent() {
+    let world = World::new(&[]);
+    let outside = tempfile::tempdir().expect("outside blobs");
+    let attached = outside.path().join("attached.txt");
+    let sibling = outside.path().join("secret.txt");
+    #[allow(clippy::disallowed_methods, reason = "test seeds outside attachment files")]
+    std::fs::write(&attached, "hello from blob\n").expect("write attached");
+    #[allow(clippy::disallowed_methods, reason = "test seeds outside sibling file")]
+    std::fs::write(&sibling, "not allowed\n").expect("write sibling");
+
+    let mut turns = Turns::default();
+    turns.extra_paths.insert("ext".into(), attached.to_string_lossy().into_owned());
+    let input = json!({
+        "role": "user",
+        "content": [
+            { "type": "file", "name": "attached.txt", "attachmentRef": "ext", "mimeType": "text/plain" },
+            { "type": "text", "text": format!("read {}", attached.display()) }
+        ]
+    });
+    let end = within("attached read", world.serve_with(&Surface::default(), input, None, Some("RULES"), "default", CancellationToken::new(), turns)).await;
+    assert_eq!(completed_text(&end), "read:hello from blob\n");
+    let session_id = world.agents.running(&thread()).expect("running session").session_id.clone();
+
+    let denied = within(
+        "sibling denied",
+        world.serve_with(
+            &Surface::default(),
+            json!({ "role": "user", "content": format!("read {}", sibling.display()) }),
+            Some(held(&session_id)),
+            Some("RULES"),
+            "default",
+            CancellationToken::new(),
+            Turns::default(),
+        ),
+    )
+    .await;
+    assert!(completed_text(&denied).starts_with("error:"), "sibling outside cwd must be denied: {denied:?}");
+
+    // An unrelated session in the same `cwd` must NOT inherit the first session's attached file allowlist.
+    let other_thread = ThreadId::from("t2".to_owned());
+    let other = within("other session read", world.prompt(&other_thread, &Surface::default(), &format!("read {}", attached.display()), None, CancellationToken::new())).await;
+    assert!(completed_text(&other).starts_with("error:"), "other session in same cwd must be denied: {other:?}");
+
+    // Ending the session evicts its allowlist: a fresh session on the same thread cannot read it without re-attaching.
+    world.agents.release(&thread());
+    let after_end = world.ask(&Surface::default(), &format!("read {}", attached.display()), Turns::default()).await;
+    assert!(completed_text(&after_end).starts_with("error:"), "released session allowlist must be evicted: {after_end:?}");
+}
+
+/// Item 2: Non-text content in message chunks and tool results reaches the transcript, images are stored once and
+/// rendered as `media` cards with no raw base64 retained, and both official Antigravity and `agy` CLI `generate_image`
+/// shapes produce a media image card.
+#[tokio::test]
+async fn nontext_chunks_and_both_generate_image_shapes_store_and_render_media_cards() {
+    let world = World::official(&[]);
+    let surface = Surface::default();
+    let turns = Turns::default();
+    let kept = turns.kept_images.clone();
+    let end = world.ask(&surface, "nontext", turns).await;
+    assert!(matches!(end, TurnEnd::Completed { .. }), "{end:?}");
+
+    let streamed = surface.streamed();
+    assert!(streamed.contains("[audio (audio/wav)]"), "{streamed}");
+    assert!(streamed.contains("inline resource"), "{streamed}");
+    assert!(streamed.contains("link.md"), "{streamed}");
+
+    let rows = surface.rows();
+    let serialized = Value::Array(rows.clone()).to_string();
+    assert!(!serialized.contains("iVBORw=="), "chunk base64 must not be retained in rows: {serialized}");
+    assert!(!serialized.contains("aW1n"), "tool image base64 must not be retained in rows: {serialized}");
+    assert_eq!(kept.lock().unwrap().len(), 2, "chunk image and generate_image each stored once");
+
+    let media_calls: Vec<&Value> = rows
+        .iter()
+        .filter_map(|row| row["toolCalls"].as_array())
+        .flatten()
+        .filter(|call| call["name"] == "media")
+        .collect();
+    assert_eq!(media_calls.len(), 2, "one card for chunk image, one single card for generate_image: {rows:?}");
+    let results: Vec<Value> = rows
+        .iter()
+        .filter(|row| row["role"] == "tool")
+        .filter_map(|row| row["content"].as_str().and_then(|s| serde_json::from_str::<Value>(s).ok()))
+        .collect();
+    assert!(results.iter().any(|r| r["assetId"] == "asset-1" && r["kind"] == "image"), "{results:?}");
+    assert!(results.iter().any(|r| r["assetId"] == "asset-2" && r["prompt"] == "a red fox"), "{results:?}");
+
+    // agy CLI shape: "Generated image is saved at <path>." pointing under the agent's home folder.
+    let cli_world = World::new(&[]);
+    let img_dir = cli_world.dir.path().join("home").join("out");
+    let img_path = img_dir.join("cat.png");
+    #[allow(clippy::disallowed_methods, reason = "test seeds saved image under agent home")]
+    std::fs::create_dir_all(&img_dir).and_then(|()| std::fs::write(&img_path, b"\x89PNG\r\n\x1a\ncat")).expect("seed image");
+    let cli_surface = Surface::default();
+    let cli_turns = Turns::default();
+    let cli_kept = cli_turns.kept_images.clone();
+    let cli_end = cli_world.ask(&cli_surface, &format!("agyimage {}", img_path.display()), cli_turns).await;
+    assert!(matches!(cli_end, TurnEnd::Completed { .. }), "{cli_end:?}");
+    assert_eq!(cli_kept.lock().unwrap().len(), 1);
+    assert_eq!(cli_kept.lock().unwrap()[0].bytes, b"\x89PNG\r\n\x1a\ncat");
+    let cli_rows = cli_surface.rows();
+    assert!(
+        cli_rows.iter().any(|row| row["role"] == "tool" && row["content"].as_str().is_some_and(|s| s.contains("\"assetId\":\"asset-1\""))),
+        "agy CLI saved image renders as media card: {cli_rows:?}"
+    );
+}
+
+/// Items 3 & 10: `usage_update.cost` and `cachedWriteTokens` are preserved, a subsequent turn with no `usage_update`
+/// does not re-report the previous turn's context, and agent-side cancel preserves its usage.
+#[tokio::test]
+async fn usage_cost_cached_write_no_stale_context_and_agent_cancel_usage() {
+    let world = World::new(&[]);
+    let surface = Surface::default();
+    let end1 = world.ask(&surface, "costusage", Turns::default()).await;
+    assert!(matches!(end1, TurnEnd::Completed { .. }), "{end1:?}");
+    let usages1: Vec<TurnUsage> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Usage(u) => Some(u),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(usages1.len(), 1);
+    assert_eq!(usages1[0].cached_write_tokens, 300);
+    assert_eq!(usages1[0].cost, mixdog_core_api::domain::provider::UsdTicks::from_usd(0.042));
+    assert_eq!(usages1[0].context.map(|c| (c.used, c.size)), Some((500, 10000)));
+    assert!(mixdog_acp::surface::input_excludes_cache(&usages1[0]));
+
+    // Second turn on the same session sends no usage_update -> context must be None (not stale 500/10000).
+    let surface2 = Surface::default();
+    let end2 = within("plain turn", world.prompt(&thread(), &surface2, "plainusage", None, CancellationToken::new())).await;
+    assert!(matches!(end2, TurnEnd::Completed { .. }), "{end2:?}");
+    let usages2: Vec<TurnUsage> = surface2
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Usage(u) => Some(u),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(usages2.len(), 1);
+    assert_eq!(usages2[0].context, None, "must not re-report previous turn's context");
+
+    // Third turn cancelled by agent carries usage -> preserved on Interrupted turn.
+    let surface3 = Surface::default();
+    let end3 = within("agent cancel", world.prompt(&thread(), &surface3, "agentcancel", None, CancellationToken::new())).await;
+    assert_eq!(end3, TurnEnd::Interrupted);
+    let usages3: Vec<TurnUsage> = surface3
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Usage(u) => Some(u),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(usages3.len(), 1);
+    assert_eq!((usages3[0].input_tokens, usages3[0].output_tokens), (33, 7));
+}
+
+/// Item 4: Concurrent Mixdog MCP calls do not stall the turn loop or sibling MCP calls while another holds its lane.
+#[tokio::test]
+async fn concurrent_mixdog_mcp_calls_run_without_stalling_turn_loop_or_siblings() {
+    let (world, tools) = handing(&[]);
+    let surface = Surface::default();
+    let calling = tools.prompt(&world, &surface, "concurrent slow read");
+    let drive = async {
+        // Wait until the sibling `read` completed and streamed its text WHILE `slow` is still blocked!
+        surface.until(|events| events.iter().any(|e| matches!(e, Event::Delta(t) if t.contains("second=read ran")))).await;
+        tools.release.add_permits(1);
+    };
+    let (end, ()) = within("concurrent mcp calls", async { tokio::join!(calling, drive) }).await;
+    let text = completed_text(&end);
+    assert!(text.contains("second=read ran") && text.contains("first=slow ended"), "{text}");
+}
+
+/// Item 5: Cancelling during `session/request_permission` drops the pending approval future, answers `cancelled`, and
+/// prevents queued permission requests from running after cancel.
+#[tokio::test]
+async fn cancelling_during_permission_drops_ask_answers_cancelled_and_skips_queued() {
+    let world = World::new(&[]);
+    let surface = Surface::default();
+    surface.0.holds_asks.store(true, Ordering::SeqCst);
+    let cancel = CancellationToken::new();
+    let t = thread();
+    let asking = world.prompt(&t, &surface, "twoasks", None, cancel.clone());
+    let stop = async {
+        surface.until(|_| !surface.0.asks.lock().unwrap().is_empty()).await;
+        cancel.cancel();
+    };
+    let (end, ()) = within("cancelled permission", async { tokio::join!(asking, stop) }).await;
+    assert_eq!(end, TurnEnd::Interrupted);
+    assert_eq!(surface.0.asks.lock().unwrap().len(), 1, "queued second permission must never open an approval card");
+    assert_eq!(surface.0.dropped_asks.load(Ordering::SeqCst), 1, "pending approval future must be dropped on cancel");
+    world.logs("permission answered sess-1 cancelled").await;
+}
+
+/// Items 7 & 11: All parts dropped by `promptCapabilities` does not send empty `prompt: []`, does not trigger
+/// `hand_over()` or leave an orphaned session; `mediaType` is honored for image detection; inline `attachment:///{name}`
+/// URIs are percent-encoded.
+#[tokio::test]
+async fn prompt_parts_mediatype_and_percent_encoded_inline_attachment_uri() {
+    // All parts dropped (no image capability, image-only prompt) -> fails cleanly without prompting agent, running
+    // handover, or leaving a fresh session orphaned.
+    let no_img = World::new(&[("FAKE_AGENT_NO_IMAGES", "1")]);
+    let no_img_surface = Surface::default();
+    let img_only = json!({ "role": "user", "content": [{ "type": "file", "mediaType": "image/png", "data": "aW1n" }] });
+    let turns = Turns { summary: Some(Ok("prior summary")), ..Turns::default() };
+    let end = within("dropped prompt", no_img.serve_with(&no_img_surface, img_only, None, Some("RULES"), "default", CancellationToken::new(), turns)).await;
+    assert!(matches!(end, TurnEnd::Failed { reported: false, .. }), "{end:?}");
+    assert_eq!(no_img.logged("session/prompt"), 0, "must not send empty prompt: []");
+    assert!(no_img.agents.running(&thread()).is_none(), "must not leave an orphaned session after an all-dropped prompt");
+    let handover_notice = no_img_surface
+        .events()
+        .into_iter()
+        .any(|e| matches!(e, Event::Notice(text) if text.contains("summarized")));
+    assert!(!handover_notice, "must not run handover when all prompt parts are dropped: {:?}", no_img_surface.events());
+
+    // mediaType: "image/png" detected as image when agent supports images.
+    let with_img = World::new(&[]);
+    let media_type_input = json!({
+        "role": "user",
+        "content": [
+            { "type": "file", "mediaType": "image/png", "data": "aW1n" },
+            { "type": "text", "text": "whoami" }
+        ]
+    });
+    let end = within("mediatype image", with_img.serve(&Surface::default(), media_type_input, None, "default", CancellationToken::new())).await;
+    assert!(completed_text(&end).contains("images=1"), "{end:?}");
+
+    // Percent-encoded inline attachment:///{name} URI.
+    let embedded = World::new(&[("FAKE_AGENT_EMBEDDED", "1")]);
+    let inline = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, "spec body");
+    let inline_input = json!({
+        "role": "user",
+        "content": [
+            { "type": "file", "name": "my spec #1?.md", "mimeType": "text/markdown", "data": inline },
+            { "type": "text", "text": "files" }
+        ]
+    });
+    let end = within("inline uri", embedded.serve(&Surface::default(), inline_input, None, "default", CancellationToken::new())).await;
+    assert!(completed_text(&end).contains("attachment:///my%20spec%20%231%3F.md"), "{end:?}");
+}
+
+/// Item 8: `refusal`, `max_tokens`, and `max_turn_requests` surface why the turn stopped and do not leave open tool
+/// calls labelled as still running on user turns or `ask_once`.
+#[tokio::test]
+async fn cut_short_stop_reasons_surface_why_and_close_open_calls() {
+    let world = World::new(&[]);
+    for (reason, expected_why) in [
+        ("refusal", "refused"),
+        ("max_tokens", "output tokens"),
+        ("max_turn_requests", "model requests"),
+    ] {
+        let surface = Surface::default();
+        let end = world.ask(&surface, &format!("stopreason {reason}"), Turns::default()).await;
+        assert!(matches!(&end, TurnEnd::Completed { stop_reason: Some(r), .. } if r == reason), "{end:?}");
+        assert!(surface.notices().iter().any(|n| n.contains(expected_why)), "{reason}: {:?}", surface.notices());
+        let rows = surface.rows();
+        let tool_row = rows.iter().find(|r| r["role"] == "tool").expect("closed tool row");
+        let content = tool_row["content"].as_str().unwrap_or_default();
+        assert!(!content.contains("Still running"), "{reason}: {content}");
+        assert!(content.contains(expected_why), "{reason}: {content}");
+
+        let asked = within(
+            "ask_once cut short",
+            mixdog_acp::runs::ask_once(&world.agents, &world.preset, "default", "RULES", &format!("stopreason {reason}"), Arc::new(|| 0_i64)),
+        )
+        .await;
+        let err = asked.expect_err("ask_once must fail on cut-short stop reason");
+        assert!(err.contains(expected_why), "{reason}: {err}");
+    }
+}
+
+/// Item 9: `Judged::Refused` and `ApprovalResolution::Unavailable` fall back to `reject_always` when `reject_once` is
+/// absent.
+#[tokio::test]
+async fn refused_and_unavailable_approvals_fall_back_to_reject_always() {
+    let (world, tools) = handing(&[]);
+    // ApprovalResolution::Unavailable (Surface has no queued answers -> Unavailable).
+    let end_unavail = tools.prompt(&world, &Surface::default(), "rejectonly").await;
+    assert_eq!(completed_text(&end_unavail), "option:deny_always");
+
+    // Judged::Refused (Witness denies file paths containing "secret").
+    let end_refused = tools.prompt(&world, &Surface::default(), "rejectonly /w/secret.txt").await;
+    assert_eq!(completed_text(&end_refused), "option:deny_always");
+}
+
+/// Item 12: A `tool_call_update` arriving after call close reaches the transcript.
+#[tokio::test]
+async fn late_tool_call_update_after_close_reaches_transcript() {
+    let world = World::new(&[]);
+    let surface = Surface::default();
+    let end = world.ask(&surface, "lateupdate", Turns::default()).await;
+    assert!(matches!(end, TurnEnd::Completed { .. }), "{end:?}");
+    let rows = surface.rows();
+    assert!(rows.iter().any(|r| r["role"] == "tool" && r["content"] == "initial"), "{rows:?}");
+    assert!(rows.iter().any(|r| r["role"] == "tool" && r["content"] == "updated final"), "{rows:?}");
+}
+
+/// Item 13: Inbound `RpcError.data` classifies failure codes in `turn.rs`, and `ask_once` passes the route's effort.
+#[tokio::test]
+async fn rpc_error_data_classifies_failure_and_ask_once_passes_effort() {
+    let world = World::new(&[]);
+    let end = world.ask(&Surface::default(), "errdata", Turns::default()).await;
+    assert!(
+        matches!(&end, TurnEnd::Failed { code: Some(-32002), message, reported: true } if message.contains("Session not found")),
+        "{end:?}"
+    );
+
+    let tiered = World::build(
+        &[(
+            "FAKE_AGENT_MODELS",
+            r#"[{"modelId":"gem-low","name":"Gem (Low)"},{"modelId":"gem-high","name":"Gem (High)"}]"#,
+        )],
+        |preset, _| {
+            preset.quirks.effort_tiers = vec!["low".into(), "high".into()];
+        },
+    );
+    let answered = within(
+        "ask_once effort",
+        mixdog_acp::runs::ask_once(&tiered.agents, &tiered.preset, ("gem", Some("low")), "RULES", "whoami", Arc::new(|| 0_i64)),
+    )
+    .await
+    .expect("ask_once succeeds");
+    assert!(answered.text.contains("model=gem-low"), "{answered:?}");
+}
+
+/// Regression: `generate_image` recognized only on `tool_call_update` via `rawOutput.{imageName, imagePath}` emits a
+/// `media` card once, and `Reply::late_result` for a background `generate_image` emits a single `media` card without
+/// duplicating it.
+#[tokio::test]
+async fn generate_image_recognized_on_update_and_late_result_emit_single_media_card() {
+    // Case 1: Opened initially as `antigravity_other`, recognized as `generate_image` only on completion update.
+    let world = World::official(&[]);
+    let surface = Surface::default();
+    let turns = Turns::default();
+    let kept = turns.kept_images.clone();
+    let end = world.ask(&surface, "lateimage", turns).await;
+    assert!(matches!(end, TurnEnd::Completed { .. }), "{end:?}");
+    assert_eq!(kept.lock().unwrap().len(), 1, "image stored once");
+    let rows = surface.rows();
+    let media_calls: Vec<&Value> = rows
+        .iter()
+        .filter_map(|row| row["toolCalls"].as_array())
+        .flatten()
+        .filter(|call| call["name"] == "media")
+        .collect();
+    assert_eq!(media_calls.len(), 1, "standalone media card emitted once: {rows:?}");
+    assert!(
+        rows.iter().any(|row| row["role"] == "tool" && row["content"].as_str().is_some_and(|s| s.contains("\"assetId\":\"asset-1\""))),
+        "media card result holds stored assetId: {rows:?}"
+    );
+
+    // Case 2: Background `generate_image` completed in a later turn via `Reply::late_result`.
+    let bg_world = World::official(&[]);
+    let s1 = Surface::default();
+    let end1 = bg_world.ask(&s1, "bgimage", Turns::default()).await;
+    assert!(matches!(end1, TurnEnd::Completed { .. }), "{end1:?}");
+    let bg_session = bg_world.agents.running(&thread()).expect("running session").session_id.clone();
+
+    let s2 = Surface::default();
+    let t2 = Turns::default();
+    let kept2 = t2.kept_images.clone();
+    let end2 = within(
+        "finishbgimage",
+        bg_world.serve_with(&s2, json!({ "role": "user", "content": "finishbgimage" }), Some(held(&bg_session)), Some("RULES"), "default", CancellationToken::new(), t2),
+    )
+    .await;
+    assert!(matches!(end2, TurnEnd::Completed { .. }), "{end2:?}");
+    assert_eq!(kept2.lock().unwrap().len(), 1, "background image stored once");
+    let rows2 = s2.rows();
+    let media_calls2: Vec<&Value> = rows2
+        .iter()
+        .filter_map(|row| row["toolCalls"].as_array())
+        .flatten()
+        .filter(|call| call["name"] == "media")
+        .collect();
+    assert_eq!(media_calls2.len(), 1, "late_result must emit exactly one media card without duplicating: {rows2:?}");
+    assert!(
+        rows2.iter().any(|row| row["role"] == "tool" && row["content"].as_str().is_some_and(|s| s.contains("\"assetId\":\"asset-1\""))),
+        "late_result media card holds stored assetId: {rows2:?}"
+    );
 }

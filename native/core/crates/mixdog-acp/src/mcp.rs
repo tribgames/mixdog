@@ -153,9 +153,10 @@ pub(crate) async fn steer_blocks(
     steers: &[crate::surface::SteerDelivery],
     capabilities: (bool, bool),
     attachments: &dyn crate::runs::Attachments,
-) -> (Vec<Value>, crate::runs::LeftOut) {
+) -> (Vec<Value>, crate::runs::LeftOut, Vec<String>) {
     let mut blocks = Vec::new();
     let mut left_out = crate::runs::LeftOut::default();
+    let mut attached = Vec::new();
     for steer in steers {
         match &steer.content {
             Content::Text(text) => {
@@ -167,8 +168,9 @@ pub(crate) async fn steer_blocks(
                     blocks.push(json!({ "type": "text", "text": "[User message received while you were working]" }));
                 }
                 let row = json!({ "content": parts.iter().map(mixdog_agent::message_row::part_row).collect::<Vec<_>>() });
-                let (mut resolved, left) = crate::runs::prompt_blocks(&row, capabilities, attachments).await;
+                let (mut resolved, left, mut paths) = crate::runs::prompt_blocks(&row, capabilities, attachments).await;
                 blocks.append(&mut resolved);
+                attached.append(&mut paths);
                 if left.images > 0 {
                     blocks.push(json!({
                         "type": "text",
@@ -186,7 +188,7 @@ pub(crate) async fn steer_blocks(
             }
         }
     }
-    (blocks, left_out)
+    (blocks, left_out, attached)
 }
 
 /// A finished call's result as the text a background task keeps: [`rendered`]'s text, an image noted where it was.
@@ -359,7 +361,7 @@ impl ToolServer {
 }
 
 impl Served {
-    async fn handle(&self, request: Request<Body>) -> Reply {
+    async fn handle(self: &Arc<Self>, request: Request<Body>) -> Reply {
         let bearer = request.headers().get(header::AUTHORIZATION).and_then(|value| value.to_str().ok()).and_then(|value| value.strip_prefix("Bearer "));
         // A page in a browser can reach a loopback port; it cannot leave out its `Origin`, and the agent sends none.
         let refusal = if bearer != Some(self.token.as_str()) || request.headers().contains_key(header::ORIGIN) {
@@ -381,10 +383,19 @@ impl Served {
         };
         match message {
             Value::Array(batch) => {
-                let mut answers = Vec::new();
-                for message in &batch {
-                    answers.extend(self.message(message).await);
+                let mut tasks = tokio::task::JoinSet::new();
+                for (index, message) in batch.into_iter().enumerate() {
+                    let served = self.clone();
+                    tasks.spawn(async move { (index, served.message(&message).await) });
                 }
+                let mut ordered: Vec<(usize, Value)> = Vec::new();
+                while let Some(joined) = tasks.join_next().await {
+                    if let Ok((index, Some(answer))) = joined {
+                        ordered.push((index, answer));
+                    }
+                }
+                ordered.sort_by_key(|(index, _)| *index);
+                let answers: Vec<Value> = ordered.into_iter().map(|(_, answer)| answer).collect();
                 if answers.is_empty() { plain(StatusCode::ACCEPTED) } else { answered(Value::Array(answers)) }
             }
             message => match self.message(&message).await {
