@@ -10,7 +10,7 @@ Zunächst tut es mir wirklich leid, dass dieses Update viel später erschienen i
 
 In Mixdog 1.5.0 habe ich die Engine in Rust neu geschrieben. Das war ein großer Umbau mit Blick auf die langfristige Zukunft von Mixdog. Dadurch verbraucht die Engine deutlich weniger Speicher, kommt besser mit mehreren Sitzungen und Agenten gleichzeitig zurecht und läuft schneller und stabiler.
 
-Da es in letzter Zeit vermehrt zu Sperrungen von Antigravity-Konten gekommen ist, habe ich Antigravity ACP eingeführt, das eine Verbindung zum offiziellen ACP-Server von Google herstellt. Diese Methode läuft über den offiziellen Server und birgt bekanntermaßen ein deutlich geringeres Sperrrisiko als die bisherige. Bitte nutzen Sie Antigravity künftig, indem Sie Antigravity ACP unter Einstellungen › Anbieter › Antigravity ACP installieren und verbinden.
+Da es in letzter Zeit vermehrt zu Sperrungen von Antigravity-Konten gekommen ist, habe ich Antigravity ACP eingeführt, das eine Verbindung zum offiziellen ACP-Server von Google herstellt. Diese Methode läuft über den offiziellen Server und birgt bekanntermaßen ein geringeres Sperrrisiko als die bisherige. Bitte nutzen Sie Antigravity künftig, indem Sie Antigravity ACP unter Einstellungen › Anbieter › Antigravity ACP installieren und verbinden.
 
 Direkt nach dem Wechsel können vereinzelt noch Fehler bestehen, aber ab jetzt werde ich wieder wie gewohnt sofort darauf reagieren und sie beheben. Ich werde hart daran arbeiten, Ihnen zu zeigen, wie sich Mixdog schnell weiter verbessert.
 

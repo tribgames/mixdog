@@ -10,7 +10,7 @@ Trước hết, tôi thật lòng xin lỗi vì bản cập nhật này đã đ�
 
 Trong Mixdog 1.5.0, tôi đã xây dựng lại bộ máy bằng Rust. Đây là một bước chuyển đổi lớn được thực hiện với tầm nhìn cho tương lai lâu dài của Mixdog. Nhờ vậy, bộ máy dùng ít bộ nhớ hơn nhiều, xử lý nhiều phiên và agent cùng lúc tốt hơn, đồng thời chạy nhanh và ổn định hơn.
 
-Trước tình trạng tài khoản Antigravity bị tạm ngưng ngày càng nhiều gần đây, tôi đã đưa vào Antigravity ACP để kết nối tới máy chủ ACP chính thức của Google. Cách này đi qua máy chủ chính thức và được biết là có nguy cơ bị tạm ngưng thấp hơn nhiều so với cách trước đây. Từ nay về sau, xin vui lòng sử dụng Antigravity bằng cách cài đặt và kết nối Antigravity ACP tại Cài đặt › Nhà cung cấp › Antigravity ACP.
+Trước tình trạng tài khoản Antigravity bị tạm ngưng ngày càng nhiều gần đây, tôi đã đưa vào Antigravity ACP để kết nối tới máy chủ ACP chính thức của Google. Cách này đi qua máy chủ chính thức và được biết là có nguy cơ bị tạm ngưng thấp hơn so với cách trước đây. Từ nay về sau, xin vui lòng sử dụng Antigravity bằng cách cài đặt và kết nối Antigravity ACP tại Cài đặt › Nhà cung cấp › Antigravity ACP.
 
 Ngay sau khi chuyển đổi có thể vẫn còn sót một vài lỗi, nhưng từ giờ tôi sẽ quay lại phản hồi và khắc phục ngay lập tức như trước đây. Tôi sẽ cố gắng hết sức để mọi người thấy Mixdog cải thiện thật nhanh.
 

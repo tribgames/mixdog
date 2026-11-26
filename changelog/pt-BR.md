@@ -10,7 +10,7 @@ Primeiro, peço sinceras desculpas por esta atualização ter chegado muito mais
 
 No Mixdog 1.5.0, reconstruí o motor em Rust. Foi uma grande transição feita pensando no futuro de longo prazo do Mixdog. Como resultado, o motor usa muito menos memória, lida melhor com várias sessões e agentes ao mesmo tempo e funciona de forma mais rápida e estável.
 
-Com o aumento recente de suspensões de contas do Antigravity, introduzi o Antigravity ACP, que se conecta ao servidor ACP oficial do Google. Esse método passa pelo servidor oficial e é conhecido por apresentar um risco de suspensão muito menor do que o anterior. Daqui para frente, por favor, use o Antigravity instalando e conectando o Antigravity ACP em Configurações › Provedores › Antigravity ACP.
+Com o aumento recente de suspensões de contas do Antigravity, introduzi o Antigravity ACP, que se conecta ao servidor ACP oficial do Google. Esse método passa pelo servidor oficial e é conhecido por apresentar um risco de suspensão menor do que o anterior. Daqui para frente, por favor, use o Antigravity instalando e conectando o Antigravity ACP em Configurações › Provedores › Antigravity ACP.
 
 Alguns erros ainda podem permanecer logo após a transição, mas agora voltarei a responder e corrigi-los imediatamente, como antes. Vou trabalhar duro para mostrar o Mixdog melhorando rapidamente.
 

@@ -10,7 +10,7 @@
 
 在 Mixdog 1.5.0 中，我以 Rust 重新打造了引擎。這是著眼於 Mixdog 長遠未來的一次重大轉換。因此，引擎的記憶體使用量大幅減少，同時處理多個工作階段與代理的能力更出色，運作也更快速、更穩定。
 
-由於近期 Antigravity 帳號遭停權的案例增加，我導入了 Antigravity ACP，用於連線至 Google 的官方 ACP 伺服器。這種方式經由官方伺服器運作，據了解，其停權風險比以往的方式低得多。今後，請前往 設定 › 提供者 › Antigravity ACP 安裝並連線 Antigravity ACP 來使用 Antigravity。
+由於近期 Antigravity 帳號遭停權的案例增加，我導入了 Antigravity ACP，用於連線至 Google 的官方 ACP 伺服器。這種方式經由官方伺服器運作，據了解，其停權風險比以往的方式更低。今後，請前往 設定 › 提供者 › Antigravity ACP 安裝並連線 Antigravity ACP 來使用 Antigravity。
 
 剛完成轉換，可能仍會殘留一些錯誤，但現在我會像以往一樣第一時間回應並修復。我會努力讓大家看到 Mixdog 快速進步。
 
