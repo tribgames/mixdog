@@ -220,6 +220,59 @@ test('restore: a worker session of a listed Lead keeps its tab', () => {
   assert.deepEqual([...ids].sort(), ['lead', 'worker']);
 });
 
+test('the catalog first renders as ready with the host list, also when a push already holds that list', async (t) => {
+  // React's own scheduling: act() would flush the push's transition before the ready render could overtake it.
+  const actEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
+  globalThis.IS_REACT_ACT_ENVIRONMENT = false;
+  const mounted = [];
+  t.after(() => {
+    for (const { root, host } of mounted) {
+      root.unmount();
+      host.remove();
+    }
+    delete window.mixdogDesktop;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = actEnvironment;
+  });
+  for (const order of ['replayed to the late subscriber', 'pushed while the read is out']) {
+    window.localStorage.clear();
+    const listed = [session('a')];
+    let push = null;
+    window.mixdogDesktop = {
+      listSessions: async () => {
+        if (order === 'pushed while the read is out') push(listed);
+        return listed;
+      },
+      // The phone's catalog hands what it already holds to a subscriber that arrives after the first sync.
+      subscribeSessions: (listener) => {
+        push = listener;
+        if (order === 'replayed to the late subscriber') listener(listed);
+        return () => {};
+      },
+    };
+    const host = document.createElement('main');
+    document.body.append(host);
+    const root = createRoot(host);
+    mounted.push({ root, host });
+    const firstReady = new Promise((resolve) => {
+      function Harness() {
+        const catalog = useSessionCatalog(() => {});
+        const [ready, setReady] = useState(false);
+        useAppSessionActivity({
+          sessions: catalog.sessions,
+          setTabs() {},
+          refreshSessions: catalog.refreshSessions,
+          setSessionCatalogReady: setReady,
+          closePaneTab() {},
+        });
+        if (ready) resolve(catalog.sessions.map(({ id }) => id));
+        return null;
+      }
+      root.render(React.createElement(Harness));
+    });
+    assert.deepEqual(await firstReady, ['a'], order);
+  }
+});
+
 test('a first page closes no tab and does not ready the catalog; a walk that failed behind it is read again and readies it once whole', async (t) => {
   let reads = 0;
   const f = await fixture(t, {

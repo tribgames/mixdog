@@ -185,10 +185,11 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
         if (isPartialCatalog(next)) throw new IncompleteCatalogError();
       }
       const rows = projectSessionRows(next);
-      if (version === refreshVersion.current) {
-        return commitProjectedRows(rows, lowPriority);
-      }
-      return rows;
+      const answered = version === refreshVersion.current ? commitProjectedRows(rows, lowPriority) : rows;
+      // A push may already hold this list in a transition that has not rendered (a late subscriber's replay, one
+      // that superseded this read): whatever the caller renders on this answer, it renders with that list.
+      if (!lowPriority) setSessionsState(() => sessionsRef.current);
+      return answered;
     },
     [commitProjectedRows, projectSessionRows]
   );
