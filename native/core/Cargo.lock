@@ -4566,6 +4566,7 @@ dependencies = [
  "mixdog-exthost",
  "mixdog-fonts",
  "mixdog-fsio",
+ "mixdog-graph-host",
  "mixdog-image-egress",
  "mixdog-imaging",
  "mixdog-js",
@@ -4722,6 +4723,7 @@ dependencies = [
  "mixdog-exthost",
  "mixdog-exthost-worker",
  "mixdog-fsio",
+ "mixdog-graph-host",
  "mixdog-image-egress",
  "mixdog-imaging",
  "mixdog-js",
@@ -5709,6 +5711,26 @@ dependencies = [
  "tree-sitter-r",
  "tree-sitter-zig",
  "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "mixdog-graph-host"
+version = "1.5.0"
+dependencies = [
+ "mixdog-app-protocol",
+ "mixdog-core-api",
+ "mixdog-graph-host",
+ "mixdog-image-egress",
+ "mixdog-js",
+ "mixdog-protocol",
+ "mixdog-rt",
+ "mixdog-spawn",
+ "mixdog-workspace-hack",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -6887,6 +6909,7 @@ dependencies = [
  "mixdog-core-base",
  "mixdog-fsio",
  "mixdog-graph",
+ "mixdog-graph-host",
  "mixdog-image-egress",
  "mixdog-imaging",
  "mixdog-js",

@@ -53,7 +53,6 @@ mixdog-mcp = { workspace = true, optional = true }
 mixdog-scm = { workspace = true, optional = true }
 mixdog-secrets = { workspace = true, optional = true }
 mixdog-spawn = { workspace = true, optional = true }
-mixdog-tools = { workspace = true, optional = true }
 mixdog-trace = { workspace = true, optional = true }
 mixdog-workspace = { workspace = true, optional = true }
 mixdog-app-server-daemon = { workspace = true }
@@ -71,6 +70,8 @@ mixdog-core-config = { workspace = true }
 mixdog-services = { workspace = true }
 mixdog-exthost = { workspace = true }
 mixdog-exthost-worker = { workspace = true }
+# The code graph helper (`graph-worker`, src/helpers.rs) serves the code_graph engine.
+mixdog-tools = { workspace = true }
 mixdog-skill-scripts = { workspace = true }
 mixdog-migrate = { workspace = true }
 mixdog-rt = { workspace = true }
@@ -143,6 +144,8 @@ mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-tools = { workspace = true, features = ["policy-observer", "test-support"] }
+# The supervisor `tests/graph_worker.rs` starts the registered helper with.
+mixdog-graph-host = { workspace = true, features = ["test-support"] }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (<build-tools>\unify-test-features.py).

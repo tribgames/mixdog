@@ -1,6 +1,6 @@
 //! Resolve the project root a `code_graph` call runs in, build its graph and route the call
 //! to one of the mode answers.
-#![allow(clippy::disallowed_methods, reason = "blocking filesystem reads; the whole call runs as one maintenance-lane job (CodeGraphTool::call)")]
+#![allow(clippy::disallowed_methods, reason = "blocking filesystem reads; the whole call runs on the graph helper's build thread (engine::GraphEngine::query)")]
 
 use std::path::{Path, PathBuf};
 

@@ -55,6 +55,8 @@ tokio-tungstenite = { workspace = true, features = ["connect", "handshake", "rus
 # native/mixdog-graph's sources (its own lockfile and release profile stay untouched).
 mixdog-rt = { workspace = true }
 mixdog-graph = { workspace = true }
+# The graph worker's serve loop the engine answers through (`code_graph::engine::serve_worker`).
+mixdog-graph-host = { workspace = true }
 hashbrown = { workspace = true }
 # exec (WP-TOOLS-EXEC): the shell and task tools register their tasks in WP-PROC's TaskRegistry.
 # `core-test` (the test seams: scripted terminals, mixdog-rt's test-support, mixdog-core-api's mock) is asked for
@@ -104,6 +106,9 @@ mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
 mixdog-image-egress = { workspace = true, features = ["test-support"] }
 mixdog-imaging = { workspace = true, features = ["test-support"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (<build-tools>\unify-test-features.py).
+mixdog-graph-host = { workspace = true, features = ["test-support"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Globalization", "Win32_Networking_WinSock", "Win32_Graphics_Gdi", "Win32_UI_HiDpi", "Win32_Storage_FileSystem"] }

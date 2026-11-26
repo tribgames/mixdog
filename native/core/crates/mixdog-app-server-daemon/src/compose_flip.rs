@@ -606,8 +606,9 @@ pub struct Real {
     /// The `cycle1-agent` / hidden-role dispatch and its provider host: aborted, then closed, by the first stop step.
     pub agent_dispatch: Arc<mixdog_core::run_host::agent_dispatch::InlineAgentDispatch>,
     pub agent_host: Arc<mixdog_core::run_host::agent_world::AgentHost>,
-    /// Written out by the first stop step after the directory shut down (`GraphCache::drain`).
-    pub code_graph_cache: Arc<mixdog_tools::code_graph::GraphCache>,
+    /// The code graph helper's host: the first stop step closes it after the directory shut down (the helper drains and exits,
+    /// or is killed at the release budget).
+    pub code_graph_host: Arc<mixdog_graph_host::GraphHost>,
     /// The shell registry; the first stop step removes its shell snapshots after the directory shut down.
     pub exec: Arc<mixdog_tools::exec::ExecRuntime>,
     pub maintenance_io: mixdog_rt::MaintenanceIo,
@@ -683,6 +684,12 @@ pub struct Real {
     pub agent_registry: Arc<mixdog_core_session::session::agent_registry::AgentRegistry>,
 }
 
+/// How long the code graph helper may take to drain before it is killed, when it retires idle and at the stop: the budget the
+/// stop steps run under.
+fn code_graph_drain_limit() -> std::time::Duration {
+    crate::lifecycle::ReleaseBudgets::default().close_data_handles
+}
+
 impl Real {
     /// The first stop step: closing is requested (the warm-up timers and the other `isCloseRequested` readers stop at once), then every
     /// loaded thread stops (`SessionDirectory::shutdown`, Node `teardown.mjs:192`).
@@ -690,7 +697,7 @@ impl Real {
         let (closing, worktrees, maintenance, directory) =
             (self.close_requested.clone(), self.worktree_stop.clone(), self.maintenance_stop.clone(), self.directory.clone());
         let (dispatch, host) = (self.agent_dispatch.clone(), self.agent_host.clone());
-        let (graph_cache, maintenance_io) = (self.code_graph_cache.clone(), self.maintenance_io);
+        let code_graph = self.code_graph_host.clone();
         let exec = self.exec.clone();
         let schedule_end = self.maintenance_loop.lock().unwrap_or_else(|e| e.into_inner()).take();
         let mark_rewrites_end = self.mark_rewrites.stop();
@@ -713,9 +720,8 @@ impl Real {
             host.close();
             // `shutdown_for(reason)` (flip-agent-worlds-11): only a process-exit reason closes every session's agents first (`teardown.mjs:226-237`).
             stop_part("the directory's shutdown", directory.shutdown_for(reason)).await;
-            if let Err(error) = stop_part("the code graph cache's drain", graph_cache.drain(maintenance_io, &tokio_util::sync::CancellationToken::new())).await
-            {
-                tracing::warn!(%error, "[code_graph] the cache could not be written at stop");
+            if stop_part("the code graph helper's close", code_graph.close(code_graph_drain_limit())).await == mixdog_graph_host::CloseOutcome::Killed {
+                tracing::warn!("[code_graph] the helper did not drain at stop and was killed");
             }
             // Node's `process.once('exit', drainShellSnapshots)` (shell-snapshot.mjs): the sessions' shells are gone, so the snapshots they sourced go too.
             stop_part("the shell snapshots' drain", exec.drain_snapshots(&tokio_util::sync::CancellationToken::new())).await;
@@ -2796,20 +2802,29 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     if mixdog_mcp::skill_catalog::skills_disabled_by_env() {
         tool_pool.retain(|tool| tool.spec().name != "Skill");
     }
-    // The `code_graph` tool: built here (the pool's `Services` does not carry it) so the composition keeps the Arc: the prewarm timer, the workspace `project/codeGraph` adapter
-    // and the cache's exit drain share it. `GraphCache::drain` is a stop step (`Real::session_shutdown_step`).
-    let code_graph_cache = Arc::new(mixdog_tools::code_graph::GraphCache::new(b.data_dir.join("code-graph-cache")));
-    // The files the session's own tools write re-read themselves in a held graph at its next query (no walk of the tree).
+    // The code graph helper (this executable run as `graph-worker`) owns the graphs and their cache; its one host serves the tool, the
+    // workspace `project/codeGraph` adapter, the prewarm timer, the write notices, the worktree cleanup and the stop step
+    // (`Real::session_shutdown_step`). Nothing but a call starts it.
+    let code_graph_dir = b.data_dir.join("code-graph-cache");
+    let (code_graph_host, code_graph_driver) = mixdog_graph_host::GraphHost::new(mixdog_graph_host::HostConfig::new(
+        mixdog_graph_host::OwnedCommand::new(b.js_runtime.core_program.clone()).arg("graph-worker").arg("--cache-dir").arg(code_graph_dir.clone()),
+        code_graph_drain_limit(),
+    ));
+    drop(mixdog_rt::spawn("code-graph-host", mixdog_rt::TaskClass::Work, code_graph_driver));
+    let code_graph_host = Arc::new(code_graph_host);
+    // The files the session's own tools write re-read themselves in a running helper's held graphs at its next query (no walk of the tree).
     read_state.on_invalidated(Arc::new({
-        let cache = code_graph_cache.clone();
-        move |paths: &[String]| cache.note_changed(paths)
+        let host = code_graph_host.clone();
+        move |paths: &[String]| host.changed(mixdog_tools::code_graph::changed_files(paths))
     }));
+    // The `code_graph` tool: built here (the pool's `Services` does not carry it) so the composition keeps the Arc the prewarm timer and the
+    // workspace adapter share.
     let code_graph = Arc::new(mixdog_tools::code_graph::CodeGraphTool::new(
         Arc::new(crate::code_graph_trust::UserTrustedRoots {
             registry: project_registry.clone(),
             user_cwd: mixdog_core_session::session::UserCwd::new(b.data_dir.clone(), b.tokens.interactive_io),
         }),
-        code_graph_cache.clone(),
+        code_graph_host.clone(),
     ));
     tool_pool.push(code_graph.clone());
     // The built-in file, process, git and web tools, the explorer's bind and the ready rows follow the worktrees (below): the `git` tool needs them, and the ready rows and the explorer keep a snapshot of the finished pool.
@@ -3028,7 +3043,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             .with_root_cleanup(Arc::new(mixdog_scm::worktree::release::FolderReleaseCleanup::new(folder_releases.clone())))
             // `registerWorktreeCacheCleanups` (`daemon.mjs`): a removed worktree leaves no turn-review shadow or code-graph cache.
             .with_root_cleanup(Arc::new(crate::worktree_cache_cleanups::TurnSnapshotCleanup::new(turn_review.clone())))
-            .with_root_cleanup(Arc::new(crate::worktree_cache_cleanups::CodeGraphCleanup::new(code_graph_cache.clone(), b.tokens.maintenance_io)))
+            .with_root_cleanup(Arc::new(crate::worktree_cache_cleanups::CodeGraphCleanup::new(
+                code_graph_host.clone(),
+                code_graph_dir.clone(),
+                b.tokens.maintenance_io,
+            )))
             .with_root_cleanup(Arc::new(trusted_root_cleanup))
             .with_settings(Arc::new(mixdog_core_config::config::ConfigWorktreeSettings::new(config.clone())))
             .with_activity(Arc::new(mixdog_scm::worktree::activity::Activity::new(&b.data_dir))),
@@ -3567,7 +3586,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let runtime_cwd = Arc::new(std::sync::Mutex::new(startup_cwd.to_string_lossy().into_owned()));
     let prewarm_world = Arc::new(crate::prewarm_world::DaemonPrewarmWorld {
         tool: code_graph.clone(),
-        io: b.tokens.maintenance_io,
         close_requested: close_requested.clone(),
         cancel: b.cancel.child_token(),
         liveness: liveness.clone(),
@@ -4455,7 +4473,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         recovery_dir: b.data_dir.join(mixdog_workspace::recovery::JOURNALS_DIR),
         user_data_dir: b.user_data_dir.clone(),
         sources: composed.transfer_sources.clone(),
-        code_graph: Some(Arc::new(mixdog_tools::code_graph::WorkspaceCodeGraph::new(code_graph.clone(), b.tokens.maintenance_io))), // code-graph-adapter-1: the SAME `Arc<CodeGraphTool>` the pool registers
+        code_graph: Some(Arc::new(mixdog_tools::code_graph::WorkspaceCodeGraph::new(code_graph.clone()))), // code-graph-adapter-1: the SAME `Arc<CodeGraphTool>` the pool registers
         turn_review: Some(turn_review.clone() as Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>),
         releases: folder_releases.clone(),
         upload_chunk_bytes: b.limits.max_blob_put_chunk_bytes,
@@ -5828,7 +5846,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         directory,
         agent_dispatch,
         agent_host,
-        code_graph_cache,
+        code_graph_host,
         exec: b.exec.clone(),
         maintenance_io: b.tokens.maintenance_io,
         domains,

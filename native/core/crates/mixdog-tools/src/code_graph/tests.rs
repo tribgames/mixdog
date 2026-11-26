@@ -962,15 +962,15 @@ fn concurrent_calls_do_not_inherit_each_others_durations() {
     assert_eq!(super::cache::take_timings().parse_ms, 0, "a take starts afresh");
 }
 
-/// The wait for the lane is its own stage in the row, and neither the query nor `other` takes it over.
+/// The wait in the helper's queue is its own stage in the row, and neither the query nor `other` takes it over.
 #[test]
-fn a_lane_wait_is_its_own_stage_and_is_not_charged_to_the_query_or_other() {
-    let stages = super::CallStages { lane_wait_ms: 50, run_ms: 30, prune_ms: 5, spent: super::cache::Timings { parse_ms: 10, ..Default::default() } };
-    let row = super::CallRow { request: 9, mode: "symbols", outcome: "ok", stages, wrap_ms: 5, total_ms: 100 };
+fn a_queue_wait_is_its_own_stage_and_is_not_charged_to_the_query_or_other() {
+    let timings = mixdog_graph_host::wire::Timings { queue_ms: 50, run_ms: 30, prune_ms: 5, wrap_ms: 5, parse_ms: 10, ..Default::default() };
+    let row = super::CallRow { request: 9, mode: "symbols", outcome: "ok", timings, total_ms: 100 };
     let (_, rows) = capturing(|| row.emit());
     let call = &rows[0];
     assert_eq!(call["request"], "9");
-    assert_eq!(call["lane_wait_ms"], "50");
+    assert_eq!(call["queue_ms"], "50");
     assert_eq!(call["parse_ms"], "10");
     assert_eq!(call["query_ms"], "20", "the run minus the graph's own stages");
     assert_eq!(call["other_ms"], "10", "what no stage accounts for is labelled other: {call:?}");
@@ -1630,19 +1630,19 @@ fn a_flat_callers_answer_is_labelled_as_name_matches_with_its_limits() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_prewarm_builds_the_graph_of_the_project_and_only_of_a_project() {
     let (_tmp, root) = project_with_sentinel();
-    let (_dir, cache) = no_cache();
-    let cache = std::sync::Arc::new(cache);
-    let tool = super::CodeGraphTool::new(std::sync::Arc::new(NoTrust), cache.clone());
-    let tokens = mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let host = std::sync::Arc::new(super::testing::InProcessHost::new(dir.path().join("cache")));
+    let tool = super::CodeGraphTool::new(std::sync::Arc::new(NoTrust), host.clone());
     let cancel = mixdog_rt::CancellationToken::new();
     // A warm builds nothing for a tree no query has measured: the foreground call fills the cache.
+    let cache = host.engine().cache();
     cache.graph(&root, &[]).unwrap();
-    assert!(tool.prewarm_if_project(&root.join("src"), tokens.maintenance_io, &cancel).await);
+    assert!(tool.prewarm_if_project(&root.join("src"), mixdog_graph_host::Start::Demand, &cancel).await.unwrap());
     assert_eq!(cache.builds(), 1);
-    cache.flush().unwrap();
+    host.engine().drain().unwrap();
     assert_eq!(cache.load(&root).map(|files| files.len()), Some(2), "both source files are cached");
     let bare = tempfile::tempdir().unwrap();
-    assert!(!tool.prewarm_if_project(bare.path(), tokens.maintenance_io, &cancel).await);
+    assert!(!tool.prewarm_if_project(bare.path(), mixdog_graph_host::Start::Demand, &cancel).await.unwrap());
 }
 /// Refreshes of one root queue on its turn and the one after finds the generation the first published; writes made while
 /// the refreshes run are not lost.
@@ -1858,14 +1858,11 @@ fn background_persistence_emits_its_own_event_for_the_generation_a_call_reported
 #[test]
 fn a_refused_call_still_emits_its_row() {
     let (_tmp, root) = project_with_sentinel();
-    let (_dir, cache) = no_cache();
-    let tool = super::CodeGraphTool::new(std::sync::Arc::new(NoTrust), std::sync::Arc::new(cache));
+    let dir = tempfile::tempdir().unwrap();
+    let tool = tool_over(&dir, NoTrust);
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     let (outcome, rows) = capturing(|| {
-        runtime.block_on(async {
-            let tokens = mixdog_rt::testing::tokens();
-            tool.answer(root.clone(), &serde_json::json!({ "mode": "nope" }), tokens.maintenance_io, &mixdog_rt::CancellationToken::new()).await
-        })
+        runtime.block_on(async { tool.answer(root.clone(), &serde_json::json!({ "mode": "nope" }), &mixdog_rt::CancellationToken::new()).await })
     });
     assert!(outcome.is_err());
     let calls: Vec<_> = rows.iter().filter(|r| r.get("event").is_some_and(|e| e == "call")).collect();
@@ -1873,7 +1870,7 @@ fn a_refused_call_still_emits_its_row() {
     assert_eq!(calls[0]["outcome"], "refused");
     assert!(calls[0]["request"].parse::<u64>().unwrap() >= 1);
     let ms = |key: &str| calls[0][key].parse::<u64>().unwrap();
-    let staged = ms("lane_wait_ms")
+    let staged = ms("queue_ms")
         + ms("query_ms")
         + ms("root_wait_ms")
         + ms("inventory_ms")
@@ -1887,6 +1884,19 @@ fn a_refused_call_still_emits_its_row() {
         + ms("other_ms");
     assert_eq!(staged, ms("total_ms"), "every millisecond is in a stage or labelled other: {:?}", calls[0]);
 }
+
+/// The `code_graph` tool over a host that answers in this process, its cache in `dir`.
+fn tool_over(dir: &tempfile::TempDir, trust: impl super::TrustedRoots + 'static) -> super::CodeGraphTool {
+    super::CodeGraphTool::new(std::sync::Arc::new(trust), std::sync::Arc::new(super::testing::InProcessHost::new(dir.path().join("cache"))))
+}
+
+/// [`tool_over`] with the helper's output budget at `budget` bytes.
+fn tool_budgeted(dir: &tempfile::TempDir, budget: usize) -> super::CodeGraphTool {
+    let mut engine = super::engine::GraphEngine::new(dir.path().join("cache")).unwrap();
+    engine.output_budget = Some(budget);
+    super::CodeGraphTool::new(std::sync::Arc::new(NoTrust), std::sync::Arc::new(super::testing::InProcessHost::of(engine)))
+}
+
 fn tool_context(root: &Path) -> mixdog_core_api::domain::tool::ToolContext {
     use mixdog_core_api::domain::common::AbsPath;
     let tokens = mixdog_rt::testing::tokens();
@@ -1916,8 +1926,8 @@ async fn a_callers_page_can_be_continued_with_the_published_page_argument() {
     let (_tmp, root) = reader_project();
     fs::write(root.join("src/user.mjs"), "import { target } from './lib.mjs';\nexport function go() { target(); }\nexport function again() { target(); }\n")
         .unwrap();
-    let (_cache_dir, cache) = no_cache();
-    let tool = super::CodeGraphTool::new(std::sync::Arc::new(NoTrust), std::sync::Arc::new(cache));
+    let cache_dir = tempfile::tempdir().unwrap();
+    let tool = tool_over(&cache_dir, NoTrust);
     let schema = tool.definition();
     let page = &schema["inputSchema"]["properties"]["page"];
     assert_eq!(page["type"], "integer");
@@ -1956,15 +1966,12 @@ async fn a_byte_capped_graph_result_delivers_whole_rows_and_marks_the_tool_resul
     let (_tmp, root) = project_with_sentinel();
     let source: String = (0..12).map(|i| format!("export function named_symbol_{i:02}(parameter) {{ return parameter; }}\n")).collect();
     fs::write(root.join("src/outline.mjs"), source).unwrap();
-    let (_cache_dir, cache) = no_cache();
-    let mut tool = super::CodeGraphTool::new(std::sync::Arc::new(NoTrust), std::sync::Arc::new(cache));
+    let (wide_dir, narrow_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let ctx = tool_context(&root);
     let input = serde_json::json!({ "mode": "symbols", "files": ["src/outline.mjs"] });
-    tool.output_budget = Some(4_096);
-    let whole = tool.call(&ctx, input.clone()).await.unwrap();
+    let whole = tool_budgeted(&wide_dir, 4_096).call(&ctx, input.clone()).await.unwrap();
     assert_eq!(whole.meta.unwrap()[super::COMPLETE_META], true);
-    tool.output_budget = Some(400);
-    let capped = tool.call(&ctx, input).await.unwrap();
+    let capped = tool_budgeted(&narrow_dir, 400).call(&ctx, input).await.unwrap();
     assert_eq!(capped.meta.unwrap()[super::COMPLETE_META], false);
     let ([ToolPart::Text(full)], [ToolPart::Text(short)]) = (whole.parts.as_slice(), capped.parts.as_slice()) else { panic!("expected text answers") };
     let (rows, footer) = short.rsplit_once('\n').unwrap();
@@ -1979,8 +1986,8 @@ async fn a_byte_capped_graph_result_delivers_whole_rows_and_marks_the_tool_resul
 fn every_public_call_emits_one_row_refusals_included() {
     use mixdog_core_api::domain::tool::Tool;
     let (_tmp, root) = project_with_sentinel();
-    let (_dir, cache) = no_cache();
-    let tool = super::CodeGraphTool::new(std::sync::Arc::new(NoTrust), std::sync::Arc::new(cache));
+    let dir = tempfile::tempdir().unwrap();
+    let tool = tool_over(&dir, NoTrust);
     let ctx = tool_context(&root);
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     let cases = [
@@ -1988,7 +1995,7 @@ fn every_public_call_emits_one_row_refusals_included() {
         (serde_json::json!({ "symbol": "a" }), "", "refused", true),
         (serde_json::Value::Null, "", "refused", true),
         (serde_json::json!({ "mode": "overview" }), "overview", "ok", false),
-        // Accepted, and returned before the lane: its row; the background warm it schedules is not a call and has none.
+        // Accepted, and returned before the host: its row; the background warm it schedules is not a call and has none.
         (serde_json::json!({ "mode": "prewarm" }), "prewarm", "ok", false),
     ];
     for (args, mode, outcome, refused) in cases {
@@ -2004,41 +2011,6 @@ fn every_public_call_emits_one_row_refusals_included() {
         }
     }
 }
-/// A held generation no call took for the idle period is released; one a call took again stays.
-#[test]
-fn a_graph_no_call_took_for_the_idle_period_is_released() {
-    let (_t1, one) = project_with_sentinel();
-    let (_t2, two) = project_with_sentinel();
-    let (_dir, cache) = no_cache();
-    let cache = cache.with_graph_idle(std::time::Duration::from_millis(200));
-    cache.graph(&one, &[]).unwrap();
-    cache.graph(&two, &[]).unwrap();
-    assert_eq!(cache.held_roots().len(), 2);
-    std::thread::sleep(std::time::Duration::from_millis(250));
-    cache.graph(&two, &[]).unwrap();
-    assert!(cache.release_idle(), "the root a call took again is still held");
-    assert_eq!(cache.held_roots().len(), 1);
-    std::thread::sleep(std::time::Duration::from_millis(250));
-    assert!(!cache.release_idle());
-    assert!(cache.held_roots().is_empty());
-    assert_eq!(cache.builds(), 2, "taking a held generation again builds nothing");
-}
-
-/// Releasing an idle graph releases its resident lookups with it.
-#[test]
-fn an_idle_release_drops_the_resident_lookups_of_the_released_graph() {
-    let (_t1, one) = project_with_sentinel();
-    let (_dir, cache) = no_cache();
-    let cache = cache.with_graph_idle(std::time::Duration::from_millis(100));
-    cache.graph(&one, &[]).unwrap();
-    let key = cache.held_roots().remove(0);
-    cache.lookups_for(&key, 1, || (10, 0));
-    assert_eq!(cache.resident_roots(), [key]);
-    std::thread::sleep(std::time::Duration::from_millis(150));
-    assert!(!cache.release_idle());
-    assert!(cache.resident_roots().is_empty());
-}
-
 /// Forgetting a root removes its refresh lock and the ledger entries under it, and no other root's.
 #[test]
 fn forgetting_a_root_removes_its_lock_and_ledger_entries() {
@@ -2056,6 +2028,21 @@ fn forgetting_a_root_removes_its_lock_and_ledger_entries() {
     assert_eq!(cache.tracked_roots(), 3, "the scoped build of a root has its own lock");
     cache.forget(&one);
     assert_eq!((cache.tracked_roots(), cache.ledger_len()), (1, 1), "the root's lock, scoped locks and ledger paths are gone");
+}
+
+/// A refresh that waits for a root's turn while the root is forgotten keeps that turn: the root's next caller queues on the same
+/// one, so the root's refresh stays single-flight. A turn nothing holds goes with its root.
+#[test]
+fn a_root_forgotten_while_a_refresh_waits_keeps_its_turn() {
+    let (_tmp, root) = project_with_sentinel();
+    let (_dir, cache) = no_cache();
+    cache.graph(&root, &[]).unwrap();
+    let waiting = cache.hold_root(&root);
+    cache.forget(&root);
+    assert!(std::sync::Arc::ptr_eq(&waiting, &cache.hold_root(&root)), "the next caller queues behind the waiting refresh");
+    drop(waiting);
+    cache.forget(&root);
+    assert_eq!(cache.tracked_roots(), 0);
 }
 
 #[test]
@@ -2244,4 +2231,352 @@ fn manifest_changes_during_a_call_relink_once_and_disclose_continued_changes_wit
     let wrapped_both = super::output::wrap(both.text, &both.warnings, &Args::parse(&refs_query));
     assert!(wrapped_both.contains("file(s) changed while they were being read"), "{wrapped_both}");
     assert!(wrapped_both.contains("manifest(s) changed") && wrapped_both.contains("tsconfig.json"), "{wrapped_both}");
+}
+
+// ---- the engine a graph worker hosts ----
+
+fn engine_in(dir: &tempfile::TempDir) -> super::engine::GraphEngine {
+    super::engine::GraphEngine::new(dir.path().join("cache")).unwrap()
+}
+
+/// A call as the core sends it: its arguments past the argument guard.
+fn engine_query(engine: &super::engine::GraphEngine, cwd: &Path, args: Value, registered: &[std::path::PathBuf]) -> Result<super::engine::Rendered, String> {
+    engine.query(cwd, &super::guard_args(args).unwrap(), registered.to_vec(), Vec::new())
+}
+
+fn ask_engine(engine: &super::engine::GraphEngine, cwd: &Path, args: Value) -> super::engine::Rendered {
+    engine_query(engine, cwd, args, &[]).unwrap()
+}
+
+fn lossy(roots: Option<Vec<std::path::PathBuf>>) -> Option<Vec<String>> {
+    roots.map(|roots| roots.iter().map(|root| root.to_string_lossy().into_owned()).collect())
+}
+
+struct Registered(Vec<std::path::PathBuf>);
+
+#[async_trait::async_trait]
+impl super::TrustedRoots for Registered {
+    async fn registered(&self) -> Vec<std::path::PathBuf> {
+        self.0.clone()
+    }
+
+    async fn selected(&self) -> Vec<std::path::PathBuf> {
+        Vec::new()
+    }
+}
+
+/// An answer as a caller sees it: the text, the dependency roots (`None`: none recorded) and, with roots, whether it is whole;
+/// or the refusal's message.
+type Seen = Result<(String, Option<Vec<String>>, Option<bool>), String>;
+
+async fn seen_by_tool(tool: &super::CodeGraphTool, cwd: &Path, args: Value) -> Seen {
+    use mixdog_core_api::domain::tool::{Tool, ToolPart};
+    match tool.call(&tool_context(cwd), args).await {
+        Ok(output) => {
+            let [ToolPart::Text(text)] = output.parts.as_slice() else { panic!("{output:?}") };
+            let meta = output.meta.unwrap_or_default();
+            let roots = meta.get(super::DEPENDENCY_ROOTS_META).map(|roots| serde_json::from_value(roots.clone()).unwrap());
+            Ok((text.clone(), roots, meta.get(super::COMPLETE_META).and_then(Value::as_bool)))
+        }
+        Err(error) => Err(error.message_for_model),
+    }
+}
+
+fn seen_by_engine(engine: &super::engine::GraphEngine, cwd: &Path, args: Value, registered: &[std::path::PathBuf]) -> Seen {
+    engine_query(engine, cwd, args, registered).map(|answer| {
+        let complete = answer.dependency_roots.is_some().then_some(answer.complete);
+        (answer.text, lossy(answer.dependency_roots), complete)
+    })
+}
+
+/// What the tool answers `args` with, and what the engine answers the same call with.
+async fn tool_and_engine(tool: &super::CodeGraphTool, engine: &super::engine::GraphEngine, cwd: &Path, args: Value, registered: &[std::path::PathBuf]) -> (Seen, Seen) {
+    (seen_by_tool(tool, cwd, args.clone()).await, seen_by_engine(engine, cwd, args, registered))
+}
+
+/// The engine answers every mode with the tool's bytes: fan-outs, pagination, an answer that records no roots and the
+/// dispatcher's refusal included.
+#[tokio::test]
+async fn the_engine_answers_each_mode_with_the_tools_text_roots_and_completeness() {
+    let (_tmp, root) = reader_project();
+    let (tool_dir, engine_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let tool = tool_over(&tool_dir, NoTrust);
+    let engine = engine_in(&engine_dir);
+    let calls = [
+        serde_json::json!({ "mode": "overview" }),
+        serde_json::json!({ "mode": "imports", "file": "src/user.mjs" }),
+        serde_json::json!({ "mode": "dependents", "file": "src/lib.mjs" }),
+        serde_json::json!({ "mode": "related", "file": "src/lib.mjs" }),
+        serde_json::json!({ "mode": "impact", "file": "src/lib.mjs" }),
+        serde_json::json!({ "mode": "symbols", "files": ["src/lib.mjs", "src/user.mjs"] }),
+        serde_json::json!({ "mode": "find_symbol", "symbols": ["target", "lonely"] }),
+        serde_json::json!({ "mode": "symbol_search", "symbol": "targ" }),
+        serde_json::json!({ "mode": "references", "symbol": "target" }),
+        serde_json::json!({ "mode": "callers", "symbol": "target" }),
+        serde_json::json!({ "mode": "callers", "symbols": ["target"], "files": ["src/lib.mjs"], "depth": 2, "limit": 1 }),
+        serde_json::json!({ "mode": "callees", "symbol": "go", "file": "src/user.mjs" }),
+    ];
+    for args in calls {
+        let (by_tool, by_engine) = tool_and_engine(&tool, &engine, &root, args.clone(), &[]).await;
+        assert!(by_tool.as_ref().is_ok_and(|(_, roots, _)| roots.is_some()), "{args}: {by_tool:?}");
+        assert_eq!(by_engine, by_tool, "{args}");
+    }
+    let (by_tool, by_engine) = tool_and_engine(&tool, &engine, &root, serde_json::json!({ "mode": "imports", "file": "src/nope.mjs" }), &[]).await;
+    assert!(by_tool.as_ref().is_ok_and(|(_, roots, _)| roots.is_none()), "a missing file records no roots: {by_tool:?}");
+    assert_eq!(by_engine, by_tool);
+    let (by_tool, by_engine) = tool_and_engine(&tool, &engine, &root, serde_json::json!({ "mode": "symbols", "node_offset": 5 }), &[]).await;
+    assert!(by_tool.as_ref().is_err_and(|message| message.starts_with("code_graph: node_offset requires")), "{by_tool:?}");
+    assert_eq!(by_engine, by_tool);
+}
+
+/// A folder holding two registered projects: the engine, told the registered roots, federates exactly as the tool does.
+#[tokio::test]
+async fn a_federated_answer_from_the_engine_is_the_tools() {
+    let tmp = tempfile::tempdir().unwrap();
+    let multi = tmp.path().join("multi");
+    for (name, rel, text) in [("alpha", "src/a.mjs", "export function shared() {\n  return 1;\n}\n"), ("beta", "lib/b.mjs", "export function shared() {\n  return 2;\n}\n")] {
+        fs::create_dir_all(multi.join(name).join(rel).parent().unwrap()).unwrap();
+        fs::write(multi.join(name).join("package.json"), "{}").unwrap();
+        fs::write(multi.join(name).join(rel), text).unwrap();
+    }
+    let multi = multi.canonicalize().unwrap();
+    let registered = vec![multi.join("alpha"), multi.join("beta")];
+    let (tool_dir, engine_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let tool = tool_over(&tool_dir, Registered(registered.clone()));
+    let engine = engine_in(&engine_dir);
+    for args in [serde_json::json!({ "mode": "find_symbol", "symbols": "shared" }), serde_json::json!({ "mode": "overview" })] {
+        let (by_tool, by_engine) = tool_and_engine(&tool, &engine, &multi, args.clone(), &registered).await;
+        assert!(by_tool.as_ref().is_ok_and(|(text, _, _)| text.contains("# project alpha [") && text.contains("# project beta [")), "{args}: {by_tool:?}");
+        assert_eq!(by_engine, by_tool, "{args}");
+    }
+}
+
+/// The output budget cuts the engine's answer where it cuts the tool's, and the cut answer is partial.
+#[tokio::test]
+async fn a_byte_capped_answer_from_the_engine_is_the_tools_and_is_partial() {
+    let (_tmp, root) = project_with_sentinel();
+    let source: String = (0..12).map(|i| format!("export function named_symbol_{i:02}(parameter) {{ return parameter; }}\n")).collect();
+    fs::write(root.join("src/outline.mjs"), source).unwrap();
+    let (tool_dir, engine_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let tool = tool_budgeted(&tool_dir, 400);
+    let mut engine = engine_in(&engine_dir);
+    engine.output_budget = Some(400);
+    let (by_tool, by_engine) = tool_and_engine(&tool, &engine, &root, serde_json::json!({ "mode": "symbols", "files": ["src/outline.mjs"] }), &[]).await;
+    assert!(by_tool.as_ref().is_ok_and(|(_, _, complete)| *complete == Some(false)), "{by_tool:?}");
+    assert_eq!(by_engine, by_tool);
+}
+
+/// A same-stamp rewrite made while no worker ran: the next worker's disk copy has the old record at the very stamp the file
+/// has now and no notice of the write, so a query that reads no source (one naming only a symbol) is right only because the
+/// record is verified against its digest. The file whose bytes still match is reused, not parsed.
+#[test]
+fn a_same_stamp_edit_between_two_workers_is_seen_by_a_symbol_only_query() {
+    let (_tmp, root) = calls_project();
+    let dir = tempfile::tempdir().unwrap();
+    let first = engine_in(&dir);
+    let old = ask_engine(&first, &root, serde_json::json!({ "mode": "find_symbol", "symbols": "f" }));
+    assert!(old.text.contains("src/c.mjs:1"), "{}", old.text);
+    first.drain().unwrap();
+    drop(first);
+    same_size_rewrite(&root.join("src/c.mjs"), "export function q() { return h(); }\n");
+    let next = engine_in(&dir);
+    let found = ask_engine(&next, &root, serde_json::json!({ "mode": "find_symbol", "symbols": "q" }));
+    assert!(found.text.contains("src/c.mjs:1") && found.text.contains("export function q() { return h(); }"), "{}", found.text);
+    let graph = found.timings.graph;
+    assert_eq!((graph.parsed, graph.reused, graph.verified), (1, 1, 2), "the changed record is parsed, the matching one reused: {graph:?}");
+}
+
+/// Inside one lifetime the disk copy is reused by its stamps and receipts: nothing is read to verify it.
+#[test]
+fn a_disk_copy_of_this_lifetime_is_reused_without_reading_its_sources() {
+    let (_tmp, root) = calls_project();
+    let (_dir, cache) = no_cache();
+    drop(cache.graph(&root, &[]).unwrap());
+    cache.flush().unwrap();
+    cache.evict_all();
+    let _ = super::cache::take_timings();
+    cache.graph(&root, &[]).unwrap();
+    let spent = super::cache::take_timings();
+    assert_eq!((spent.parsed, spent.reused, spent.verified), (0, 2, 0), "{spent:?}");
+}
+
+/// No timer releases what the engine holds: a graph stays until its worker exits, and a drain first writes what is staged.
+/// The successor starts from that disk copy and answers alike without parsing.
+#[test]
+fn a_held_graph_leaves_with_its_engine_and_the_successor_answers_from_the_drained_copy() {
+    let (_tmp, root) = reader_project();
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_in(&dir);
+    let args = serde_json::json!({ "mode": "callers", "symbol": "target" });
+    let first = ask_engine(&engine, &root, args.clone());
+    let again = ask_engine(&engine, &root, args.clone());
+    assert_eq!(engine.cache().builds(), 1, "taking the held generation again builds nothing");
+    assert_eq!(again.timings.graph.retained, Some(true));
+    engine.drain().unwrap();
+    drop(engine);
+    let files = super::GraphCache::new(dir.path().join("cache")).load(&root).map(|files| files.len());
+    assert_eq!(files, Some(5), "the drain wrote every indexed file");
+    let next = engine_in(&dir);
+    let answer = ask_engine(&next, &root, args);
+    assert_eq!((answer.timings.graph.parsed, answer.timings.graph.reused), (0, 5), "{:?}", answer.timings.graph);
+    assert_eq!((answer.text, answer.dependency_roots, answer.complete), (first.text, first.dependency_roots, first.complete));
+}
+
+/// A write that failed (the debounce runs this same flush) leaves its graph staged: the drain after it writes the graph again and
+/// fails with it, instead of acknowledging a graph that never reached the disk, and writes it once it can.
+#[test]
+fn a_drain_after_a_failed_write_reports_it_and_writes_the_graph_once_it_can() {
+    let (_tmp, root) = project_with_sentinel();
+    let dir = tempfile::tempdir().unwrap();
+    // A file where the cache directory goes: no write stores anything.
+    let blocker = dir.path().join("cache");
+    fs::write(&blocker, "").unwrap();
+    let engine = engine_in(&dir);
+    ask_engine(&engine, &root, serde_json::json!({ "mode": "overview" }));
+    assert!(engine.cache().flush().is_err(), "the write fails");
+    assert!(engine.drain().is_err(), "the drain finds the graph still staged and cannot write it either");
+    fs::remove_file(&blocker).unwrap();
+    engine.drain().unwrap();
+    assert_eq!(super::GraphCache::new(blocker).load(&root).map(|files| files.len()), Some(2), "the drain wrote the graph");
+}
+
+/// Through the worker's handler: a write notice resolved when the write was made reaches the next query, a same-stamp rewrite
+/// included; a change at an unknown location makes every file of the root parsed again once; a refusal is the dispatcher's.
+#[test]
+fn change_notices_reach_the_next_query() {
+    use mixdog_graph_host::wire;
+    use mixdog_graph_host::worker::{Handler, Rejection};
+    let (_tmp, root) = calls_project();
+    let dir = tempfile::tempdir().unwrap();
+    let worker = super::engine::Worker(engine_in(&dir));
+    let ask = |args: Value| {
+        Handler::query(&worker, wire::Query { session_cwd: root.clone(), args: super::guard_args(args).unwrap(), registered: Vec::new(), selected: Vec::new() })
+    };
+    ask(serde_json::json!({ "mode": "find_symbol", "symbols": "f" })).unwrap();
+    let path = root.join("src/c.mjs");
+    same_size_rewrite(&path, "export function q() { return h(); }\n");
+    let identity = super::engine::change_identities(&[path.to_string_lossy().into_owned()]).remove(0).unwrap();
+    Handler::changed(&worker, wire::Changed { files: vec![wire::FileIdentity::Known { identity }] });
+    let seen = ask(serde_json::json!({ "mode": "find_symbol", "symbols": "q" })).unwrap();
+    assert!(seen.text.contains("src/c.mjs:1"), "{}", seen.text);
+    assert_eq!(seen.timings.files_parsed, 1, "only the noticed file is parsed");
+    Handler::changed(&worker, wire::Changed { files: vec![wire::FileIdentity::Unknown] });
+    assert_eq!(ask(serde_json::json!({ "mode": "overview" })).unwrap().timings.files_parsed, 2, "a change at an unknown location reparses every file");
+    let refused = ask(serde_json::json!({ "mode": "symbols", "node_offset": 5 }));
+    assert!(matches!(&refused, Err(Rejection::Refused(refusal)) if refusal.message.starts_with("code_graph: node_offset requires")), "{refused:?}");
+}
+
+/// A writer the serve loop's replies are collected in.
+#[derive(Clone, Default)]
+struct Sink(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for Sink {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// The worker's serve loop over the engine: a query answered with the tool's text and roots (as paths), then a drain that
+/// writes the graph before it is acknowledged.
+#[tokio::test]
+async fn the_worker_serves_the_tools_answer_and_drains_before_it_acknowledges() {
+    use mixdog_graph_host::{frame, wire, worker};
+    let (_tmp, root) = reader_project();
+    let args = serde_json::json!({ "mode": "find_symbol", "symbols": "target" });
+    let tool_dir = tempfile::tempdir().unwrap();
+    let tool = tool_over(&tool_dir, NoTrust);
+    let by_tool = seen_by_tool(&tool, &root, args.clone()).await;
+    let query = wire::Query { session_cwd: root.clone(), args: super::guard_args(args).unwrap(), registered: Vec::new(), selected: Vec::new() };
+    let mut input = Vec::new();
+    for message in [wire::ToWorker::Query { id: 1, query }, wire::ToWorker::DrainAndExit { id: 2 }] {
+        input.extend(frame::encode(&message).unwrap());
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let output = Sink::default();
+    let handler = std::sync::Arc::new(super::engine::Worker(engine_in(&dir)));
+    assert_eq!(worker::serve(handler, input.as_slice(), output.clone()), worker::EXIT_DONE);
+    let written = output.0.lock().unwrap().clone();
+    let mut reader = frame::FrameReader::new(written.as_slice());
+    let mut replies = Vec::new();
+    while let Some(message) = reader.read::<wire::FromWorker>().unwrap() {
+        replies.push(message);
+    }
+    let [
+        wire::FromWorker::Ready { .. },
+        wire::FromWorker::Reply { id: 1, reply: wire::Reply::Answer { answer } },
+        wire::FromWorker::Reply { id: 2, reply: wire::Reply::DrainAck { ack } },
+    ] = replies.as_slice()
+    else {
+        panic!("{replies:?}")
+    };
+    assert_eq!(Ok((answer.text.clone(), lossy(answer.dependency_roots.clone()), Some(answer.complete))), by_tool);
+    assert_eq!(answer.timings.files_parsed, 5);
+    assert_eq!(ack.failure, None);
+    assert_eq!(super::GraphCache::new(dir.path().join("cache")).load(&root).map(|files| files.len()), Some(5), "the drain wrote the graph");
+}
+
+/// A warm fills the engine's own graph: the query after it builds nothing; a folder that is no project warms nothing.
+#[test]
+fn a_prewarm_fills_the_engines_graph() {
+    let (_tmp, root) = project_with_sentinel();
+    let dir = tempfile::tempdir().unwrap();
+    let first = engine_in(&dir);
+    ask_engine(&first, &root, serde_json::json!({ "mode": "overview" }));
+    first.drain().unwrap();
+    drop(first);
+    let engine = engine_in(&dir);
+    assert!(engine.prewarm(&root.join("src")));
+    let answer = ask_engine(&engine, &root, serde_json::json!({ "mode": "overview" }));
+    assert_eq!((engine.cache().builds(), answer.timings.graph.retained), (1, Some(true)), "the query took the warmed generation");
+    assert!(!engine.prewarm(tempfile::tempdir().unwrap().path()));
+}
+
+/// A removed worktree's root goes from the engine and from disk; another root keeps its own.
+#[test]
+fn forgetting_a_root_through_the_engine_removes_its_disk_copy_only() {
+    let (_t1, gone) = project_with_sentinel();
+    let (_t2, stays) = project_with_sentinel();
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_in(&dir);
+    for root in [&gone, &stays] {
+        ask_engine(&engine, root, serde_json::json!({ "mode": "overview" }));
+    }
+    engine.drain().unwrap();
+    let (removed, kept) = engine.forget_root(&gone);
+    assert!(kept.is_empty() && removed.iter().any(|name| name.starts_with("manifest:")), "{removed:?}");
+    assert_eq!(super::GraphCache::new(dir.path().join("cache")).roots(), [stays.clone()]);
+    let answer = ask_engine(&engine, &gone, serde_json::json!({ "mode": "overview" }));
+    assert_eq!(answer.timings.graph.parsed, 2, "the forgotten root is built from nothing");
+}
+
+/// With no worker running, a removed root's manifest row, payload and heap note go through the disk catalog alone, and no
+/// other root's; a cache directory that does not exist is not created.
+#[test]
+fn the_disk_catalog_forgets_a_root_without_a_graph_in_memory() {
+    let (_t1, gone) = project_with_sentinel();
+    let (_t2, stays) = project_with_sentinel();
+    let (dir, cache) = no_cache();
+    cache.graph(&gone, &[]).unwrap();
+    cache.graph(&stays, &[]).unwrap();
+    cache.flush().unwrap();
+    drop(cache);
+    let cache_dir = dir.path().join("cache");
+    let (removed, kept) = super::engine::DiskCatalog::new(cache_dir.clone()).forget(&gone);
+    assert!(kept.is_empty(), "{kept:?}");
+    assert!(removed.iter().any(|name| name.starts_with("manifest:")) && removed.iter().any(|name| name.ends_with(".json")), "{removed:?}");
+    let after = super::GraphCache::new(cache_dir.clone());
+    assert_eq!(after.roots(), [stays.clone()]);
+    assert!(after.load(&gone).is_none() && after.load(&stays).is_some());
+    after.prewarm(&gone);
+    assert_eq!(after.builds(), 0, "the forgotten root's weight is gone with it: a warm does not build it");
+    after.prewarm(&stays);
+    assert_eq!(after.builds(), 1, "the other root's weight stays");
+    let missing = dir.path().join("never");
+    assert_eq!(super::engine::DiskCatalog::new(missing.clone()).forget(&gone), (Vec::new(), Vec::new()));
+    assert!(!missing.exists());
 }

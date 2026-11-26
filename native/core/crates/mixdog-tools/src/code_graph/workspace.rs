@@ -1,34 +1,33 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use mixdog_graph_host::HostError;
 use mixdog_workspace::error::{Reason, WsError, WsResult};
 use serde_json::Value;
 
-use super::{CodeGraphTool, Failure};
+use super::CodeGraphTool;
 
 pub struct WorkspaceCodeGraph {
     tool: Arc<CodeGraphTool>,
-    io: mixdog_rt::MaintenanceIo,
 }
 
 impl WorkspaceCodeGraph {
-    /// `tool` is the composition's one `code_graph` tool (the agent pool's, so both answer from
-    /// one cache); `io` is the maintenance lane the tool's calls run on (`ToolContext.io.maintenance`).
-    pub fn new(tool: Arc<CodeGraphTool>, io: mixdog_rt::MaintenanceIo) -> Self {
-        Self { tool, io }
+    /// `tool` is the composition's one `code_graph` tool (the agent pool's, so both answer through one host).
+    pub fn new(tool: Arc<CodeGraphTool>) -> Self {
+        Self { tool }
     }
 }
 
 #[async_trait::async_trait]
 impl mixdog_workspace::service::CodeGraph for WorkspaceCodeGraph {
     async fn query(&self, cwd: &Path, args: Value, cancel: &mixdog_rt::CancellationToken) -> WsResult<String> {
-        match self.tool.answer(cwd.to_path_buf(), &args, self.io, cancel).await {
+        match self.tool.answer(cwd.to_path_buf(), &args, cancel).await {
             Ok(answer) => Ok(answer.text),
             // Node throws the dispatcher's `Error`; the wire carries its message.
-            Err(Failure::Refused(message)) => Err(WsError::new(Reason::Io, message)),
-            Err(Failure::Lane(mixdog_scm::error::ScmFailure::Cancelled)) => Err(WsError::new(Reason::Cancelled, "aborted")),
-            Err(Failure::Lane(mixdog_scm::error::ScmFailure::QueueFull { queue })) => Err(WsError::new(Reason::Overloaded, format!("lane {queue} is full"))),
-            Err(Failure::Lane(other)) => Err(WsError::new(Reason::Io, format!("code_graph failed: {other}"))),
+            Err(HostError::Refused(refusal)) => Err(WsError::new(Reason::Io, refusal.message)),
+            Err(HostError::Cancelled) => Err(WsError::new(Reason::Cancelled, "aborted")),
+            Err(error @ HostError::Overloaded) => Err(WsError::new(Reason::Overloaded, error.to_string())),
+            Err(other) => Err(WsError::new(Reason::Io, format!("code_graph failed: {other}"))),
         }
     }
 }
@@ -44,6 +43,12 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::{super::CodeGraphTool, WorkspaceCodeGraph};
+
+    /// The adapter over a `code_graph` tool whose host answers in this process, over a cache in `cache_dir`.
+    fn adapter(cache_dir: &tempfile::TempDir) -> WorkspaceCodeGraph {
+        let host = Arc::new(super::super::testing::InProcessHost::new(cache_dir.path().join("cache")));
+        WorkspaceCodeGraph::new(Arc::new(CodeGraphTool::new(Arc::new(NoTrust), host)))
+    }
 
     struct NoTrust;
 
@@ -95,9 +100,7 @@ mod tests {
     async fn a_refused_call_carries_the_dispatchers_message() {
         let (_tmp, root) = project().await;
         let cache_dir = tempfile::tempdir().unwrap();
-        let cache = Arc::new(super::super::GraphCache::new(cache_dir.path().join("cache")));
-        let tool = Arc::new(CodeGraphTool::new(Arc::new(NoTrust), cache));
-        let graph = WorkspaceCodeGraph::new(tool, mixdog_rt::testing::tokens().maintenance_io);
+        let graph = adapter(&cache_dir);
         let cancel = mixdog_rt::CancellationToken::new();
         let error = graph.query(&root, json!({ "mode": "bogus", "symbols": "add" }), &cancel).await.unwrap_err();
         assert_eq!(error.message, "code_graph: unknown mode \"bogus\"");
@@ -113,9 +116,7 @@ mod tests {
         files.extend((1..=7).map(|n| (format!("src/bad{n}.mjs"), vec![0x65, 0x78, 0x70, 0xff, 0xfe, 0x0a])));
         let (_tmp, root) = project_of(files).await;
         let cache_dir = tempfile::tempdir().unwrap();
-        let cache = Arc::new(super::super::GraphCache::new(cache_dir.path().join("cache")));
-        let tool = Arc::new(CodeGraphTool::new(Arc::new(NoTrust), cache));
-        let graph = WorkspaceCodeGraph::new(tool, mixdog_rt::testing::tokens().maintenance_io);
+        let graph = adapter(&cache_dir);
         let cancel = mixdog_rt::CancellationToken::new();
         // A declaration search reads the whole graph, so the files it left out qualify the answer. Seven are unindexed: the
         // warning counts all seven and shows five.
@@ -134,9 +135,7 @@ mod tests {
     async fn the_adapter_answers_declaration_outline_and_reference_queries_with_the_tools_text() {
         let (_tmp, root) = project().await;
         let cache_dir = tempfile::tempdir().unwrap();
-        let cache = Arc::new(super::super::GraphCache::new(cache_dir.path().join("cache")));
-        let tool = Arc::new(CodeGraphTool::new(Arc::new(NoTrust), cache));
-        let graph = WorkspaceCodeGraph::new(tool, mixdog_rt::testing::tokens().maintenance_io);
+        let graph = adapter(&cache_dir);
         let cancel = mixdog_rt::CancellationToken::new();
         let ask = |args: Value| graph.query(&root, args, &cancel);
         let found = ask(json!({ "mode": "find_symbol", "symbols": "add" })).await.unwrap();
