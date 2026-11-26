@@ -51,6 +51,7 @@ function settlingPending(root: Element, visibleRows: ReadonlySet<HTMLElement>, s
 }
 
 const readerPlaced = () => true;
+const notAsking = () => false;
 
 /**
  * Data readiness is not layout readiness: a virtual range can still contain
@@ -79,6 +80,8 @@ export function useTranscriptReveal({
   eager = false,
   pinned = false,
   placed = readerPlaced,
+  growing = false,
+  asking = notAsking,
 }: {
   identity: string;
   /** Counts the times the timeline was put up to be presented: each is revealed anew. */
@@ -87,6 +90,12 @@ export function useTranscriptReveal({
   pinned?: boolean;
   /** A timeline off its end: its reader is on the row the visit puts it on. */
   placed?: () => boolean;
+  /** A read of older rows is out: while the rows do not fill the viewport, its page would move every row in view. No
+   *  frame is sampled while that holds; the read's answer, whatever it is, samples again. */
+  growing?: boolean;
+  /** A read of older rows may still be asked for the rows shown (read at each sample): held like `growing`, sampling
+   *  on until it is decided. */
+  asking?: () => boolean;
   enabled: boolean;
   draft: boolean;
   /** The phone: reveal in the first frame the rows in view hold their content (no pending body) at the extents
@@ -113,6 +122,8 @@ export function useTranscriptReveal({
   pinnedRef.current = pinned;
   const placedRef = useRef(placed);
   placedRef.current = placed;
+  const askingRef = useRef(asking);
+  askingRef.current = asking;
   useLayoutEffect(() => {
     if (revealedVisit === visitKey) return undefined;
     if (draft) {
@@ -183,7 +194,11 @@ export function useTranscriptReveal({
     /** An eager reveal needs its reader placed and the rows in view (not offscreen overscan rows) final: no body
      *  pending, and each at the extent the list gave it. A body that just rendered grows its row in layout a frame
      *  before the list moves the rows for it. */
+    const unfilledGrowing = (position: { maxScrollTop: number }) => growing && position.maxScrollTop < 1;
+    const unfilledAsking = (position: { maxScrollTop: number }) => position.maxScrollTop < 1 && askingRef.current();
     const eagerReady = (root: HTMLDivElement, measured: ReturnType<typeof measure>, set: boolean): boolean =>
+      !unfilledGrowing(measured.position) &&
+      !unfilledAsking(measured.position) &&
       eager &&
       measured.visible > 0 &&
       set &&
@@ -195,8 +210,12 @@ export function useTranscriptReveal({
       if (!root || !space) return;
       const measured = measure(root, space);
       const { position, visible, rowsPending, current } = measured;
+      if (unfilledGrowing(position)) {
+        previous = '';
+        return;
+      }
       const chromePending = chromePendingNow();
-      const pending = rowsPending || chromePending || document.fonts?.status === 'loading';
+      const pending = rowsPending || chromePending || document.fonts?.status === 'loading' || unfilledAsking(position);
       const readerOwnsPosition = hasScrollGesture();
       const set = readerSet(root, position) || readerOwnsPosition;
       const settled = visible > 0 && !pending && set && current === previous;
@@ -223,7 +242,12 @@ export function useTranscriptReveal({
         reveal();
         return;
       }
-      const pending = rowsPending || chromePendingNow() || document.fonts?.status === 'loading';
+      const pending =
+        rowsPending ||
+        chromePendingNow() ||
+        document.fonts?.status === 'loading' ||
+        unfilledGrowing(position) ||
+        unfilledAsking(position);
       if (
         !pending &&
         visible > 0 &&
@@ -248,6 +272,7 @@ export function useTranscriptReveal({
     draft,
     eager,
     enabled,
+    growing,
     hasScrollGesture,
     identity,
     revealedTimelines,

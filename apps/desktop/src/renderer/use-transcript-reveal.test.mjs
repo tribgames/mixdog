@@ -55,12 +55,14 @@ function mount(
   let identity = 'entry';
   let visit = 0;
   let placed = true;
+  let growing = false;
   function Harness() {
     revealed = useTranscriptReveal({
       identity,
       visit,
       pinned,
       placed: () => placed,
+      growing,
       enabled: true,
       draft: false,
       viewport,
@@ -117,6 +119,12 @@ function mount(
     place: (next) => {
       placed = next;
     },
+    grow: (next) => {
+      growing = next;
+      act(() => root.render(React.createElement(Harness)));
+    },
+    /** Frames the reveal has asked for and not been given. */
+    framesAsked: () => frames.size,
   };
 }
 
@@ -422,6 +430,21 @@ test('a visit handed a place is not presented before its reader is on its row, h
   entry.place(true);
   entry.tick(3 * LONG_MS + 16);
   assert.equal(entry.revealed(), true);
+});
+
+test('an entry whose rows do not fill the pane waits, asking no frame, for the read of older rows to be answered', (t) => {
+  const entry = mount(t, { contentHeight: 124 });
+  entry.grow(true);
+  entry.ready();
+  entry.tick(16);
+  entry.tick(32);
+  entry.tick(3 * LONG_MS);
+  assert.equal(entry.revealed(), false, 'the rows in view would move down as the page lands');
+  assert.equal(entry.framesAsked(), 0, 'nothing samples while the read is out');
+  entry.grow(false);
+  entry.tick(3 * LONG_MS + 16);
+  entry.tick(3 * LONG_MS + 32);
+  assert.equal(entry.revealed(), true, 'the read was answered');
 });
 
 test('a warm revisit reveals in its first frame, off its end and with dock segments undecided', async (t) => {

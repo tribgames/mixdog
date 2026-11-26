@@ -612,18 +612,45 @@ test('rows that arrive while the turn runs are written at their size: the spacer
 test('follow lets go only when the reader scrolls away: not for a one-pixel wheel tick, a click, or a press on the padding', async (t) => {
   const { p } = await streamingPane(t);
   const problems = [];
-  const streamOn = (repeat = 4) =>
-    p.run(
-      (repeat) =>
+  let streamed = 0;
+  const streamOn = (repeat = 4) => {
+    streamed += 1;
+    return p.run(
+      (repeat, mark) =>
         window.__jitter.paint(20, (rig) =>
-          rig.core.stream('A', `${'more words of the streaming reply '.repeat(repeat)}\n\n`)
+          rig.core.stream('A', `${'more words of the streaming reply '.repeat(repeat)}mark${mark}\n\n`)
         ),
-      repeat
+      repeat,
+      streamed
     );
+  };
   // Each case starts at the followed end.
   const rearm = async () => {
     await p.run(() => document.querySelector('.persistent-pane-surface:not([data-retained]) .jump-to-latest')?.click());
     await streamOn(1);
+  };
+  // A point on a reply's words, read once all that streamed shows: a paced reveal still writing moves the followed text
+  // up under a point read earlier.
+  const wordPoint = async () => {
+    await p.page.waitForFunction(
+      (mark) => window.rig.rowText('pane-1', 'A:A-r31')?.includes(mark),
+      { polling: 'raf', timeout: 10_000 },
+      `mark${streamed}`
+    );
+    await p.act(() => {});
+    return p.run(() => {
+      const view = document.querySelector('.persistent-pane-surface:not([data-retained]) .transcript');
+      const box = view.getBoundingClientRect();
+      const rows = [...view.querySelectorAll('.transcript-virtual-row-content[data-tag="AssistantPart"] .markdown p')];
+      const shown = rows.filter((node) => {
+        const rect = node.getBoundingClientRect();
+        return rect.top > box.top + 60 && rect.bottom < box.top + box.height / 2;
+      });
+      const range = document.createRange();
+      range.selectNodeContents(shown.at(-1).firstChild);
+      const line = range.getClientRects()[0];
+      return { x: line.left + 30, y: line.top + line.height / 2 };
+    });
   };
   // A one-pixel tick toward older rows at the end.
   await p.run(() => {
@@ -637,19 +664,7 @@ test('follow lets go only when the reader scrolls away: not for a one-pixel whee
   await rearm();
 
   // A click on a reply's words, its pointer trembling a pixel.
-  const word = await p.run(() => {
-    const view = document.querySelector('.persistent-pane-surface:not([data-retained]) .transcript');
-    const box = view.getBoundingClientRect();
-    const rows = [...view.querySelectorAll('.transcript-virtual-row-content[data-tag="AssistantPart"] .markdown p')];
-    const shown = rows.filter((node) => {
-      const rect = node.getBoundingClientRect();
-      return rect.top > box.top + 60 && rect.bottom < box.top + box.height / 2;
-    });
-    const range = document.createRange();
-    range.selectNodeContents(shown.at(-1).firstChild);
-    const line = range.getClientRects()[0];
-    return { x: line.left + 30, y: line.top + line.height / 2 };
-  });
+  const word = await wordPoint();
   await p.page.mouse.move(word.x, word.y);
   await p.page.mouse.down();
   await p.page.mouse.move(word.x + 1, word.y);
@@ -666,9 +681,10 @@ test('follow lets go only when the reader scrolls away: not for a one-pixel whee
   await rearm();
 
   // A drag that selects words: the end is not written under them, and follow says so as the jump control does.
-  await p.page.mouse.move(word.x, word.y);
+  const dragFrom = await wordPoint();
+  await p.page.mouse.move(dragFrom.x, dragFrom.y);
   await p.page.mouse.down();
-  await p.page.mouse.move(word.x + 120, word.y, { steps: 6 });
+  await p.page.mouse.move(dragFrom.x + 120, dragFrom.y, { steps: 6 });
   await p.page.mouse.up();
   const held = await streamOn();
   const outOfStep = held.filter((frame) => frame.following && frame.jump).length;

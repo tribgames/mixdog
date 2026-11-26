@@ -226,7 +226,7 @@ test('a touch whose row is virtualized away stops owning the transcript once its
 });
 
 test('a drag whose pressed word left the document still releases follow and owns the scroll', async () => {
-  const mount = await mountFollowHook({ sessionKey: 'touch-detached', leafTag: 'span', leafId: 'word' });
+  const mount = await mountFollowHook({ sessionKey: 'touch-detached', leafTag: 'mx-fade', leafId: 'word' });
   const { React, viewport, leaf: word } = mount;
   const touchEvent = (type, clientY) => {
     const event = new window.Event(type, { bubbles: true });

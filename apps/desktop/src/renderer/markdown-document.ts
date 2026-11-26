@@ -34,8 +34,11 @@ export interface MarkdownUnit {
   readonly slotKey?: string;
   /** null: the parse of `text` is still to land. */
   readonly node: MarkdownAstChild | null;
-  /** Where the reply's text it shows starts. */
+  /** Where the offsets in `node` count from in the reply. */
+  readonly base: number;
+  /** The reply's text it shows: [from, end). */
   readonly from: number;
+  readonly end: number;
   /** Stays in the DOM while the reply grows: the open block and the unit
    *  right before it. */
   readonly held: boolean;
@@ -134,7 +137,7 @@ export function unitsOf(root: MarkdownAstRoot, base: number, from: number, end: 
       seenSlot = 0;
     }
     const stop = Math.max(start, next[index + 1]);
-    units.push({ key, slotKey, node, from: start, held: false });
+    units.push({ key, slotKey, node, base, from: start, end: stop, held: false });
     start = stop;
   });
   return units;
@@ -178,7 +181,9 @@ function waitingUnit(from: number, text: string, pending: boolean, slotKey?: str
     key: `wait@${from}`,
     slotKey: slotKey ?? `@${slotOffset}`,
     node: null,
+    base: from,
     from,
+    end: from + text.length,
     held: false,
     text,
     pending,

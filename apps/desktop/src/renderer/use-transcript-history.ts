@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useSyncExternalStore, type RefObject } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import { historyPositionOf } from '../../../../packages/protocol-client/src/rows.ts';
 import { WINDOW_LEAD_ROWS } from '../../../../packages/protocol-client/src/transcript-window.ts';
 import type { DesktopTranscriptMove } from '../shared/contract-session';
@@ -53,17 +53,21 @@ export function transcriptHistoryLead(viewportHeight: number): number {
  *  page's publication and its acknowledgement leaves the pane unasked. A pane
  *  that already scrolls extends toward the lead by at most
  *  TRANSCRIPT_HISTORY_FILL_LEAD_PAGES pages per entry; past that the scroll
- *  lead asks. */
+ *  lead asks. Returns whether the rows shown are yet to be checked: until
+ *  then, a read of older rows may still be asked for them. */
 export function useTranscriptHistoryFill(
   viewport: RefObject<HTMLElement | null>,
   requestEarlier: () => void,
   revision: unknown,
   ready: boolean
-): void {
+): () => boolean {
   const requestRef = useRef(requestEarlier);
   requestRef.current = requestEarlier;
   const revisionRef = useRef(revision);
   revisionRef.current = revision;
+  const readyRef = useRef(ready);
+  readyRef.current = ready;
+  const checkedAt = useRef<unknown>(UNCHECKED);
   const checkRef = useRef<(() => void) | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: revision is the trigger that re-checks after a page lands
   useEffect(() => {
@@ -87,6 +91,7 @@ export function useTranscriptHistoryFill(
           })
         : null;
     const check = (): void => {
+      checkedAt.current = revisionRef.current;
       // No timeline yet, no rows to fill: the extent would come from a forced
       // layout of an empty pane. The row count that mounts it checks again.
       if (!transcriptScrollGeometryRegistered(root)) return;
@@ -111,10 +116,14 @@ export function useTranscriptHistoryFill(
     check();
     return () => {
       observer?.disconnect();
+      checkedAt.current = UNCHECKED;
       if (checkRef.current === check) checkRef.current = null;
     };
   }, [viewport, ready]);
+  return useCallback(() => readyRef.current && !Object.is(checkedAt.current, revisionRef.current), []);
 }
+
+const UNCHECKED = Symbol('unchecked');
 
 /** The one page asked of the host. It belongs to the window it was asked of, named by where that window began and by its
  *  generation: everything else about it (whether it is still on its way, whether another may be asked) is read from the window
@@ -184,6 +193,29 @@ function standing(paging: HistoryPaging, facts: WindowFacts): PageRequest | null
   if (here && wanted) return request;
   endRequest(paging, request);
   return null;
+}
+
+/** Whether a read of older rows this pane asked of the host for `sessionId` is still unanswered, and the call that counts
+ *  one out until it settles (landed, refused or failed). A read of a session the pane left counts for nothing. */
+function useOlderReads(sessionId: string): [boolean, (read: Promise<unknown>) => void] {
+  const [out, setOut] = useState({ sessionId, count: 0 });
+  const track = useCallback(
+    (read: Promise<unknown>) => {
+      const add = (step: number) =>
+        setOut((now) =>
+          now.sessionId === sessionId
+            ? { sessionId, count: now.count + step }
+            : step > 0
+              ? { sessionId, count: 1 }
+              : now
+        );
+      add(1);
+      const end = () => add(-1);
+      void read.then(end, end);
+    },
+    [sessionId]
+  );
+  return [out.sessionId === sessionId && out.count > 0, track];
 }
 
 /**
@@ -427,17 +459,18 @@ function usePositionedTranscriptWindow<T extends { readonly id?: unknown }>(
     subscribeLive,
     () => sessionId !== '' && defaultSessionLaneStore.liveSessionIds().has(sessionId)
   );
+  const [olderReading, trackOlder] = useOlderReads(sessionId);
   // A move belongs to the session it was asked for (the pane outlives the sessions it shows), and each goes out as
   // it is asked: the window knows where this reader is now, also while an earlier move of it is out. The window
   // takes one at a time, the latest asked replacing the one waiting, but for a record to open (`at`: always read).
   const move = useCallback(
-    (asked: DesktopTranscriptMove, done?: (served: boolean) => void) => {
+    (asked: DesktopTranscriptMove, done?: (served: boolean) => void): Promise<void> | undefined => {
       const ask = window.mixdogDesktop?.moveTranscriptWindow;
-      if (!sessionId || !ask) return;
+      if (!sessionId || !ask) return undefined;
       // The window is one for every pane of the session: each move says whose it is.
       const to = { ...asked, reader: pane };
       const release = to.kind === 'follow' ? () => undefined : noteHistoryPageRequest();
-      void Promise.resolve()
+      return Promise.resolve()
         .then(() => ask(sessionId, to))
         .catch(() => false)
         .then((served) => {
@@ -453,7 +486,7 @@ function usePositionedTranscriptWindow<T extends { readonly id?: unknown }>(
   const active = useSurfaceActive();
   useEffect(() => {
     if (!active || !sessionId) return undefined;
-    return () => move({ kind: 'follow' });
+    return () => void move({ kind: 'follow' });
   }, [active, move, sessionId]);
   const views = facts?.views ?? (NO_STRETCHES as readonly PositionedStretch<T>[]);
   const opening = sessionId ? pendingReaderPlace(pane, sessionId) : null;
@@ -515,13 +548,21 @@ function usePositionedTranscriptWindow<T extends { readonly id?: unknown }>(
     lastId !== null
       ? String(lastId)
       : '';
+  // The backfill this render owes and has not asked yet counts as a read out from this render on: the pane is not
+  // revealed in the frames before its effect asks.
+  const backfill = initialBackfillId ? `${sessionId}\n${initialBackfillId}\n${live}\n${facts?.version}` : '';
+  const backfillAsked = useRef('');
+  const backfillOwed =
+    backfill !== '' && backfillAsked.current !== backfill && Boolean(window.mixdogDesktop?.moveTranscriptWindow);
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-trigger when the session goes live or the window advances.
   useEffect(() => {
     // A place opened in this commit's layout (a search hit's jump) is read around instead: a read of the tail sent
     // first would hold its read back.
     if (!initialBackfillId || pendingReaderPlace(pane, sessionId)) return;
-    move({ kind: 'read', first: initialBackfillId, last: initialBackfillId, end: true });
-  }, [initialBackfillId, live, move, sessionId, facts?.version]);
+    backfillAsked.current = backfill;
+    const read = move({ kind: 'read', first: initialBackfillId, last: initialBackfillId, end: true });
+    if (read) trackOlder(read);
+  }, [initialBackfillId, live, move, sessionId, facts?.version, trackOlder]);
   // The window around a record the pane is to open at and has no rows of.
   const wanted = opening && detached && live && facts ? opening.position : '';
   const version = facts?.version;
@@ -564,12 +605,14 @@ function usePositionedTranscriptWindow<T extends { readonly id?: unknown }>(
     },
     [following, lost, move, placing]
   );
-  const resetToLive = useCallback(() => move({ kind: 'follow' }), [move]);
+  const resetToLive = useCallback(() => void move({ kind: 'follow' }), [move]);
   return {
     items,
     hasOlder,
     revision: `${facts?.version ?? 0}:${items.length}:${String(hasOlder)}:${String(historyActive)}`,
     historyActive,
+    /** A read of older rows is out and unanswered: its page would land above the rows shown. */
+    olderReading: olderReading || backfillOwed,
     requestEarlier: noRequest,
     requestLater: noRequest,
     readerAt,
@@ -605,13 +648,15 @@ function useLegacyTranscriptWindow<T extends { readonly id?: unknown }>(
   const pager = pagerRef.current;
   useEffect(() => () => pager.dispose(), [pager]);
   const exhaustedRef = useRef<() => void>(() => undefined);
+  const [olderReading, trackOlder] = useOlderReads(sessionId);
   const growWindow = useTranscriptHistory(
     sessionId,
     liveItems.length,
     liveHasOlder,
     liveWindowStart,
     () => exhaustedRef.current(),
-    liveGeneration
+    liveGeneration,
+    trackOlder
   );
   // A reset made another window of the live tail: rows read by position above the old one are not above this one.
   const generationRef = useRef(liveGeneration);
@@ -649,11 +694,11 @@ function useLegacyTranscriptWindow<T extends { readonly id?: unknown }>(
     // pane) grows the session's window; past the core's view, rows are read
     // by position above the live tail.
     if (followingRef.current && !pager.window) {
-      if (growWindow() === 'exhausted') void pager.earlier(true).then(settle);
+      if (growWindow() === 'exhausted') trackOlder(pager.earlier(true).then(settle));
       return;
     }
-    void pager.earlier().then(settle);
-  }, [growWindow, liveHasOlder, pager, sessionId]);
+    trackOlder(pager.earlier().then(settle));
+  }, [growWindow, liveHasOlder, pager, sessionId, trackOlder]);
   exhaustedRef.current = requestEarlier;
   const requestLater = useCallback(() => {
     void pager.later();
@@ -673,6 +718,8 @@ function useLegacyTranscriptWindow<T extends { readonly id?: unknown }>(
      *  exist, a positional page (useTranscriptHistoryFill decides again at each). */
     revision: `${paged}:${items.length}:${liveItems.length}:${liveWindowStart ?? ''}:${liveGeneration ?? ''}:${String(hasOlder)}`,
     historyActive: held !== null,
+    /** A read of older rows is out and unanswered: its page would land above the rows shown. */
+    olderReading,
     requestEarlier,
     requestLater,
     /** A window read by scroll offsets has no reader's position to follow. */
@@ -694,7 +741,9 @@ export function useTranscriptHistory(
   windowStart?: string,
   onExhausted?: () => void,
   /** The window's generation (`transcriptGeneration`). */
-  generation?: number
+  generation?: number,
+  /** Told of each read asked of the host, which settles when the host answers or fails. */
+  onRead?: (read: Promise<unknown>) => void
 ): (heldRows?: unknown) => 'exhausted' | undefined {
   const facts: WindowFacts = {
     start: windowStart ?? itemCount,
@@ -706,6 +755,8 @@ export function useTranscriptHistory(
   factsRef.current = facts;
   const exhaustedRef = useRef(onExhausted);
   exhaustedRef.current = onExhausted;
+  const readRef = useRef(onRead);
+  readRef.current = onRead;
   const pagingRef = useRef(newPaging(sessionId));
   if (pagingRef.current.sessionId !== sessionId) pagingRef.current = newPaging(sessionId);
   // The page's window may be published before or after its read is acknowledged: the request, and the background-read hold
@@ -746,27 +797,27 @@ export function useTranscriptHistory(
         release: noteHistoryPageRequest(),
       };
       paging.request = request;
-      void Promise.resolve()
-        .then(() => prefetch(sessionId, limit))
-        .then(
-          (accepted) => {
-            if (pagingRef.current !== paging) return;
-            if (accepted === true) {
-              // The page is on its way, or here already: the window held says which (`standing`).
-              if (!tail) paging.limit = limit;
-              return;
-            }
-            // The request ended with its window meanwhile: its answer is about a window no longer held.
-            if (paging.request !== request) return;
-            if (!tail || accepted !== false) return endRequest(paging, request);
-            // `false` from a tail host: nothing older could join the window where it begins.
-            request.release();
-            request.outcome = 'none';
-            exhaustedRef.current?.();
-          },
-          // Read-only failures remain retryable on the next boundary gesture.
-          () => endRequest(paging, request)
-        );
+      const read = Promise.resolve().then(() => prefetch(sessionId, limit));
+      readRef.current?.(read);
+      void read.then(
+        (accepted) => {
+          if (pagingRef.current !== paging) return;
+          if (accepted === true) {
+            // The page is on its way, or here already: the window held says which (`standing`).
+            if (!tail) paging.limit = limit;
+            return;
+          }
+          // The request ended with its window meanwhile: its answer is about a window no longer held.
+          if (paging.request !== request) return;
+          if (!tail || accepted !== false) return endRequest(paging, request);
+          // `false` from a tail host: nothing older could join the window where it begins.
+          request.release();
+          request.outcome = 'none';
+          exhaustedRef.current?.();
+        },
+        // Read-only failures remain retryable on the next boundary gesture.
+        () => endRequest(paging, request)
+      );
       return undefined;
     },
     [sessionId]

@@ -242,8 +242,8 @@ function replyAssets() {
           // last body and the unit before it are held.
           function unitsOf(bodies, growing) {
             const units = bodies.flatMap((root, body) => root
-              ? root.children.map((node, child) => ({ key: 'b' + body + ':' + child, node, from: 0, held: false }))
-              : [{ key: 'b' + body + ':wait', node: null, from: 0, held: false, text: '', pending: true }]);
+              ? root.children.map((node, child) => ({ key: 'b' + body + ':' + child, node, base: 0, from: 0, end: 0, held: false }))
+              : [{ key: 'b' + body + ':wait', node: null, base: 0, from: 0, end: 0, held: false, text: '', pending: true }]);
             if (!growing) return units;
             const last = 'b' + (bodies.length - 1) + ':';
             const first = units.findIndex((unit) => unit.key.startsWith(last));
@@ -256,7 +256,7 @@ function replyAssets() {
             if (parks) window.replyParking = parking;
             return createElement(MarkdownBlockParkingContext.Provider, { value: parks ? parking : null },
               createElement('div', { ref, className: growing ? 'markdown streaming' : 'markdown' },
-                createElement(MarkdownDocumentView, { root: markdownPagesOf(unitsOf(bodies, growing)), copyControl: Copy })));
+                createElement(MarkdownDocumentView, { root: markdownPagesOf(unitsOf(bodies, growing)), fadeTimeline: null, copyControl: Copy })));
           }
           const replies = new Map();
           // The reply in pane \`id\`, as these bodies; \`growing\`: still arriving.

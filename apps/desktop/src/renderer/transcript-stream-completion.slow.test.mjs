@@ -9,6 +9,7 @@ import { createBurstyStream } from './test-support/bursty-stream.mjs';
 import { completionFlashes, revealSteps, STREAM_FRAME_PROBE } from './test-support/stream-frames.mjs';
 
 const STREAM_SEED = 7;
+const FADE_MS = 400;
 
 const HARNESS = `
   import { useRef } from 'react';
@@ -219,7 +220,7 @@ function shownAt(frames, from, painted) {
   return frames.find((frame) => frame.t >= from && frame.painted >= painted)?.t;
 }
 
-test('a reply completing mid-reveal shows its rest at once and settles at full ink with no visible change', async (t) => {
+test('a reply completing mid-reveal shows its rest at once, fading in, and settles at full ink with no visible change', async (t) => {
   const stream = createBurstyStream({ seed: STREAM_SEED });
   const assets = await buildAssets();
   const browser = await launchPuppeteerBrowser(puppeteer, {
@@ -227,8 +228,7 @@ test('a reply completing mid-reveal shows its rest at once and settles at full i
     headless: true,
   });
   t.after(() => browser.close());
-  // Soon after the last chunk: the paced reveal still trails it.
-  const ended = await streamOnce(browser, assets, stream, 30);
+  const ended = await streamOnce(browser, assets, stream, 120);
   const { frames, completedAt } = ended;
 
   const before = frames.filter((frame) => frame.t < completedAt && frame.painted !== undefined).at(-1);
@@ -241,9 +241,9 @@ test('a reply completing mid-reveal shows its rest at once and settles at full i
   t.diagnostic(`backlog at completion: ${backlog} painted characters`);
 
   await t.test(
-    'completion: no node in view replaced, no text below full ink, no height change without text',
+    'completion: no node in view replaced, no opacity lost or sped up, no height change without text',
     () => {
-      const found = completionFlashes(frames, { from: completedAt - 100, to: settledFrame.t + 1_500 });
+      const found = completionFlashes(frames, { from: completedAt - 100, to: settledFrame.t + 1_500, fadeMs: FADE_MS });
       assert.deepEqual(found, []);
     }
   );
@@ -257,7 +257,7 @@ test('a reply completing mid-reveal shows its rest at once and settles at full i
     assert.deepEqual(early, []);
   });
 
-  await t.test('the rest shows at once on completion and the reply settles with it', () => {
+  await t.test('the rest shows at once on completion and fades in from then', () => {
     const steps = revealSteps(frames, completedAt).filter((step) => step.t <= settledFrame.t);
     t.diagnostic(
       `after completion: ${steps.map((step) => `+${step.chars}@${Math.round(step.t - completedAt)}`).join(' ')}`
@@ -266,6 +266,9 @@ test('a reply completing mid-reveal shows its rest at once and settles at full i
     assert.equal(steps[0].chars, backlog, 'all of the rest');
     assert.ok(steps[0].t - completedAt <= 50, `at completion (${Math.round(steps[0].t - completedAt)} ms)`);
     const settledAfter = settledFrame.t - completedAt;
-    assert.ok(settledAfter <= 50, `settled at completion, no fade to wait on (${Math.round(settledAfter)} ms)`);
+    assert.ok(
+      settledAfter >= FADE_MS - 50 && settledAfter <= FADE_MS + 200,
+      `live while its last fade runs (${Math.round(settledAfter)} ms)`
+    );
   });
 });

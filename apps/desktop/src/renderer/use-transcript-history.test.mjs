@@ -8,6 +8,7 @@ import {
   transcriptHistoryLead,
   useTranscriptHistory,
   useTranscriptHistoryFill,
+  useTranscriptWindow,
 } from './use-transcript-history.ts';
 import { registerTranscriptScrollGeometry } from './use-transcript-follow.ts';
 import { historyPagePending, resetFullToolOutputs } from './tool-full-output.tsx';
@@ -381,6 +382,78 @@ test('cold history pages load on demand, survive delayed publications and stay s
     await earlier();
     assert.equal(requests[5].limit, 2560, 'history has no item ceiling: a full window pages on');
   } finally {
+    await restoreHistoryDom(env, root);
+  }
+});
+
+const rowsOf = (count) => Array.from({ length: count }, (_, index) => ({ id: `r${index}` }));
+
+test('a read of older rows is out until the host answers it: also when its page never lands, and when it fails', async () => {
+  const env = installHistoryDom();
+  const { requests } = env;
+  const root = createRoot(document.getElementById('root'));
+  let shown;
+  const Pane = ({ count }) => {
+    shown = useTranscriptWindow('a', rowsOf(count), true, true);
+    return null;
+  };
+  const render = (count) => act(async () => root.render(React.createElement(Pane, { count })));
+  try {
+    await render(16);
+    assert.equal(shown.olderReading, false);
+    await act(async () => shown.requestEarlier());
+    assert.equal(requests.length, 1);
+    assert.equal(shown.olderReading, true, 'asked, not answered');
+    await act(async () => requests[0].resolve(true));
+    assert.equal(shown.olderReading, false, 'the host took the read and no page landed');
+    // A live row moved the window: the next read goes out, and fails.
+    await render(17);
+    await act(async () => shown.requestEarlier());
+    assert.equal(requests.length, 2);
+    assert.equal(shown.olderReading, true);
+    await act(async () => requests[1].reject(new Error('connection lost')));
+    assert.equal(shown.olderReading, false, 'a failed read is answered');
+  } finally {
+    await restoreHistoryDom(env, root);
+  }
+});
+
+test("a positioned short tail's backfill is out from the render that owes it until the core answers it, served without a page or failed", async () => {
+  const env = installHistoryDom();
+  const moves = [];
+  window.mixdogDesktop.moveTranscriptWindow = (_sessionId, move) => {
+    const answer = Promise.withResolvers();
+    moves.push({ kind: move.kind, ...answer });
+    return answer.promise;
+  };
+  const root = createRoot(document.getElementById('root'));
+  const seen = [];
+  let shown;
+  const Pane = ({ version }) => {
+    shown = useTranscriptWindow('s', rowsOf(12), true, true, undefined, undefined, { views: [], version });
+    seen.push(shown.olderReading);
+    return null;
+  };
+  const render = (version) => act(async () => root.render(React.createElement(Pane, { version })));
+  try {
+    await render(1);
+    assert.equal(seen[0], true, 'the first render, before its effect asks');
+    assert.deepEqual(
+      moves.map(({ kind }) => kind),
+      ['read']
+    );
+    assert.equal(shown.olderReading, true);
+    await act(async () => moves[0].resolve(true));
+    assert.equal(shown.olderReading, false, 'served, and no page landed');
+    await render(2);
+    assert.equal(moves.length, 2, 'the window advanced: the backfill is asked again');
+    assert.equal(shown.olderReading, true);
+    await act(async () => moves[1].reject(new Error('connection lost')));
+    assert.equal(shown.olderReading, false, 'a failed read is answered');
+  } finally {
+    await act(async () => {
+      for (const move of moves) move.resolve(false);
+    });
     await restoreHistoryDom(env, root);
   }
 });

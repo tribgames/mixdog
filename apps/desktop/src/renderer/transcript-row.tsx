@@ -3,6 +3,7 @@ import { parseIslandGitRequestText } from './island-git-request';
 import {
   createContext,
   memo,
+  type RefObject,
   useCallback,
   useContext,
   useEffect,
@@ -25,6 +26,12 @@ import MarkdownBody from './MarkdownBody';
 import { MarkdownResponse } from './MarkdownResponse';
 import type { MarkdownAstRoot } from './markdown-ast';
 import {
+  dropStreamFadeTimeline,
+  holdFadesWhileSelected,
+  type StreamFadeTimeline,
+  streamFadeTimeline,
+} from './markdown-stream-fade';
+import {
   canSyncParseMarkdown,
   parseStreamingMarkdownAst,
   preloadSyncMarkdownParser,
@@ -34,7 +41,7 @@ import {
   syncMarkdownParserLoad,
 } from './markdown-worker-client';
 import { CopyControl } from './transcript-primitives';
-import { useTranscriptTextReveal } from './use-transcript-text-reveal';
+import { REVEAL_JOIN_CHARS, useTranscriptTextReveal } from './use-transcript-text-reveal';
 import { type BackgroundWorkCounts, CompletionStatus, ModelSwitchDivider } from './transcript-status';
 import { shouldSuppressFullyFailedToolItem } from './transcript-tool-model';
 import { ToolCard } from './transcript-tool-ui';
@@ -101,6 +108,47 @@ function SentPasteBlock({ text }: { text?: string }) {
       )}
     </>
   );
+}
+
+function useStreamFade(
+  key: string,
+  text: string,
+  streaming: boolean,
+  revision: number,
+  row: RefObject<HTMLElement | null>
+): { timeline: StreamFadeTimeline | null; live: boolean } {
+  // A first text past REVEAL_JOIN_CHARS showed at once: it opens unfaded.
+  const joinedText = text.length > REVEAL_JOIN_CHARS ? text : undefined;
+  const timeline = key ? streamFadeTimeline(key, streaming, joinedText) : null;
+  const subscribe = useCallback(
+    (listener: () => void) => (timeline ? timeline.subscribe(listener) : () => {}),
+    [timeline]
+  );
+  const version = useCallback(() => timeline?.version ?? 0, [timeline]);
+  useSyncExternalStore(subscribe, version, version);
+  const now = performance.now();
+  const pass = timeline ? timeline.read(text, now, revision, !streaming) : null;
+  const live =
+    streaming || (timeline ? timeline.held || timeline.owes(text.length) || timeline.visibleUntil(now) > 0 : false);
+  const [fadeTick, fadeEnded] = useState(0);
+  const visibleUntil = timeline && !streaming && live ? timeline.visibleUntil(now) : 0;
+  useLayoutEffect(() => {
+    if (timeline && pass) timeline.commit(pass);
+  }, [timeline, pass]);
+  useEffect(() => {
+    if (!timeline || streaming || !live || !visibleUntil) return undefined;
+    const delay = Math.max(0, Math.ceil(visibleUntil - performance.now()));
+    const timer = setTimeout(() => fadeEnded(fadeTick + 1), delay);
+    return () => clearTimeout(timer);
+  }, [timeline, streaming, live, visibleUntil, fadeTick]);
+  useEffect(() => {
+    if (!timeline || !live) return undefined;
+    return holdFadesWhileSelected(timeline, () => row.current);
+  }, [timeline, live, row]);
+  useEffect(() => {
+    if (timeline && !live) dropStreamFadeTimeline(key);
+  }, [timeline, live, key]);
+  return { timeline: live ? timeline : null, live };
 }
 
 export function transcriptItemsEqual(previous: TranscriptItem | undefined, next: TranscriptItem | undefined): boolean {
@@ -355,7 +403,7 @@ function NoticeRow({ item, sessionId }: { item: TranscriptItem; sessionId: strin
   );
 }
 
-function useRowStreaming(item: TranscriptItem, revealKey: string, paced: boolean) {
+function useRowStreaming(item: TranscriptItem, revealKey: string, paced: boolean, row: RefObject<HTMLElement | null>) {
   const assistant = item.kind === 'assistant';
   const rawText = assistant ? String(item.text || '') : '';
   const streamedHere = useRef(false);
@@ -378,7 +426,7 @@ function useRowStreaming(item: TranscriptItem, revealKey: string, paced: boolean
     else knownFinalRoot = readCachedStreamingMarkdownAst(rawText);
   }
   // Long or math-bearing endings parse off-thread before leaving streaming so
-  // the tail and settlement commit together.
+  // the tail, its fade, and settlement commit together.
   const waitingForFinalParse =
     ending &&
     parserLoad === 'ready' &&
@@ -436,12 +484,14 @@ function useRowStreaming(item: TranscriptItem, revealKey: string, paced: boolean
     };
   }, [visualStreaming, revealKey]);
   const finalRoot = !streaming && knownFinalRoot && revealed.text === rawText ? knownFinalRoot : null;
+  const fade = useStreamFade(assistant && paced ? revealKey : '', revealed.text, streaming, revealed.revision, row);
+  const live = assistant && fade.live;
   const previousStreaming = useRef(streaming);
   const announceSettled = previousStreaming.current && !streaming;
   useEffect(() => {
     previousStreaming.current = streaming;
   }, [streaming]);
-  return { streaming, revealed, finalRoot, announceSettled };
+  return { streaming, revealed, finalRoot, fade, live, announceSettled };
 }
 
 function foldUserContent(item: TranscriptItem, text: string, pastedTexts: readonly (string | undefined)[]) {
@@ -482,10 +532,10 @@ export const TranscriptRow = memo(
     footerAfterCards?: boolean;
     /** Background work still running; passed only to the latest completion. */
     backgroundWork?: BackgroundWorkCounts;
-    /** Row key of an assistant part: its reveal identity. */
+    /** Row key of an assistant part: its reveal and fade identity. */
     revealKey?: string;
-    /** The coding transcript: a live part reveals in paced steps; elsewhere
-     *  received text shows whole. */
+    /** The coding transcript: a live part reveals in paced steps and its new
+     *  words fade in; elsewhere received text shows whole, unfaded. */
     paced?: boolean;
     item: TranscriptItem;
     completion?: TranscriptItem;
@@ -498,7 +548,13 @@ export const TranscriptRow = memo(
     const viewerDevice = useContext(TranscriptViewerDeviceContext);
     const sessionScope = useContext(MarkdownSessionContext);
     const { texts: pastedTexts, records: pastedTokenRecords } = useSentPastedTexts(item, sessionScope);
-    const { streaming, revealed, finalRoot, announceSettled } = useRowStreaming(item, revealKey, paced);
+    const rowRef = useRef<HTMLElement>(null);
+    const { streaming, revealed, finalRoot, fade, live, announceSettled } = useRowStreaming(
+      item,
+      revealKey,
+      paced,
+      rowRef
+    );
     const { menuProps, menuElement } = useAttachmentContextMenu(useContext(MarkdownOpenFileContext));
     if (item.kind === 'tool') {
       if (shouldSuppressFullyFailedToolItem(item)) return null;
@@ -542,7 +598,8 @@ export const TranscriptRow = memo(
     return (
       <>
         <article
-          className={`message ${user ? 'user' : 'assistant'} ${sourceLabel || (user && item.fromAgent) ? 'sourced-message' : ''} ${streaming ? 'streaming' : 'settled'} ${item.pending ? 'pending' : ''} ${user && attachedUser ? 'attached-user' : ''}`}
+          ref={rowRef}
+          className={`message ${user ? 'user' : 'assistant'} ${sourceLabel || (user && item.fromAgent) ? 'sourced-message' : ''} ${streaming || live ? 'streaming' : 'settled'} ${item.pending ? 'pending' : ''} ${user && attachedUser ? 'attached-user' : ''}`}
           aria-live={streaming || announceSettled ? 'off' : undefined}
           aria-busy={item.pending === true ? 'true' : undefined}
         >
@@ -591,7 +648,14 @@ export const TranscriptRow = memo(
               {!user && (
                 // Only a settled reply's links can be downloaded by its row id.
                 <MarkdownTranscriptItemContext.Provider value={streaming ? '' : String(item.id ?? '')}>
-                  <MarkdownResponse text={revealed.text} streaming={streaming} preparsedRoot={finalRoot} />
+                  <MarkdownResponse
+                    text={revealed.text}
+                    // Ended, its text parses as final even while the row
+                    // stays live for a parse to land or a fade to run.
+                    streaming={streaming}
+                    preparsedRoot={finalRoot}
+                    fadeTimeline={fade.timeline}
+                  />
                 </MarkdownTranscriptItemContext.Provider>
               )}
             </div>

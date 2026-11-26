@@ -71,6 +71,8 @@ export function useConversationTranscriptSource({
     transcriptReaderAt,
     resetTranscriptToLive,
     transcriptHistoryActive,
+    /** A read of older rows is out: its page lands above the rows shown. */
+    transcriptOlderReading: history.olderReading,
     transcriptHistoryRevision: history.revision,
     ...identity,
   };

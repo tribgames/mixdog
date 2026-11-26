@@ -339,21 +339,35 @@ for (const scale of [1.25, 1.5]) {
 test("a click on a reply's text keeps follow while the turn streams; a selection dragged out of it holds follow, the selected text still, until it collapses", async (t) => {
   const { page, errors } = await mountedAtEnd(t);
   const states = turn();
-  await page.evaluate((s) => window.fixture.step(s), states[1]);
-  // A word of a reply in view above the streaming one: the first line of its text.
-  const text = await page.evaluate(() => {
-    const rows = [...document.querySelectorAll('.transcript-virtual-row-content[data-tag="AssistantPart"]')];
-    const row = rows.filter((node) => node.getBoundingClientRect().top > 40).at(-2);
-    const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT, {
-      acceptNode: (node) => (/word/.test(node.textContent) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP),
+  // A word of a reply in view above the streaming one: the first line of its text, read once the streaming reply
+  // shows its last word `last`; a paced reveal still writing moves the followed text up under a point read earlier.
+  const replyText = async (last) => {
+    await page.waitForFunction(
+      (word) => {
+        const row = [...document.querySelectorAll('.transcript-virtual-row-content[data-tag="AssistantPart"]')].at(-1);
+        return row?.textContent.endsWith(word);
+      },
+      { timeout: 10_000, polling: 'raf' },
+      last
+    );
+    await page.evaluate(() => window.fixture.layout({}, 4));
+    return page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.transcript-virtual-row-content[data-tag="AssistantPart"]')];
+      const row = rows.filter((node) => node.getBoundingClientRect().top > 40).at(-2);
+      const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT, {
+        acceptNode: (node) => (/word/.test(node.textContent) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP),
+      });
+      const range = document.createRange();
+      range.selectNodeContents(walker.nextNode());
+      const line = range.getClientRects()[0];
+      return { x: line.left + 4, y: line.top + line.height / 2 };
     });
-    const range = document.createRange();
-    range.selectNodeContents(walker.nextNode());
-    const line = range.getClientRects()[0];
-    return { x: line.left + 4, y: line.top + line.height / 2 };
-  });
-  await page.mouse.click(text.x, text.y);
+  };
+  await page.evaluate((s) => window.fixture.step(s), states[1]);
+  const clickAt = await replyText('word39');
+  await page.mouse.click(clickAt.x, clickAt.y);
   assertHeld(await page.evaluate((s) => window.fixture.step(s), states[2]), 'after a click on the text');
+  const text = await replyText('word89');
   await page.mouse.move(text.x, text.y);
   await page.mouse.down();
   await page.mouse.move(text.x + 160, text.y, { steps: 6 });
@@ -430,6 +444,62 @@ test('a selection inside the reply that is still streaming holds follow: the sel
   const after = await page.evaluate((s) => window.fixture.step(s), streaming(220));
   assertHeld(after, 'after the selection collapsed');
   assert.equal(after.at(-1).jump, false, 'following again: no jump control');
+  assert.deepEqual(errors, []);
+});
+
+test('a press on a word still fading in, held while its fade ends, drags a selection from that word', async (t) => {
+  const { page, errors } = await mountedAtEnd(t);
+  // Sent at the pace a reply arrives (a step far ahead of the reveal catches up unfaded), and then nothing more: once
+  // the reveal has written the last word, only the newest words' fades change the reply.
+  await page.evaluate((s) => window.fixture.step(s, 2), running(history, [reply('r', 50, 1_100, true)]));
+  // A word of the streaming reply still in the first half of its fade, and where it is.
+  const fading = await page.waitForFunction(
+    () => {
+      const row = [...document.querySelectorAll('.transcript-virtual-row-content[data-tag="AssistantPart"]')].at(-1);
+      if (!row?.textContent.endsWith('word49')) return null;
+      for (const wrapper of row.querySelectorAll('mx-fade')) {
+        const [animation] = wrapper.getAnimations();
+        const text = wrapper.firstChild;
+        const at = text?.nodeType === Node.TEXT_NODE ? text.textContent.search(/word\d+/) : -1;
+        if (animation?.playState !== 'running' || at < 0) continue;
+        if (animation.effect.getComputedTiming().progress > 0.5) continue;
+        const word = text.textContent.slice(at).match(/word\d+/)[0];
+        const range = document.createRange();
+        range.setStart(text, at);
+        range.setEnd(text, at + word.length);
+        const box = range.getClientRects()[0];
+        if (!box || box.top < 0 || box.bottom > innerHeight) continue;
+        window.__pressed = wrapper;
+        return { word, x: box.left + box.width / 2, y: box.top + box.height / 2 };
+      }
+      return null;
+    },
+    { polling: 'raf', timeout: 10_000 }
+  );
+  const { word, x, y } = await fading.jsonValue();
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  // The fades end under the press: the pressed word's and every later one of its reply finish, and the reply renders on
+  // for two more frames.
+  const fadedOut = await page.evaluate(async () => {
+    const row = window.__pressed.closest('.transcript-virtual-row-content');
+    const pressed = window.__pressed.getAnimations();
+    const animations = [...row.querySelectorAll('mx-fade')].flatMap((wrapper) => wrapper.getAnimations());
+    await Promise.all(pressed.map((animation) => animation.finished.catch(() => undefined)));
+    const finished = pressed.every((animation) => animation.playState === 'finished');
+    await Promise.all(animations.map((animation) => animation.finished.catch(() => undefined)));
+    for (let frame = 0; frame < 2; frame += 1)
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return finished;
+  });
+  assert.ok(fadedOut, 'the pressed word faded in fully before the drag');
+  await page.mouse.move(x + 160, y, { steps: 6 });
+  await page.mouse.up();
+  const selected = await page.evaluate(() => document.getSelection().toString());
+  assert.ok(
+    selected.includes(word.slice(word.length / 2)),
+    `the drag selected from the pressed word ${word}: ${JSON.stringify(selected)}`
+  );
   assert.deepEqual(errors, []);
 });
 

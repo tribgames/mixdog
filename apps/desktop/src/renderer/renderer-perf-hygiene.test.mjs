@@ -11,6 +11,8 @@ import { useDiffColumnResize, useDockCellWidth } from './pane-side-dock-hooks.ts
 import { resolveDockLayout } from './pane-side-dock-layout.ts';
 import { PaneSplitLayout } from './PaneSplitLayout.tsx';
 import { SettingsView } from './settings/SettingsView.tsx';
+import { TranscriptRow } from './transcript-row.tsx';
+import { dropStreamFadeTimeline, streamFadeTimeline } from './markdown-stream-fade.ts';
 
 const rendererDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -592,6 +594,55 @@ test('PaneResizeHandle applies rAF-batched styles during drag, rolls back on can
   });
   assert.equal(ratios.length, 1);
   assert.ok(ratios[0] > 0.5, 'ArrowRight increases split ratio immediately');
+});
+
+test('useStreamFade does not re-arm fade timer on unrelated TranscriptRow renders', async (t) => {
+  const { root } = installTestDom(t, { rootId: 'root', expose: ['HTMLElement'] });
+  const key = 'assistant:fade-timer-stability';
+  t.after(() => dropStreamFadeTimeline(key));
+
+  const timeline = streamFadeTimeline(key, true);
+  const holder = {};
+  timeline.show(holder, performance.now() + 300);
+
+  let setTimeoutCalls = 0;
+  let clearTimeoutCalls = 0;
+  const origSetTimeout = globalThis.setTimeout;
+  const origClearTimeout = globalThis.clearTimeout;
+  globalThis.setTimeout = (...args) => {
+    setTimeoutCalls += 1;
+    return origSetTimeout(...args);
+  };
+  globalThis.clearTimeout = (...args) => {
+    clearTimeoutCalls += 1;
+    return origClearTimeout(...args);
+  };
+  t.after(() => {
+    globalThis.setTimeout = origSetTimeout;
+    globalThis.clearTimeout = origClearTimeout;
+  });
+
+  const renderRow = (title) =>
+    act(async () =>
+      root.render(
+        React.createElement(TranscriptRow, {
+          revealKey: key,
+          paced: true,
+          item: { id: 'fade-timer-stability', kind: 'assistant', text: 'Hello world', streaming: false, title },
+        })
+      )
+    );
+
+  await renderRow('first');
+  const armed = setTimeoutCalls;
+  const cleared = clearTimeoutCalls;
+  assert.ok(armed >= 1, 'initial render arms fade end timer');
+
+  // Unrelated re-renders with identical fade timeline state must not cancel/re-arm the timer.
+  await renderRow('second');
+  await renderRow('third');
+  assert.equal(setTimeoutCalls, armed, 'unrelated renders do not re-arm fade timer');
+  assert.equal(clearTimeoutCalls, cleared, 'unrelated renders do not clear fade timer');
 });
 
 test('SettingsView defers non-active tab IPC warmups until idle time after first paint', async (t) => {

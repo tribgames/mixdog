@@ -469,6 +469,40 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
 .markdown.streaming :is(h1, h2, h3, h4, h5, h6):empty {
   display: none;
 }
+/* Phrases of a streamed reply (markdown-stream-fade.ts). The wrappers are
+   plain inline elements and only opacity animates, so the fade costs no
+   layout. Each fade's duration and its offset on the reply timeline (negative
+   when an element is re-created mid-fade) are set inline when its element is
+   created. A list item fades only its marker (its words fade themselves);
+   table rows, quotes, rules and inline code fade whole with their first word.
+   Once its fade ended a phrase is unwrapped, unless a press or the selection
+   stands in its reply. */
+[data-stream-fade],
+[data-stream-fade-box="box"] {
+  animation: markdown-stream-fade var(--mx-fade-ms, 400ms) linear backwards;
+  animation-delay: var(--mx-fade-delay, 0ms);
+}
+[data-stream-fade-box="marker"]::marker {
+  animation: markdown-stream-fade-marker var(--mx-fade-ms, 400ms) linear backwards;
+  animation-delay: var(--mx-fade-delay, 0ms);
+}
+@keyframes markdown-stream-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes markdown-stream-fade-marker {
+  from {
+    color: transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-stream-fade],
+  [data-stream-fade-box="box"],
+  [data-stream-fade-box="marker"]::marker {
+    animation: none;
+  }
+}
 /* Heading ladder — surveyed chat renderers land near 17/15/13px, 1.65/1.35/
    1.15em, or 3xl→sm: every rung must differ from BODY, not just from the
    rung above — size carries h1-h3, ink carries h4-h6. h4 sits at body size, so

@@ -121,7 +121,15 @@ test('paced step: cut back to the last space past half a step; never stop on a b
     'Intro words.\n',
     'stops before the marker line'
   );
-  assert.equal(list.slice(13, pacedRevealStep(list, 13, list.length, 2)), '- fi', 'steps on past the marker');
+  assert.equal(list.slice(13, pacedRevealStep(list, 13, list.length, 2)), '- first ', 'steps on past the marker');
+});
+
+test('paced step: a word it would cut whose end has arrived shows whole, so no half of it waits at a line end', () => {
+  const text = 'The photography of centuries';
+  assert.equal(text.slice(0, pacedRevealStep(text, 4, text.length, 6)), 'The photography ', 'on to the end of the word');
+  assert.equal(text.slice(0, pacedRevealStep(text, 19, 22, 2)), 'The photography of ce', 'its end not arrived: cut');
+  const run = `See ${'x'.repeat(40)} next`;
+  assert.equal(pacedRevealStep(run, 4, run.length, 6), 10, 'a run past a word is paced through');
 });
 
 test('paced: a streaming table never paints a partial row; prose stays word by word', () => {

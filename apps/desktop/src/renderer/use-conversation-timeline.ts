@@ -73,6 +73,7 @@ export function useConversationTimeline({
     | 'transcriptReaderAt'
     | 'resetTranscriptToLive'
     | 'transcriptHistoryRevision'
+    | 'transcriptOlderReading'
   >;
   sessionKey: string;
   draftMode: boolean;
@@ -142,6 +143,11 @@ export function useConversationTimeline({
   const populated = transcriptListShown && transcriptRows.length > 0;
   const phone = useMobileRemoteSurface();
   const readerPlaced = useCallback(() => pendingReaderPlace(pane, sessionKey) === null, [pane, sessionKey]);
+  const readerAt = source.transcriptReaderAt;
+  const revision = source.transcriptHistoryRevision;
+  // A short first window (down to 8 huge rows) may not fill the pane, and
+  // with nothing to scroll the top threshold is never crossed.
+  const fillAsking = useTranscriptHistoryFill(viewport, requestEarlierTranscript, revision, populated && !readerAt);
   const transcriptRevealed = useTranscriptReveal({
     identity,
     visit: presentation.visit,
@@ -154,6 +160,9 @@ export function useConversationTimeline({
     eager: phone,
     pinned: following,
     placed: readerPlaced,
+    // A pane that does not fill is grown at once (useTranscriptHistoryFill, the positioned window's backfill).
+    growing: source.transcriptOlderReading,
+    asking: fillAsking,
   });
   // A disabled reveal reads as revealed; only populated rows count as an entry.
   useLayoutEffect(() => {
@@ -167,7 +176,6 @@ export function useConversationTimeline({
   // changes; the window decides what that view is near.
   const rowsRef = useRef(transcriptRows);
   rowsRef.current = transcriptRows;
-  const readerAt = source.transcriptReaderAt;
   /** Tells the window where the reader is: the rows under the viewport as it stands when this is called, which is where a
    *  scroll arrived when its event is heard. */
   const reportReader = useCallback(() => {
@@ -175,14 +183,10 @@ export function useConversationTimeline({
     const at = root ? readerItems(root, rowsRef.current) : null;
     if (at) readerAt?.(at.first, at.last);
   }, [readerAt, viewport]);
-  const revision = source.transcriptHistoryRevision;
   // biome-ignore lint/correctness/useExhaustiveDependencies: the window's revision and the rows' count are the triggers
   useEffect(() => {
     if (readerAt && transcriptRevealed) reportReader();
   }, [readerAt, reportReader, revision, transcriptRevealed, transcriptRows.length]);
-  // A short first window (down to 8 huge rows) may not fill the pane, and
-  // with nothing to scroll the top threshold is never crossed.
-  useTranscriptHistoryFill(viewport, requestEarlierTranscript, revision, populated && !readerAt);
   // The latest reply lives on the live tail: a history window gives way.
   const jumpToLatest = useCallback(() => {
     resetTranscriptToLive();

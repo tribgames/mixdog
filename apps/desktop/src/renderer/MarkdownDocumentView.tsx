@@ -6,9 +6,11 @@ import { MarkdownBlock } from './markdown-block';
 import { type BlockParking, MarkdownBlockParkingContext, UNIT_ATTRIBUTE } from './markdown-block-parking';
 import type { MarkdownCopyControl } from './markdown-components';
 import { isMarkdownPage, type MarkdownAstChild, type MarkdownPage, type MarkdownUnit } from './markdown-document';
+import type { StreamFadeTimeline } from './markdown-stream-fade';
 import { containsFencedCodeMarkdown, MarkdownSourceFallback } from './MarkdownSourceFallback';
 
 interface DocumentScope {
+  fadeTimeline: StreamFadeTimeline | null;
   copyControl: MarkdownCopyControl;
   parking: BlockParking | null;
 }
@@ -47,7 +49,12 @@ function useUnitParking(
 
 function UnitBody({ unit, node, scope }: { unit: MarkdownUnit; node: MarkdownAstChild; scope: DocumentScope }) {
   const root = useMemo(() => ({ type: 'root', children: [node] }) as MarkdownAstRoot, [node]);
-  return useMarkdownAst(root, scope.copyControl, scope.parking ? unit.key : null);
+  return useMarkdownAst(
+    root,
+    scope.copyControl,
+    { timeline: scope.fadeTimeline, offset: unit.base, from: unit.from, end: unit.end },
+    scope.parking ? unit.key : null
+  );
 }
 
 /** Text whose parse is still to land: fenced code shows as source and prose
@@ -141,9 +148,17 @@ function PageItems({ page }: { page: MarkdownPage }) {
 const MarkdownDocumentPage = memo(PageItems);
 
 /** A reply's pages (markdown-document), live or finished alike. */
-export function MarkdownDocumentView({ root, copyControl }: { root: MarkdownPage; copyControl: MarkdownCopyControl }) {
+export function MarkdownDocumentView({
+  root,
+  fadeTimeline,
+  copyControl,
+}: {
+  root: MarkdownPage;
+  fadeTimeline: StreamFadeTimeline | null;
+  copyControl: MarkdownCopyControl;
+}) {
   const parking = useContext(MarkdownBlockParkingContext);
-  const scope = useMemo(() => ({ copyControl, parking }), [copyControl, parking]);
+  const scope = useMemo(() => ({ fadeTimeline, copyControl, parking }), [fadeTimeline, copyControl, parking]);
   return (
     <DocumentScopeContext.Provider value={scope}>
       <MarkdownDocumentPage page={root} />

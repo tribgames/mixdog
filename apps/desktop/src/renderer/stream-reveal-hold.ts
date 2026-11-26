@@ -51,6 +51,9 @@ const CODE_SPAN = /`+[^`\n]*`+/g;
 /** What a delimiter row may look like while it streams in. */
 const PARTIAL_DELIMITER = /^[ \t>]*\|?[ \t:|-]*$/;
 const TABLE_LOOKBACK_LINES = 64;
+/** A paced step finishes a word it cuts only this far on: a longer run (a path, a URL, unspaced CJK prose) is paced
+ *  through as it is. */
+const WORD_REST_MAX = 24;
 
 let fenceCache: { text: string; ranges: number[] } | null = null;
 
@@ -272,12 +275,19 @@ export function pacedRevealCeiling(text: string): number {
 }
 
 /** `size` characters on from `from`, never past `ceiling`, back to just
- *  after the last space when that keeps more than half the step. */
+ *  after the last space when that keeps more than half the step, else on to
+ *  the end of a word it cuts when that end has arrived: the first part of a
+ *  word shown at a line's end would jump to the next line once the rest shows,
+ *  the row growing a line only then. */
 function wordStep(text: string, from: number, ceiling: number, size: number): number {
   const cut = Math.min(from + size, ceiling);
   if (cut < ceiling) {
     const space = text.lastIndexOf(' ', cut);
     if (space > from + size / 2) return space + 1;
+    if (/\S/.test(text[cut - 1] ?? '') && /\S/.test(text[cut])) {
+      const rest = text.slice(cut, Math.min(ceiling, cut + WORD_REST_MAX)).search(/\s/);
+      if (rest > 0) return cut + rest + 1;
+    }
   }
   return wholeChar(text, cut);
 }
