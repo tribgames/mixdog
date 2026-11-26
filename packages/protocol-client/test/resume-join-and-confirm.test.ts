@@ -236,7 +236,7 @@ test('a rejected legacy recovery reports loss and a later retry cannot reuse the
   await retry;
 });
 
-test('the automatic follow retries a refused turns window rather than substituting its item default', async () => {
+test('terminal FEED_GONE drops lostWindows and clears cursorReset; non-terminal loss retains the turns window', async () => {
   const { net, conn, client } = await setup();
   const initial = client.resumeThread('t1', { lastTurns: 18 });
   conn.serverSend(reply(JSON.parse(await conn.nextSent()).id, 'snapshot'));
@@ -246,7 +246,13 @@ test('the automatic follow retries a refused turns window rather than substituti
   const init = JSON.parse(await again.nextSent());
   again.serverSend({ id: init.id, result: { ...options.initializeResult, serverInstanceId: 's1' } });
   await again.nextSent();
-  const restore = JSON.parse(await again.nextSent());
+  // First restore refusal invalidates cursor, populating cursorReset; second returns terminal FEED_GONE.
+  const firstRestore = JSON.parse(await again.nextSent());
+  again.serverSend({
+    id: firstRestore.id,
+    error: { code: -32000, message: 'cursor gone', data: { reason: 'cursorInvalidated' } },
+  });
+  const secondRestore = JSON.parse(await again.nextSent());
   const lost = new Promise<void>((resolve) => {
     const off = client.store.subscribe((c) => {
       if (c.type !== 'subscription' || c.feedId !== 't1' || c.state !== 'lost') return;
@@ -255,15 +261,35 @@ test('the automatic follow retries a refused turns window rather than substituti
     });
   });
   again.serverSend({
-    id: restore.id,
+    id: secondRestore.id,
     error: { code: -32000, message: 'thread missing', data: { reason: 'threadNotFound' } },
   });
   await lost;
+  assert.equal((client as unknown as { cursorReset: Set<string> }).cursorReset.has('t1'), false);
+  assert.equal((client as unknown as { lostWindows: Map<string, unknown> }).lostWindows.has('t1'), false);
   const retry = client.resumeThread('t1', { lastItems: 50 }, { join: true, follow: true });
   const asked = JSON.parse(await again.nextSent());
-  assert.deepEqual(asked.params.window, { lastTurns: 18 });
+  assert.deepEqual(asked.params.window, { lastItems: 50 }, 'terminal FEED_GONE drops stale lostWindows entry');
   again.serverSend(reply(asked.id, 'snapshot'));
   await retry;
+
+  // Non-terminal loss via reopenThread retains the turns window when joining.
+  const turnsOpen = client.resumeThread('t2', { lastTurns: 18 });
+  again.serverSend(reply(JSON.parse(await again.nextSent()).id, 'snapshot'));
+  await turnsOpen;
+  const reopened = client.reopenThread('t2', { lastItems: 50 }, { join: true, follow: true });
+  const reopenReq = JSON.parse(await again.nextSent());
+  assert.deepEqual(reopenReq.params.window, { lastTurns: 18 });
+  again.serverSend(reply(reopenReq.id, 'snapshot'));
+  await reopened;
+
+  // unsubscribeThread also clears cursorReset.
+  (client as unknown as { cursorReset: Set<string> }).cursorReset.add('t2');
+  const unsub = client.unsubscribeThread('t2');
+  const unsubReq = JSON.parse(await again.nextSent());
+  assert.equal((client as unknown as { cursorReset: Set<string> }).cursorReset.has('t2'), false);
+  again.serverSend({ id: unsubReq.id, result: {} });
+  await unsub;
   await client.close();
 });
 

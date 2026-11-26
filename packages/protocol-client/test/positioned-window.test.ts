@@ -415,7 +415,12 @@ test('a held record sent again with a compaction divider shows the divider after
 });
 
 test('a live reply completed blank ends its live row and folds to no row, in a positioned fold and a plain one', () => {
-  const plain = sessionReducer.initial({ thread: { id: 't' }, state: {}, items: [], hasOlder: false } as unknown as Json);
+  const plain = sessionReducer.initial({
+    thread: { id: 't' },
+    state: {},
+    items: [],
+    hasOlder: false,
+  } as unknown as Json);
   for (const [name, start] of [
     ['positioned', snapshot(['r1', 'r2'])],
     ['plain', plain],
@@ -429,5 +434,102 @@ test('a live reply completed blank ends its live row and folds to no row, in a p
     assert.equal(s.live, null, `${name}: the live row ends`);
     assert.equal(state(s).streamingTail ?? null, null, name);
     assert.deepEqual(ids(s.items), rows, `${name}: whitespace is no row`);
+  }
+});
+
+test('small initial positioned snapshots fold synchronously in initialState without multi-tick pacing yields', async () => {
+  const net = new MockNetwork();
+  let now = 0;
+  let yields = 0;
+  const connecting = connect<SessionFold>({
+    target: { id: 'local' },
+    connector: net,
+    clientInfo: options.clientInfo,
+    capabilities: options.capabilities,
+    threadReducer: sessionReducer,
+    positionedTranscripts: true,
+    clock: { sleep: () => Promise.resolve() },
+    random: () => 0,
+    turn: {
+      budgetMs: 0,
+      now: () => {
+        now += 10;
+        return now;
+      },
+      yieldTurn: async () => {
+        yields += 1;
+        await new Promise((r) => setImmediate(r));
+      },
+    },
+  });
+  const conn = await net.accept();
+  const init = JSON.parse(await conn.nextSent());
+  conn.serverSend({ id: init.id, result: { ...options.initializeResult, serverInstanceId: 's1' } });
+  await conn.nextSent();
+  const client = await connecting;
+  const resumed = client.resumeThread('t-sync', { lastItems: 50 });
+  const resume = JSON.parse(await conn.nextSent());
+  conn.serverSend({
+    id: resume.id,
+    result: { thread: { id: 't-sync' }, subscription: { id: 'sub-sync', mode: 'snapshot', epoch: 'e1', startSeq: 1 } },
+  });
+  await resumed;
+  await new Promise((r) => setImmediate(r));
+  yields = 0;
+  const tailIds = Array.from({ length: 40 }, (_, i) => `m${i}`);
+  conn.serverSend({
+    method: 'thread/snapshot',
+    params: {
+      thread: { id: 't-sync' },
+      state: {},
+      items: [],
+      hasOlder: true,
+      window: {
+        windowVersion: 1,
+        lineage: 0,
+        ranges: [{ id: 'tail', older: cont(pos(tailIds[0]!)), newer: end }],
+        added: [{ range: 'tail', units: units(tailIds) }],
+        followTail: true,
+      },
+    },
+    feed: { id: 't-sync', epoch: 'e1', seq: 1 },
+  });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(ids((sessionStateOf(client, 't-sync') as O).items).length, 40);
+  assert.equal(yields, 0, 'small positioned snapshot folds without pacing yields');
+  await client.close();
+});
+
+test('carryShown purges superseded and removed unit IDs from shown.ids without fallback scans', async () => {
+  const { countFoldWork, shownAt, transcriptChanged } = await import('../src/positioned.ts');
+  const s = snapshot(['r1', 'r2', 'r3']);
+  let held = s.held!;
+  // Prime shown index on the window.
+  assert.equal(shownAt(held, 'r2'), pos('r2'));
+  const work = { placed: 0, copied: 0, merged: 0 };
+  countFoldWork(work);
+  try {
+    // Replace unit at pos('r2') with a different item id.
+    const replaced = transcriptChanged(
+      held,
+      { op: 'replace', unit: { position: pos('r2'), items: [reply('r2-new', 'updated')] } },
+      (row) => row
+    );
+    assert.ok(replaced);
+    held = replaced.window;
+    work.copied = 0;
+    assert.equal(shownAt(held, 'r2'), undefined, 'superseded id is purged from shown.ids');
+    assert.equal(work.copied, 0, 'lookup of purged id does not scan all units');
+    assert.equal(shownAt(held, 'r2-new'), pos('r2'));
+
+    // Remove unit at pos('r3').
+    const removed = transcriptChanged(held, { op: 'remove', position: pos('r3') }, (row) => row);
+    assert.ok(removed);
+    held = removed.window;
+    work.copied = 0;
+    assert.equal(shownAt(held, 'r3'), undefined, 'removed unit id is purged from shown.ids');
+    assert.equal(work.copied, 0, 'lookup of removed id does not scan all units');
+  } finally {
+    countFoldWork(null);
   }
 });

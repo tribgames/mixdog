@@ -11,7 +11,9 @@ import {
   enforceOwnerOnlyAclWin32,
   enforceOwnerOnlyAclWin32Async,
   ownerOnlyAclHelperForTests,
+  ownerOnlyAclSyncBridgeForTests,
   prewarmOwnerOnlyAclWin32,
+  setOwnerOnlyAclIdleMsForTests,
 } from './file-permissions.mjs';
 
 const execute = promisify(childProcess.execFile);
@@ -196,6 +198,50 @@ test('a synchronous fresh-file ACL goes through the bridge helper: no process sp
     assert.equal(sids.includes('S-1-5-32-545'), false);
     assert.equal(sids.length, 1);
   }
+});
+
+test('idle ACL helper and sync bridge shut down cleanly and restart lazily on next request', {
+  skip: process.platform !== 'win32' && 'Windows only',
+}, async (t) => {
+  const root = await fixture(t);
+  t.after(() => setOwnerOnlyAclIdleMsForTests());
+
+  const asyncPath = join(root, 'async-secret');
+  const syncPath = join(root, 'sync-secret');
+  await writeFile(asyncPath, 'secret');
+  await writeFile(syncPath, 'secret');
+
+  await enforceOwnerOnlyAclWin32Async(asyncPath);
+  enforceOwnerOnlyAclWin32(syncPath, { fresh: true });
+  const helper = ownerOnlyAclHelperForTests();
+  const bridge = ownerOnlyAclSyncBridgeForTests();
+  assert.ok(helper, 'async ACL helper started');
+  assert.ok(bridge, 'sync ACL bridge worker started');
+
+  const helperExited = once(helper, 'exit');
+  const bridgeExited = once(bridge, 'exit');
+  setOwnerOnlyAclIdleMsForTests(200);
+  // Both idle timers, the child process, and the worker are unref'd so an idle Node
+  // process can exit immediately; hold one ref'd timer while awaiting their teardown.
+  const keepAlive = setTimeout(() => {}, 10_000);
+  try {
+    await Promise.all([helperExited, bridgeExited]);
+  } finally {
+    clearTimeout(keepAlive);
+  }
+  assert.equal(ownerOnlyAclHelperForTests(), null, 'idle async helper cleared');
+  assert.equal(ownerOnlyAclSyncBridgeForTests(), null, 'idle sync bridge cleared');
+
+  // Lazy restart on subsequent calls tightens widened ACLs cleanly without burning the crash budget.
+  setOwnerOnlyAclIdleMsForTests();
+  await widen(asyncPath);
+  await widen(syncPath);
+  await enforceOwnerOnlyAclWin32Async(asyncPath);
+  enforceOwnerOnlyAclWin32(syncPath, { fresh: true });
+  assert.ok(ownerOnlyAclHelperForTests(), 'async helper restarted lazily');
+  assert.ok(ownerOnlyAclSyncBridgeForTests(), 'sync bridge restarted lazily');
+  assert.equal((await aclSids(asyncPath)).length, 1);
+  assert.equal((await aclSids(syncPath)).length, 1);
 });
 
 test('a helper that cannot start falls back to a one-shot update per call', {

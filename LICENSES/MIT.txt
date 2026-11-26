@@ -42,6 +42,10 @@ component listed here. Each component keeps its own copyright notice.
   https://github.com/webrtc-rs/webrtc
   Copyright (c) 2021 WebRTC.rs
 
+  @git-diff-view/lowlight (packages/lowlight)
+  https://github.com/MrWangJustToDo/git-diff-view
+  Copyright (c) 2022 MrWangJustToDo
+
   The remaining MIT-licensed Rust crates, with their copyright holders, are
   listed in rust-crates-NOTICE.txt.
 

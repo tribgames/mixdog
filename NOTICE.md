@@ -28,6 +28,8 @@ Full license texts live in `LICENSES/`:
   and Apache-2.0 (see the Rust crates section below).
 - `LICENSES/libvpx-BSD-3-Clause.txt` — the libvpx licence and patent grant
   for the prebuilt libvpx linked into the native binaries.
+- `LICENSES/highlightjs-vue-BSD-3-Clause.txt` — BSD-3-Clause licence for the
+  Vue syntax grammar embedded in the desktop renderer.
 - Texts for the code ported or embedded in the Rust core, named in the Ported
   and embedded works section below (`pdfium-*`, `adobe-cmap-*`, `openjpeg-*`,
   `liberation-fonts-*`, `skia-*`, `highlight.js-*`, `cli-highlight-*`,
@@ -83,6 +85,14 @@ The default pull-request query set and its category labels in
 
 Bundled glyphs and colour tables. Full license text in
 `apps/desktop/THIRD-PARTY-NOTICES.txt`.
+
+### @git-diff-view/lowlight 0.1.8 — Copyright (c) 2022 MrWangJustToDo
+
+<https://github.com/MrWangJustToDo/git-diff-view> (`packages/lowlight`)
+
+The `processAST` line-token walker and diff syntax highlighter adapter in
+`apps/desktop/src/renderer/shared-diff-lowlight.ts` are adapted from
+`@git-diff-view/lowlight`. Full license text: `LICENSES/MIT.txt`.
 
 ### ripgrep — Copyright (c) 2015 Andrew Gallant
 
@@ -325,9 +335,17 @@ no license text. libvpx is BSD-3-Clause, Copyright (c) 2010, The WebM Project
 authors, with the WebM patent license grant (PATENTS); both are in
 `LICENSES/libvpx-BSD-3-Clause.txt`, taken from the libvpx v1.17.0 tree.
 
-## BSD-3-Clause, BSD-2-Clause, ISC and Unicode-3.0 works carried in the Rust core
+## BSD-3-Clause, BSD-2-Clause, ISC and Unicode-3.0 works
 
-### Ported and embedded works
+### Desktop renderer
+
+- **highlightjs-vue** (Copyright (c) 2019, Sara Lissette Luis Ibáñez,
+  BSD-3-Clause; <https://github.com/highlightjs/highlightjs-vue>): the
+  `hljsDefineVue` Vue SFC syntax grammar embedded in
+  `apps/desktop/src/renderer/shared-lowlight-extra.ts`. Full license text:
+  `LICENSES/highlightjs-vue-BSD-3-Clause.txt`.
+
+### Ported and embedded works in the Rust core
 
 - **V8** (Copyright 2011-2024 the V8 project authors, BSD-3-Clause) and **fdlibm**
   (Copyright (C) 1993 Sun Microsystems, Inc.): the JavaScript `Math` functions and

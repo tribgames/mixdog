@@ -64,7 +64,7 @@ test('a call_tool bridge of a hidden tool is hidden as its direct form; string a
   });
 });
 
-test('a skill load shows only once its result says it is not built in, so a built-in one never counts in its group', () => {
+test('an unfinished Skill call emits visibly on start while a completed built-in skill load stays hidden', () => {
   const skill = (output?: string): Obj => ({
     type: 'toolCall',
     id: 's',
@@ -74,7 +74,10 @@ test('a skill load shows only once its result says it is not built in, so a buil
     meta: { status: output === undefined ? 'inProgress' : 'completed', at: 1 },
     run: { live: true, callId: 's' },
   });
-  assert.deepEqual(project([skill()]), []);
+  const started = project([skill()]);
+  assert.equal(started.length, 1, 'unfinished Skill call shows on start');
+  assert.equal(started[0]?.count, 1);
+  assert.equal(started[0]?.completedCount, 0);
   assert.deepEqual(project([skill('Loaded built-in skill: pdf')]), []);
   const shown = project([skill('Loaded skill: mine')]);
   assert.equal(shown.length, 1);
@@ -96,7 +99,7 @@ test('an imported Skill run, finished and counted with no result body, stays sho
   );
 });
 
-test('a run notice or compaction marker inside a run of calls follows the run, which a reload shows whole', () => {
+test('a run notice or compaction marker inside a run of calls stays in chronological emission order', () => {
   const notice = {
     type: 'statusRow',
     id: 'n',
@@ -114,13 +117,15 @@ test('a run notice or compaction marker inside a run of calls follows the run, w
     assert.deepEqual(
       rows.map((row) => [row.id, row.name ?? row.kind]),
       [
-        ['a', '__aggregate__'],
+        ['a', live ? '__aggregate__' : 'read'],
         ['n', 'notice'],
         ['m', 'statusdone'],
+        ['b', live ? '__aggregate__' : 'read'],
       ],
       live ? 'live' : 'restored'
     );
-    assert.equal(rows[0]?.count, 2);
+    assert.equal(rows[0]?.count, 1);
+    assert.equal(rows[3]?.count, 1);
   }
 });
 

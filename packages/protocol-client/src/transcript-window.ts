@@ -32,7 +32,7 @@ export type TranscriptMove =
 /** Rows a page asks for past an end of the stretch shown. */
 export const WINDOW_PAGE_ROWS = 96;
 /** A page is asked for while fewer rows than this lie between the reader's view and an end that continues. */
-export const WINDOW_LEAD_ROWS = 144;
+export const WINDOW_LEAD_ROWS = 96;
 /** The most rows held for the reader apart from the tail's range: past it, ranges far from the reader's view are let go.
  *  Wide enough that the way back down an ordinary read shows the rows it already holds, with none read again. */
 export const WINDOW_VIEW_MAX_ROWS = 2_048;
@@ -415,7 +415,10 @@ async function step(client: ProtocolClient<SessionFold>, threadId: string, move:
         const now = client.store.thread(threadId)?.state.held;
         if (owed && now) {
           let failed = keepFailed.get(client);
-          if (!failed) keepFailed.set(client, (failed = new Map()));
+          if (!failed) {
+            failed = new Map();
+            keepFailed.set(client, failed);
+          }
           failed.set(threadId, { version: base, rows: rangeRows(now, TAIL_RANGE) });
         }
         return false;
@@ -427,7 +430,10 @@ async function step(client: ProtocolClient<SessionFold>, threadId: string, move:
     const read = owed ? client.store.thread(threadId)?.state.held : undefined;
     if (read) {
       let fresh = freshTail.get(client);
-      if (!fresh) freshTail.set(client, (fresh = new Map()));
+      if (!fresh) {
+        fresh = new Map();
+        freshTail.set(client, fresh);
+      }
       fresh.set(threadId, rangeRows(read, TAIL_RANGE));
     }
     return servedBy(client, threadId, move);
@@ -445,13 +451,19 @@ export function moveTranscriptWindow(
   move: TranscriptMove
 ): Promise<boolean> {
   let stood = standing.get(client);
-  if (!stood) standing.set(client, (stood = new Map()));
+  if (!stood) {
+    stood = new Map();
+    standing.set(client, stood);
+  }
   let readers = stood.get(threadId);
   if (move.kind === 'follow') {
     readers?.delete(move.reader ?? '');
     if (readers?.size === 0) stood.delete(threadId);
   } else {
-    if (!readers) stood.set(threadId, (readers = new Map()));
+    if (!readers) {
+      readers = new Map();
+      stood.set(threadId, readers);
+    }
     readers.set(move.reader ?? '', move);
   }
   return drive(client, threadId, move);
@@ -471,9 +483,15 @@ export function keepTranscriptWindow(client: ProtocolClient<SessionFold>, thread
 
 function drive(client: ProtocolClient<SessionFold>, threadId: string, move: Step): Promise<boolean> {
   let threads = driving.get(client);
-  if (!threads) driving.set(client, (threads = new Map()));
+  if (!threads) {
+    threads = new Map();
+    driving.set(client, threads);
+  }
   let d = threads.get(threadId);
-  if (!d) threads.set(threadId, (d = { queue: [], running: false }));
+  if (!d) {
+    d = { queue: [], running: false };
+    threads.set(threadId, d);
+  }
   const lane = d;
   const owner = threads;
   return new Promise<boolean>((resolve) => {

@@ -18,11 +18,13 @@ function execFileAsync(file, args, options) {
 }
 
 const ACL_HELPER_REQUEST_TIMEOUT_MS = 15_000;
+const ACL_HELPER_DEFAULT_IDLE_MS = 30_000;
 // At most this many helper starts per window. A lifetime budget let three
 // unrelated losses (a request deadline missed across a system sleep, an
 // antivirus stall) pin a days-old process to a PowerShell spawn per read.
 const ACL_HELPER_MAX_STARTS = 3;
 const ACL_HELPER_START_WINDOW_MS = 10 * 60_000;
+let aclHelperIdleMs = ACL_HELPER_DEFAULT_IDLE_MS;
 let aclHelper = null;
 let aclHelperStartTimes = [];
 let aclHelperSeq = 0;
@@ -80,17 +82,34 @@ function startAclHelper(icacls, sid) {
   } catch {
     return null;
   }
-  const helper = { child, pending: new Map(), buffer: '', dead: false };
+  const helper = { child, pending: new Map(), buffer: '', dead: false, idleTimer: null, startedAt: now };
   helper.fail = (cause) => {
     if (aclHelper === helper) aclHelper = null;
     if (helper.dead) return;
     helper.dead = true;
+    clearAclHelperIdleTimer(helper);
     const lost = [...helper.pending.values()];
     helper.pending.clear();
     for (const request of lost) request.lost(cause);
     try {
       child.kill();
     } catch {}
+  };
+  helper.shutdownIdle = () => {
+    if (aclHelper === helper) aclHelper = null;
+    if (helper.dead) return;
+    helper.dead = true;
+    clearAclHelperIdleTimer(helper);
+    // Clean idle teardown is not a crash; refund its slot in the restart window.
+    const idx = aclHelperStartTimes.indexOf(helper.startedAt);
+    if (idx >= 0) aclHelperStartTimes.splice(idx, 1);
+    try {
+      child.stdin.end();
+    } catch {
+      try {
+        child.kill();
+      } catch {}
+    }
   };
   child.on('error', helper.fail);
   child.on('exit', () => helper.fail(new Error('Windows ACL helper exited')));
@@ -100,6 +119,13 @@ function startAclHelper(icacls, sid) {
   readAclHelperReplies(helper);
   syncAclHelperRef(helper);
   return helper;
+}
+
+function clearAclHelperIdleTimer(helper) {
+  if (helper.idleTimer) {
+    clearTimeout(helper.idleTimer);
+    helper.idleTimer = null;
+  }
 }
 
 function readAclHelperReplies(helper) {
@@ -124,10 +150,24 @@ function readAclHelperReplies(helper) {
 // answer the helper's handles do, so the answer is delivered even when the
 // request's deadline timer is mocked or otherwise not a live handle.
 function syncAclHelperRef(helper) {
-  const method = helper.pending.size > 0 ? 'ref' : 'unref';
+  const busy = helper.pending.size > 0;
+  const method = busy ? 'ref' : 'unref';
   helper.child[method]();
   helper.child.stdin[method]?.();
   helper.child.stdout[method]?.();
+  clearAclHelperIdleTimer(helper);
+  if (!busy && !helper.dead && aclHelperIdleMs > 0) {
+    helper.idleTimer = setTimeout(() => {
+      helper.idleTimer = null;
+      if (helper.dead || helper.pending.size > 0) return;
+      helper.shutdownIdle();
+    }, aclHelperIdleMs);
+    helper.idleTimer.unref?.();
+  }
+}
+
+export function shutdownOwnerOnlyAclHelper() {
+  if (aclHelper) aclHelper.shutdownIdle();
 }
 
 /** Resolves `{ status, detail }` from the helper, or `{ lost }` when it could not answer. */
@@ -165,6 +205,41 @@ const ACL_SYNC_BRIDGE_TIMEOUT_MS = 2 * ACL_HELPER_REQUEST_TIMEOUT_MS + 5_000;
 let aclSyncBridge = null;
 let aclSyncBridgeBroken = false;
 
+function clearSyncBridgeIdleTimer(bridge) {
+  if (bridge.idleTimer) {
+    clearTimeout(bridge.idleTimer);
+    bridge.idleTimer = null;
+  }
+}
+
+function shutdownIdleSyncBridge(bridge) {
+  clearSyncBridgeIdleTimer(bridge);
+  if (aclSyncBridge !== bridge) return;
+  aclSyncBridge = null;
+  try {
+    bridge.port.postMessage({ shutdown: true });
+    bridge.port.close();
+  } catch {
+    void bridge.worker.terminate();
+    return;
+  }
+  const force = setTimeout(() => {
+    void bridge.worker.terminate();
+  }, 2_000);
+  force.unref?.();
+  bridge.worker.once('exit', () => clearTimeout(force));
+}
+
+function armSyncBridgeIdleTimer(bridge) {
+  clearSyncBridgeIdleTimer(bridge);
+  if (aclSyncBridge !== bridge || aclHelperIdleMs <= 0) return;
+  bridge.idleTimer = setTimeout(() => {
+    bridge.idleTimer = null;
+    shutdownIdleSyncBridge(bridge);
+  }, aclHelperIdleMs);
+  bridge.idleTimer.unref?.();
+}
+
 function syncBridge() {
   if (aclSyncBridge || aclSyncBridgeBroken) return aclSyncBridge;
   try {
@@ -179,8 +254,9 @@ function syncBridge() {
       workerData: { port: port2, signal },
       transferList: [port2],
     });
-    const bridge = { worker, port: port1, signal, seq: 0, startedAt: Date.now() };
+    const bridge = { worker, port: port1, signal, seq: 0, startedAt: Date.now(), idleTimer: null };
     const drop = () => {
+      clearSyncBridgeIdleTimer(bridge);
       if (aclSyncBridge === bridge) aclSyncBridge = null;
     };
     worker.on('error', drop);
@@ -188,6 +264,7 @@ function syncBridge() {
     worker.unref();
     port1.unref?.();
     aclSyncBridge = bridge;
+    armSyncBridgeIdleTimer(bridge);
   } catch {
     aclSyncBridgeBroken = true;
   }
@@ -195,6 +272,7 @@ function syncBridge() {
 }
 
 function dropSyncBridge(bridge) {
+  clearSyncBridgeIdleTimer(bridge);
   if (aclSyncBridge !== bridge) return;
   aclSyncBridge = null;
   void bridge.worker.terminate();
@@ -205,25 +283,30 @@ function dropSyncBridge(bridge) {
 function askSyncBridge(targetPath) {
   const bridge = syncBridge();
   if (!bridge) return { lost: new Error('Windows ACL bridge unavailable') };
-  bridge.seq += 1;
-  const id = bridge.seq;
-  let seen = Atomics.load(bridge.signal, 0);
-  bridge.port.postMessage({ id, path: targetPath });
-  const deadline = Date.now() + ACL_SYNC_BRIDGE_TIMEOUT_MS;
-  for (;;) {
-    for (let received = receiveMessageOnPort(bridge.port); received; received = receiveMessageOnPort(bridge.port)) {
-      if (received.message?.id === id) return received.message;
+  clearSyncBridgeIdleTimer(bridge);
+  try {
+    bridge.seq += 1;
+    const id = bridge.seq;
+    let seen = Atomics.load(bridge.signal, 0);
+    bridge.port.postMessage({ id, path: targetPath });
+    const deadline = Date.now() + ACL_SYNC_BRIDGE_TIMEOUT_MS;
+    for (;;) {
+      for (let received = receiveMessageOnPort(bridge.port); received; received = receiveMessageOnPort(bridge.port)) {
+        if (received.message?.id === id) return received.message;
+      }
+      const now = Date.now();
+      const ready = Atomics.load(bridge.signal, 2) === 1;
+      if (Atomics.load(bridge.signal, 1) === 1 || (!ready && now - bridge.startedAt >= ACL_SYNC_BRIDGE_READY_MS)) {
+        dropSyncBridge(bridge);
+        return { lost: new Error('Windows ACL bridge exited') };
+      }
+      if (now >= deadline) return { timedOut: true };
+      const wait = ready ? deadline - now : Math.min(deadline - now, bridge.startedAt + ACL_SYNC_BRIDGE_READY_MS - now);
+      Atomics.wait(bridge.signal, 0, seen, Math.max(1, wait));
+      seen = Atomics.load(bridge.signal, 0);
     }
-    const now = Date.now();
-    const ready = Atomics.load(bridge.signal, 2) === 1;
-    if (Atomics.load(bridge.signal, 1) === 1 || (!ready && now - bridge.startedAt >= ACL_SYNC_BRIDGE_READY_MS)) {
-      dropSyncBridge(bridge);
-      return { lost: new Error('Windows ACL bridge exited') };
-    }
-    if (now >= deadline) return { timedOut: true };
-    const wait = ready ? deadline - now : Math.min(deadline - now, bridge.startedAt + ACL_SYNC_BRIDGE_READY_MS - now);
-    Atomics.wait(bridge.signal, 0, seen, Math.max(1, wait));
-    seen = Atomics.load(bridge.signal, 0);
+  } finally {
+    if (aclSyncBridge === bridge) armSyncBridgeIdleTimer(bridge);
   }
 }
 
@@ -242,7 +325,13 @@ export async function prewarmOwnerOnlyAclWin32({ bridge = true } = {}) {
     const icacls = icaclsPath();
     if (cachedUserSid === null) cachedUserSid = await resolveCurrentUserPrincipalAsync();
     if (!aclHelper) aclHelper = startAclHelper(icacls, cachedUserSid);
-    if (bridge) syncBridge()?.port.postMessage({ warm: true });
+    if (bridge) {
+      const b = syncBridge();
+      if (b) {
+        b.port.postMessage({ warm: true });
+        armSyncBridgeIdleTimer(b);
+      }
+    }
   } catch {
     /* enforcement itself reports any failure */
   }
@@ -251,6 +340,18 @@ export async function prewarmOwnerOnlyAclWin32({ bridge = true } = {}) {
 /** Test hook: the live helper process, or null. */
 export function ownerOnlyAclHelperForTests() {
   return aclHelper?.child ?? null;
+}
+
+/** Test hook: the live sync bridge worker, or null. */
+export function ownerOnlyAclSyncBridgeForTests() {
+  return aclSyncBridge?.worker ?? null;
+}
+
+/** Test hook: override the idle shutdown delay for helper and sync bridge. */
+export function setOwnerOnlyAclIdleMsForTests(ms = ACL_HELPER_DEFAULT_IDLE_MS) {
+  aclHelperIdleMs = ms;
+  if (aclHelper) syncAclHelperRef(aclHelper);
+  if (aclSyncBridge) armSyncBridgeIdleTimer(aclSyncBridge);
 }
 
 function systemToolPath(name) {

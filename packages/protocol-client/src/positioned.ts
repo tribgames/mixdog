@@ -150,7 +150,13 @@ export function unitOf(value: unknown, own: RowOwner): { position: string; unit:
 /** The records no range holds any more are let go. */
 function pruned(window: HeldWindow & { units: Map<string, HeldUnit> }): HeldWindow {
   const kept = new Set(window.ranges.flatMap((range) => range.positions));
-  for (const position of [...window.units.keys()]) if (!kept.has(position)) window.units.delete(position);
+  const shown = shownOf.get(window.units);
+  const ownShown = shown && shown.owner === window.units ? shown : undefined;
+  for (const [position, unit] of [...window.units.entries()]) {
+    if (kept.has(position)) continue;
+    if (ownShown) forgetShown(ownShown.ids, position, unit);
+    window.units.delete(position);
+  }
   return window;
 }
 
@@ -197,13 +203,39 @@ export function windowChanged(held: HeldWindow | undefined, params: unknown, own
  *  held is read again for a record that arrives. An entry may outlive its record; a lookup is checked against the
  *  record it names. A window off the line (an earlier one, another branch) builds its own. */
 interface Shown {
-  readonly ids: Map<unknown, string>;
+  readonly ids: Map<unknown, string | Set<string>>;
   owner: ReadonlyMap<string, HeldUnit>;
 }
 const shownOf = new WeakMap<ReadonlyMap<string, HeldUnit>, Shown>();
-const noteShown = (ids: Map<unknown, string>, position: string, unit: HeldUnit): void => {
-  for (const item of unit.items) ids.set(item, position);
-  for (const row of unit.rows) ids.set(row.id, position);
+const addShownId = (ids: Map<unknown, string | Set<string>>, id: unknown, position: string): void => {
+  const existing = ids.get(id);
+  if (existing === undefined || existing === position) {
+    ids.set(id, position);
+  } else if (typeof existing === 'string') {
+    ids.set(id, new Set([existing, position]));
+  } else {
+    existing.add(position);
+  }
+};
+const removeShownId = (ids: Map<unknown, string | Set<string>>, id: unknown, position: string): void => {
+  const existing = ids.get(id);
+  if (existing === undefined) return;
+  if (existing === position) {
+    ids.delete(id);
+  } else if (typeof existing !== 'string') {
+    existing.delete(position);
+    if (existing.size === 0) ids.delete(id);
+    else if (existing.size === 1) ids.set(id, existing.values().next().value!);
+  }
+};
+const noteShown = (ids: Map<unknown, string | Set<string>>, position: string, unit: HeldUnit): void => {
+  for (const item of unit.items) addShownId(ids, item, position);
+  for (const row of unit.rows) addShownId(ids, row.id, position);
+};
+const forgetShown = (ids: Map<unknown, string | Set<string>>, position: string, unit: HeldUnit | undefined): void => {
+  if (!unit) return;
+  for (const item of unit.items) removeShownId(ids, item, position);
+  for (const row of unit.rows) removeShownId(ids, row.id, position);
 };
 /** The record of `window` that shows `id`. */
 export function shownAt(window: HeldWindow, id: unknown): string | undefined {
@@ -215,11 +247,17 @@ export function shownAt(window: HeldWindow, id: unknown): string | undefined {
     if (work) work.copied += window.units.size;
     shownOf.set(window.units, shown);
   }
-  const position = shown.ids.get(id);
-  if (position === undefined) return undefined;
+  const entry = shown.ids.get(id);
+  if (entry === undefined) return undefined;
   const shows = (unit: HeldUnit | undefined): boolean =>
     unit !== undefined && (unit.items.includes(id as string) || unit.rows.some((row) => row.id === id));
-  if (shows(window.units.get(position))) return position;
+  if (typeof entry === 'string') {
+    if (shows(window.units.get(entry))) return entry;
+  } else {
+    for (const position of entry) {
+      if (shows(window.units.get(position))) return position;
+    }
+  }
   // The record the id was last told for shows it no more (let go, or told without it). Another may: the records are
   // read once, and the entry then names that one or is gone.
   if (work) work.copied += window.units.size;
@@ -235,6 +273,7 @@ export function shownAt(window: HeldWindow, id: unknown): string | undefined {
 function carryShown(prior: ReadonlyMap<string, HeldUnit>, next: ReadonlyMap<string, HeldUnit>, position: string): void {
   const shown = shownOf.get(prior);
   if (!shown || shown.owner !== prior) return;
+  forgetShown(shown.ids, position, prior.get(position));
   const unit = next.get(position);
   if (unit) noteShown(shown.ids, position, unit);
   shown.owner = next;
@@ -372,7 +411,10 @@ export function runUnchanged(
   since: ReadonlyMap<string, HeldUnit>
 ): boolean {
   let held = runPositions.get(run);
-  if (!held) runPositions.set(run, (held = new Set(run.positions)));
+  if (!held) {
+    held = new Set(run.positions);
+    runPositions.set(run, held);
+  }
   if (units === since) return true;
   const now = changeOf.get(units);
   const then = changeOf.get(since);

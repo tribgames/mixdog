@@ -318,6 +318,25 @@ const firstOf = (f: FeedStamp): number => f.from ?? f.seq;
 const standsAtFeed = (n: JsonRpcNotification): boolean =>
   n.method === 'thread/window/changed' ||
   (n.method === 'thread/transcript/changed' && isObj(n.params) && n.params.change !== undefined);
+
+const SMALL_POSITIONED_SNAPSHOT_UNITS = 128;
+const noPace: Pace = () => undefined;
+
+/** Whether `params` is a small positioned `thread/snapshot` that can fold synchronously in one pass. */
+function isSmallPositionedSnapshot(params: Json): boolean {
+  if (!isObj(params) || !isObj(params.window)) return false;
+  const loose = Array.isArray(params.items) ? params.items.length : 0;
+  if (loose > SMALL_POSITIONED_SNAPSHOT_UNITS) return false;
+  const added = params.window.added;
+  if (!Array.isArray(added)) return true;
+  let units = loose;
+  for (const entry of added) {
+    if (!isObj(entry) || !Array.isArray(entry.units)) continue;
+    units += entry.units.length;
+    if (units > SMALL_POSITIONED_SNAPSHOT_UNITS) return false;
+  }
+  return true;
+}
 const validErrorBody = (e: unknown): boolean => isObj(e) && typeof e.code === 'number' && typeof e.message === 'string';
 /** Delivers `value` to every listener: one that throws is reported and the others still hear it (a listener owns its failure). */
 function isolated<T>(listeners: ReadonlySet<(value: T) => void>, value: T): void {
@@ -773,7 +792,10 @@ class Engine implements ProtocolClient<Json> {
           if (!isConnectionEnd(d)) this.dropLink(1000, 'feed restore failed');
           return 'ended';
         }
-        if (d.reason !== undefined && FEED_GONE.has(d.reason)) return d;
+        if (d.reason !== undefined && FEED_GONE.has(d.reason)) {
+          this.cursorReset.delete(feedId);
+          return d;
+        }
         if (d.reason === 'cursorInvalidated' && !this.cursorReset.has(feedId)) this.cursorReset.add(feedId);
         else if (attempt >= 2) {
           this.dropLink(1000, 'feed restore refused');
@@ -827,7 +849,12 @@ class Engine implements ProtocolClient<Json> {
     this.subId.delete(threadId);
     this.awaitingSnapshot.delete(threadId);
     this.recv.delete(threadId);
-    this.lostWindows.set(threadId, window);
+    this.cursorReset.delete(threadId);
+    if (outcome.kind === 'rpc' && outcome.reason !== undefined && FEED_GONE.has(outcome.reason)) {
+      this.lostWindows.delete(threadId);
+    } else {
+      this.lostWindows.set(threadId, window);
+    }
     this.subs.delete(threadId);
     this.dropToken(threadId);
     this.repeated.delete(threadId);
@@ -1312,9 +1339,13 @@ class Engine implements ProtocolClient<Json> {
   ): Promise<void> {
     if (snapshot && f.id === WIRE.appFeedId) return this.foldAppSnapshot(n, f, gen, tok);
     const failed: ClientErrorDetail[] = [];
+    const smallPositioned = snapshot && isSmallPositionedSnapshot(n.params ?? null);
     let resolved: JsonRpcNotification;
     try {
-      resolved = { ...n, params: await this.resolveBlobs(n.params ?? null, failed, this.pace()) };
+      resolved = {
+        ...n,
+        params: await this.resolveBlobs(n.params ?? null, failed, smallPositioned ? noPace : this.pace()),
+      };
     } catch {
       return; // the connection ended; the next generation re-attaches
     }
@@ -1366,7 +1397,9 @@ class Engine implements ProtocolClient<Json> {
   ): Promise<{ state: Json } | null> {
     const reducer = this.reducer;
     if (!reducer) return { state: params };
-    if (!reducer.initialSteps) return { state: reducer.initial(params) };
+    if (!reducer.initialSteps || isSmallPositionedSnapshot(params)) {
+      return this.current(feedId, gen, tok) ? { state: reducer.initial(params) } : null;
+    }
     const steps = reducer.initialSteps(params);
     const pace = this.pace();
     for (;;) {
@@ -1897,6 +1930,7 @@ class Engine implements ProtocolClient<Json> {
   async unsubscribeThread(threadId: string, options?: Pick<CallOptions, 'sent'>): Promise<void> {
     this.subs.delete(threadId);
     this.lostWindows.delete(threadId);
+    this.cursorReset.delete(threadId);
     this.releaseHeld(threadId);
     this.dropToken(threadId);
     this.recv.delete(threadId);
@@ -2119,7 +2153,8 @@ class Engine implements ProtocolClient<Json> {
   }
 
   /** SPEC R7: every trigger is a fact that arrives while the scope progresses; none is a timer. */
-  private async awaitRetryTrigger(d: Extract<ClientErrorDetail, { kind: 'rpc' }>,
+  private async awaitRetryTrigger(
+    d: Extract<ClientErrorDetail, { kind: 'rpc' }>,
     sent: SentAt,
     ended?: Promise<never>
   ): Promise<void> {
@@ -2354,7 +2389,3 @@ export const connect: Connect = async <S>(options: ConnectOptions<S>) => {
   await engine.start();
   return engine as unknown as ProtocolClient<S>;
 };
-
-
-
-

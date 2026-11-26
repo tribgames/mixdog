@@ -441,8 +441,7 @@ function toolMetaField(value: unknown): Obj {
 }
 
 /** A tool row the transcript does not show: a control tool, a task wait or a built-in skill load, a `call_tool` bridge request
- * judged as the tool it runs. An unfinished skill load is hidden until its result lands: only the result tells a built-in load
- * from one that shows, so a call that shows does so once, and a built-in one never counts in its group. */
+ * judged as the tool it runs. */
 export function isTranscriptHiddenToolRow(row: {
   name?: unknown;
   args?: unknown;
@@ -453,8 +452,7 @@ export function isTranscriptHiddenToolRow(row: {
   const target = node.toolCallDisplayIdentity(row.name, row.args);
   if (node.isTranscriptHiddenToolItem({ name: target.name, result: row.result })) return true;
   if (node.isTaskWaitToolCall(String(target.name ?? ''), target.args)) return true;
-  const unfinished = !(Number(row.completedCount) >= Number(row.count ?? 1));
-  return node.isTranscriptSkillToolName(target.name) && (row.result === undefined || row.result === null) && unfinished;
+  return false;
 }
 
 /** A row only the live turn shows, which a reload does not restore: a run notice (restored notices carry their routine,
@@ -689,14 +687,7 @@ export function* mergeToolRowsSteps(
   const merged: Obj[] = resume?.rows ?? [];
   const marks: number[] = resume?.marks ?? [];
   let run: { bucket: string; live: boolean; members: { item: Obj; category: string }[] } | null = null;
-  // Live-only rows met inside a run: a reload has none to end it, so they follow it.
-  let held: Obj[] = [];
   // A run of any length aggregates in steps too: one step per `ROWS_PER_STEP` of its members.
-  function* flush(): Generator<void, void, void> {
-    yield* flushRun();
-    merged.push(...held);
-    held = [];
-  }
   function* flushRun(): Generator<void, void, void> {
     if (!run) return;
     const { members, live } = run;
@@ -728,13 +719,9 @@ export function* mergeToolRowsSteps(
     const item = rows[index]!;
     if (++seen % ROWS_PER_STEP === 0) yield;
     if (item.kind === 'tool' && isTranscriptHiddenToolRow(item)) continue;
-    if (run && isLiveOnlyTranscriptRow(item)) {
-      held.push(item);
-      continue;
-    }
     const live = liveRows.has(item);
     if (!(live ? liveMergeable(item) : mergeable(item))) {
-      yield* flush();
+      yield* flushRun();
       merged.push(item);
       // Every live card before such a row is sealed whatever follows (`lastOther` below is at or past it).
       if (item.kind !== 'tool' && !isLiveOnlyTranscriptRow(item)) marks.push(index + 1, merged.length);
@@ -744,7 +731,7 @@ export function* mergeToolRowsSteps(
     // Agent cards never merge on restore: the live rule scopes their grouping to one provider batch.
     const bucket = category === 'Agent' ? '' : node.aggregateBucketForCategory(category);
     if (!bucket) {
-      yield* flush();
+      yield* flushRun();
       // A live standalone card (`standaloneCardSpec`) is sealed (`finalizeToolHeaders`) and shown (`materialize`) when its turn ends.
       let card = live ? standaloneCards.get(item) : item;
       if (!card) {
@@ -758,10 +745,10 @@ export function* mergeToolRowsSteps(
       run.members.push({ item, category });
       continue;
     }
-    yield* flush();
+    yield* flushRun();
     run = { bucket, live, members: [{ item, category }] };
   }
-  yield* flush();
+  yield* flushRun();
   let lastOther = merged.length - 1;
   while (lastOther >= 0 && (merged[lastOther]!.kind === 'tool' || isLiveOnlyTranscriptRow(merged[lastOther]!)))
     lastOther--;
