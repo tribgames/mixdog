@@ -539,7 +539,14 @@ fn client_of(server: &McpServer) -> Arc<RpcClient> {
 
 async fn until_failed(server: &McpServer) {
     let mut states = server.subscribe();
-    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. }))).await.unwrap().unwrap();
+    let ten = std::time::Duration::from_secs(10);
+    mixdog_rt::time::timeout(ten, states.wait_for(|s| matches!(**s, ServerState::Failed { .. }))).await.unwrap().unwrap();
+    // `publish_locked` publishes `Failed` before `InOutcome`, `attempts.end()`, and `AfterOutcome`; wait for the
+    // attempt to finish and leave the connect gate so a subsequent `hold_connect` cannot be taken by it.
+    if let Some(start) = server.scheduled_start() {
+        mixdog_rt::time::timeout(ten, start.cancelled()).await.unwrap();
+    }
+    mixdog_rt::time::timeout(ten, server.wait_connect_idle()).await.unwrap();
 }
 
 async fn failed(hub: &McpHub, scope: &str) -> Arc<McpServer> {

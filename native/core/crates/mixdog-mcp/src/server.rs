@@ -722,6 +722,11 @@ impl McpServer {
         hold
     }
 
+    /// Waits until no connect attempt still holds the connect gate (past `InOutcome` and `AfterOutcome`).
+    pub async fn wait_connect_idle(&self) {
+        let _ = self.connecting.acquire().await;
+    }
+
     fn take_hold(&self, at: ConnectStep) -> Option<Arc<ConnectHold>> {
         let mut holds = self.holds.lock().unwrap_or_else(|e| e.into_inner());
         let index = holds.iter().position(|(step, _)| *step == at)?;
