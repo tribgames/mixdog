@@ -38,15 +38,17 @@ function readOrder(storageKey: string): string[] {
 }
 
 /** `known` (the saved order, only current ids) with each id of `ids` it lacks
- *  added last, except ids ahead of every listed one in `ids` (added at the
- *  head of the list): those stay first. */
+ *  placed right after the nearest id ahead of it in `ids`, or first when none
+ *  is ahead of it. */
 export function mergeNewAtDefault(known: readonly string[], ids: readonly string[]): string[] {
   const merged = [...known];
-  let lead = 0;
   ids.forEach((id, index) => {
     if (merged.includes(id)) return;
-    if (ids.slice(0, index).some((before) => merged.includes(before))) merged.push(id);
-    else merged.splice(lead++, 0, id);
+    const before = ids
+      .slice(0, index)
+      .reverse()
+      .find((candidate) => merged.includes(candidate));
+    merged.splice(before === undefined ? 0 : merged.indexOf(before) + 1, 0, id);
   });
   return merged;
 }
@@ -129,8 +131,8 @@ export function usePersistedListOrder(
     onCommit?(next: string[], sourceId: string): void;
     /** Whether a drag of `sourceId` may drop on `targetId` (default: always). */
     accepts?(sourceId: string, targetId: string): boolean;
-    /** An id the saved order lacks that leads `ids` (added at the head) goes
-     *  first instead of last (mergeNewAtDefault). */
+    /** An id the saved order lacks goes to its default place beside its
+     *  neighbour in `ids` instead of last (mergeNewAtDefault). */
     placeNewAtDefault?: boolean;
   } = {}
 ) {

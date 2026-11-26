@@ -89,8 +89,8 @@ export function routeSheetBox(
  *  use (left edge = the chip's). It takes the composer panel's width, widened
  *  to `preferredWidth` (the chip / model-name width), but never past the lane
  *  or viewport, so a narrow side panel still gets its full lane. Below the
- *  trigger unless only above has the room. Every pane opens in this same
- *  footprint, sized to that pane. */
+ *  trigger unless only above has the room. A pane with no room beside it
+ *  opens in this same footprint, sized to that pane. */
 export function routeDropdownBox(
   trigger: RouteAnchorRect,
   preferredHeight: number,

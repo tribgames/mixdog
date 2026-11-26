@@ -19,6 +19,7 @@ import type {
   DesktopSubmitOptions,
   SessionSnapshot,
 } from '../shared/contract';
+import { effortAutoField } from './route-auto-effort';
 import { t } from './i18n';
 import { useConversationReleaseHold } from './conversation-release';
 import { hasSendablePromptContent, shouldStopComposerGeneration } from './renderer-logic.mjs';
@@ -284,10 +285,11 @@ export type ComposerProps = {
   provider: string;
   model: string;
   effort: string;
+  turnEffort?: string;
   fast: boolean;
   fastCapable: boolean;
-  /** The route's own Auto reasoning flag; absent means on. */
-  autoEffort?: boolean;
+  /** Explicit per-route Auto reasoning choice (`true` = Auto, `false` = manual level). */
+  effortAuto?: boolean;
   modelParameters?: Record<string, string>;
   contextPercent?: number;
   contextTokens?: number;
@@ -468,9 +470,10 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     provider,
     model,
     effort,
+    turnEffort,
     fast,
     fastCapable,
-    autoEffort,
+    effortAuto,
     modelParameters,
     contextPercent,
     contextTokens,
@@ -793,7 +796,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     effort,
     fast,
     fastCapable,
-    autoEffort,
+    effortAuto,
     modelParameters,
     ultrafastCapable: () =>
       modelOffersUltrafast(
@@ -827,8 +830,13 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   // that model (never overwriting a configured route).
   useEffect(() => {
     if (!agentMode || !sessionId || !provider || !model) return;
-    void backfillAgentChatRoute(sessionId, { provider, model, ...(effort ? { effort } : {}) }).catch(() => {});
-  }, [agentMode, sessionId, provider, model, effort]);
+    void backfillAgentChatRoute(sessionId, {
+      provider,
+      model,
+      ...(effort ? { effort } : {}),
+      ...effortAutoField(effortAuto, true),
+    }).catch(() => {});
+  }, [agentMode, sessionId, provider, model, effort, effortAuto]);
 
   const {
     send: sendNow,
@@ -1081,9 +1089,10 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     provider,
     model,
     effort,
+    turnEffort,
     fast,
     fastCapable,
-    autoEffort,
+    effortAuto,
     modelParameters,
     contextPercent,
     contextTokens,

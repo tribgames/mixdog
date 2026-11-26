@@ -273,9 +273,21 @@ html[data-mixdog-mobile-tabs] .settings-model-check,
 html[data-mixdog-mobile-tabs] .agent-instruction-head > button,
 html[data-mixdog-mobile-tabs] .settings-feedback-attach,
 html[data-mixdog-mobile-tabs] .settings-feedback-kinds label,
-html[data-mixdog-mobile-tabs] .settings-changelog-list button[aria-expanded],
-html[data-mixdog-mobile-tabs] .mixdog-settings__rail-group button {
+html[data-mixdog-mobile-tabs] .settings-changelog-list button[aria-expanded] {
   min-height: var(--mx-touch-min);
+}
+/* Controls that own their row in a sheet take the 44px touch tier: the context
+   card's actions, the Changes source picker, each file's open and undo, the
+   Settings categories and its pickers. */
+html[data-mixdog-mobile-tabs] .session-context-popover > .context-action,
+html[data-mixdog-mobile-tabs] .session-diff-source-select .mx-select-trigger,
+html[data-mixdog-mobile-tabs] .mixdog-settings__rail-group button,
+html[data-mixdog-mobile-tabs] .mixdog-settings-v2 .mx-select-trigger {
+  min-height: var(--mx-touch);
+}
+html[data-mixdog-mobile-tabs] .session-diff-section-actions > .browser-pane-nav-button {
+  min-width: var(--mx-touch);
+  min-height: var(--mx-touch);
 }
 html[data-mixdog-mobile-tabs]
   :is(
@@ -290,8 +302,7 @@ html[data-mixdog-mobile-tabs]
 }
 /* Labelled buttons keep the PC face (28px, desktop type and radius); only
    their hit frame reaches the touch minimum, through a transparent ::after
-   that hangs past the face. Growing the face made every settings action read
-   one size larger than the PC. */
+   that hangs past the face. */
 html[data-mixdog-mobile-tabs]
   :is(
     .settings-action,
@@ -311,6 +322,15 @@ html[data-mixdog-mobile-tabs]
   content: "";
   position: absolute;
   inset: min(0px, calc((100% - var(--mx-touch-min)) / 2));
+}
+/* On the Settings page a row's own action and an account's + own their slot:
+   there the face itself takes the 44px touch tier. */
+html[data-mixdog-mobile-tabs] .mixdog-settings .settings-action {
+  min-height: var(--mx-touch);
+}
+html[data-mixdog-mobile-tabs] .mixdog-settings .provider-account-add-button {
+  width: var(--mx-touch);
+  height: var(--mx-touch);
 }
 html[data-mixdog-mobile-tabs] .browser-tab-new,
 html[data-mixdog-mobile-tabs] .settings-feedback-attach {

@@ -5,6 +5,7 @@ import { installTestDom } from './test-support/test-dom.mjs';
 
 const ROW_PX = 40;
 const VIEWPORT_PX = 300;
+const NO_HIDDEN = new Set();
 
 const session = (id) => ({
   id,
@@ -36,7 +37,7 @@ async function mountList(t) {
     const top = index * ROW_PX - scroller.scrollTop;
     return { top, bottom: top + ROW_PX, left: 0, right: 200, height: ROW_PX };
   };
-  function List({ rows, favorites = [] }) {
+  function List({ rows, favorites = [], needsOpen = true, favoritesOpen = true, hiddenSections = NO_HIDDEN }) {
     const scrollerRef = React.useRef(null);
     const { recentScrollerRef, handleRecentScroll } = useSidebarListScroll({
       scrollerRef,
@@ -47,6 +48,11 @@ async function mountList(t) {
       visibleRecentRowCount: rows.length,
       revealMoreRecentRows() {},
       recentOpen: true,
+      agentsOpen: true,
+      favoritesOpen,
+      needsOpen,
+      workingOpen: true,
+      hiddenSections,
       archivedOpen: false,
       archivedRows: [],
       archivedRowLimit: 0,
@@ -55,7 +61,6 @@ async function mountList(t) {
       projectOpen: {},
       projectGroups: [],
       projectRowLimits: new Map(),
-      projectsOpen: false,
       sectionOrder: { orderedIds: [] },
     });
     const attach = (element) => {
@@ -86,7 +91,8 @@ async function mountList(t) {
     ]);
   }
   return {
-    render: (rows, favorites) => act(async () => root.render(React.createElement(List, { rows, favorites }))),
+    render: (rows, favorites, flags = {}) =>
+      act(async () => root.render(React.createElement(List, { rows, favorites, ...flags }))),
     /** The browser moved the list; `report` also delivers its scroll event. */
     scrollTo: async (top, report) => {
       scroller.scrollTop = top;
@@ -143,6 +149,33 @@ test('a session listed twice anchors on the copy the reader sees', async (t) => 
   await list.scrollTo(240, true);
   await list.render([...rows], [rows[5]]);
   assert.equal(list.scrollTop(), 240, 'a live update does not jump to the Favorites copy');
+});
+
+test('folding or unfolding 확인 필요 above the reader keeps the reader’s rows in place', async (t) => {
+  const list = await mountList(t);
+  const rows = ids(0, 40);
+  const needs = ids(100, 103);
+  await list.render(rows, needs, { needsOpen: true });
+  await list.scrollTo(400, true);
+  // Folded by hand: its three rows leave the top of the list, nothing else changes.
+  await list.render(rows, [], { needsOpen: false });
+  assert.equal(list.scrollTop(), 400 - 3 * ROW_PX);
+  await list.render(rows, needs, { needsOpen: true });
+  assert.equal(list.scrollTop(), 400);
+});
+
+test('folding 즐겨찾기 or hiding a section above the reader keeps the reader’s rows in place', async (t) => {
+  const list = await mountList(t);
+  const rows = ids(0, 40);
+  const favorites = ids(100, 103);
+  await list.render(rows, favorites);
+  await list.scrollTo(400, true);
+  await list.render(rows, [], { favoritesOpen: false });
+  assert.equal(list.scrollTop(), 400 - 3 * ROW_PX, 'folded');
+  await list.render(rows, favorites);
+  assert.equal(list.scrollTop(), 400, 'unfolded');
+  await list.render(rows, [], { hiddenSections: new Set(['favorites']) });
+  assert.equal(list.scrollTop(), 400 - 3 * ROW_PX, 'hidden from the ⋯ menu');
 });
 
 test('the reader’s top row re-sorted by activity does not carry the list along', async (t) => {

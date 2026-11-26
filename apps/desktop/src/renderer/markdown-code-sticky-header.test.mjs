@@ -43,18 +43,13 @@ async function scrollTo(page, top) {
     const header = box('header');
     const copy = box('copy');
     const hit = document.elementFromPoint(copy.left + copy.width / 2, copy.top + copy.height / 2);
-    // Where a drag released over the cap ends its selection: the code under the cap.
-    const caret = document.caretPositionFromPoint(header.left + header.width / 2, scroller.top + 38);
     return {
       scrollerTop: scroller.top,
       offset: header.top - scroller.top,
       cardTop: box('card').top - scroller.top,
-      cardBottom: box('card').bottom - scroller.top,
       headerBottom: header.bottom - scroller.top,
-      scrollTop: document.getElementById('scroller').scrollTop,
       copyHit: hit?.id === 'copy',
-      caretOffset: caret?.offset ?? null,
-      // A blank point of the band: between the label and the actions.
+      // A blank point of the header: between the label and the actions.
       probe: { x: Math.round(header.left + header.width / 2), y: Math.round(header.top + header.height / 2) },
     };
   });
@@ -69,7 +64,7 @@ async function pixel(page, { x, y }) {
     is a different colour altogether. */
 const samePaint = (a, b) => a.every((channel, at) => Math.abs(channel - b[at]) <= 1);
 
-test('code block header: sticks below the top chrome while the block scrolls, and is opaque', async (t) => {
+test('code block header: scrolls away with its block, and nothing covers the code above it', async (t) => {
   installTestDom(t, { actEnvironment: false });
   const { skinVars } = await import('./desktop-skin');
   const browser = await puppeteer.launch({
@@ -109,47 +104,32 @@ test('code block header: sticks below the top chrome while the block scrolls, an
     await paintState(page, state);
     const rest = await scrollTo(page, 0);
     assert.ok(rest.cardTop > 44, `${label}: the block starts below the top chrome at rest`);
-    const restInk = await pixel(page, rest.probe);
+    assert.ok(rest.copyHit, `${label}: the copy button is reachable at rest`);
+    const headerInk = await pixel(page, rest.probe);
     const firstLine = { x: rest.probe.x, y: Math.round(rest.scrollerTop + rest.headerBottom + 20) };
     assert.ok(
-      !samePaint(await pixel(page, firstLine), restInk),
+      !samePaint(await pixel(page, firstLine), headerInk),
       `${label}: the block's first line shows under its header at rest`
     );
 
     for (const into of [10, 300, 913]) {
-      const stuck = await scrollTo(page, rest.cardTop + into);
-      assert.ok(stuck.cardTop < 0, `${label}: the block's top is scrolled past the chat's top`);
+      const scrolled = await scrollTo(page, rest.cardTop + into);
+      assert.ok(scrolled.cardTop < 0, `${label}: the block's top is scrolled past the chat's top`);
       assert.ok(
-        Math.abs(stuck.offset - 44) < 0.5,
-        `${label}: the header sits 44px below the chat's top (${stuck.offset})`
+        Math.abs(scrolled.offset - scrolled.cardTop) < 0.5,
+        `${label}: the header stays on its block's top (${scrolled.offset} vs ${scrolled.cardTop})`
       );
-      assert.ok(stuck.copyHit, `${label}: the copy button is on top and reachable`);
-      const stuckInk = await pixel(page, stuck.probe);
-      assert.ok(
-        samePaint(stuckInk, restInk),
-        `${label}: no code shows through the header (${into}px in): ${stuckInk} at rest ${restInk}`
+      // Past the top fade's 32px, through the 44px a pinned band would cover, and a line's height beyond.
+      const strip = PNG.sync.read(
+        await page.screenshot({
+          type: 'png',
+          clip: { x: rest.probe.x, y: Math.round(scrolled.scrollerTop + 34), width: 1, height: 40 },
+        })
       );
-      // Past the top fade's 32px and above the header's 44px line.
-      const above = await pixel(page, { x: stuck.probe.x, y: Math.round(stuck.scrollerTop + 38) });
-      assert.ok(
-        samePaint(above, stuckInk),
-        `${label}: none of the block's lines show above its pinned header (${into}px in): ${above} against ${stuckInk}`
-      );
-      if (into >= 300) {
-        assert.ok(
-          stuck.caretOffset > 121,
-          `${label}: a selection released over the cap ends at the line under it, not in the block's first line (${stuck.caretOffset})`
-        );
-      }
+      const inked = Array.from({ length: strip.height }, (_, row) => [
+        ...strip.data.subarray(row * 4, row * 4 + 3),
+      ]).filter((paint) => !samePaint(paint, headerInk));
+      assert.ok(inked.length > 0, `${label}: code shows right under the chat's top (${into}px in)`);
     }
-
-    // Once the card's bottom passes the pinned header, the header leaves with
-    // its block instead of staying at 44px: its bottom rides on the card's.
-    const target = Math.round(rest.cardBottom - 30);
-    const end = await scrollTo(page, target);
-    assert.equal(end.scrollTop, target, `${label}: the fixture has room to scroll the card's end up`);
-    assert.ok(Math.abs(end.cardBottom - 30) < 0.5, `${label}: the card's bottom is 30px below the chat's top`);
-    assert.ok(end.offset < 44 - 1, `${label}: the header has left the 44px line (${end.offset})`);
-    assert.ok(Math.abs(end.headerBottom - end.cardBottom) < 0.5, `${label}: the header ends on its block's bottom`);
   }
 });

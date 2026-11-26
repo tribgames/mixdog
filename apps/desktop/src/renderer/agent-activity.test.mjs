@@ -1186,7 +1186,7 @@ test('an already-open Agents pane follows the child request route on pool pushes
         model: 'claude-sonnet-5-5',
         effort: 'medium',
         fast: false,
-        autoEffort: false,
+        effortAuto: false,
       },
     ]);
     assert.equal(routeLabel().title, 'claude-sonnet-5-5');
@@ -1198,7 +1198,7 @@ test('an already-open Agents pane follows the child request route on pool pushes
         model: 'gpt-6.2-sol',
         effort: 'high',
         fast: true,
-        autoEffort: false,
+        effortAuto: false,
         modelParameters: { serviceTier: 'ultrafast' },
       },
     ]);

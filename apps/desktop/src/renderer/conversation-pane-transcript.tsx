@@ -15,7 +15,9 @@ import { TranscriptDevicesContext, TranscriptViewerDeviceContext } from './trans
 import type { TranscriptRowModel } from './transcript-rows';
 import { useScrollProgress } from './scroll-progress';
 import { TranscriptList } from './TranscriptList';
+import { createDrawnTurnChanges } from './turn-changes-model';
 import {
+  TurnCardsDrawnContext,
   TurnCardsWithheldContext,
   TurnChangesContext,
   TurnRowsContext,
@@ -104,6 +106,8 @@ function TranscriptRowContexts({
   const trailingTurnKey = useMemo(() => trailingOpenTurnKey(rows), [rows]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: one set per session shown
   const withheldCards = useMemo(() => new Set<string>(), [sessionId]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: one record per session shown
+  const drawnCards = useMemo(createDrawnTurnChanges, [sessionId]);
   const room = useAgentRoom(sessionId);
   const inRoom = room !== null;
   const memberNames = room?.memberNames;
@@ -120,7 +124,7 @@ function TranscriptRowContexts({
                     <TurnRowsContext.Provider value={rowsOf}>
                       <TrailingTurnKeyContext.Provider value={trailingTurnKey}>
                         <TurnCardsWithheldContext.Provider value={withheldCards}>
-                          {children}
+                          <TurnCardsDrawnContext.Provider value={drawnCards}>{children}</TurnCardsDrawnContext.Provider>
                         </TurnCardsWithheldContext.Provider>
                       </TrailingTurnKeyContext.Provider>
                     </TurnRowsContext.Provider>

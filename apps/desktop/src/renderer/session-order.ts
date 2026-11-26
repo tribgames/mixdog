@@ -78,6 +78,15 @@ export function commitVisibleOrder(
   return [...nextVisibleIds, ...fullOrderedIds.slice(visibleCount)];
 }
 
+/** A list's whole order after the user reordered the part of it on screen:
+ *  the shown sessions refill their own places in `nextShownIds` order, and the
+ *  sessions another group shows keep theirs. */
+export function commitShownOrder(fullOrderedIds: readonly string[], nextShownIds: readonly string[]): string[] {
+  const shown = new Set(nextShownIds);
+  let next = 0;
+  return fullOrderedIds.map((id) => (shown.has(id) ? (nextShownIds[next++] as string) : id));
+}
+
 export const listOrderId = (listKey: string, sessionId: string) => `${listKey}${LIST_ID_SEPARATOR}${sessionId}`;
 export function splitListOrderId(id: string): { listKey: string; sessionId: string } {
   const index = id.indexOf(LIST_ID_SEPARATOR);

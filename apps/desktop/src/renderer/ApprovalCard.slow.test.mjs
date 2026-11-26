@@ -133,7 +133,7 @@ test('an outbound post: a centred question, the target, the editable text and �
     assert.equal(ui.doc.querySelector('.approval-reason, .approval-note, .approval-scope'), null);
     assert.equal(
       ui.button('Allow for this agent').title,
-      "github won't ask again for github-watcher, in any conversation"
+      "Post a comment from any tool won't ask again for github-watcher, in any conversation"
     );
     assert.equal(ui.button('Allow just once').title, 'Allow just once');
     const box = ui.doc.querySelector('.approval-edit textarea');
@@ -155,7 +155,10 @@ test('a coding session shows only the LEAD mark; a bot chat shows the bot', asyn
   try {
     assert.ok(ui.doc.querySelector('.approval-face .approval-lead-mark'));
     assert.equal(ui.requester(), undefined);
-    assert.equal(ui.button('Allow for this agent').title, "github won't ask again for Lead, in any conversation");
+    assert.equal(
+      ui.button('Allow for this agent').title,
+      "Post a comment from any tool won't ask again for Lead, in any conversation"
+    );
   } finally {
     await ui.done();
   }
@@ -2350,7 +2353,7 @@ test("a sub-agent's request shown in the top-level chat names its chain, links i
     assert.equal(ui.doc.querySelector('.approval-chip').title, '사무관 › Worker');
     await ui.click(ui.doc.querySelector('.approval-who .approval-link'));
     assert.deepEqual(opened, ['sess_sub']);
-    assert.match(ui.button('Allow for this agent').title, /github won't ask again for github-watcher/);
+    assert.match(ui.button('Allow for this agent').title, /Post a comment from any tool won't ask again for github-watcher/);
     await ui.click(ui.button('Allow for this agent'));
     assert.deepEqual(c.decisions, [{ approved: true, remember: 'agent' }]);
   } finally {

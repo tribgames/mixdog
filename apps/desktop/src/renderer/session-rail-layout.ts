@@ -18,12 +18,6 @@ export const SESSION_RAIL_MAX_WIDTH = 560;
 /** The panel's two 4px edges beside its width (session-rail.css). */
 export const SESSION_RAIL_GAP = 8;
 
-/** --pane-column in a conversation `width` wide, from 768px on
- *  (12-transcript.css): clamp(800px, 80cqi, 848px). */
-export function paneReadingColumn(width: number): number {
-  return Math.min(848, Math.max(800, 0.8 * width));
-}
-
 export function clampSessionRailWidth(width: number): number {
   const value = Number.isFinite(width) ? width : SESSION_RAIL_DEFAULT_WIDTH;
   return Math.round(Math.max(SESSION_RAIL_MIN_WIDTH, Math.min(SESSION_RAIL_MAX_WIDTH, value)));
@@ -37,13 +31,11 @@ export type SessionRailFit = { width: number; reserve: number; presentation: Pan
  *  conversation gives up on its right for it, and its `presentation`. Beside
  *  the conversation while the conversation keeps its floor: the panel takes
  *  what the conversation leaves it there, never under its own minimum, which
- *  its rows need and which is above the ladder's floor. While the reading
- *  column clears the panel (`cellWidth - 2 * taken >= paneReadingColumn`),
- *  `reserve` stays 0; once the panel overlaps the centred column, `reserve`
- *  grows continuously by twice the overlap (shifting the centred column left
- *  by the exact overlap) until the left margin is exhausted and `reserve`
- *  reaches `taken`. Without that room it floats over the conversation at its
- *  own width, and in a pane too narrow for that it takes all of it. */
+ *  its rows need and which is above the ladder's floor. Beside it, the
+ *  conversation gives up the panel's whole band at every pane width, so its
+ *  column is centred between the pane's left edge and the panel's. Without
+ *  that room it floats over the conversation at its own width, and in a pane
+ *  too narrow for that it takes all of it. */
 export function sessionRailFit({ cellWidth, railPref }: { cellWidth: number; railPref: number }): SessionRailFit {
   const { presentation, avail } = paneSidePresentation({
     cellWidth,
@@ -57,13 +49,7 @@ export function sessionRailFit({ cellWidth, railPref }: { cellWidth: number; rai
     return { width: Math.max(SESSION_RAIL_MIN_WIDTH, Math.min(pref, avail)), reserve: 0, presentation };
   }
   const width = Math.max(SESSION_RAIL_MIN_WIDTH, Math.min(pref, paneSideRoom(cellWidth, SESSION_RAIL_GAP)));
-  const taken = width + SESSION_RAIL_GAP;
-  // Padding-right R on the workspace shifts a centred column left by R/2.
-  // Shift only by the exact overlap between the rail-closed column right edge
-  // and the rail's left edge, capping at `taken` once the left margin runs out.
-  const overlap = taken - (cellWidth - paneReadingColumn(cellWidth)) / 2;
-  const reserve = Math.round(Math.min(taken, Math.max(0, 2 * overlap)));
-  return { width, reserve, presentation };
+  return { width, reserve: width + SESSION_RAIL_GAP, presentation };
 }
 
 // ── The one width every pane's panel takes, live ─────────────────────────

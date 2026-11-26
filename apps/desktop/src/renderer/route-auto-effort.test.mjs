@@ -71,11 +71,11 @@ async function mount(t, props) {
   return host;
 }
 
-test('Auto is the first effort item, checked when on; picking a level writes the route off, not the master', async (t) => {
+test('Auto is the first effort item, checked when effortAuto is true; picking a level writes effortAuto: false, not the master', async (t) => {
   await setMaster({ installed: true, enabled: true, supported: true });
   capabilityCalls.length = 0;
   const efforts = [];
-  const value = { provider: 'anthropic', model: 'opus', effort: 'high' };
+  const value = { provider: 'anthropic', model: 'opus', effort: 'high', effortAuto: true };
   await mount(t, {
     models: [option(true)],
     value,
@@ -91,7 +91,7 @@ test('Auto is the first effort item, checked when on; picking a level writes the
   );
   await openEffort();
   assert.equal(effortItems()[0], autoItem(), 'Auto is first');
-  assert.equal(checkedLabel(), 'Auto', 'absent route flag reads as on');
+  assert.equal(checkedLabel(), 'Auto', 'explicit effortAuto: true reads as on');
   assert.equal(
     effortItems()[2].getAttribute('aria-checked'),
     'false',
@@ -99,21 +99,21 @@ test('Auto is the first effort item, checked when on; picking a level writes the
   );
   await act(async () => effortItems()[2].click());
   assert.equal(efforts.length, 1);
-  assert.equal(efforts[0].autoEffort, false);
+  assert.equal(efforts[0].effortAuto, false);
   assert.equal(efforts[0].effort, 'high', 'picking the saved level still turns Auto off');
   assert.ok(!capabilityCalls.includes('setBuiltinToolEnabled'), 'the master is never written');
 });
 
-test('only an explicit false turns the route off, and picking Auto writes true', async (t) => {
+test('effortAuto: false shows the saved level, and picking Auto writes effortAuto: true', async (t) => {
   await setMaster({ installed: true, enabled: true, supported: true });
   const selections = [];
-  const value = { provider: 'anthropic', model: 'opus', effort: 'high', autoEffort: false };
+  const value = { provider: 'anthropic', model: 'opus', effort: 'high', effortAuto: false };
   await mount(t, { models: [option(true)], value, onChange: (selection) => selections.push(selection) });
   await openEffort();
   assert.equal(checkedLabel(), 'high');
   assert.equal(autoItem().getAttribute('aria-checked'), 'false');
   await act(async () => autoItem().click());
-  assert.equal(selections[0].autoEffort, true);
+  assert.equal(selections[0].effortAuto, true);
   assert.equal(selections[0].model, 'opus');
 });
 
@@ -124,12 +124,12 @@ test('picking Auto over a saved max keeps that level, and the row reads Auto', a
   const selections = [];
   const first = await mount(t, {
     models,
-    value: { provider: 'anthropic', model: 'opus', effort: 'max', autoEffort: false },
+    value: { provider: 'anthropic', model: 'opus', effort: 'max', effortAuto: false },
     onChange: (selection) => selections.push(selection),
   });
   await openEffort();
   await act(async () => autoItem().click());
-  assert.equal(selections[0].autoEffort, true);
+  assert.equal(selections[0].effortAuto, true);
   assert.equal(selections[0].effort, 'max');
   // The same route with Auto on and that level reads Auto, checked.
   assert.equal(displayEffortLabel(selections[0].effort, { autoOn: true, capable: true }), 'Auto');
@@ -151,12 +151,17 @@ test('a model without Auto support has no Auto item', async (t) => {
   );
 });
 
-test('a newly chosen model starts from savedAutoEffort, else on', async (t) => {
-  await setMaster({ installed: true, enabled: true, supported: true });
+test('a newly chosen model preserves savedEffortAuto and omits effortAuto when unpicked, even with judge uninstalled', async (t) => {
+  await setMaster({ installed: false, enabled: true, supported: true });
   const selections = [];
   const other = (model, extra) => option(true, { model, display: model, ...extra });
   await mount(t, {
-    models: [option(true), other('saved-off', { savedAutoEffort: false }), other('plain')],
+    models: [
+      option(true),
+      other('saved-off', { savedEffortAuto: false }),
+      other('saved-on', { savedEffortAuto: true }),
+      other('plain'),
+    ],
     value: { provider: 'anthropic', model: 'opus', effort: 'high' },
     onChange: (selection) => selections.push(selection),
   });
@@ -172,25 +177,38 @@ test('a newly chosen model starts from savedAutoEffort, else on', async (t) => {
     await act(async () => document.querySelector('.model-trigger').click());
   };
   await pick('saved-off');
+  await pick('saved-on');
   await pick('plain');
   assert.deepEqual(
-    selections.map((selection) => [selection.model, selection.autoEffort]),
+    selections.map((selection) => [selection.model, Object.hasOwn(selection, 'effortAuto'), selection.effortAuto]),
     [
-      ['saved-off', false],
-      ['plain', true],
+      ['saved-off', true, false],
+      ['saved-on', true, true],
+      ['plain', false, undefined],
     ]
   );
+  await setMaster({ installed: true, enabled: true, supported: true });
 });
 
-test('master off or an incapable model hides the switch; the route value survives', async (t) => {
+test('legacy switch off still offers Auto in the picker; judge uninstalled hides Auto and preserves route value', async (t) => {
   await setMaster({ installed: true, enabled: false, supported: true });
+  const selections = [];
   await mount(t, {
     models: [option(true)],
-    value: { provider: 'anthropic', model: 'opus', effort: 'high', autoEffort: false },
-    onChange() {},
+    value: { provider: 'anthropic', model: 'opus', effort: 'high', effortAuto: false },
+    onChange: (selection) => selections.push(selection),
   });
   await openEffort();
-  assert.equal(autoItem(), null, 'master off hides Auto');
+  assert.notEqual(autoItem(), null, 'Auto remains offered as an effort choice when legacy switch is off');
+  assert.equal(autoItem().getAttribute('aria-checked'), 'false');
+  await act(async () => autoItem().click());
+  assert.equal(selections[0].effortAuto, true, 'user can explicitly choose Auto regardless of legacy switch');
+
+  await setMaster({ installed: false, enabled: false, supported: true });
+  await act(async () => document.querySelector('.model-trigger').click());
+  await act(async () => document.querySelector('.model-trigger').click());
+  await openEffort();
+  assert.equal(autoItem(), null, 'uninstalled judge hides Auto');
   await setMaster({ installed: true, enabled: true, supported: true });
   await act(async () => document.querySelector('.model-trigger').click());
   await act(async () => document.querySelector('.model-trigger').click());
@@ -198,7 +216,7 @@ test('master off or an incapable model hides the switch; the route value survive
   assert.equal(autoItem().getAttribute('aria-checked'), 'false', 'the route kept its own off value');
 });
 
-test('labels show Auto only when the master is on and the route did not opt out', async (t) => {
+test('labels read ONLY explicit effortAuto and never consult the legacy switch at display time', async (t) => {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -215,15 +233,36 @@ test('labels show Auto only when the master is on and the route did not opt out'
     return host.textContent;
   };
   await setMaster({ installed: true, enabled: true, supported: true });
-  assert.equal(await text({}), 'Opus Auto');
-  assert.equal(await text({ autoEffort: true }), 'Opus Auto');
-  assert.equal(await text({ autoEffort: false }), 'Opus High');
+  assert.equal(await text({}), 'Opus High', 'absent effortAuto never reads the legacy switch');
+  assert.equal(await text({ effortAuto: true }), 'Opus Auto');
+  assert.equal(await text({ effortAuto: false }), 'Opus High');
   await setMaster({ installed: true, enabled: false, supported: true });
-  assert.equal(await text({ autoEffort: true }), 'Opus High');
+  assert.equal(await text({}), 'Opus High');
+  assert.equal(await text({ effortAuto: true }), 'Opus Auto', 'explicit effortAuto true stays Auto');
+  assert.equal(await text({ effortAuto: true, turnEffort: 'low' }), 'Opus Auto (Low)');
   await setMaster({ installed: true, enabled: true, supported: true });
 });
 
-test('a host without per-route Auto hides the switch and never gets autoEffort or +noauto', async (t) => {
+test('RouteEditor shows the turn resolved effort alongside Auto in trigger, row, and effort pane', async (t) => {
+  await setMaster({ installed: true, enabled: true, supported: true });
+  await mount(t, {
+    models: [option(true)],
+    value: { provider: 'anthropic', model: 'opus', effort: 'low', effortAuto: true },
+    turnEffort: 'high',
+    onChange() {},
+  });
+  assert.match(document.querySelector('.model-trigger').textContent, /Auto \(High\)/);
+  assert.match(
+    [...document.querySelectorAll('.route-sheet-row[role="menuitem"]')].find((node) =>
+      node.textContent.startsWith('Reasoning effort')
+    ).textContent,
+    /Auto \(High\)/
+  );
+  await openEffort();
+  assert.equal(checkedLabel(), 'Auto (High)');
+});
+
+test('a host without per-route Auto hides the switch and never gets effortAuto or +noauto', async (t) => {
   window.mixdogDesktop.routeAutoEffort = false;
   t.after(() => {
     window.mixdogDesktop.routeAutoEffort = true;
@@ -245,14 +284,14 @@ test('a host without per-route Auto hides the switch and never gets autoEffort o
   await act(async () => row.click());
   assert.equal(selections.length, 1);
   assert.equal(selections[0].model, 'plain');
-  assert.equal(Object.hasOwn(selections[0], 'autoEffort'), false, 'an ordinary pick sends no autoEffort');
+  assert.equal(Object.hasOwn(selections[0], 'effortAuto'), false, 'an ordinary pick sends no effortAuto');
 });
 
 test('a stored model route reads its +noauto opt-out back', () => {
   const off = parseModelRef('anthropic/opus@high+fast+noauto?serviceTier=priority');
   assert.deepEqual(
-    { route: off.route, effort: off.effort, fast: off.fast, autoEffort: off.autoEffort },
-    { route: 'anthropic/opus', effort: 'high', fast: true, autoEffort: false }
+    { route: off.route, effort: off.effort, fast: off.fast, effortAuto: off.effortAuto },
+    { route: 'anthropic/opus', effort: 'high', fast: true, effortAuto: false }
   );
-  assert.equal(parseModelRef('anthropic/opus@high').autoEffort, true);
+  assert.equal(parseModelRef('anthropic/opus@high').effortAuto, undefined);
 });

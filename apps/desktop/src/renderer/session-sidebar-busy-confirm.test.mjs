@@ -30,7 +30,6 @@ async function mount(t) {
         selection: { kind: 'new' },
         workingSessionIds: new Set(['busy', 'archived-busy']),
         onNewTask() {},
-        onNewStudio() {},
         onResumeSession() {},
         async onRenameSession() {},
         async onFavoriteSession() {},

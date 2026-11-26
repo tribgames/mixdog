@@ -174,6 +174,364 @@ test('a turn that ends hands its live band to its footer without the spacer shri
   assert.deepEqual(problems, []);
 });
 
+/** Page script: where a line of the shown pane's text holding `word` stands below the viewport's top (null when none
+ *  is laid out), whether the pane follows, and the changes cards it shows. */
+function lineProbe(word) {
+  const view = document.querySelector(
+    '.persistent-pane-surface:not([data-retained]):not([data-preparing]) .transcript'
+  );
+  const box = view.getBoundingClientRect();
+  const state = {
+    following: view.dataset.following === 'true',
+    cards: view.querySelectorAll('.turn-changes-card').length,
+    // Each turn card drawn: what it lists and how tall it is.
+    drawn: [...view.querySelectorAll('.transcript-visualize-turn, .turn-changes-card')]
+      .map(
+        (card) =>
+          `${card.dataset.visualizeCount ? `previews ${card.dataset.visualizeCount}` : `files ${card.dataset.fileCount}`}:${Math.round(card.getBoundingClientRect().height)}`
+      )
+      .join(' '),
+    /** Each card's height by its kind. */
+    heights: Object.fromEntries(
+      [...view.querySelectorAll('.transcript-visualize-turn, .turn-changes-card')].map((card) => [
+        card.dataset.visualizeCount ? 'previews' : 'files',
+        Math.round(card.getBoundingClientRect().height),
+      ])
+    ),
+  };
+  const walker = document.createTreeWalker(view, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const at = node.data.indexOf(word);
+    if (at < 0) continue;
+    const range = document.createRange();
+    range.setStart(node, at);
+    range.setEnd(node, at + word.length);
+    const rect = range.getBoundingClientRect();
+    if (rect.height > 0) return { ...state, line: Math.round((rect.top - box.top) * 10) / 10 };
+  }
+  return { ...state, line: null };
+}
+
+/** 30 painted frames of the turn's end (`lineProbe` of "Zanzibar" in each): the reply stored and the turn ended in
+ *  the first, the reader's wheel up a little in frame `scrollAt`, the held reads of the turn's changes answered in
+ *  frame `answerAt`. */
+function settleFrames(p, { answerAt, scrollAt = 0 }) {
+  return p.run(
+    (probe, answerAt, scrollAt) =>
+      new Promise((done) => {
+        const sample = new Function(`return (${probe})('Zanzibar')`);
+        const out = [];
+        const marker = document.createElement('div');
+        marker.style.cssText = 'position:fixed;left:-20px;top:0;width:1px;height:1px';
+        document.body.append(marker);
+        let frame = 0;
+        const observer = new ResizeObserver(() => {
+          if (frame > 0) out.push({ frame, ...sample() });
+        });
+        observer.observe(marker);
+        const tick = () => {
+          frame += 1;
+          if (frame === 1) {
+            window.rig.core.reply('A');
+            window.rig.core.end('A');
+          }
+          if (frame === scrollAt) {
+            const log = document.querySelector('.persistent-pane-surface:not([data-retained]) .transcript');
+            log.dispatchEvent(new WheelEvent('wheel', { deltaY: -40, bubbles: true, cancelable: true }));
+            log.scrollTop -= 40;
+          }
+          if (frame === answerAt) window.rig.core.answerReads();
+          marker.style.width = `${(frame % 2) + 1}px`;
+          if (frame < 30) requestAnimationFrame(tick);
+          else
+            requestAnimationFrame(() => {
+              observer.disconnect();
+              marker.remove();
+              done(out);
+            });
+        };
+        requestAnimationFrame(tick);
+      }),
+    lineProbe.toString(),
+    answerAt,
+    scrollAt
+  );
+}
+
+test("a tool-heavy turn that settles while followed: its changes card is drawn at once and kept, its read late, and the reply's lines never come back down", async (t) => {
+  const p = await openSwitchPage(browser);
+  t.after(async () => {
+    const { errors } = p;
+    await p.page.close();
+    assert.deepEqual(errors, []);
+  });
+  await p.act(() => {
+    window.rig.core.seed('A', 30, { tools: 1 });
+    window.rig.ws.open(window.rig.ws.session('A'));
+  });
+  // Tool rounds with notes between them, a write the turn's records name, and a call still running as the reply
+  // starts. The core's read of the turn's changes answers late, and lists nothing.
+  await p.act(() => {
+    const { core } = window.rig;
+    core.prompt('A');
+    for (let round = 0; round < 3; round += 1) {
+      core.tool('A', `A-p31.${round}`, { name: 'read' });
+      core.tool('A', `A-q31.${round}`, { name: 'grep' });
+      core.reply('A', { storedId: `A-m31.${round}`, body: `Note ${round} on what the tools found so far.` });
+    }
+    core.tool('A', 'A-w31', { name: 'write', input: { path: 'src/app.ts', content: 'one\ntwo\n' } });
+    core.tool('A', 'A-s31', { done: false, name: 'shell', input: { command: 'npm test' } });
+    core.holdReads();
+  });
+  await p.act(() => {
+    const { core } = window.rig;
+    core.tool('A', 'A-s31', { name: 'shell', input: { command: 'npm test' } });
+    core.stream('A', 'Zanzibar opens the reply with a first paragraph of words long enough to wrap in the pane. ');
+    core.stream('A', `${'More words of the reply follow it. '.repeat(8)}\n\n`);
+    core.stream('A', '```ts\nconst a = 1;\nconst b = 2;\n```\n\n- one\n- two\n\nThe last words.');
+  });
+  // The paced text has drained into the row.
+  await p.run(
+    () =>
+      new Promise((done, fail) => {
+        const until = performance.now() + 8000;
+        const look = () => {
+          if (window.rig.rowText('pane-1', 'A:A-r31')?.includes('The last words.')) done();
+          else if (performance.now() > until) fail(new Error('the reply never showed its last words'));
+          else setTimeout(look, 50);
+        };
+        look();
+      })
+  );
+  await p.act(() => {});
+  const rest = await p.run(lineProbe, 'Zanzibar');
+  assert.equal(rest.following, true, 'the pane follows the running turn');
+  assert.ok(rest.line !== null && rest.line > 0, 'the line is on screen');
+  const frames = await settleFrames(p, { answerAt: 6 });
+  // The turn's end adds its footer and the card its records draw, once; nothing takes them back.
+  const steps = frames.filter((frame, at) => frame.line !== (at > 0 ? frames[at - 1].line : rest.line));
+  t.diagnostic(`settle: ${JSON.stringify({ rest: rest.line, steps })}`);
+  assert.ok(steps.length <= 1, `the line moved once at most (${steps.length} times)`);
+  assert.ok(
+    steps.every((step) => step.line < rest.line),
+    'and only up, as the end arrived below it'
+  );
+  const arrived = frames.findIndex((frame) => frame.cards > 0);
+  assert.ok(arrived >= 0 && arrived < 5, `the card is drawn as the turn ends (frame ${arrived + 1})`);
+  assert.ok(
+    frames.slice(arrived).every((frame) => frame.cards === 1),
+    'and stays after the read answers'
+  );
+  assert.ok(
+    frames.every((frame) => frame.following),
+    'follow held'
+  );
+});
+
+test("a streamed table is laid out as it settles: a followed reply that ends in one, or goes on after one, holds its lines through the turn's end", async (t) => {
+  const TABLE =
+    '| name | value |\n| --- | --- |\n| alpha | 1 |\n' +
+    '| beta | a long cell that goes on well past half of the width of the column, so an even grid would wrap it |\n\n';
+  const problems = [];
+  for (const [label, tail] of [
+    ['ends in a table', ''],
+    ['goes on after a table', 'The last words.'],
+  ]) {
+    const p = await openSwitchPage(browser);
+    t.after(async () => {
+      const { errors } = p;
+      await p.page.close();
+      assert.deepEqual(errors, []);
+    });
+    await p.act(() => {
+      window.rig.core.seed('A', 30, { tools: 1 });
+      window.rig.ws.open(window.rig.ws.session('A'));
+    });
+    await p.act(
+      (table, tail) => {
+        const { core } = window.rig;
+        core.prompt('A');
+        core.tool('A', 'A-x31.0', { name: 'grep' });
+        core.holdReads();
+        core.stream('A', 'Zanzibar opens the reply with a first paragraph of words long enough to wrap in the pane. ');
+        core.stream('A', `${'More words of the reply follow it. '.repeat(4)}\n\n${table}${tail}`);
+      },
+      TABLE,
+      tail
+    );
+    await p.run(
+      (last) =>
+        new Promise((done, fail) => {
+          const until = performance.now() + 8000;
+          const look = () => {
+            if (window.rig.rowText('pane-1', 'A:A-r31')?.includes(last)) done();
+            else if (performance.now() > until) fail(new Error('the reply never showed its last words'));
+            else setTimeout(look, 50);
+          };
+          look();
+        }),
+      tail || 'so an even grid would wrap it'
+    );
+    await p.act(() => {});
+    const rest = await p.run(lineProbe, 'Zanzibar');
+    assert.equal(rest.following, true, `${label}: the pane follows the running turn`);
+    const frames = await settleFrames(p, { answerAt: 6 });
+    const moved = frames.filter((frame) => frame.line !== rest.line);
+    t.diagnostic(`${label}: ${JSON.stringify({ rest: rest.line, moved })}`);
+    if (moved.length) problems.push(`${label}: the line moved to ${moved.map((frame) => frame.line)}`);
+  }
+  assert.deepEqual(problems, []);
+});
+
+test("a long reply's text waiting for its parse off the page is drawn as tall as the parse: the followed view holds when it lands", async (t) => {
+  const p = await openSwitchPage(browser);
+  t.after(async () => {
+    const { errors } = p;
+    await p.page.close();
+    assert.deepEqual(errors, []);
+  });
+  await p.act(() => {
+    window.rig.core.seed('A', 30, { tools: 1 });
+    window.rig.ws.open(window.rig.ws.session('A'));
+  });
+  await p.act(() => {
+    const { core } = window.rig;
+    core.prompt('A');
+    core.tool('A', 'A-x31.0', { name: 'grep' });
+    core.holdParses();
+    // Past what a commit parses itself (markdown-worker-client.ts): its blocks wait for the worker.
+    core.stream('A', `Zanzibar opens a long reply. ${'More words of the reply follow it. '.repeat(130)}\n\n`);
+    core.stream('A', 'The last words.');
+  });
+  await p.run(
+    () =>
+      new Promise((done, fail) => {
+        const until = performance.now() + 8000;
+        const look = () => {
+          if (window.rig.rowText('pane-1', 'A:A-r31')?.includes('The last words.')) done();
+          else if (performance.now() > until) fail(new Error('the reply never showed its last words'));
+          else setTimeout(look, 50);
+        };
+        look();
+      })
+  );
+  await p.act(() => {});
+  const replyHeight = () =>
+    p.run(() =>
+      Math.round(
+        document
+          .querySelector('.persistent-pane-surface:not([data-retained]) [data-timeline-key="A:A-r31"]')
+          .getBoundingClientRect().height
+      )
+    );
+  assert.ok((await p.run(() => window.rig.core.heldParses())) > 0, 'a block waits for its parse');
+  const waiting = await replyHeight();
+  await p.act(() => window.rig.core.releaseParses());
+  const parsed = await replyHeight();
+  const rest = await p.run(lineProbe, 'Zanzibar');
+  assert.equal(rest.following, true, 'the pane follows the running turn');
+  // The turn then ends: nothing it held for the waiting text lands then.
+  const frames = await settleFrames(p, { answerAt: 0 });
+  const moved = frames.filter((frame) => frame.line !== rest.line);
+  t.diagnostic(`long reply: ${JSON.stringify({ waiting, parsed, rest: rest.line, moved })}`);
+  assert.equal(waiting, parsed, 'the waiting text is drawn as tall as its parse');
+  assert.deepEqual(moved, [], "the reply's lines held through the turn's end");
+});
+
+test("a followed turn's end cards: drawn at the end from its records, grown or first drawn when the read finds more, never shrunk or taken away, and the reply only ever moves up", async (t) => {
+  const cases = [
+    { label: 'a preview alone', writes: ['src/page.html'], read: ['src/page.html'], end: 'previews 1' },
+    {
+      label: 'a preview and file changes, the read listing a file more',
+      writes: ['src/page.html', 'src/app.ts'],
+      read: ['src/page.html', 'src/app.ts', 'build/out.js'],
+      end: 'previews 1 files 2',
+    },
+    {
+      label: 'the reader scrolled up before the read answers',
+      writes: ['src/page.html', 'src/app.ts'],
+      read: ['src/page.html', 'src/app.ts', 'build/out.js'],
+      scrollAt: 4,
+      end: 'previews 1 files 1',
+    },
+    {
+      label: 'a turn whose files a command changed: its records name none',
+      writes: [],
+      read: ['build/out.js', 'src/gen.ts'],
+      late: true,
+      end: 'files 2',
+    },
+  ];
+  const problems = [];
+  for (const { label, writes, read, scrollAt = 0, late = false, end } of cases) {
+    const p = await openSwitchPage(browser);
+    t.after(async () => {
+      const { errors } = p;
+      await p.page.close();
+      assert.deepEqual(errors, []);
+    });
+    await p.act(() => {
+      window.rig.core.seed('A', 30, { tools: 1 });
+      window.rig.ws.open(window.rig.ws.session('A'));
+    });
+    // The turn writes a page its reply links (the turn's end previews it) and the core reads its changes late.
+    await p.act(
+      (writes, read) => {
+        const { core } = window.rig;
+        core.prompt('A');
+        core.tool('A', 'A-x31.0', { name: 'grep' });
+        for (const [k, path] of writes.entries())
+          core.tool('A', `A-w31.${k}`, { name: 'write', input: { path, content: 'one\ntwo\n' } });
+        core.changes('A-u31', read);
+        core.holdReads();
+        core.stream('A', 'Zanzibar: the page is written, open [the page](src/page.html) to see it in the panel. ');
+        core.stream('A', 'The last words.');
+      },
+      writes,
+      read
+    );
+    await p.run(
+      () =>
+        new Promise((done, fail) => {
+          const until = performance.now() + 8000;
+          const look = () => {
+            if (window.rig.rowText('pane-1', 'A:A-r31')?.includes('The last words.')) done();
+            else if (performance.now() > until) fail(new Error('the reply never showed its last words'));
+            else setTimeout(look, 50);
+          };
+          look();
+        })
+    );
+    await p.act(() => {});
+    const rest = await p.run(lineProbe, 'Zanzibar');
+    assert.equal(rest.following, true, `${label}: the pane follows the running turn`);
+    assert.equal(rest.drawn, '', `${label}: no card while the turn runs`);
+    const frames = await settleFrames(p, { answerAt: 8, scrollAt });
+    const arrived = frames.findIndex((frame) => frame.drawn !== '');
+    // The reader's own wheel moves the reply down; nothing else does: what arrives below it moves it up.
+    const steps = frames.filter(
+      (frame, at) => frame.frame !== scrollAt && frame.line !== (at > 0 ? frames[at - 1].line : rest.line)
+    );
+    const down = steps.filter((step) => step.line > (frames[frames.indexOf(step) - 1]?.line ?? rest.line));
+    t.diagnostic(`${label}: ${JSON.stringify({ rest: rest.line, arrived: arrived + 1, steps })}`);
+    // Records that name files draw their cards with the end; a read that finds the first draws them as it answers.
+    const at = arrived + 1;
+    if (late ? at < 8 || at > 12 : at < 1 || at > 2) problems.push(`${label}: the cards were drawn at frame ${at}`);
+    for (const [index, frame] of frames.entries()) {
+      const before = frames[index - 1]?.heights ?? {};
+      for (const [kind, height] of Object.entries(before)) {
+        if (!(frame.heights[kind] >= height))
+          problems.push(`${label}: the ${kind} card went from ${height}px to ${frame.heights[kind] ?? 'none'}`);
+      }
+    }
+    const last = frames.at(-1).drawn.replace(/:\d+/g, '');
+    if (last !== end) problems.push(`${label}: the turn ended with ${last || 'no card'}, not ${end}`);
+    if (down.length) problems.push(`${label}: the reply moved down ${JSON.stringify(down.map((step) => step.line))}`);
+    if (!scrollAt && !frames.every((frame) => frame.following)) problems.push(`${label}: follow was lost`);
+  }
+  assert.deepEqual(problems, []);
+});
+
 /** What a dock change did to the transcript, and what it should not have done. */
 function judgeDockChange(t, label, frames, rest, problems, upwardScrolls = []) {
   const metrics = {

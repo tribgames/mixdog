@@ -805,6 +805,60 @@
     flex-wrap: wrap;
     justify-content: flex-start;
   }
+  /* A narrow phone gives a picker row and the proxy rows their own lines: the
+     label and its description over the full width, the control under them. */
+  html[data-mixdog-mobile-tabs]
+    .mixdog-settings-v2
+    .mixdog-settings__row:is(:has(> .settings-row-control :is(.mx-select-root, select)), .network-proxy-row) {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 8px;
+  }
+  html[data-mixdog-mobile-tabs]
+    .mixdog-settings-v2
+    .mixdog-settings__row:is(:has(> .settings-row-control :is(.mx-select-root, select)), .network-proxy-row)
+    > .settings-row-control {
+    justify-content: flex-start;
+  }
+  html[data-mixdog-mobile-tabs]
+    .mixdog-settings-v2
+    .mixdog-settings__row:has(> .settings-row-control :is(.mx-select-root, select))
+    :is(.mx-select-root, .network-proxy-select) {
+    width: 100%;
+  }
+}
+html[data-mixdog-mobile-tabs] :is(.network-proxy-select, .network-proxy-button) {
+  height: var(--mx-touch);
+}
+/* Phone Settings sheet: the page clears the notch on both sides in landscape,
+   and the rail's last category stops above the home indicator. */
+html[data-mixdog-mobile-tabs] .mixdog-settings.mixdog-settings-v2 {
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+}
+html[data-mixdog-mobile-tabs] .mixdog-settings-v2 .mixdog-settings__rail {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
+}
+/* A page title wraps instead of cutting, and the device badge takes the next
+   line when the two do not fit one. */
+html[data-mixdog-mobile-tabs] .mixdog-settings-v2 .mixdog-settings__header {
+  height: auto;
+  flex-basis: auto;
+}
+html[data-mixdog-mobile-tabs] .mixdog-settings-v2 .mixdog-settings__header-title {
+  flex-wrap: wrap;
+  row-gap: 6px;
+  padding-block: 6px;
+}
+html[data-mixdog-mobile-tabs] .mixdog-settings-v2 .mixdog-settings__header h1 {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* A resource's description reads over two lines before it is cut. */
+html[data-mixdog-mobile-tabs] .mixdog-settings-v2 .settings-resource-meta {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
 }
 
 /* Settings → Connection (design/remote-connection-settings-v8.html): one

@@ -64,8 +64,8 @@ export interface DesktopAgentWorker extends Readonly<Record<string, unknown>> {
   model?: string;
   effort?: string;
   fast?: boolean;
-  /** Per-route Auto reasoning; absent means on. */
-  autoEffort?: boolean;
+  /** Explicit per-route Auto reasoning choice (`true` = Auto, `false` = manual level). */
+  effortAuto?: boolean;
   status?: string;
   stage?: string;
   startedAt?: number | string;
@@ -81,7 +81,7 @@ export interface DesktopAgentJob extends Readonly<Record<string, unknown>> {
   model?: string;
   effort?: string;
   fast?: boolean;
-  autoEffort?: boolean;
+  effortAuto?: boolean;
   task_id?: string;
   taskId?: string;
   status?: string;
@@ -136,8 +136,8 @@ export interface DesktopAgentPoolRow extends Readonly<Record<string, unknown>> {
   fast?: boolean | null;
   /** These route fields describe a request of the current turn, not its saved configuration. */
   routeObserved?: boolean;
-  /** Per-route Auto reasoning; for an observed request, only present if its configuration is known. */
-  autoEffort?: boolean | null;
+  /** Explicit per-route Auto reasoning; for an observed request, only present if its configuration is known. */
+  effortAuto?: boolean | null;
   status: string;
   stage: string;
   /** Why a `failed` row failed: `process-restart` (the process running the
@@ -308,8 +308,8 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   sessionModel?: string | null;
   fast?: boolean;
   fastCapable?: boolean;
-  /** Per-route Auto reasoning; absent means on, only `false` turns it off. */
-  autoEffort?: boolean;
+  /** Explicit per-route Auto reasoning choice (`true` = Auto, `false` = manual level). */
+  effortAuto?: boolean;
   modelParameters?: Readonly<Record<string, string>>;
   contextPercent?: number;
   /** Exact context window in force (only when it is a non-default value). */
@@ -528,7 +528,7 @@ export interface DesktopModelOption {
   fastPreferred: boolean;
   savedEffort?: string;
   savedFast?: boolean;
-  savedAutoEffort?: boolean;
+  savedEffortAuto?: boolean;
   defaultEffort?: string;
   defaultFast?: boolean;
   /** Effort can change per turn without breaking the prompt cache, so the
@@ -576,7 +576,9 @@ export interface DesktopModelSelection {
   model: string;
   effort?: string;
   fast?: boolean;
-  /** Per-route Auto reasoning; absent means on, only `false` turns it off. */
+  /** Explicit per-route Auto reasoning choice (`true` = Auto, `false` = manual level). */
+  effortAuto?: boolean;
+  /** Legacy pre-update Auto flag, accepted only during one-time conversion on load. */
   autoEffort?: boolean;
   modelParameters?: Record<string, string>;
   contextPercent?: number;

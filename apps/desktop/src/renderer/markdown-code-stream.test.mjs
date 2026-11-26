@@ -6,23 +6,18 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import { parseMarkdownToHast } from './markdown-ast';
 import MarkdownAstBody from './MarkdownAstBody';
-import { StreamFadeTimeline } from './markdown-stream-fade.ts';
 import { healStreamingMarkdownTail } from './streaming-markdown';
 
 const CopyControl = () => null;
 const REPLY = 'Run this first:\n\n```bash\nnpm install\nnpm run build\n```\n\nThen `npm test` to finish.';
-/** `prefix` revealed (its pass committed) and rendered. */
-const markupOf = (prefix, timeline) => {
-  timeline.commit(timeline.read(prefix, performance.now()));
-  return renderToStaticMarkup(
+/** `prefix` revealed and rendered. */
+const markupOf = (prefix) =>
+  renderToStaticMarkup(
     React.createElement(MarkdownAstBody, {
       root: parseMarkdownToHast(healStreamingMarkdownTail(prefix)),
       copyControl: CopyControl,
-      fadeTimeline: timeline,
-      fadeOffset: 0,
     })
   );
-};
 const textOf = (markup) => markup.replace(/<[^>]*>/g, '');
 
 function* prefixes(step) {
@@ -32,31 +27,19 @@ function* prefixes(step) {
 
 for (const step of [1, 3, 7]) {
   test(`code block streamed ${step} char(s) at a time arrives whole and in order`, () => {
-    const timeline = new StreamFadeTimeline();
     for (const prefix of prefixes(step)) {
-      const markup = markupOf(prefix, timeline);
+      const markup = markupOf(prefix);
       const shown = textOf(markup);
       assert.ok(!shown.includes('```'), `raw fence in ${JSON.stringify(prefix)}`);
       assert.ok(!shown.includes('`'), `raw backtick in ${JSON.stringify(prefix)}`);
       for (const block of markup.matchAll(/<pre[\s\S]*?<\/pre>/g)) {
         assert.ok(textOf(block[0]).trim(), `empty code box in ${JSON.stringify(prefix)}`);
-        assert.ok(!block[0].includes('<mx-fade'), `code fades word by word in ${JSON.stringify(prefix)}`);
-      }
-      for (const code of markup.matchAll(/<code[\s\S]*?<\/code>/g)) {
-        assert.ok(!code[0].includes('<mx-fade'), `code fades word by word in ${JSON.stringify(prefix)}`);
       }
       // Nothing after the block shows before the block has closed.
       if (!prefix.includes('build\n```')) assert.ok(!shown.includes('Then'), JSON.stringify(prefix));
     }
   });
 }
-
-test('prose around a code block still fades', () => {
-  const timeline = new StreamFadeTimeline();
-  const markup = markupOf(REPLY, timeline);
-  assert.match(markup, /<mx-fade[^>]*>Run /);
-  assert.match(markup, /<mx-fade[^>]*>[^<]*finish/);
-});
 
 test('an opening fence is held back until its first code character', () => {
   const heal = healStreamingMarkdownTail;

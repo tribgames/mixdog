@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { flushSync } from 'react-dom';
 import { transcriptDockInset } from './transcript-list-dock-inset';
-import { transcriptThreadInset } from './transcript-list-geometry';
+import { ceilRowHeight, transcriptThreadInset } from './transcript-list-geometry';
 import { TRANSCRIPT_BOTTOM_SPACER, TRANSCRIPT_RELEARN_ATTRIBUTE } from './transcript-virtual-cache';
 import { transcriptScrollPosition } from './use-transcript-follow';
 
@@ -9,11 +9,14 @@ import { transcriptScrollPosition } from './use-transcript-follow';
 // reading (`data-reserved`) is not waited for: the read is the core's to answer, and may never be.
 const DOCK_MOTION = '.composer-island-slot[data-motion]';
 const ROW_PENDING = '[data-transcript-pending]';
-// A turn's changes read (TurnChangesCard.tsx): on the phone it crosses the relay behind the link's slow reads.
+// A turn's changes read (TurnChangesCard.tsx), which the phone does not wait on: the row draws its card from the turn's
+// own records in its first frame.
 const BODY_PENDING = '[data-transcript-pending]:not([data-transcript-pending="read"])';
 const ROW = '.transcript-virtual-row';
 // A reply still streaming: its box and what it parses change for as long as it streams, and are never waited for.
 const STREAMING = '.message.streaming';
+// Well under a device pixel at any ratio (1/3 px at 3x).
+const OFFSET_SLACK_PX = 0.01;
 
 /** Whether dock chrome under `scope` is still to settle: a module loading (`entry`), or the island slot easing its
  *  height. A slot marked as moving whose height transition is not running (it started none: a slot not rendered, a
@@ -86,8 +89,8 @@ export function useTranscriptReveal({
   placed?: () => boolean;
   enabled: boolean;
   draft: boolean;
-  /** The phone: reveal as soon as a visible row holds its real content (no
-   *  pending Markdown), in the frame the rows commit. */
+  /** The phone: reveal in the first frame the rows in view hold their content (no pending body) at the extents
+   *  the list gave them, without waiting on a changes read, dock chrome or a stable frame. */
   eager?: boolean;
   viewport: RefObject<HTMLDivElement | null>;
   content: RefObject<HTMLDivElement | null>;
@@ -167,28 +170,37 @@ export function useTranscriptReveal({
         if (row.querySelector(STREAMING)) return;
         signature.push(Number(row.dataset.index), start, end);
       });
-      const rowsPending = settlingPending(space, visibleRowSet, ROW_PENDING);
+      const rowsPending = settlingPending(space, visibleRowSet, eager ? BODY_PENDING : ROW_PENDING);
       return {
         position,
         visible,
         visibleRows,
-        visibleRowSet,
         closedEnds,
         rowsPending,
         current: JSON.stringify(signature),
       };
     };
+    /** An eager reveal needs its reader placed and the rows in view (not offscreen overscan rows) final: no body
+     *  pending, and each at the extent the list gave it. A body that just rendered grows its row in layout a frame
+     *  before the list moves the rows for it. */
+    const eagerReady = (root: HTMLDivElement, measured: ReturnType<typeof measure>, set: boolean): boolean =>
+      eager &&
+      measured.visible > 0 &&
+      set &&
+      !measured.rowsPending &&
+      isExact(root, measured.visibleRows, measured.closedEnds);
     const sample = () => {
       const root = viewport.current;
       const space = content.current;
       if (!root || !space) return;
-      const { position, visible, visibleRowSet, rowsPending, current } = measure(root, space);
+      const measured = measure(root, space);
+      const { position, visible, rowsPending, current } = measured;
       const chromePending = chromePendingNow();
       const pending = rowsPending || chromePending || document.fonts?.status === 'loading';
       const readerOwnsPosition = hasScrollGesture();
       const set = readerSet(root, position) || readerOwnsPosition;
       const settled = visible > 0 && !pending && set && current === previous;
-      if (eager && eagerReady(root, space, visible, visibleRowSet, set)) {
+      if (eagerReady(root, measured, set)) {
         reveal();
         return;
       }
@@ -203,8 +215,9 @@ export function useTranscriptReveal({
       const root = viewport.current;
       const space = content.current;
       if (cancelled || !root || !space) return;
-      const { position, visible, visibleRows, visibleRowSet, closedEnds, rowsPending, current } = measure(root, space);
-      if (eager && eagerReady(root, space, visible, visibleRowSet, readerSet(root, position))) {
+      const measured = measure(root, space);
+      const { position, visible, visibleRows, closedEnds, rowsPending, current } = measured;
+      if (eagerReady(root, measured, readerSet(root, position))) {
         cancelled = true;
         cancelAnimationFrame(frame);
         reveal();
@@ -248,30 +261,14 @@ export function useTranscriptReveal({
 
 /** Every given visible row, read back from layout, is exactly the extent the
  *  virtualizer gave it (up to the next row's offset), and no estimate relearn
- *  waits for its frame. No tolerance. */
+ *  waits for its frame. The height read back is taken as the list takes it
+ *  (`ceilRowHeight`); the slack only absorbs the float sums of the offsets. */
 function isExact(root: HTMLElement, rows: readonly HTMLElement[], ends: readonly number[]): boolean {
   if (root.hasAttribute(TRANSCRIPT_RELEARN_ATTRIBUTE)) return false;
   return rows.every(
     (row, index) =>
-      Math.round(row.getBoundingClientRect().height) ===
-      Math.round(ends[index] - (Number.parseFloat(row.style.top) || 0))
-  );
-}
-
-/** An eager reveal needs its reader placed, no estimate relearn pending, and
- *  no visible suspended Markdown body (skipping slow remote read cards and
- *  offscreen overscan rows). */
-function eagerReady(
-  root: HTMLDivElement,
-  space: HTMLDivElement,
-  visible: number,
-  visibleRows: ReadonlySet<HTMLElement>,
-  set: boolean
-): boolean {
-  return (
-    visible > 0 &&
-    set &&
-    !root.hasAttribute(TRANSCRIPT_RELEARN_ATTRIBUTE) &&
-    !settlingPending(space, visibleRows, BODY_PENDING)
+      Math.abs(
+        ceilRowHeight(row.getBoundingClientRect().height) - (ends[index] - (Number.parseFloat(row.style.top) || 0))
+      ) < OFFSET_SLACK_PX
   );
 }

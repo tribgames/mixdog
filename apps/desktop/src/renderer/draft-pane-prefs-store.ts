@@ -6,6 +6,11 @@ import type {
 } from '../shared/contract';
 import type { RecordValue, Snapshot } from './desktop-types';
 import { record } from './record-utils';
+import {
+  effortAutoField,
+  needsLegacyAutoEffortConversion,
+  resolveEffortAuto,
+} from './route-auto-effort';
 import { listPresetsShared } from './sidebar-reference-cache';
 import { asRecord } from './text-format';
 
@@ -130,6 +135,35 @@ export function resolvedStoredProjectPath(stored: string, resolve: (candidate: s
   return resolve(stored) || null;
 }
 
+/** Convert a persisted model selection from pre-update legacy `autoEffort` to
+ *  explicit `effortAuto` once, stripping the legacy field. */
+export function convertLegacyModelSelection(
+  selection: DesktopModelSelection | null,
+  legacySwitchOn: boolean
+): DesktopModelSelection | null {
+  if (!selection || !needsLegacyAutoEffortConversion(selection)) return selection;
+  const effortAuto = resolveEffortAuto(selection, legacySwitchOn);
+  const { autoEffort: _legacy, ...rest } = selection;
+  return { ...rest, effortAuto };
+}
+
+/** Convert a persisted DraftPanePrefs entry's `modelSelection` once on load. */
+export function convertDraftPanePrefs(prefs: DraftPanePrefs | null, legacySwitchOn: boolean): DraftPanePrefs | null {
+  if (!prefs?.modelSelection) return prefs;
+  const converted = convertLegacyModelSelection(prefs.modelSelection, legacySwitchOn);
+  return converted === prefs.modelSelection ? prefs : { ...prefs, modelSelection: converted };
+}
+
+/** Whether any persisted draft entry or last-new-task entry needs one-time
+ *  legacy `autoEffort` -> `effortAuto` conversion. */
+export function storedDraftPrefsNeedConversion(
+  last: DraftPanePrefs | null,
+  rows: ReadonlyArray<readonly [string, DraftPanePrefs]>
+): boolean {
+  if (needsLegacyAutoEffortConversion(last?.modelSelection)) return true;
+  return rows.some(([, entry]) => needsLegacyAutoEffortConversion(entry.modelSelection));
+}
+
 export const draftModelSelectionFromSnapshot = (
   snapshot: Snapshot | SessionSnapshot | undefined
 ): DesktopModelSelection | null => {
@@ -144,7 +178,7 @@ export const draftModelSelectionFromSnapshot = (
     model,
     ...(effort ? { effort } : {}),
     ...(typeof snapshot.fast === 'boolean' ? { fast: snapshot.fast } : {}),
-    ...(typeof snapshot.autoEffort === 'boolean' ? { autoEffort: snapshot.autoEffort } : {}),
+    ...effortAutoField(snapshot.effortAuto, true),
     ...(snapshot.modelParameters ? { modelParameters: { ...snapshot.modelParameters } } : {}),
     ...(Number(snapshot.contextPercent) >= 10 ? { contextPercent: Number(snapshot.contextPercent) } : {}),
     ...(Number.isInteger(snapshot.contextTokens) && Number(snapshot.contextTokens) > 0

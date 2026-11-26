@@ -15,7 +15,7 @@ const { syncMarkdownParser } = await import('./markdown-worker-client.ts');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-test('a reply ending before the parser loaded keeps streaming, then ends with its tail in that commit, fading in', async () => {
+test('a reply ending before the parser loaded keeps streaming, then ends with its tail in that commit', async () => {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -54,12 +54,5 @@ test('a reply ending before the parser loaded keeps streaming, then ends with it
     [],
     'no commit of the ended reply without its tail'
   );
-  const tail = [...host.querySelectorAll('[data-stream-fade]')].at(-1);
-  assert.match(tail.textContent, /word word[\s\S]*end$/);
-  assert.equal(tail.style.getPropertyValue('--mx-fade-ms'), '400ms');
-  // Real time: the fade is stamped as the ending render runs, so its delay is
-  // that commit's own render-to-commit time (a long tail parses in it).
-  const delay = Number.parseInt(tail.style.getPropertyValue('--mx-fade-delay'), 10);
-  assert.ok(delay <= 0 && delay > -50, `its fade starts as it shows (${delay} ms)`);
   await act(async () => root.unmount());
 });

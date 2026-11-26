@@ -228,9 +228,18 @@ export function isRemoteConnectionOutage(boot: boolean): boolean {
   return false;
 }
 
-/** The relay's latest answer was that the PC has no live leg (its own close). */
+/** The relay's latest answer was that the PC has no live leg (a parked notice or its 4002 close). */
 export function isRemoteDesktopOffline(): boolean {
   return typeof document !== 'undefined' && document.documentElement.dataset.mixdogRemoteDesktop === 'offline';
+}
+
+/** The relay parked this phone because the PC currently has no live leg. */
+export function markRemoteDesktopOffline(): void {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+  if (document.documentElement.dataset.mixdogRemoteDesktop === 'offline') return;
+  markRemoteConnectionTimeline('desktop=offline');
+  document.documentElement.dataset.mixdogRemoteDesktop = 'offline';
+  window.dispatchEvent(new window.Event(REMOTE_CONNECTION_STATE_EVENT));
 }
 
 /** A manual retry: the PC's last reported absence stands only once the relay

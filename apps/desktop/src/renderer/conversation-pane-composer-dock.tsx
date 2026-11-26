@@ -82,7 +82,7 @@ const UNLOADED_ROUTE = {
   effort: '',
   fast: false,
   fastCapable: false,
-  autoEffort: undefined,
+  effortAuto: undefined,
   modelParameters: undefined,
   contextPercent: undefined,
   contextTokens: undefined,
@@ -220,13 +220,20 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
     applySnapshot: actions.composerApplySnapshot,
   });
   const modelAside = contextIndicator;
+  const routeProvider = String(draftModelSelection?.provider || routeSnapshot.provider || '');
+  const routeModel = String(draftModelSelection?.model || routeSnapshot.model || '');
+  const sameSessionModel =
+    !routeSnapshot.sessionModel ||
+    (String(routeSnapshot.sessionProvider || '') === routeProvider &&
+      String(routeSnapshot.sessionModel || '') === routeModel);
   const route = {
-    provider: String(draftModelSelection?.provider || routeSnapshot.provider || ''),
-    model: String(draftModelSelection?.model || routeSnapshot.model || ''),
+    provider: routeProvider,
+    model: routeModel,
     effort: String(draftModelSelection?.effort ?? routeSnapshot.effort ?? ''),
+    turnEffort: draftModelSelection || !sameSessionModel ? '' : String(routeSnapshot.turnEffort || ''),
     fast: draftModelSelection?.fast ?? Boolean(routeSnapshot.fast),
     fastCapable: Boolean(routeSnapshot.fastCapable),
-    autoEffort: draftModelSelection?.autoEffort ?? routeSnapshot.autoEffort,
+    effortAuto: draftModelSelection?.effortAuto ?? routeSnapshot.effortAuto,
     modelParameters:
       draftModelSelection?.modelParameters || (routeSnapshot.modelParameters as Record<string, string> | undefined),
     // A draft's route carries its own model's context (or none): the

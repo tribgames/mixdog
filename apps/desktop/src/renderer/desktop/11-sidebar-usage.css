@@ -14,9 +14,6 @@
   max-height: min(560px, calc(var(--vvh, 100dvh) - var(--rail-usage-popup-bottom, 48px) - 52px));
   overflow-y: auto;
   overscroll-behavior: contain;
-  /* ONE frame: the popup's own border is
-     the only frame. The title band, the provider roster and the reset band
-     divide on full-bleed hairlines instead of nesting boxed cards inside it. */
   padding: 0;
   border: var(--mx-popup-border);
   border-radius: var(--mx-popup-radius);
@@ -39,11 +36,7 @@
 .sidebar-usage > * {
   min-width: 0;
 }
-/* Title row = .session-panel-header (09-sidebar-chrome.css): the popup only
-   adds its bottom hairline and the panel's 12px text inset. Pin then + sit in
-   the shared 28px action slot. */
-/* No hairlines anywhere in the flyout: the
-   title band, the providers and the reset band part by spacing alone. */
+/* No hairlines in the flyout: title band, providers and reset band part by spacing alone. */
 .sidebar-usage-heading.session-panel-header {
   min-width: 0;
   padding: 0 4px 0 12px;
@@ -158,14 +151,12 @@
 .sidebar-usage-provider-icon {
   display: grid;
   place-items: center;
-  border-radius: 50%;
-  color: var(--mx-text);
-  background: transparent;
-}
-.sidebar-usage-provider-icon {
   width: 20px;
   height: 20px;
   flex: 0 0 20px;
+  border-radius: 50%;
+  color: var(--mx-text);
+  background: transparent;
 }
 .sidebar-usage-provider-icon svg {
   width: var(--mx-icon-md);
@@ -202,17 +193,6 @@
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-meta);
 }
-/* Type ladder = the side panels' own (01-tokens.css), so the flyout reads
-   like every rail list:
-   1. title — the panel title band (16 / 600);
-   2. group labels — provider names and the reset heading (rail label,
-      14 / 600, full ink);
-   3. rows — ticket names (14 / 400, row-title ink);
-   4. supporting — window labels, reset times, expiry (13 / 400, row-meta
-      ink); the percentage figure shares the 13px size at 500 in full ink.
-   12px stays reserved for the count chip. The 13px / 600 window labels had
-   out-weighed the values beside them, and ticket names sat on the group
-   tier. */
 /* Quota block: windows stack 10px apart, 8px under the header. */
 .sidebar-usage-meters {
   grid-column: 1 / -1;
@@ -445,7 +425,6 @@
   border-radius: var(--mx-radius-md);
 }
 /* Reset credits keep their individual expiry and action visible. */
-.sidebar-usage-credit,
 .sidebar-usage-reset-credit {
   grid-column: 1 / -1;
   min-width: 0;
@@ -590,22 +569,17 @@
   color: var(--mx-warning);
 }
 .sidebar-usage-reset-confirmation {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
   padding-top: 4px;
 }
 .sidebar-usage-reset-confirmation p,
 .sidebar-usage-reset-notice {
+  margin: 0;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
-}
-.sidebar-usage-reset-confirmation {
-  grid-column: 1 / -1;
-  display: grid;
-  gap: 8px;
-}
-.sidebar-usage-reset-confirmation p,
-.sidebar-usage-reset-notice {
-  margin: 0;
 }
 .sidebar-usage-reset-actions button {
   min-height: 26px;
@@ -630,7 +604,6 @@
   opacity: var(--mx-op-disabled);
 }
 .sidebar-usage-reset-notice {
-  margin: 0;
   padding: 8px 12px;
 }
 /* Collapsed section heading keeps the unread signal visible. */
@@ -677,8 +650,6 @@
 .session-row-copy {
   display: block;
   gap: 0;
-}
-.session-row-copy {
   min-width: 0;
   flex: 1;
   overflow: hidden;
@@ -728,30 +699,38 @@
   height: 16px;
 }
 .session-row-fork-icon[data-fork="root"] {
-  color: var(--mx-text-accent);
+  color: var(--mx-icon-muted);
 }
+/* The heading's 12px chevron in a 24px target: pulled 8px back over the
+   row's 6px gap, its glyph lands 4px after the title, as a heading's does. */
 .session-row-fork-toggle {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 4px;
-  border-radius: var(--mx-radius-sm);
+  width: var(--mx-control-xs);
+  min-width: var(--mx-control-xs);
+  height: var(--mx-control-xs);
+  margin-left: -8px;
+  padding: 0;
+  border-radius: var(--mx-radius-md);
   color: var(--mx-text-muted);
   cursor: pointer;
 }
-.session-row-fork-count {
-  font-size: var(--mx-font-meta);
-  font-variant-numeric: tabular-nums;
+/* A long original ends in an ellipsis before its chevron, not a fade. */
+.session-row-main:has(.session-row-fork-toggle) .session-row-copy b[data-overflow="true"] {
+  text-overflow: ellipsis;
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 .session-row-fork-toggle:hover {
   background: var(--mx-hover);
 }
+/* A span role=button: the sheet's outline sweep for non-controls takes its
+   outline, so it marks focus like a heading toggle does. */
 .session-row-fork-toggle:focus-visible {
-  outline: 1px solid var(--mx-focus);
+  background: var(--mx-hover);
+  box-shadow: var(--mx-list-focus-ring);
 }
 /* The title hugs its text so the chevron sits right after it; the trailing
    clearance the other rows give their copy moves to the whole button. */
@@ -771,6 +750,65 @@
   .session-row.confirming-delete:has(.session-row-action)
   .session-row-main:has(.session-row-fork-toggle) {
   padding-right: 52px;
+}
+/* Neutral row fills (no accent tint); quiet titles sit one step under marked,
+   hovered and selected ones. A filled row's actions clear its title without a
+   second fade surface. */
+.session-sidebar {
+  --session-row-hover-fill: rgba(255, 255, 255, 0.06);
+  --session-row-selected-fill: rgba(255, 255, 255, 0.14);
+}
+/* Light moves its own ghost fills (grey 9% / 17%) by the steps dark took
+   (8% to 6%, 12% to 14%). */
+:root[data-mixdog-theme="light"] .session-sidebar {
+  --session-row-hover-fill: rgba(119, 119, 119, 0.07);
+  --session-row-selected-fill: rgba(119, 119, 119, 0.2);
+}
+/* A skin's plate decides the tone, whatever the theme: its guarded fills. */
+:root[data-mixdog-skin] .session-sidebar {
+  --session-row-hover-fill: var(--mx-skin-fill);
+  --session-row-selected-fill: var(--mx-skin-fill-strong);
+}
+/* Over the light theme's opaque row fills and the joined sheet's action
+   surface (pane-layout.css). */
+:root .session-sidebar .session-sidebar-sessions .session-row:not(.selected):hover {
+  --session-row-action-surface: transparent;
+  background: var(--session-row-hover-fill);
+}
+:root .session-sidebar .session-sidebar-sessions .session-row.selected {
+  --session-row-action-surface: transparent;
+  background: var(--session-row-selected-fill);
+}
+.session-sidebar .session-row-copy b {
+  color: color-mix(in srgb, var(--mx-text) 72%, transparent);
+}
+.session-sidebar
+  .session-row:is(
+    .selected,
+    :hover,
+    :has(:focus-visible),
+    :has(.session-row-attention, .session-row-unread-dot, .session-row-spinner)
+  )
+  .session-row-copy
+  b {
+  color: var(--mx-text);
+}
+.session-sidebar .session-row.selected .session-row-copy b {
+  font-weight: var(--mx-weight-medium);
+}
+/* Group labels: small and strong in the faint ink, under the 14px titles. */
+.session-sidebar .sidebar-recent-heading.sidebar-heading-toggle {
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-semibold);
+  letter-spacing: 0.02em;
+}
+/* Groups sit 16px apart, open or folded, and the first 8px under the header. */
+.session-sidebar .session-sidebar-sessions > .session-sidebar-scroll > .sidebar-recent + .sidebar-recent {
+  margin-top: 16px;
+}
+html:not([data-mixdog-mobile-tabs]) .session-sidebar .session-sidebar-sessions > .session-sidebar-scroll {
+  padding-top: 8px;
 }
 /* Unread activity dot: the session gained messages while it
    was not the viewed conversation. */
@@ -795,9 +833,11 @@
 }
 /* The action cluster keeps one position on every row, so the archive button
    is always where the pointer expects it; while revealed it covers the
-   trailing dot or status, which hides underneath. */
-.session-row:hover:has(.session-row-action) :is(.session-row-unread-dot, .session-row-status),
-.session-row:has(:focus-visible):has(.session-row-action) :is(.session-row-unread-dot, .session-row-status),
-.session-row.confirming-delete:has(.session-row-action) :is(.session-row-unread-dot, .session-row-status) {
+   trailing dot, status or mute bell, which hides underneath. */
+.session-row:hover:has(.session-row-action) :is(.session-row-unread-dot, .session-row-status, .session-row-muted),
+.session-row:has(:focus-visible):has(.session-row-action)
+  :is(.session-row-unread-dot, .session-row-status, .session-row-muted),
+.session-row.confirming-delete:has(.session-row-action)
+  :is(.session-row-unread-dot, .session-row-status, .session-row-muted) {
   opacity: 0;
 }

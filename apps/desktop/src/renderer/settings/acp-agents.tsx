@@ -1,5 +1,5 @@
 import { Plus, RefreshCw } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { type AcpAgentGroup, type AcpAgentStatus, acpAgentGroups, acpAgentsOf } from '../acp-agent-status';
 import { ErrorNotice } from '../ErrorNotice';
@@ -138,16 +138,16 @@ function signInStepTitle(member: AcpAgentStatus): string {
   return SIGN_IN_STEP_TITLES[member.provider]?.() ?? t('Sign in to {{name}}', { name: member.label });
 }
 
-/** The one account a preset of an agent is signed in with, as a provider's roster: its usage is the usage dashboard's
- *  entry of that preset alone (another preset of the agent may be signed in with another account), and a refresh
- *  reads it again. `identity` tells which of the agent's sign-ins it is. The agent names no account and keeps no
- *  other, so nothing else of the roster changes. */
-function agentAccountSource(provider: string, plan: string, identity: string | undefined): ProviderAccountSource {
+/** The one account an agent is signed in with, as a provider's roster: its usage is read from the usage dashboard row
+ *  of any of the group's providers (preferring the CLI preset that reports the shared quota), and a refresh asks the
+ *  core to read them again. */
+function agentAccountSource(provider: string, usageProviders: string[], plan: string): ProviderAccountSource {
   const read = async (): Promise<ProviderAccountPool> => {
     const { dashboard, refreshedAt } = getUsageDashboardSnapshot();
     // Every row, not `usageRows`: the agent's own reading also when a provider's row lists it (`sameQuotaAs`).
     const rows = record(dashboard).rows;
-    const row = (Array.isArray(rows) ? rows.map(record) : []).find((entry) => String(entry.id) === provider);
+    const list = Array.isArray(rows) ? rows.map(record) : [];
+    const row = usageProviders.map((id) => list.find((entry) => String(entry.id) === id)).find(Boolean);
     const windows = (Array.isArray(row?.windows) ? row.windows.map(record) : []).map((window) => ({
       label: String(window.label || ''),
       usedPct: typeof window.usedPct === 'number' ? window.usedPct : null,
@@ -160,7 +160,6 @@ function agentAccountSource(provider: string, plan: string, identity: string | u
           id: `${provider}:default`,
           // The agent tells the account's plan and no name: the plan stands where a provider's row says who it is.
           label: plan || t('Account 1'),
-          identity,
           authenticated: true,
           reauthRequired: false,
           // Once the dashboard has answered, an agent it shows no windows for has no reading (the core withdrew it
@@ -177,49 +176,50 @@ function agentAccountSource(provider: string, plan: string, identity: string | u
     read,
     update: async (change) => {
       if (change.refreshUsage === true) {
-        await refreshUsageDashboard(window.mixdogDesktop, { force: true, providers: [provider] });
+        await refreshUsageDashboard(window.mixdogDesktop, { force: true, providers: usageProviders });
       }
       return read();
     },
   };
 }
 
-/** A ready preset of an agent as the provider account card of the one account it is signed in with. */
+/** A connected agent as the provider account card of the one account it is signed in with. */
 function AgentAccountCard({
-  member,
-  identity,
+  agent,
+  usageProviders,
   disabled,
   onDisconnect,
   onSignIn,
 }: {
-  member: AcpAgentStatus;
-  /** Which of the agent's sign-ins it is, where the agent has several. */
-  identity: string | undefined;
+  agent: AcpAgentStatus;
+  usageProviders: string[];
   disabled: boolean;
   onDisconnect(): void;
-  /** Its sign-in again, which replaces the account. */
+  /** Its sign-in again, which replaces the account across all usable steps. */
   onSignIn(): void;
 }) {
+  const usageKey = usageProviders.join('|');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `usageKey` is `usageProviders`'s identity.
   const accounts = useMemo(
-    () => agentAccountSource(member.provider, member.plan, identity),
-    [member.provider, member.plan, identity]
+    () => agentAccountSource(agent.provider, usageProviders, agent.plan),
+    [agent.provider, usageKey, agent.plan]
   );
-  const name = { name: member.label };
+  const name = { name: agent.label };
   return (
-    <div data-acp-member={member.id}>
+    <div data-acp-member={agent.id}>
       <ProviderAccountsList
-        provider={member.provider}
-        title={providerDisplayName(member.provider)}
+        provider={agent.provider}
+        title={providerDisplayName(agent.provider)}
         source={accounts}
         renderActions={() =>
-          member.canSignOut && (
+          agent.canSignOut && (
             <ActionButton danger disabled={disabled} onClick={onDisconnect}>
               {t('Disconnect')}
             </ActionButton>
           )
         }
         headerAction={
-          member.canSignIn && (
+          agent.canSignIn && (
             <button
               type="button"
               className="provider-account-add-button"
@@ -234,7 +234,7 @@ function AgentAccountCard({
           )
         }
       />
-      <ErrorNotice errors={[faultLine(member)]} />
+      <ErrorNotice errors={[faultLine(agent)]} />
     </div>
   );
 }
@@ -398,8 +398,9 @@ function AcpAgentRow({
   };
   // Only the official server (Gemini) has a platform it does not run on; the CLI's models stay.
   const geminiUnavailable = agent.state !== 'unsupported' && members.some((member) => member.state === 'unsupported');
-  // What a row in `shown`'s state offers: the progress of its install or update, else its install, update or sign-in,
-  // the sign-out of an account the agent refused, or a look again.
+  // What a row in `shown`'s state offers: the progress of its install or update, else its install, update, sign-in
+  // or check-again action, alongside Disconnect whenever any usable member is signed in (or Disconnect alone on a
+  // refused account).
   const controlOf = (shown: AcpAgentStatus, rowSigningIn: boolean, connect: () => void, leave: () => void) => {
     const own = { name: shown.label };
     if (shown.state === 'installing' || shown.state === 'updating') {
@@ -410,86 +411,64 @@ function AcpAgentRow({
         />
       );
     }
-    if (rowSigningIn) return null;
+    if (rowSigningIn || running(shown) || shown.state === 'unsupported') return null;
+    const leaveAction = shown.canSignOut ? (
+      <ExtensionAction disabled={blocked} onClick={leave}>
+        {t('Disconnect')}
+      </ExtensionAction>
+    ) : null;
+    // Refused by the agent, the account is still signed in: leaving it is the way to another.
+    if (shown.state === 'failed' && leaveAction) return leaveAction;
+    let primary: ReactNode;
     if (shown.canInstall && shown.state === 'notInstalled') {
-      return (
+      primary = (
         <ExtensionAction disabled={blocked} ariaLabel={t('Install {{name}}', own)} onClick={onInstall}>
           {shown.lastError?.action === 'install' ? t('Retry') : t('Install')}
         </ExtensionAction>
       );
-    }
-    if (shown.canInstall && (shown.state === 'versionTooOld' || shown.state === 'versionUnknown')) {
-      return (
+    } else if (shown.canInstall && (shown.state === 'versionTooOld' || shown.state === 'versionUnknown')) {
+      primary = (
         <ExtensionAction disabled={blocked} ariaLabel={t('Update {{name}}', own)} onClick={onInstall}>
           {shown.lastError?.action === 'update' ? t('Retry') : t('Update')}
         </ExtensionAction>
       );
-    }
-    if (shown.canSignIn && shown.state === 'signedOut') {
-      return (
+    } else if (shown.canSignIn && shown.state === 'signedOut') {
+      primary = (
         <ExtensionAction disabled={blocked} ariaLabel={t('Connect {{name}}', own)} onClick={connect}>
           {t('Connect')}
         </ExtensionAction>
       );
-    }
-    // Refused by the agent, the account is still signed in: leaving it is the way to another.
-    if (shown.canSignOut && shown.state === 'failed') {
-      return (
-        <ExtensionAction disabled={blocked} onClick={leave}>
-          {t('Disconnect')}
+    } else {
+      // A row with no action of its own goes on by the core looking again, as its words say.
+      primary = (
+        <ExtensionAction disabled={checkBlocked} onClick={onCheckAgain}>
+          {t('Check again')}
         </ExtensionAction>
       );
     }
-    if (running(shown) || shown.state === 'unsupported') return null;
-    // A row with no action of its own goes on by the core looking again, as its words say.
-    return (
-      <ExtensionAction disabled={checkBlocked} onClick={onCheckAgain}>
-        {t('Check again')}
-      </ExtensionAction>
+    return leaveAction ? (
+      <>
+        {leaveAction}
+        {primary}
+      </>
+    ) : (
+      primary
     );
   };
-  // A member signed in is the provider account card of the account it holds, whatever state its siblings are in; each
-  // sibling that is not ready says its own state beside it.
-  const several = members.length > 1;
+  // Antigravity counts as connected only when every usable member is signed in; when only one is signed in or one
+  // needs install/update, the group stays as one row guiding the user through the remaining step.
+  const usageProviders = [...group.usable].reverse().map((member) => member.provider);
   return (
     <>
-      {group.ready.length ? (
+      {group.connected ? (
         <div data-acp-agent={agent.id} data-acp-state={signingIn ? 'signingIn' : 'ready'}>
-          {group.ready.map((member) => (
-            <AgentAccountCard
-              key={member.id}
-              member={member}
-              identity={several ? signInStepTitle(member) : undefined}
-              disabled={blocked || signingIn}
-              onDisconnect={() => disconnect([member])}
-              onSignIn={() => signIn([member])}
-            />
-          ))}
-          {group.pending.map((member) => {
-            const walking = signingIn && steps.some((walked) => walked.id === member.id);
-            const shown = walking ? signingInWords : acpAgentWords(member);
-            return (
-              <ExtensionItemRow
-                key={member.id}
-                icon={<ProviderIcon provider={member.provider} width={16} height={16} />}
-                title={member.label}
-                status={shown.status}
-                tone={shown.tone}
-                description={shown.description}
-                fault={faultLine(member)}
-                dataAttributes={{
-                  'data-acp-member': member.id,
-                  'data-acp-state': walking ? 'signingIn' : member.state,
-                }}
-                control={controlOf(
-                  member,
-                  walking,
-                  () => signIn([member]),
-                  () => disconnect([member])
-                )}
-              />
-            );
-          })}
+          <AgentAccountCard
+            agent={agent}
+            usageProviders={usageProviders}
+            disabled={blocked || signingIn}
+            onDisconnect={() => disconnect(group.usable.filter((member) => member.canSignOut))}
+            onSignIn={() => signIn(group.usable.filter((member) => member.canSignIn))}
+          />
         </div>
       ) : (
         <ExtensionItemRow
@@ -504,7 +483,7 @@ function AcpAgentRow({
             agent,
             signingIn,
             () => signIn(),
-            () => disconnect(members.filter((member) => member.canSignOut))
+            () => disconnect(group.usable.filter((member) => member.canSignOut))
           )}
         />
       )}
@@ -617,14 +596,10 @@ export function AcpProviders({
   const groups = acpAgentGroups(value);
   // As on a provider's card, the section's refresh is offered once an account is connected; before that each row
   // carries its own way on. With no agent reported there is no row to carry it.
-  const refreshShown = !groups.length || groups.some(({ ready }) => ready.length > 0);
+  const refreshShown = !groups.length || groups.some(({ connected }) => connected);
   const checking = acpAgentsOf(value).some(running);
   // The core's answer to a failed install is the failure an agent's row or card already says.
-  const said = groups.some(({ agent, ready, pending }) =>
-    ready.length
-      ? ready.some((member) => member.lastError) || pending.some((member) => member.lastError)
-      : Boolean(agent.lastError)
-  );
+  const said = groups.some(({ agent }) => Boolean(agent.lastError));
   // A look again would bring a CLI up to date under its own running sign-in.
   const [signingIn, setSigningIn] = useState<ReadonlySet<string>>(() => new Set());
   const noteSignIn = useCallback(

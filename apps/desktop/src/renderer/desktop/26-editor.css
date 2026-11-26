@@ -122,6 +122,40 @@
 .editor-view-switch + .editor-breadcrumb-actions {
   margin-left: 4px;
 }
+/* Phone file sheet: the header row keeps the file tab and its buttons, and the
+   view switch takes its own line under them as a 44px segmented control. */
+html[data-mixdog-mobile-tabs] .side-file-header:has(.editor-view-switch) {
+  height: auto;
+  flex-wrap: wrap;
+}
+html[data-mixdog-mobile-tabs] .side-file-header:has(.editor-view-switch) > .dock-header-left {
+  height: var(--mx-dock-header-height);
+}
+html[data-mixdog-mobile-tabs] .side-file-header:has(.editor-view-switch) > .dock-header-controls {
+  display: contents;
+}
+html[data-mixdog-mobile-tabs] .side-file-header .editor-view-switch {
+  order: 1;
+  /* On the sheet's 14px column: the strip row pads 3px left and 2px right. */
+  flex: 1 0 calc(100% - 23px);
+  height: var(--mx-touch);
+  gap: 4px;
+  margin: 4px 12px 8px 11px;
+  padding: 4px;
+  border-radius: var(--mx-radius-lg);
+}
+/* Each 36px segment's hit frame takes the control's full 44px, gaps included. */
+html[data-mixdog-mobile-tabs] .side-file-header .editor-view-switch button {
+  position: relative;
+  flex: 1 1 0;
+  height: 36px;
+  border-radius: var(--mx-radius-md);
+}
+html[data-mixdog-mobile-tabs] .side-file-header .editor-view-switch button::after {
+  content: "";
+  position: absolute;
+  inset: -4px -2px;
+}
 .editor-breadcrumb-actions button[aria-pressed="true"] {
   color: var(--mx-text);
   background: var(--mx-hover);
@@ -1385,6 +1419,10 @@ html[data-mixdog-mobile-tabs] .editor-call-hierarchy-row {
   height: 100%;
   padding: 8px 0 8px 12px;
 }
+/* The phone sheet runs the text on the header's 14px column on both sides. */
+html[data-mixdog-mobile-tabs] .dock-terminal .xterm {
+  padding: 8px 14px;
+}
 /* Phone key bar: a compact row under the xterm, i.e. right above the soft
    keyboard (the sheet shrinks to the visible viewport). Phone layout only. */
 .terminal-key-bar {
@@ -1408,8 +1446,8 @@ html[data-mixdog-mobile-tabs] .terminal-key-bar::-webkit-scrollbar {
 }
 html[data-mixdog-mobile-tabs] .terminal-key-bar-key {
   flex: 1 0 auto;
-  min-width: 38px;
-  height: 36px;
+  min-width: var(--mx-touch);
+  height: var(--mx-touch);
   padding: 0 10px;
   border: 0;
   /* The app's own button grammar (.browser-pane-nav-button / .browser-tab):
@@ -1422,6 +1460,18 @@ html[data-mixdog-mobile-tabs] .terminal-key-bar-key {
   font-size: var(--mx-font-item);
   font-weight: var(--mx-weight-regular);
   -webkit-tap-highlight-color: transparent;
+}
+/* A row wider than the screen scrolls under ^C, which stays at the end on an
+   opaque plate. */
+html[data-mixdog-mobile-tabs] .terminal-key-bar-key[data-key="ctrl-c"] {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-terminal-bg);
+  /* Covers the 2px gap before it and the bar's 6px end padding after it. */
+  box-shadow:
+    -2px 0 0 var(--mx-terminal-bg),
+    6px 0 0 var(--mx-terminal-bg);
 }
 html[data-mixdog-mobile-tabs] .terminal-key-bar-key:active {
   background: var(--mx-pressed);

@@ -36,7 +36,6 @@ async function mountSidebar(t, handlers = {}) {
     sessionsReady: true,
     selection: { kind: 'session', id: SELECTED },
     onNewTask() {},
-    onNewStudio() {},
     onResumeSession() {},
     async onRenameSession() {},
     async onArchiveSession() {},
@@ -215,14 +214,15 @@ test('dragging a row across the window edge keeps its source and reorders the fu
   assert.deepEqual(stored, expected, 'dropped before s-90; the paged-out tail keeps its order');
 });
 
-test('an unread or status change on an unmounted row shows once it mounts', async (t) => {
+test('an unread or running session far down Recent moves into its status group with its mark', async (t) => {
   const list = await mountSidebar(t);
   assert.equal(list.row('s-80'), null);
   await list.render({ unreadSessionIds: new Set(['s-80']), workingSessionIds: new Set(['s-81']) });
-  assert.equal(list.row('s-80'), null);
-  await list.scrollToRow(70);
-  assert.ok(list.row('s-80')?.querySelector('.session-row-unread-dot'), 'the unread dot shows');
-  assert.ok(list.row('s-81')?.classList.contains('working'), 'the running status shows');
+  const grouped = (group, id) =>
+    list.document.querySelector(`[data-status-group="${group}"] .session-row[data-session-id="${id}"]`);
+  assert.ok(grouped('needs', 's-80')?.querySelector('.session-row-unread-dot'), 'unread, under 확인 필요');
+  assert.ok(grouped('working', 's-81')?.classList.contains('working'), 'running, under 작업 중');
+  assert.equal(list.document.querySelectorAll('[data-session-id="s-80"], [data-session-id="s-81"]').length, 2);
 });
 
 test('a long Recent list mounts only the rows near the viewport', async () => {
@@ -297,12 +297,11 @@ test('a long later branch of a split project windows against its own first row',
   // document order (the other sections have no box) (31px rows, 28px sub-headings, spacers at their height, a 1px gap
   // between) below a 100px lead, shifted up by the scroller's scrollTop.
   const boxed = 'section[aria-label="P"] :is(.session-row, .session-list-spacer, .session-subheading)';
-  const heightOf = (element) =>
-    element.classList.contains('session-row')
-      ? 31
-      : element.classList.contains('session-subheading')
-        ? 28
-        : Number.parseFloat(element.style.height) || 0;
+  const heightOf = (element) => {
+    if (element.classList.contains('session-row')) return 31;
+    if (element.classList.contains('session-subheading')) return 28;
+    return Number.parseFloat(element.style.height) || 0;
+  };
   window.HTMLElement.prototype.getBoundingClientRect = function rect() {
     if (!this.matches(boxed)) return { top: 0, bottom: 0, height: 0, left: 0, right: 0, width: 0, x: 0, y: 0 };
     let offset = 100 - top;
@@ -340,7 +339,6 @@ test('a long later branch of a split project windows against its own first row',
         selection: { kind: 'new' },
         projects: [{ name: 'P', path: '/p', alias: null }],
         onNewTask() {},
-        onNewStudio() {},
         onResumeSession() {},
         async onRenameSession() {},
         async onArchiveSession() {},

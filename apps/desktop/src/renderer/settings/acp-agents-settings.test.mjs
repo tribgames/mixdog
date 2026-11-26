@@ -345,7 +345,7 @@ const agentRows = () => dialog().querySelectorAll('[data-acp-agent]');
 /** One preset of a group: its account card, or its own row beside a sibling's card. */
 const memberRow = (id) => dialog().querySelector(`[data-acp-member="${id}"]`);
 
-test("Antigravity's two presets are one row: a ready preset is its account card beside the other's state, and one Install installs both", async (t) => {
+test('Antigravity counts as connected only when both presets are ready; a missing install or sign-in stays on one row', async (t) => {
   const installs = [];
   const render = await mount(
     t,
@@ -358,40 +358,41 @@ test("Antigravity's two presets are one row: a ready preset is its account card 
     }
   );
   assert.equal(agentRows().length, 1);
-  // The preset that is ready keeps its account card; the one that needs an install says so beside it.
-  assert.deepEqual(card(memberRow('antigravity')), signedIn);
-  assert.deepEqual(words(memberRow('antigravity-cli')), ['Not found', 'Antigravity is not installed.']);
-  await act(async () => button(memberRow('antigravity-cli'), 'Install').click());
+  // Only one preset is ready while the CLI is not installed: shown as needing install, not connected.
+  assert.equal(agentRow().getAttribute('data-acp-state'), 'notInstalled');
+  assert.deepEqual(words(agentRow()), ['Not found', 'Antigravity is not installed.']);
+  await act(async () => button(agentRow(), 'Install').click());
   assert.deepEqual(installs, [['acpAgents']]);
 
+  // Official server signed in, CLI signed out: shown as needing sign-in, not connected.
   await render(
     acpAgents(true, official('ready', { version: '1.5.2' }), cli('signedOut', { version: '1.5.16', canSignIn: true }))
   );
-  assert.deepEqual(card(memberRow('antigravity')), signedIn);
-  assert.deepEqual(words(memberRow('antigravity-cli')), ['Signed out', 'Sign in to use Antigravity here.']);
-  assert.ok(button(memberRow('antigravity-cli'), 'Connect'));
+  assert.equal(agentRow().getAttribute('data-acp-state'), 'signedOut');
+  assert.deepEqual(words(agentRow()), ['Signed out', 'Sign in to use Antigravity here.']);
+  assert.ok(button(agentRow(), 'Connect'));
 
-  // Ready when both are: an account card for each.
-  await render(acpAgents(true, official('ready', { version: '1.5.2' }), cli('ready', { version: '1.5.16' })));
-  assert.equal(agentRows().length, 1);
-  assert.deepEqual([card(memberRow('antigravity')), card(memberRow('antigravity-cli'))], [signedIn, signedIn]);
-});
-
-test('a CLI that is ready while the official server is missing is its account card, not a row that says Not found', async (t) => {
-  await mount(
-    t,
+  // CLI signed in, official server missing: also shown as needing install, not connected.
+  await render(
     acpAgents(
       true,
       official('notInstalled', { canInstall: true }),
       cli('ready', { version: '1.5.16', canSignOut: true })
     )
   );
-  assert.deepEqual(card(memberRow('antigravity-cli')), { ...signedIn, actions: ['Disconnect'] });
-  assert.deepEqual(words(memberRow('antigravity')), ['Not found', 'Antigravity is not installed.']);
-  assert.ok(button(memberRow('antigravity'), 'Install'));
+  assert.equal(agentRow().getAttribute('data-acp-state'), 'notInstalled');
+  assert.deepEqual(words(agentRow()), ['Not found', 'Antigravity is not installed.']);
+  assert.ok(button(agentRow(), 'Install'));
+
+  // Connected only once both are ready: one account card.
+  await render(acpAgents(true, official('ready', { version: '1.5.2' }), cli('ready', { version: '1.5.16' })));
+  assert.equal(agentRows().length, 1);
+  assert.equal(agentRow().getAttribute('data-acp-state'), 'ready');
+  assert.deepEqual(card(agentRow()), signedIn);
+  assert.equal(dialog().querySelectorAll('.provider-accounts-list').length, 1);
 });
 
-test("each ready preset's card shows its own account's usage, not the other preset's", async (t) => {
+test('the connected Antigravity card shows the CLI usage report', async (t) => {
   const { publishUsageDashboard } = await import('../usage-dashboard-store.ts');
   const reading = (id, label, usedPct) => ({
     id,
@@ -401,17 +402,15 @@ test("each ready preset's card shows its own account's usage, not the other pres
     windows: [{ label, usedPct }],
   });
   publishUsageDashboard({
-    rows: [reading('acp-antigravity', 'Pro', 40), reading('acp-antigravity-cli', 'Flash', 10)],
+    rows: [reading('acp-antigravity-cli', 'Flash', 10)],
   });
-  // An empty dashboard is not published, so the readings are replaced by unmeasured ones.
   t.after(() =>
     publishUsageDashboard({
-      rows: ['acp-antigravity', 'acp-antigravity-cli'].map((id) => ({ ...reading(id, '', 0), windows: [] })),
+      rows: [{ ...reading('acp-antigravity-cli', '', 0), windows: [] }],
     })
   );
   await mount(t, acpAgents(true, official('ready', { version: '1.5.2' }), cli('ready', { version: '1.5.16' })));
-  assert.deepEqual(card(memberRow('antigravity')).usage, [['PRO', '40%']]);
-  assert.deepEqual(card(memberRow('antigravity-cli')).usage, [['FLASH', '10%']]);
+  assert.deepEqual(card(agentRow()).usage, [['FLASH', '10%']]);
 });
 
 test('an official server that does not run on this computer leaves Antigravity usable and says Gemini is not available', async (t) => {
@@ -571,10 +570,7 @@ test('the row offers only what the presets in its own state can do', async (t) =
     { run: core.run }
   );
   // The signed-out preset cannot sign in here: no Sign in that would sign the other one in again.
-  assert.deepEqual(words(memberRow('antigravity')), [
-    'Signed out',
-    'Run agy in a terminal to sign in, then check again.',
-  ]);
+  assert.deepEqual(words(agentRow()), ['Signed out', 'Run agy in a terminal to sign in, then check again.']);
   assert.equal(button(agentRow(), 'Connect'), undefined);
   assert.deepEqual(core.begun(), []);
 
@@ -606,14 +602,12 @@ test('the row offers only what the presets in its own state can do', async (t) =
       cli('ready', { version: '1.5.16', lastError: { action: 'update', message: '429' } })
     )
   );
-  // The ready CLI's failed update is said on its own card; the official server's row offers its own Update.
-  assert.equal(fault(memberRow('antigravity-cli')), 'Update failed: 429');
-  assert.equal(fault(memberRow('antigravity')), '');
-  assert.ok(button(memberRow('antigravity'), 'Update'));
+  assert.equal(fault(agentRow()), '');
+  assert.ok(button(agentRow(), 'Update'));
   assert.equal(button(agentRow(), 'Retry'), undefined);
 });
 
-test('a ready preset card error is not duplicated in the bottom notice when a signed-out sibling has no error', async (t) => {
+test('a ready group card error is not duplicated in the bottom notice when an update fails', async (t) => {
   const answer = Promise.withResolvers();
   const render = await mount(
     t,
@@ -624,16 +618,16 @@ test('a ready preset card error is not duplicated in the bottom notice when a si
     ),
     { invoke: () => answer.promise }
   );
-  await act(async () => button(memberRow('antigravity'), 'Update').click());
+  await act(async () => button(agentRow(), 'Update').click());
   await render(
     acpAgents(
       true,
-      official('signedOut', { version: '1.5.2', canSignIn: true }),
+      official('ready', { version: '1.5.2' }),
       cli('ready', { version: '1.5.16', lastError: { action: 'update', message: '429' } })
     )
   );
   await act(async () => answer.reject(new Error('Antigravity could not be updated: 429')));
-  assert.equal(fault(memberRow('antigravity-cli')), 'Update failed: 429');
+  assert.equal(fault(agentRow()), 'Update failed: 429');
   assert.equal(dialog().textContent.split('429').length - 1, 1);
 });
 
@@ -827,8 +821,7 @@ test('Disconnect asks first, then has the core sign the agent out; the row follo
   assert.deepEqual(words(agentRow()), ['Signed out', 'Sign in to use Antigravity here.']);
   assert.ok(button(agentRow(), 'Connect'));
 
-  // Each preset's card signs its own account out: the official server's sign-in is Mixdog's own, so it warns of the
-  // sessions alone; the CLI's is agy's own, so it warns of agy outside Mixdog.
+  // Connected with both presets ready: one Disconnect warns of the CLI outside Mixdog and signs both presets out.
   calls.length = 0;
   await render(
     acpAgents(
@@ -837,23 +830,19 @@ test('Disconnect asks first, then has the core sign the agent out; the row follo
       cli('ready', { version: '1.5.16', canSignOut: true })
     )
   );
-  await act(async () => button(memberRow('antigravity'), 'Disconnect').click());
-  assert.equal(asked[1].description, 'Every Antigravity session running in Mixdog ends now.');
-  await act(async () => asked[1].onConfirm());
-  assert.deepEqual(calls, [['forgetProviderAuth', ['acp-antigravity']]]);
-  await act(async () => button(memberRow('antigravity-cli'), 'Disconnect').click());
+  await act(async () => button(agentRow(), 'Disconnect').click());
   assert.equal(
-    asked[2].description,
+    asked[1].description,
     'Every Antigravity session running in Mixdog ends now. The agy command outside Mixdog uses the same sign-in, so it is signed out too.'
   );
-  await act(async () => asked[2].onConfirm());
+  await act(async () => asked[1].onConfirm());
   assert.deepEqual(calls, [
     ['forgetProviderAuth', ['acp-antigravity']],
     ['forgetProviderAuth', ['acp-antigravity-cli']],
   ]);
-  // A preset that offers no sign-out has no Disconnect on its card.
-  await render(acpAgents(true, official('ready', { version: '1.5.2', canSignOut: true }), cli('ready')));
-  assert.equal(button(memberRow('antigravity-cli'), 'Disconnect'), undefined);
+  // With neither preset offering sign-out, the connected card has no Disconnect button.
+  await render(acpAgents(true, official('ready', { version: '1.5.2' }), cli('ready')));
+  assert.equal(button(agentRow(), 'Disconnect'), undefined);
 });
 
 test('an account the agent refused can still be disconnected, to sign in with another', async (t) => {
@@ -972,4 +961,125 @@ test('a reading the core withdrew is no longer painted, and a sign-in from the c
     },
   ]);
   assert.deepEqual(card(agentRow()).usage, [['PRO', '7%']]);
+});
+
+test('an existing user with only the official server signed in installs the missing CLI and completes its sign-in', async (t) => {
+  const core = signInCore();
+  const installs = [];
+  const answer = Promise.withResolvers();
+  const render = await mount(
+    t,
+    acpAgents(true, official('ready', { version: '1.5.2' }), cli('notInstalled', { canInstall: true })),
+    {
+      run: core.run,
+      invoke: (request) => {
+        installs.push(request.args);
+        return answer.promise;
+      },
+    }
+  );
+  assert.equal(agentRow().getAttribute('data-acp-state'), 'notInstalled');
+  await act(async () => button(agentRow(), 'Install').click());
+  assert.deepEqual(installs, [['acpAgents']]);
+  await render(acpAgents(true, official('ready', { version: '1.5.2' }), cli('installing', { canInstall: true })));
+  await act(async () => answer.resolve({ value: null }));
+  await render(
+    acpAgents(
+      true,
+      official('ready', { version: '1.5.2' }),
+      cli('signedOut', { version: '1.5.16', canInstall: true, canSignIn: true })
+    )
+  );
+  assert.deepEqual(core.begun(), [['beginOAuthProviderLogin', ['acp-antigravity-cli']]]);
+  assert.deepEqual(signInStep(), [null, 'Google sign-in for Claude models']);
+  await act(async () => pushLogin('fs1', { flowId: 'fs1', state: 'complete' }));
+  await act(async () => undefined);
+  assert.equal(signInDialog(), null);
+});
+
+test('switching accounts on a connected Antigravity card walks both sign-in steps in sequence', async (t) => {
+  const core = signInCore();
+  await mount(
+    t,
+    acpAgents(
+      true,
+      official('ready', { version: '1.5.2', canSignIn: true }),
+      cli('ready', { version: '1.5.16', canSignIn: true })
+    ),
+    { run: core.run }
+  );
+  await act(async () => agentRow().querySelector('button[aria-label="Sign in with another account"]').click());
+  assert.deepEqual(core.begun(), [['beginOAuthProviderLogin', ['acp-antigravity']]]);
+  assert.deepEqual(signInStep(), ['Step 1 of 2', 'Google sign-in for Gemini models']);
+  await act(async () => pushLogin('fs1', { flowId: 'fs1', state: 'complete' }));
+  await act(async () => undefined);
+  assert.deepEqual(core.begun(), [
+    ['beginOAuthProviderLogin', ['acp-antigravity']],
+    ['beginOAuthProviderLogin', ['acp-antigravity-cli']],
+  ]);
+  assert.deepEqual(signInStep(), ['Step 2 of 2', 'Google sign-in for Claude models']);
+  await act(async () => pushLogin('fs2', { flowId: 'fs2', state: 'complete' }));
+  await act(async () => undefined);
+  assert.equal(signInDialog(), null);
+});
+
+test('a half-signed-in Antigravity row offers Disconnect beside Connect or Install and signs out only signed-in members', async (t) => {
+  const calls = [];
+  const asked = [];
+  const render = await mount(
+    t,
+    acpAgents(
+      true,
+      official('ready', { version: '1.5.2', canSignOut: true }),
+      cli('signedOut', { version: '1.5.16', canSignIn: true })
+    ),
+    {
+      run: async (capability, args) => {
+        calls.push([capability, args]);
+        return true;
+      },
+      confirm: (options) => asked.push(options),
+    }
+  );
+  assert.ok(button(agentRow(), 'Connect'));
+  assert.ok(button(agentRow(), 'Disconnect'));
+  await act(async () => button(agentRow(), 'Disconnect').click());
+  assert.equal(asked[0].description, 'Every Antigravity session running in Mixdog ends now.');
+  await act(async () => asked[0].onConfirm());
+  assert.deepEqual(calls, [['forgetProviderAuth', ['acp-antigravity']]]);
+
+  // Official server signed in, CLI not installed: offers both Install and Disconnect.
+  calls.length = 0;
+  await render(
+    acpAgents(
+      true,
+      official('ready', { version: '1.5.2', canSignOut: true }),
+      cli('notInstalled', { canInstall: true })
+    )
+  );
+  assert.ok(button(agentRow(), 'Install'));
+  assert.ok(button(agentRow(), 'Disconnect'));
+  await act(async () => button(agentRow(), 'Disconnect').click());
+  assert.equal(asked[1].description, 'Every Antigravity session running in Mixdog ends now.');
+  await act(async () => asked[1].onConfirm());
+  assert.deepEqual(calls, [['forgetProviderAuth', ['acp-antigravity']]]);
+
+  // CLI signed in, official server not installed: Disconnect warns about external agy and signs out only the CLI.
+  calls.length = 0;
+  await render(
+    acpAgents(
+      true,
+      official('notInstalled', { canInstall: true }),
+      cli('ready', { version: '1.5.16', canSignOut: true })
+    )
+  );
+  assert.ok(button(agentRow(), 'Install'));
+  assert.ok(button(agentRow(), 'Disconnect'));
+  await act(async () => button(agentRow(), 'Disconnect').click());
+  assert.equal(
+    asked[2].description,
+    'Every Antigravity session running in Mixdog ends now. The agy command outside Mixdog uses the same sign-in, so it is signed out too.'
+  );
+  await act(async () => asked[2].onConfirm());
+  assert.deepEqual(calls, [['forgetProviderAuth', ['acp-antigravity-cli']]]);
 });

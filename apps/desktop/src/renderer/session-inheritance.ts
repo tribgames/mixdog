@@ -4,6 +4,7 @@ import { t } from './i18n';
 import { showDesktopToast } from './notifications';
 import { modelDisplayName } from './provider-display';
 import { record } from './record-utils';
+import { effortAutoField } from './route-auto-effort';
 
 export type InheritanceFit = {
   known: boolean;
@@ -50,7 +51,7 @@ export function sessionModelSelection(snapshot: Snapshot): DesktopModelSelection
     model,
     ...(effort ? { effort } : {}),
     ...(typeof snapshot.fast === 'boolean' ? { fast: snapshot.fast } : {}),
-    ...(typeof snapshot.autoEffort === 'boolean' ? { autoEffort: snapshot.autoEffort } : {}),
+    ...effortAutoField(snapshot.effortAuto, true),
     ...(snapshot.modelParameters ? { modelParameters: { ...snapshot.modelParameters } } : {}),
     ...(Number(snapshot.contextPercent) >= 10 ? { contextPercent: Number(snapshot.contextPercent) } : {}),
     ...(Number.isInteger(snapshot.contextTokens) && Number(snapshot.contextTokens) > 0

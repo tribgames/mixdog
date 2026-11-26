@@ -219,7 +219,7 @@ function modelEntries(lanes: MediaLane[], kind: MediaKind): StudioModelEntry[] {
     const base = { lane: lane.id, laneLabel: providerDisplayName(lane.authProvider), authType: lane.authType };
     if (!lane.authenticated) {
       return lane.supportedKinds?.includes(kind)
-        ? [{ ...base, model: '', label: lane.label, unavailable: t('Sign-in required') }]
+        ? [{ ...base, model: '', label: lane.label, unavailable: lane.unavailableReason || t('Sign-in required') }]
         : [];
     }
     // Still loading or failed: listed with that state, never silently dropped.

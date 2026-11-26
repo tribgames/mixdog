@@ -22,6 +22,7 @@ import {
   favoritesSection,
   projectsSection,
   recentSection,
+  statusSection,
   type ProjectSessionGroup,
   type RenderForkRows,
   type SectionSessionDrop,
@@ -123,15 +124,14 @@ function stableRowReorder(
   return result;
 }
 
-/** Recent, Archived, Favorites and the project folders all render
- *  the same row with the same rename/confirm wiring; only the session and its
- *  reorder list (none for unordered lists) differ. The row key (list + session)
- *  tells apart the copies of a session shown in more than one list. */
+/** Every session list renders the same row with the same rename/confirm
+ *  wiring; only the session and its reorder list (none for unordered lists)
+ *  differ. A session lists once, so its row key is the session: the row keeps
+ *  its rename and menu when the session moves to another group. */
 export function renderSessionRow(
   session: DesktopSessionSummary,
   listKey: string | undefined,
   ctx: SessionRowContext,
-  rowScope = listKey ?? '',
   fork?: ForkRowRole
 ) {
   const { editor, selection } = ctx;
@@ -162,7 +162,7 @@ export function renderSessionRow(
       ? { ...base, 'data-drop-position': undefined }
       : base;
   };
-  const rowKey = `${rowScope}:${session.id}`;
+  const rowKey = session.id;
   return (
     <SessionSidebarRow
       key={session.id}
@@ -193,7 +193,6 @@ export function renderSessionRow(
       onOpenMenu={ctx.openSessionMenu}
       forkKind={fork?.kind}
       forkExpanded={fork?.kind === 'root' ? fork.expanded : undefined}
-      forkCount={fork?.kind === 'root' ? fork.count : undefined}
       forkNumber={fork?.kind === 'child' ? fork.n : undefined}
       onToggleFork={ctx.onToggleFork}
     />
@@ -208,14 +207,13 @@ function renderForkRows(
   rows: readonly DesktopSessionSummary[],
   limit: number | undefined,
   listKey?: string,
-  rowScope?: string,
   sentinelRef?: React.Ref<HTMLDivElement>
 ) {
   const items = forkRowItems(ctx, rows, limit);
   const unrevealed = sentinelRef
     ? { count: forkRowItems(ctx, rows, undefined).length - items.length, sentinelRef }
     : undefined;
-  return renderSessionItems(ctx, items, listKey, rowScope, unrevealed);
+  return renderSessionItems(ctx, items, listKey, unrevealed);
 }
 
 /** One rendered row of a session list: the session and its fork role. */
@@ -241,7 +239,7 @@ function forkRowItems(
     if (forks.length === 0) return [item(session)];
     const expanded = isOpen(ctx.openState.forkOpen, session.id);
     return [
-      item(session, { kind: 'root', expanded, count: forks.length }),
+      item(session, { kind: 'root', expanded }),
       ...(expanded
         ? forks.map((fork, index) =>
             item(fork, { kind: 'child', n: index + 1, rootId: session.id, last: index === forks.length - 1 })
@@ -256,7 +254,6 @@ function renderSessionItems(
   ctx: SidebarSectionContext,
   items: readonly SessionRowItem[],
   listKey?: string,
-  rowScope?: string,
   unrevealed?: UnrevealedRows
 ) {
   return (
@@ -265,7 +262,7 @@ function renderSessionItems(
       scrollerRef={ctx.scrollerRef}
       pinnedIds={ctx.pinnedSessionIds}
       unrevealed={unrevealed}
-      renderItem={(item) => ctx.renderOrderedRow(item.session, listKey, rowScope, item.fork)}
+      renderItem={(item) => ctx.renderOrderedRow(item.session, listKey, item.fork)}
     />
   );
 }
@@ -389,6 +386,8 @@ export function sessionOrderMenuItems(
   const sectionLabels: readonly (readonly [string, string])[] = [
     ['agents', t('Bots')],
     ['favorites', t('Favorites')],
+    ['needs', t('Needs you')],
+    ['working', t('Working')],
     ['projects', t('Projects')],
     ['recent', t('Recent')],
     ['archived', t('Archived')],
@@ -450,6 +449,10 @@ export interface SidebarSectionContext {
   openState: ReturnType<typeof useSidebarOpenState>;
   folders: Omit<ReturnType<typeof useProjectFolderState>, 'updateProjectOpen'>;
   favoriteRows: DesktopSessionSummary[];
+  /** 확인 필요 and 작업 중 (session-sidebar-status-groups.ts). */
+  needsRows: DesktopSessionSummary[];
+  workingRows: DesktopSessionSummary[];
+  /** 최근: the quiet sessions outside every project folder. */
   rows: DesktopSessionSummary[];
   visibleRecentRows: DesktopSessionSummary[];
   hasMoreRecentRows: boolean;
@@ -478,16 +481,9 @@ export interface SidebarSectionContext {
   pinnedSessionIds: ReadonlySet<string>;
   openProjectMenu: ProjectsSectionProps['onFolderMenu'];
   projectRenameEditor: ProjectsSectionProps['rename'];
-  renderOrderedRow(
-    session: DesktopSessionSummary,
-    listKey?: string,
-    rowScope?: string,
-    fork?: ForkRowRole
-  ): React.ReactNode;
+  renderOrderedRow(session: DesktopSessionSummary, listKey?: string, fork?: ForkRowRole): React.ReactNode;
   sessionsReady: boolean;
-  workingSessionIds?: ReadonlySet<string>;
   attentionOf(sessionId: string): SessionAttention | '';
-  onAddProject?(onAdded?: (projectPath: string) => void): void;
   onNewProjectTask?(projectPath: string): void;
   onNewTask(): void;
 }
@@ -499,7 +495,7 @@ function renderSidebarSection(section: string, ctx: SidebarSectionContext): Reac
   const { onNewProjectTask, onNewTask } = ctx;
   const headerProps = ctx.sectionOrder.getReorderProps(section);
   const renderUnorderedRows: RenderForkRows = (list, limit, sentinelRef) =>
-    renderForkRows(ctx, list, limit, undefined, section, sentinelRef);
+    renderForkRows(ctx, list, limit, undefined, sentinelRef);
   switch (section) {
     case 'agents':
       return (
@@ -533,6 +529,24 @@ function renderSidebarSection(section: string, ctx: SidebarSectionContext): Reac
           renderRows: (list, limit) => renderForkRows(ctx, list, limit, 'favorites'),
         })
       );
+    case 'needs':
+    case 'working': {
+      const needs = section === 'needs';
+      const list = needs ? ctx.needsRows : ctx.workingRows;
+      return (
+        list.length > 0 &&
+        statusSection({
+          group: section,
+          label: needs ? t('Needs you') : t('Working'),
+          rows: list,
+          open: needs ? openState.needsOpen : openState.workingOpen,
+          onToggleOpen: () => openState.toggleSection(section),
+          headerProps,
+          attentionOf: ctx.attentionOf,
+          renderRows: renderUnorderedRows,
+        })
+      );
+    }
     case 'projects':
       return (
         ctx.projectGroups.length > 0 &&
@@ -572,7 +586,7 @@ function renderSidebarSection(section: string, ctx: SidebarSectionContext): Reac
         headerProps,
         sessionDrop: ctx.recentDrop,
         allRows: rows,
-        renderRows: (list, limit, sentinelRef) => renderForkRows(ctx, list, limit, 'recent', undefined, sentinelRef),
+        renderRows: (list, limit, sentinelRef) => renderForkRows(ctx, list, limit, 'recent', sentinelRef),
       });
     case 'archived':
       return (

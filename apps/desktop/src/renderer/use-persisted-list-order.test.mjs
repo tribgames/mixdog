@@ -8,18 +8,29 @@ test('a saved order missing a newer id keeps that id at its default place', () =
   // Bots joined the section order after users had saved one: they stay on top.
   assert.deepEqual(mergeNewAtDefault(['recent', 'projects'], ids), [
     'agents',
-    'recent',
-    'projects',
     'favorites',
+    'recent',
+    'archived',
+    'projects',
+  ]);
+  // The status groups joined later still: they follow Favorites wherever the user put it.
+  const withStatus = ['agents', 'favorites', 'needs', 'working', 'recent', 'projects', 'archived'];
+  assert.deepEqual(mergeNewAtDefault(['recent', 'favorites', 'agents', 'projects', 'archived'], withStatus), [
+    'recent',
+    'favorites',
+    'needs',
+    'working',
+    'agents',
+    'projects',
     'archived',
   ]);
-  // A saved order that already places them keeps them there; other missing ids go last.
+  // A saved order that already places them keeps them there; the rest follow their default neighbours.
   assert.deepEqual(mergeNewAtDefault(['projects', 'agents'], ids), [
     'projects',
-    'agents',
-    'favorites',
     'recent',
     'archived',
+    'agents',
+    'favorites',
   ]);
 });
 

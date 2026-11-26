@@ -121,9 +121,8 @@ export function IslandGitSegment({
       )}
     </>
   );
-  const footMeta = [status?.branch, files > 0 ? filesText : '', ahead > 0 ? `↑${ahead}` : '']
-    .filter(Boolean)
-    .join(' · ');
+  const footBranch = status?.branch ?? '';
+  const footCounts = [files > 0 ? filesText : '', ahead > 0 ? `↑${ahead}` : ''].filter(Boolean).join(' · ');
 
   return (
     <>
@@ -202,7 +201,14 @@ export function IslandGitSegment({
               ) : undefined
             }
           >
-            {footMeta && <span className="composer-island-foot-meta">{footMeta}</span>}
+            {(footBranch || footCounts) && (
+              <span className="composer-island-foot-meta">
+                {footBranch && (
+                  <span className="composer-island-foot-branch">{footCounts ? `${footBranch} · ` : footBranch}</span>
+                )}
+                {footCounts}
+              </span>
+            )}
           </IslandPanelFoot>
         </section>
       )}

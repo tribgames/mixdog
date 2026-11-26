@@ -2106,11 +2106,30 @@ html[data-mixdog-mobile-tabs] :is(.composer-island-close, .composer-island-flash
   width: 16px;
   height: 16px;
 }
-/* Touch targets: every panel button is 40px tall, and the footer row holds
-   it with its own 8px. */
+/* Touch targets: every panel button takes the 44px touch tier; the footer
+   row grows around it with its own 7/8px. */
 html[data-mixdog-mobile-tabs] .composer-island-button {
-  height: 40px;
+  height: var(--mx-touch);
   padding-inline: 12px;
+}
+/* A long branch name in a panel head reads over two lines before it is cut;
+   the head row grows with it. */
+html[data-mixdog-mobile-tabs] .composer-island-phead .composer-island-tab:has(> .composer-island-branch-tab-name) {
+  height: auto;
+  min-height: 32px;
+}
+html[data-mixdog-mobile-tabs] .composer-island-phead .composer-island-branch-tab-name,
+html[data-mixdog-mobile-tabs] .composer-island .composer-island-git-panel .composer-island-phead-meta {
+  max-width: none;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* The Git head already names the branch; the foot keeps only its counts. */
+html[data-mixdog-mobile-tabs] .composer-island-git-panel .composer-island-foot-branch {
+  display: none;
 }
 /* A row's mark (Stop, Dismiss) keeps no label padding, which pushed it off
    its box's center, and takes the 32px box that places the head's close

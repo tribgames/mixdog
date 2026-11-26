@@ -4,6 +4,7 @@ import type { DesktopSessionSummary } from '../shared/contract';
 import { sessionListInsertedAtTop, sessionListKeepsExistingTopInsert } from './first-submit-stability';
 import type { NavigationSelection } from './nav-types';
 import type { ProjectSessionGroup } from './session-sidebar-sections';
+import type { SidebarStatusPlacement } from './session-sidebar-status-groups';
 import type { OpenMap } from './sidebar-open-state';
 import { sessionRowPitch } from './session-sidebar-virtual-rows';
 
@@ -154,6 +155,13 @@ interface SidebarListScrollInput {
   /** Reveals `rows` more Recent rows (a page at least). */
   revealMoreRecentRows: (rows: number) => void;
   recentOpen: boolean;
+  /** Each section's fold and the hidden sections: a fold or hide by hand
+   *  above the reader keeps the reader's row in place. */
+  agentsOpen: boolean;
+  favoritesOpen: boolean;
+  needsOpen: boolean;
+  workingOpen: boolean;
+  hiddenSections: ReadonlySet<string>;
   archivedOpen: boolean;
   archivedRows: readonly DesktopSessionSummary[];
   archivedRowLimit: number;
@@ -162,8 +170,9 @@ interface SidebarListScrollInput {
   projectOpen: OpenMap;
   projectGroups: readonly ProjectSessionGroup[];
   projectRowLimits: ReadonlyMap<string, number>;
-  projectsOpen: boolean;
   sectionOrder: { orderedIds: readonly string[] };
+  /** The status groups' sessions: a session moving between groups keeps the reader's row in place. */
+  statusPlacement?: SidebarStatusPlacement;
 }
 
 /** The Sessions scroller: sentinel paging of Recent and Archived, and the
@@ -178,6 +187,11 @@ export function useSidebarListScroll({
   visibleRecentRowCount,
   revealMoreRecentRows,
   recentOpen,
+  agentsOpen,
+  favoritesOpen,
+  needsOpen,
+  workingOpen,
+  hiddenSections,
   archivedOpen,
   archivedRows,
   archivedRowLimit,
@@ -186,8 +200,8 @@ export function useSidebarListScroll({
   projectOpen,
   projectGroups,
   projectRowLimits,
-  projectsOpen,
   sectionOrder,
+  statusPlacement,
 }: SidebarListScrollInput) {
   const recentSentinelRef = useRef<HTMLDivElement | null>(null);
   const recentScrollAnchorRef = useRef<{ rows: AnchorRow[]; scrollTop: number } | null>(null);
@@ -213,8 +227,8 @@ export function useSidebarListScroll({
       recentScrollAnchorRef.current = null;
       return;
     }
-    // Every visible row, by element: one session can list twice (a favorite
-    // inside its project folder), so its id does not name the reader's row.
+    // Every visible row, by element: a session moving to another group
+    // renders a new row, so its id does not name the reader's row.
     const scrollerRect = scroller.getBoundingClientRect();
     const rows: AnchorRow[] = [];
     for (const row of scroller.querySelectorAll<HTMLElement>('.session-row[data-session-id]')) {
@@ -296,16 +310,21 @@ export function useSidebarListScroll({
   }, [
     allRows,
     archivedOpen,
+    agentsOpen,
+    favoritesOpen,
+    needsOpen,
+    workingOpen,
+    hiddenSections,
     captureRecentScrollAnchor,
     projectOpen,
     projectGroups,
     projectRowLimits,
-    projectsOpen,
     sectionOrder.orderedIds,
     open,
     panelActive,
     recentOpen,
     rows,
+    statusPlacement,
     visibleRecentRowCount,
   ]);
   return {

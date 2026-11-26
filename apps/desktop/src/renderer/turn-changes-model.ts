@@ -276,6 +276,62 @@ export function prefetchTurnChanges(sessionId: string, checkpointId: string, bou
   readTurnChanges(sessionId, checkpointId, boundary, epoch).catch(() => undefined);
 }
 
+// ── The reply each card shows ────────────────────────────────────────────
+/** One transcript view's record, per (session, checkpoint), of the reply its changes card draws (its records', the
+ *  read it took, or null for none). The turn's preview card in the same view draws its previews from that same reply,
+ *  so a file is never in both cards or in neither, and the two change together. Each view (a pane) has its own: two
+ *  panes on one session each draw what their own reader was shown. */
+export type DrawnTurnChanges = ReturnType<typeof createDrawnTurnChanges>;
+
+export function createDrawnTurnChanges() {
+  const drawn = new Map<string, { card: object; reply: TurnChangesReply | null }>();
+  const listeners = new Set<() => void>();
+  const told = () => {
+    for (const listener of listeners) listener();
+  };
+  return {
+    /** `card` draws `reply` for (session, checkpoint). */
+    note(sessionId: string, checkpointId: string, card: object, reply: TurnChangesReply | null): void {
+      if (!sessionId || !checkpointId) return;
+      const key = turnChangesKey(sessionId, checkpointId);
+      const held = drawn.get(key);
+      if (held?.card === card && held.reply === reply) return;
+      drawn.set(key, { card, reply });
+      told();
+    },
+    /** `card` no longer stands for (session, checkpoint); what another card noted since stays. */
+    release(sessionId: string, checkpointId: string, card: object): void {
+      const key = turnChangesKey(sessionId, checkpointId);
+      if (drawn.get(key)?.card !== card) return;
+      drawn.delete(key);
+      told();
+    },
+    /** The reply drawn for (session, checkpoint); undefined while no card stands for it. */
+    read(sessionId: string, checkpointId: string): TurnChangesReply | null | undefined {
+      return drawn.get(turnChangesKey(sessionId, checkpointId))?.reply;
+    },
+    subscribe(listener: () => void): () => void {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+
+const NO_DRAWN_SUBSCRIPTION = () => () => {};
+
+/** The reply the changes card of (session, checkpoint) draws in `drawn`'s view; undefined until one is mounted, or
+ *  with no view to share it. */
+export function useDrawnTurnChanges(
+  drawn: DrawnTurnChanges | null,
+  sessionId: string,
+  checkpointId: string
+): TurnChangesReply | null | undefined {
+  const read = () => drawn?.read(sessionId, checkpointId);
+  return useSyncExternalStore(drawn?.subscribe ?? NO_DRAWN_SUBSCRIPTION, read, read);
+}
+
 /** Test seam: forget every cached reply, read in flight and epoch. */
 export function resetTurnChangesCache() {
   replyCache.clear();

@@ -164,10 +164,13 @@ test('an editor save without an encoding change passes the IPC and remote bounda
   }
 });
 
-test('a model route selection carries the per-route autoEffort boolean like fast', () => {
+test('a model route selection carries the per-route effortAuto boolean like fast', () => {
   const base = { provider: 'openai', model: 'gpt-test', effort: 'high', fast: true };
+  assert.deepEqual(requiredModelSelection({ ...base, effortAuto: false }), { ...base, effortAuto: false });
+  assert.deepEqual(requiredModelSelection({ ...base, effortAuto: true }), { ...base, effortAuto: true });
   assert.deepEqual(requiredModelSelection({ ...base, autoEffort: false }), { ...base, autoEffort: false });
   assert.deepEqual(requiredModelSelection(base), base);
+  assert.throws(() => requiredModelSelection({ ...base, effortAuto: 'off' }), /effortAuto must be a boolean/);
   assert.throws(() => requiredModelSelection({ ...base, autoEffort: 'off' }), /autoEffort must be a boolean/);
 });
 

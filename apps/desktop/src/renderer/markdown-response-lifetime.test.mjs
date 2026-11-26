@@ -281,7 +281,7 @@ test('a non-fenced streaming tail crossing the 64 KiB cap stays visible instead 
   await render(pastCap, true);
   const plain = document.querySelector('p.markdown-plain');
   assert.ok(plain, 'non-fenced tail stays visible past the 64 KiB parse cap');
-  assert.ok(plain.textContent.length >= pastCap.length, 'full waiting text remains rendered');
+  assert.ok(plain.textContent.length >= pastCap.trimEnd().length, 'full waiting text remains rendered');
   assert.equal(document.querySelector('[data-transcript-pending]'), null, 'capped tail stops awaiting live parse');
   assert.equal(worker.sent.length, sentBeforeCap, 'no new live parse work dispatched past 64 KiB');
 });
@@ -321,7 +321,6 @@ test('MarkdownDocumentView normalizes leading-whitespace slotKeys and preserves 
     root.render(
       React.createElement(MarkdownDocumentView, {
         root: markdownPagesOf([waitingLeaf]),
-        fadeTimeline: null,
         copyControl: () => null,
       })
     )
@@ -334,7 +333,6 @@ test('MarkdownDocumentView normalizes leading-whitespace slotKeys and preserves 
     root.render(
       React.createElement(MarkdownDocumentView, {
         root: markdownPagesOf(parsedUnits),
-        fadeTimeline: null,
         copyControl: () => null,
       })
     )
@@ -352,7 +350,6 @@ test('MarkdownDocumentView normalizes leading-whitespace slotKeys and preserves 
     root.render(
       React.createElement(MarkdownDocumentView, {
         root: markdownPagesOf(initialUnits),
-        fadeTimeline: null,
         copyControl: () => null,
       })
     )
@@ -370,15 +367,12 @@ test('MarkdownDocumentView normalizes leading-whitespace slotKeys and preserves 
             key: 'wait@0',
             slotKey: '@0',
             node: null,
-            base: 0,
             from: 0,
-            end: 20,
             held: false,
             text: '## Heading replacement',
             pending: true,
           },
         ]),
-        fadeTimeline: null,
         copyControl: () => null,
       })
     )
@@ -400,7 +394,6 @@ test('MarkdownDocumentView normalizes leading-whitespace slotKeys and preserves 
     root.render(
       React.createElement(MarkdownDocumentView, {
         root: markdownPagesOf(nextUnits),
-        fadeTimeline: null,
         copyControl: () => null,
       })
     )
@@ -459,7 +452,6 @@ test('indented code blocks with 4 spaces or a tab keep identical slotKey and out
       root.render(
         React.createElement(MarkdownDocumentView, {
           root: markdownPagesOf([waitingLeaf]),
-          fadeTimeline: null,
           copyControl: () => null,
         })
       )
@@ -471,7 +463,6 @@ test('indented code blocks with 4 spaces or a tab keep identical slotKey and out
       root.render(
         React.createElement(MarkdownDocumentView, {
           root: markdownPagesOf(parsedUnits),
-          fadeTimeline: null,
           copyControl: () => null,
         })
       )
@@ -481,4 +472,15 @@ test('indented code blocks with 4 spaces or a tab keep identical slotKey and out
     assert.ok(outerAfter.querySelector('pre code'), `${label}: renders parsed indented code block`);
     await act(async () => root.render(null));
   }
+});
+
+test('a top-level raw-HTML block keeps its unit key from a tail parse to the whole parse', async () => {
+  const { unitsOf } = await import('./markdown-document');
+  const source = 'Intro.\n\n<div>raw</div>\n';
+  const start = source.indexOf('<div>');
+  const htmlKey = (units) => units.find((unit) => unit.node?.type === 'text' && unit.node.value.includes('<div>'))?.key;
+  const whole = htmlKey(unitsOf(parseMarkdownToHast(source), 0, 0, source.length));
+  const tail = htmlKey(unitsOf(parseMarkdownToHast(source.slice(start)), start, start, source.length));
+  assert.equal(whole, `text@${start}`);
+  assert.equal(tail, whole, 'the settled parse finds the live unit by its key');
 });

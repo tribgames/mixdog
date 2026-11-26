@@ -1,7 +1,7 @@
 // electron-vite configuration for the desktop app.
 // Third-party derivation notices: NOTICE.md at the repository root.
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 
 // SWC transform (user: 빌드 과정이 느리다): no custom babel plugins exist, so
 // the babel-based @vitejs/plugin-react only cost time — SWC cuts the 3600-
@@ -29,10 +29,12 @@ const visualizeVendorAssets = (assets: ReadonlyArray<{ fileName: string; source:
   name: 'mixdog-visualize-vendor-assets',
   generateBundle() {
     for (const asset of assets) {
+      const sourcePath = resolve(__dirname, asset.source);
+      this.addWatchFile(sourcePath);
       this.emitFile({
         type: 'asset',
         fileName: asset.fileName,
-        source: readFileSync(resolve(__dirname, asset.source)),
+        source: readFileSync(sourcePath),
       });
     }
   },
@@ -41,6 +43,97 @@ const visualizeAssetsPlugin = visualizeVendorAssets([
   { fileName: 'assets/echarts.min.js', source: 'node_modules/echarts/dist/echarts.min.js' },
   { fileName: 'assets/mermaid.min.js', source: 'node_modules/mermaid/dist/mermaid.min.js' },
 ]);
+
+const buildInputsManifestPath = process.env.MIXDOG_BUILD_INPUTS_MANIFEST
+  ? resolve(process.env.MIXDOG_BUILD_INPUTS_MANIFEST)
+  : null;
+
+function walkFilesAndDirs(dir: string, files: Set<string>, dirs: Set<string>): void {
+  if (!existsSync(dir)) return;
+  const resolvedDir = resolve(dir);
+  dirs.add(resolvedDir);
+  for (const entry of readdirSync(resolvedDir, { withFileTypes: true })) {
+    const child = join(resolvedDir, entry.name);
+    if (entry.isDirectory()) walkFilesAndDirs(child, files, dirs);
+    else if (entry.isFile()) files.add(child);
+  }
+}
+
+function recordBuildInputsPlugin(
+  target: 'main' | 'preload' | 'renderer',
+  extras: { publicDir?: string } = {},
+): Plugin | null {
+  if (!buildInputsManifestPath) return null;
+  const globDirs = new Set<string>();
+  const stripQuery = (id: string): string => id.split(/[?#]/, 1)[0];
+  return {
+    name: `mixdog-record-build-inputs-${target}`,
+    transform(code, id) {
+      if (!code.includes('import.meta.glob')) return null;
+      const cleanId = stripQuery(id);
+      if (!cleanId || cleanId.startsWith('\0') || /[\\/]node_modules[\\/]/.test(cleanId)) return null;
+      const pattern = /import\.meta\.glob\s*\(\s*['"]([^'"]+)['"]/g;
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(code)) !== null) {
+        const raw = match[1];
+        const globStart = raw.search(/[*?[{!]/);
+        const prefix = globStart >= 0 ? raw.slice(0, globStart) : raw;
+        const base = resolve(dirname(cleanId), prefix.endsWith('/') ? prefix : dirname(prefix));
+        if (existsSync(base)) globDirs.add(base);
+      }
+      return null;
+    },
+    writeBundle() {
+      const files = new Set<string>([
+        resolve(__dirname, 'electron.vite.config.ts'),
+        resolve(__dirname, 'package.json'),
+      ]);
+      const dirs = new Set<string>(globDirs);
+      for (const raw of [...this.getModuleIds(), ...this.getWatchFiles()]) {
+        if (!raw || raw.startsWith('\0')) continue;
+        const clean = stripQuery(raw);
+        if (!clean) continue;
+        try {
+          const st = statSync(clean);
+          if (st.isFile()) files.add(realpathSync(clean));
+        } catch {
+          // Ignore virtual or non-file ids.
+        }
+      }
+      if (extras.publicDir) walkFilesAndDirs(extras.publicDir, files, dirs);
+
+      const fileSnapshots: Record<string, { size: number; mtimeMs: number }> = {};
+      for (const file of [...files].sort()) {
+        try {
+          const st = statSync(file);
+          if (st.isFile()) fileSnapshots[file] = { size: st.size, mtimeMs: st.mtimeMs };
+        } catch {
+          // Ignore unreadable entry.
+        }
+      }
+      const dirSnapshots: Record<string, string[]> = {};
+      for (const dir of [...dirs].sort()) {
+        try {
+          dirSnapshots[dir] = readdirSync(dir).sort();
+        } catch {
+          // Ignore unreadable directory.
+        }
+      }
+
+      mkdirSync(dirname(buildInputsManifestPath), { recursive: true });
+      let current: Record<string, unknown> = {};
+      try {
+        current = JSON.parse(readFileSync(buildInputsManifestPath, 'utf8'));
+      } catch {
+        current = {};
+      }
+      current[target] = { files: fileSnapshots, dirs: dirSnapshots };
+      const tmp = `${buildInputsManifestPath}.${process.pid}.${target}.tmp`;
+      writeFileSync(tmp, JSON.stringify(current));
+      renameSync(tmp, buildInputsManifestPath);
+    },
+  };
+}
 
 const selectedBuildTargets = new Set(
   String(process.env.MIXDOG_ELECTRON_BUILD_TARGETS || '')
@@ -227,7 +320,8 @@ export default defineConfig({
       computerSourceVitePlugin(),
       visualizeAssetsPlugin,
       externalizeDepsPlugin({ exclude: ['qrcode'] }),
-    ],
+      recordBuildInputsPlugin('main'),
+    ].filter(Boolean) as Plugin[],
     build: {
       rollupOptions: {
         input: {
@@ -238,7 +332,7 @@ export default defineConfig({
     },
   } : undefined,
   preload: buildTargetEnabled('preload') ? {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin(), recordBuildInputsPlugin('preload')].filter(Boolean) as Plugin[],
     build: {
       rollupOptions: {
         input: {
@@ -330,7 +424,7 @@ export default defineConfig({
       // use native module preloads without Vite's compatibility polyfill.
       target: 'chrome144',
       // electron-vite defaults the renderer to minify:false (~35% more brotli bytes); build.cssMinify follows this value.
-      minify: 'esbuild',
+      minify: process.env.MIXDOG_DEV_UNMINIFIED === '1' ? false : 'esbuild',
       modulePreload: { polyfill: false },
       rollupOptions: {
         input: {
@@ -390,7 +484,8 @@ export default defineConfig({
       react(),
       // A font of a package that really lives on another drive (a linked node_modules): scripts/dev-linked-assets.ts.
       otherDriveAssets(isFileLoadingAllowed),
-    ],
+      recordBuildInputsPlugin('renderer', { publicDir: rendererPublicDir }),
+    ].filter(Boolean) as Plugin[],
     server: {
       host: '127.0.0.1',
       ...(devRendererPort ? { port: devRendererPort, strictPort: true } : {}),

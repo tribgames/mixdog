@@ -38,45 +38,8 @@
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-meta);
 }
-/* A long block keeps its header (and the copy button) at the top of its
-   visible part. 44px is the thread's top inset: below the status island and
-   the 32px top scroll fade (12-transcript.css). The plate tint (a skin's
-   --mx-skin-fill too) is nearly clear, so it is laid over the opaque ground
-   and code never shows through. Tool panels scroll on their own. */
-.transcript .markdown-code:not(.tool-panel *) {
-  --markdown-code-pin: 44px;
-  --markdown-code-band: linear-gradient(var(--mx-surface-plate), var(--mx-surface-plate)), var(--mx-bg-base);
-}
 .transcript .markdown-code:not(.tool-panel *) > header {
-  position: sticky;
-  top: var(--markdown-code-pin);
-  z-index: 1;
-  background: var(--markdown-code-band);
-}
-/* The top inset above the pinned header is not opaque (the scroll fade ends
-   at 32px), so the block's own lines would pass in view above its header. A
-   cap in the header's paint rides at the scroller's top and covers them. It
-   starts above the code box and is clipped to it, so at rest nothing of it
-   shows. The clip is the code box's rectangle: a rounded one on the card
-   would take wheel hit-testing off the compositor. */
-.transcript .markdown-code:not(.tool-panel *) > pre {
-  --markdown-code-inset: 12px;
-  /* Down to the end of the header's rounded corners, which sit over the code. */
-  --markdown-code-cap: calc(var(--markdown-code-pin) + var(--mx-radius-lg, 0px));
-  padding: var(--markdown-code-inset);
-  overflow: clip;
-}
-.transcript .markdown-code:not(.tool-panel *) > pre::before {
-  content: "";
-  display: block;
-  position: sticky;
-  top: 0;
-  height: var(--markdown-code-cap);
-  margin: calc(-1 * (var(--markdown-code-cap) + var(--markdown-code-inset))) calc(-1 * var(--markdown-code-inset))
-    var(--markdown-code-inset);
-  background: var(--markdown-code-band);
-  /* A selection dragged up over the cap ends at the line under it, not at the block's first. */
-  pointer-events: none;
+  background: linear-gradient(var(--mx-surface-plate), var(--mx-surface-plate)), var(--mx-bg-base);
 }
 /* Parser fallback already uses the final code-block geometry and mono face.
    Only the copy action arrives with the rich AST, inside the fixed header. */
@@ -505,39 +468,6 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
    bottom-pinned transcript. Real text reveals the normal heading immediately. */
 .markdown.streaming :is(h1, h2, h3, h4, h5, h6):empty {
   display: none;
-}
-/* Phrases of a streamed reply (markdown-stream-fade.ts). The wrappers are
-   plain inline elements and only opacity animates, so the fade costs no
-   layout. Each fade's duration and its offset on the reply timeline (negative
-   when an element is re-created mid-fade) are set inline when its element is
-   created. A list item fades only its marker (its words fade themselves);
-   table rows, quotes, rules and inline code fade whole with their first word.
-   Once its fade ended a phrase is unwrapped. */
-[data-stream-fade],
-[data-stream-fade-box="box"] {
-  animation: markdown-stream-fade var(--mx-fade-ms, 400ms) linear backwards;
-  animation-delay: var(--mx-fade-delay, 0ms);
-}
-[data-stream-fade-box="marker"]::marker {
-  animation: markdown-stream-fade-marker var(--mx-fade-ms, 400ms) linear backwards;
-  animation-delay: var(--mx-fade-delay, 0ms);
-}
-@keyframes markdown-stream-fade {
-  from {
-    opacity: 0;
-  }
-}
-@keyframes markdown-stream-fade-marker {
-  from {
-    color: transparent;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  [data-stream-fade],
-  [data-stream-fade-box="box"],
-  [data-stream-fade-box="marker"]::marker {
-    animation: none;
-  }
 }
 /* Heading ladder — surveyed chat renderers land near 17/15/13px, 1.65/1.35/
    1.15em, or 3xl→sm: every rung must differ from BODY, not just from the
@@ -1018,13 +948,6 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
   display: table;
   overflow: visible;
   table-layout: auto;
-}
-/* While a reply streams, fix the table column grid of its open block from the
-   header row so incoming body chunks do not rebalance already-painted rows;
-   settled blocks keep `table-layout: auto`, so streamed and remounted tables
-   match and a block parked while the reply streams keeps its height. */
-.markdown.streaming > .markdown-unit:last-child .markdown-table table {
-  table-layout: fixed;
 }
 .markdown-code > pre,
 .diff-fallback {
@@ -2011,12 +1934,13 @@ html[data-mixdog-mobile-tabs] .session-goal-fold {
   margin-inline: 0;
 }
 /* The phone's rows have no inline inset: its headings start with them. */
-html[data-mixdog-mobile-tabs]
-  :is(.session-goal-group-label, .session-goal-fold, .session-goal-tasks li.session-goal-phase) {
+html[data-mixdog-mobile-tabs] :is(.session-goal-group-label, .session-goal-tasks li.session-goal-phase),
+html[data-mixdog-mobile-tabs] .session-goal-fold {
   padding-inline: 0;
 }
+/* The island's fold is a plate: its label sits 12px inside it. */
 html[data-mixdog-mobile-tabs] .composer-island .session-goal-fold {
-  padding-inline: 8px;
+  padding-inline: 12px;
 }
 html[data-mixdog-mobile-tabs] .session-goal-tasks li {
   grid-template-columns: 16px minmax(0, 1fr);

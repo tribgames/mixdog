@@ -6,11 +6,9 @@ import { MarkdownBlock } from './markdown-block';
 import { type BlockParking, MarkdownBlockParkingContext, UNIT_ATTRIBUTE } from './markdown-block-parking';
 import type { MarkdownCopyControl } from './markdown-components';
 import { isMarkdownPage, type MarkdownAstChild, type MarkdownPage, type MarkdownUnit } from './markdown-document';
-import type { StreamFadeTimeline } from './markdown-stream-fade';
 import { containsFencedCodeMarkdown, MarkdownSourceFallback } from './MarkdownSourceFallback';
 
 interface DocumentScope {
-  fadeTimeline: StreamFadeTimeline | null;
   copyControl: MarkdownCopyControl;
   parking: BlockParking | null;
 }
@@ -49,12 +47,7 @@ function useUnitParking(
 
 function UnitBody({ unit, node, scope }: { unit: MarkdownUnit; node: MarkdownAstChild; scope: DocumentScope }) {
   const root = useMemo(() => ({ type: 'root', children: [node] }) as MarkdownAstRoot, [node]);
-  return useMarkdownAst(
-    root,
-    scope.copyControl,
-    { timeline: scope.fadeTimeline, offset: unit.base, from: unit.from, end: unit.end },
-    scope.parking ? unit.key : null
-  );
+  return useMarkdownAst(root, scope.copyControl, scope.parking ? unit.key : null);
 }
 
 /** Text whose parse is still to land: fenced code shows as source and prose
@@ -71,9 +64,10 @@ function UnitWaiting({
   const marker = pending ? <span hidden data-transcript-pending /> : null;
   if (!text.trim()) return marker;
   if (!containsFencedCodeMarkdown(text)) {
+    // The blank lines around a block are no lines of it once parsed: kept under `pre-wrap` they drew it a line taller.
     return (
       <p className="markdown-plain">
-        {text}
+        {text.replace(/^(?:[ \t]*\r?\n)+/, '').trimEnd()}
         {marker}
       </p>
     );
@@ -91,11 +85,12 @@ const MarkdownDocumentUnit = memo(function MarkdownDocumentUnit({ unit }: { unit
   const lastBody = useRef<MarkdownUnit | null>(null);
   const lastWaitingText = useRef('');
   if (unit.node) lastBody.current = unit;
-  const bodyUnit = unit.node ? unit : lastBody.current?.node ? lastBody.current : null;
+  const bodyUnit = lastBody.current;
   const bodyNode = bodyUnit?.node ?? null;
   const text = unit.text ?? '';
   if (!bodyUnit && text.trim()) lastWaitingText.current = text;
-  const shownText = text.trim() ? text : unit.pending ? lastWaitingText.current : text;
+  let shownText = text;
+  if (!text.trim() && unit.pending) shownText = lastWaitingText.current;
   const { parking } = scope;
   const parkingId = bodyUnit ? bodyUnit.key : null;
   useUnitParking(parking, parkingId, bodyNode, bodyUnit?.held ?? false);
@@ -105,6 +100,7 @@ const MarkdownDocumentUnit = memo(function MarkdownDocumentUnit({ unit }: { unit
     return <UnitBody unit={bodyUnit} node={bodyNode} scope={scope} />;
   }
   const empty = !bodyNode && !shownText.trim();
+  const pendingAfterBody = !unit.node && unit.pending ? <span hidden data-transcript-pending /> : null;
   const outer = (
     <div
       className="markdown-unit"
@@ -114,7 +110,7 @@ const MarkdownDocumentUnit = memo(function MarkdownDocumentUnit({ unit }: { unit
       {bodyUnit && bodyNode ? (
         <>
           <UnitBody unit={bodyUnit} node={bodyNode} scope={scope} />
-          {!unit.node && unit.pending ? <span hidden data-transcript-pending /> : null}
+          {pendingAfterBody}
         </>
       ) : (
         <UnitWaiting text={shownText} pending={unit.pending ?? false} copyControl={scope.copyControl} />
@@ -145,17 +141,9 @@ function PageItems({ page }: { page: MarkdownPage }) {
 const MarkdownDocumentPage = memo(PageItems);
 
 /** A reply's pages (markdown-document), live or finished alike. */
-export function MarkdownDocumentView({
-  root,
-  fadeTimeline,
-  copyControl,
-}: {
-  root: MarkdownPage;
-  fadeTimeline: StreamFadeTimeline | null;
-  copyControl: MarkdownCopyControl;
-}) {
+export function MarkdownDocumentView({ root, copyControl }: { root: MarkdownPage; copyControl: MarkdownCopyControl }) {
   const parking = useContext(MarkdownBlockParkingContext);
-  const scope = useMemo(() => ({ fadeTimeline, copyControl, parking }), [fadeTimeline, copyControl, parking]);
+  const scope = useMemo(() => ({ copyControl, parking }), [copyControl, parking]);
   return (
     <DocumentScopeContext.Provider value={scope}>
       <MarkdownDocumentPage page={root} />

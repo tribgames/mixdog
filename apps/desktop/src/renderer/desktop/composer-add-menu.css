@@ -95,6 +95,7 @@ html[data-mixdog-mobile-tabs] .composer-add-menu [role="menuitem"] {
 }
 .composer-input-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   min-width: 0;
 }

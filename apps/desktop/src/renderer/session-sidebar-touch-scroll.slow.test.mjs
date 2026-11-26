@@ -27,7 +27,7 @@ const HARNESS = `
       };
     });
     return <SessionSidebar open sessions={sessions} sessionsReady selection={{ kind: 'new' }} onNewTask={noop}
-      onNewStudio={noop} onResumeSession={noop} onRenameSession={none} onArchiveSession={none}
+      onResumeSession={noop} onRenameSession={none} onArchiveSession={none}
       onFavoriteSession={none} onDeleteSession={none} />;
   }
   createRoot(document.getElementById('root')).render(<Harness />);

@@ -161,7 +161,7 @@ export function BuiltInFeatureInfo({
       ['Quantization', String(info.quantization || '')],
       ['Engine', String(info.engine || '')],
       ['Model size', info.modelBytes ? fileSize(Number(info.modelBytes)) : ''],
-      ['Supported models', 'Claude Opus · Sonnet · Fable · GPT-6 · GPT-6.1']
+      ['Supported models', 'Claude 5+ (Opus · Sonnet · Haiku · Fable · Mythos) · GPT-6+']
     );
   }
   if (!facts.some(([, value]) => value)) return null;

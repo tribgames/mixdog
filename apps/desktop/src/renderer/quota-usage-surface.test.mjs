@@ -745,8 +745,26 @@ async function openUnattributed(context, unattributed) {
           unattributed,
           models: [model],
           modelSeries: [
-            { ...model, key: model.model, points: [[opened, 0], [at(0, 30), 20]] },
-            ...(unattributed > 0 ? [{ key: '', part: 'unattributed', points: [[opened, 0], [at(0, 30), unattributed]] }] : []),
+            {
+              ...model,
+              key: model.model,
+              points: [
+                [opened, 0],
+                [at(0, 30), 20],
+              ],
+            },
+            ...(unattributed > 0
+              ? [
+                  {
+                    key: '',
+                    part: 'unattributed',
+                    points: [
+                      [opened, 0],
+                      [at(0, 30), unattributed],
+                    ],
+                  },
+                ]
+              : []),
           ],
           points: [
             [opened, 0, 1],

@@ -38,7 +38,7 @@ function rig(id) {
     hasOlder: false,
     state: {
       runtime: { busy: true },
-      route: { provider: 'openai', model: 'gpt-a', effort: 'low', fast: false, autoEffort: false, modelParameters: {} },
+      route: { provider: 'openai', model: 'gpt-a', effort: 'low', fast: false, effortAuto: false, modelParameters: {} },
       context: { contextPercent: 100 },
       workflow: {
         workflow: alpha,
@@ -270,7 +270,7 @@ test('speed, parameters and context changes on the seated model show at once', a
       model: 'gpt-a',
       effort: 'low',
       fast: false,
-      autoEffort: false,
+      effortAuto: false,
       modelParameters: {},
     };
     await publish({ method: 'thread/route/updated', params: { value: { ...route, fast: true } } });

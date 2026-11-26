@@ -993,12 +993,15 @@ html[data-mixdog-mobile-tabs]
 html[data-mixdog-mobile-tabs] .pane-side-dock {
   box-sizing: border-box;
   padding-top: env(safe-area-inset-top, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
 }
 html[data-mixdog-mobile-tabs] .dock-header-row {
-  /* Gap (4px), control gap (2px) and the 16px title line stay the PC's; the
-     44px touch buttons keep the PC's trailing line (26px in) with a 4px pad. */
+  /* Gap (4px) and control gap (2px) stay the PC's. The title starts 14px in,
+     and the last 44px button's 20px glyph ends 14px from the edge (2 + 12). */
   --mx-dock-header-height: var(--mx-touch-main);
-  padding-right: 4px;
+  padding-right: 2px;
+  padding-left: 14px;
 }
 /* The turn view's Back keeps its PC glyph box; only its hit frame reaches the
    touch minimum, hanging off ::after. */
@@ -1141,17 +1144,23 @@ html[data-mixdog-mobile-tabs]
 html[data-mixdog-mobile-tabs] .mixdog-settings-layer {
   --settings-layer-safe-top: max(12px, env(safe-area-inset-top, 0px));
   --settings-layer-safe-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  --mx-dialog-inset-top: calc(env(safe-area-inset-top, 0px) + 12px);
+  --mx-dialog-inset-right: calc(env(safe-area-inset-right, 0px) + 12px);
+  --mx-dialog-inset-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+  --mx-dialog-inset-left: calc(env(safe-area-inset-left, 0px) + 12px);
   width: 100vw;
   height: var(--mx-visible-height);
-  padding: 12px;
+  padding: var(--mx-dialog-inset-top) var(--mx-dialog-inset-right) var(--mx-dialog-inset-bottom)
+    var(--mx-dialog-inset-left);
   place-items: center;
   overscroll-behavior: contain;
 }
-/* Dialogs clamp to the screen; Settings itself fills it (below), so it is
-   left out of the clamp instead of un-clamping it with a second !important. */
+/* Dialogs clamp to the screen inside the system bars and the notch; Settings
+   itself fills it (below), so it is left out of the clamp instead of
+   un-clamping it with a second !important. */
 html[data-mixdog-mobile-tabs] .mixdog-settings-layer > :not(.mixdog-settings-v2) {
-  max-width: calc(100vw - 24px) !important;
-  max-height: calc(var(--mx-visible-height) - 24px) !important;
+  max-width: calc(100vw - var(--mx-dialog-inset-left) - var(--mx-dialog-inset-right)) !important;
+  max-height: calc(var(--mx-visible-height) - var(--mx-dialog-inset-top) - var(--mx-dialog-inset-bottom)) !important;
 }
 /* The usage dialog's 760px cap is a desktop-window rule; the phone sheet
    keeps filling the screen (an empty result still hugs its content). */
@@ -1200,15 +1209,46 @@ html[data-mixdog-mobile-tabs] .command-surface[data-surface="context"] .context-
   gap: 6px;
 }
 html[data-mixdog-mobile-tabs] .command-surface[data-surface="context"] .context-mix-row {
-  min-height: 30px;
+  min-height: var(--mx-touch);
   gap: 6px;
   padding: 5px 8px;
 }
+/* A label the row cannot hold wraps its count under it instead of cutting. */
 html[data-mixdog-mobile-tabs] .command-surface[data-surface="context"] .context-mix-row > span {
   min-width: 0;
+  flex-wrap: wrap;
+  row-gap: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* The title keeps its line; the reading takes the line under it, and the
+   close box spans both on the 16px column. */
+html[data-mixdog-mobile-tabs] .command-surface[data-surface="context"] .mixdog-settings__header {
+  height: auto;
+  min-height: 64px;
+  flex-basis: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-content: center;
+  column-gap: 8px;
+  /* 5px + the 44px box's 11px around its 22px glyph = the 16px column. */
+  padding: 8px 5px 8px 16px;
+}
+html[data-mixdog-mobile-tabs] .command-surface[data-surface="context"] .command-surface-header-actions {
+  display: contents;
+}
+html[data-mixdog-mobile-tabs] .command-surface[data-surface="context"] .mixdog-settings__header h1 {
+  grid-area: 1 / 1;
+}
+html[data-mixdog-mobile-tabs] .command-surface[data-surface="context"] .context-reading {
+  grid-area: 2 / 1;
+  flex-wrap: wrap;
+  margin: 0;
+  white-space: normal;
+}
+html[data-mixdog-mobile-tabs] .command-surface[data-surface="context"] .mixdog-settings__close {
+  grid-area: 1 / 2 / 3;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -1256,6 +1296,11 @@ html[data-mixdog-mobile-tabs] {
      24dp guess read as a button-height dead strip on phones whose viewport
      already stops above the bar. */
   --mx-mobile-sheet-safe-bottom: max(env(safe-area-inset-bottom, 0px), env(safe-area-max-inset-bottom, 0px), 8px);
+  /* The safe-area insets as px for script placement (anchored-panel.ts). */
+  --mx-safe-inset-top: env(safe-area-inset-top, 0px);
+  --mx-safe-inset-right: env(safe-area-inset-right, 0px);
+  --mx-safe-inset-bottom: env(safe-area-inset-bottom, 0px);
+  --mx-safe-inset-left: env(safe-area-inset-left, 0px);
 }
 
 /* ── Phone finishing pass ──────────────────────────────────────────────────

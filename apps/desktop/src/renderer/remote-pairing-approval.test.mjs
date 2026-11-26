@@ -442,3 +442,11 @@ test('a page that thaws past the poll deadline still polls once more', async (t)
   assert.equal(polls, 2);
   assert.notEqual(run.document.querySelector('.mxp-title')?.textContent, 'Request expired');
 });
+
+test('wsUrl advertises offline hold support next to the pairing token', async (t) => {
+  const { ctx } = await installPairing(t);
+  ctx.token = TOKEN;
+  assert.equal(ctx.wsUrl(), `wss://relay.example/ws?token=${encodeURIComponent(TOKEN)}&hold=1`);
+  ctx.serverBase = '';
+  assert.equal(ctx.wsUrl(), `wss://relay.example/ws?token=${encodeURIComponent(TOKEN)}&hold=1`);
+});

@@ -120,23 +120,23 @@
   opacity: var(--mx-op-disabled);
   cursor: default;
 }
-/* Touch tier: a 36dp pill holding 32dp steps; no hover rest state. */
+/* Touch tier: a 44dp pill holding 44dp steps; no hover rest state. */
 html[data-mixdog-mobile-tabs] .browser-zoom-pill {
-  height: 36px;
+  height: var(--mx-touch);
   bottom: 12px;
   padding: 0 6px 0 2px;
   opacity: var(--mx-op-soft);
 }
 html[data-mixdog-mobile-tabs] .browser-zoom-step {
-  width: 32px;
-  height: 32px;
+  width: var(--mx-touch);
+  height: var(--mx-touch);
 }
 html[data-mixdog-mobile-tabs] .browser-zoom-step > svg {
   width: 14px;
   height: 14px;
 }
 html[data-mixdog-mobile-tabs] .browser-zoom-percent {
-  height: 32px;
+  height: var(--mx-touch);
   min-width: 56px;
   padding: 0 6px;
   font-size: 12px;

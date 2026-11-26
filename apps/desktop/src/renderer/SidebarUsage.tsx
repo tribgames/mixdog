@@ -375,10 +375,11 @@ export function SidebarUsage({
   useEffect(() => {
     if (sidebarOpen) {
       void refreshUsageDashboard(api);
-      if (statsAvailable) prefetchQuotaUsage(api);
+      if (statsAvailable) return prefetchQuotaUsage(api);
     } else {
       clearReset();
     }
+    return undefined;
   }, [api, sidebarOpen, statsAvailable, clearReset]);
   const { creditSwitch, toggleCredits } = useCreditSwitch(api);
   return (
@@ -436,6 +437,7 @@ export function SidebarUsage({
               const checking = row.status === 'checking';
               const pool = accountPools.get(subscription.provider);
               const listedAccounts = expandableAccounts(pool);
+              const emptyUsageLabel = checking ? t('Loading usage…') : t('No usage limits to show');
               // Only connected providers are listed, so a row here always
               // reads as connected and never as a first-load placeholder.
               if (!subscriptionConnected(row)) return null;
@@ -477,6 +479,7 @@ export function SidebarUsage({
                   {listedAccounts.length > 0 && accountsExpanded ? (
                     listedAccounts.map((account) => {
                       const limitText = accountLimitText(account);
+                      const selectedRow = account.id === pool?.selectedId ? row : undefined;
                       return (
                         <div className="sidebar-usage-account" key={account.id} data-usage-account={account.id}>
                           <span className="sidebar-usage-account-line">
@@ -500,12 +503,7 @@ export function SidebarUsage({
                             {limitText && <small className="sidebar-usage-account-limit">{limitText}</small>}
                           </span>
                           <span className="sidebar-usage-meters">
-                            {renderMeters(
-                              account.windows,
-                              subscription.provider,
-                              account.id,
-                              account.id === pool?.selectedId ? row : undefined
-                            )}
+                            {renderMeters(account.windows, subscription.provider, account.id, selectedRow)}
                             {account.windows.length === 0 && (
                               <span className="sidebar-usage-meter sidebar-usage-meter-empty">
                                 <small>{t('No usage limits to show')}</small>
@@ -520,7 +518,7 @@ export function SidebarUsage({
                       {renderMeters(windows, subscription.provider, '', row)}
                       {windows.length === 0 && (
                         <span className="sidebar-usage-meter sidebar-usage-meter-empty">
-                          <small>{checking ? t('Loading usage…') : t('No usage limits to show')}</small>
+                          <small>{emptyUsageLabel}</small>
                         </span>
                       )}
                     </span>

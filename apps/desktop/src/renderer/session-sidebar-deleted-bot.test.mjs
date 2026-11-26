@@ -55,7 +55,6 @@ async function mountDeletedBot(t) {
         selection: { kind: 'new' },
         workingSessionIds: new Set(),
         onNewTask() {},
-        onNewStudio() {},
         onResumeSession() {},
         async onRenameSession() {},
         async onFavoriteSession() {},
@@ -96,6 +95,18 @@ test("a deleted bot's archived chat restores with its bot, from the row button a
   await settle();
   assert.equal(restores().length, 2);
   assert.deepEqual(calls, []);
+});
+
+test("Restore all restores a deleted bot's archived chat with its bot, like its row does", async (t) => {
+  const { document, calls, invoked } = await mountDeletedBot(t);
+  await act(async () => document.querySelector('.sidebar-archived .row-overflow-trigger').click());
+  await act(async () => document.querySelector('[data-action-id="restore-all"]').click());
+  await settle();
+  assert.deepEqual(
+    invoked.filter(([name]) => name === 'restoreAgentDefinition'),
+    [['restoreAgentDefinition', ['probe']]]
+  );
+  assert.deepEqual(calls, [], 'not a plain unarchive');
 });
 
 test("a deleted bot's archived chat is deleted only for good, after a plain question", async (t) => {
@@ -146,7 +157,6 @@ async function mountWatcherMenu(t) {
         selection: { kind: 'new' },
         workingSessionIds: new Set(),
         onNewTask() {},
-        onNewStudio() {},
         onResumeSession() {},
         onOpenAgent: (sessionId, title) => opened.push([sessionId, title]),
         async onRenameSession() {},
@@ -276,7 +286,6 @@ async function mountHiddenWatcher(t) {
           workingSessionIds: new Set(),
           unreadSessionIds: unread,
           onNewTask() {},
-          onNewStudio() {},
           onResumeSession() {},
           async onRenameSession() {},
           async onFavoriteSession() {},
@@ -419,7 +428,6 @@ test('a Sessions 봇 row spins while its home chat is running, like a session ro
           workingSessionIds: working,
           unreadSessionIds: unread,
           onNewTask() {},
-          onNewStudio() {},
           onResumeSession() {},
           async onRenameSession() {},
           async onFavoriteSession() {},
@@ -483,7 +491,6 @@ test('a Sessions 봇 row shows the amber triangle, with a digit from 2 waiting s
           workingSessionIds: new Set(),
           unreadSessionIds: new Set(),
           onNewTask() {},
-          onNewStudio() {},
           onResumeSession() {},
           async onRenameSession() {},
           async onFavoriteSession() {},

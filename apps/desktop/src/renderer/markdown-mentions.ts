@@ -1,6 +1,5 @@
 import { createContext } from 'react';
 import type { MarkdownAstRoot } from './markdown-ast';
-import { placedTextSlice } from './markdown-stream-fade';
 
 /** Display names of the group room being shown; null outside a group room. */
 export const MarkdownMentionNamesContext = createContext<readonly string[] | null>(null);
@@ -10,8 +9,9 @@ type Node = MarkdownAstRoot['children'][number];
 const MENTION = /(?<![\p{L}\p{N}_@])@([\p{L}\p{N}_-]+)/gu;
 const SKIP_TAGS = new Set(['code', 'pre', 'a']);
 
-/** Text node `node` with its mentions wrapped; its pieces keep where their
- *  characters sit (a streamed reply's fade reads it). */
+const textOf = (value: string): Node => ({ type: 'text', value });
+
+/** Text node `node` with its mentions wrapped. */
 function splitText(node: Node, names: ReadonlySet<string>): Node[] | null {
   const value = node.value ?? '';
   const out: Node[] = [];
@@ -19,17 +19,17 @@ function splitText(node: Node, names: ReadonlySet<string>): Node[] | null {
   for (const match of value.matchAll(MENTION)) {
     if (!names.has(match[1].toLowerCase())) continue;
     const end = match.index + match[0].length;
-    if (match.index > last) out.push(placedTextSlice(node, last, match.index));
+    if (match.index > last) out.push(textOf(value.slice(last, match.index)));
     out.push({
       type: 'element',
       tagName: 'span',
       properties: { className: ['agent-room-mention'] },
-      children: [placedTextSlice(node, match.index, end)],
+      children: [textOf(value.slice(match.index, end))],
     });
     last = end;
   }
   if (!last) return null;
-  if (last < value.length) out.push(placedTextSlice(node, last, value.length));
+  if (last < value.length) out.push(textOf(value.slice(last)));
   return out;
 }
 

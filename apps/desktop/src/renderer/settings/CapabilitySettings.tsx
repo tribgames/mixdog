@@ -9,7 +9,7 @@ import type {
 
 import { PaneSurfaceGate } from '../PaneSurfaceGate';
 import { preferredModelEffort } from '../model-route-utils';
-import { routeAutoEffortCapable } from '../auto-effort-store';
+import { effortAutoField, readEffortAuto, routeAutoEffortCapable } from '../auto-effort-store';
 import { showDesktopToast, useErrorToast } from '../notifications';
 import { ErrorNotice } from '../ErrorNotice';
 import { t } from '../i18n';
@@ -59,17 +59,17 @@ function modelRouteRequest(model: DesktopModelOption, active: Record<string, unk
     else if (typeof model.savedFast === 'boolean') fast = model.savedFast;
     else fast = model.fastPreferred;
   }
-  let autoEffort: boolean | undefined;
-  if (routeAutoEffortCapable(model)) {
-    if (isActiveRoute && typeof active.autoEffort === 'boolean') autoEffort = active.autoEffort;
-    else autoEffort = model.savedAutoEffort ?? true;
-  }
+  const effortAuto = routeAutoEffortCapable(model)
+    ? isActiveRoute
+      ? readEffortAuto(active.effortAuto)
+      : readEffortAuto(model.savedEffortAuto)
+    : undefined;
   return {
     provider: model.provider,
     model: model.model,
     ...(effort ? { effort } : {}),
     ...(fast === undefined ? {} : { fast }),
-    ...(autoEffort === undefined ? {} : { autoEffort }),
+    ...effortAutoField(effortAuto, true),
   };
 }
 

@@ -1,8 +1,9 @@
 /* ── Session panel ──
    The session's categories in a side panel at the pane's right edge, from
    its top beside the tab strip, in the left panel's surface: beside the
-   reading column while the margins beside it hold the panel, over the
-   conversation when they do not, over the whole pane when that is too narrow
+   conversation while it keeps its floor (giving up the panel's band so the
+   reading column centres left of it), over the conversation when it does not,
+   and over the whole pane when that is too narrow
    (session-rail-layout.ts sessionRailFit, data-presentation). The 8px it
    takes beside its width (SESSION_RAIL_GAP) are its two edges' 4px. A dock
    open at the pane's side covers it: it is not drawn meanwhile, and keeps
@@ -56,20 +57,13 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-cell {
   margin-right: var(--session-rail-band);
   border-top-right-radius: 0;
 }
-/* Continuous overlap shift: as the rail meets the centred reading column,
-   --session-rail-reserve grows smoothly by twice the overlap up to the rail's
-   full band, keeping the column flush beside the rail without a sudden jump. */
+/* Beside the panel the conversation gives up its band
+   (--session-rail-reserve, set on the cell by SessionRailCard): its pane
+   container narrows by that much, so the reading column and the composer
+   centre in the room left of the panel and the scroller ends at its edge. */
 .pane-conversation-slot > .conversation-persistent-surface > .workspace {
   box-sizing: border-box;
   padding-right: var(--session-rail-reserve, 0px);
-}
-/* Scrollbar clearance for the part of the rail still sitting over the
-   workspace's right margin (--session-rail-over = band - reserve): the
-   scroller ends at the panel's edge while balancing left padding keeps the
-   reading column on the workspace's exact centre. */
-.pane-conversation-slot .conversation > .transcript-shell > .transcript {
-  margin-right: var(--session-rail-over, 0px);
-  padding-left: var(--session-rail-over, 0px);
 }
 /* The left rail's type ramp (30-dialogs.css "Rail type ramp"): names and
    items 14, supporting figures 13 and 12. */

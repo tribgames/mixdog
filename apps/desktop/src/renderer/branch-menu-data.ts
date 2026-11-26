@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { DesktopBranchMenu } from '../shared/contract';
 import { registerIdleReclaim } from './idle-reclaim';
+import { afterStartupReads } from './startup-reads';
 import {
   getBranchIntent,
   invokeWorktree,
@@ -193,9 +194,10 @@ function useEagerMenuRead({
       if (ok || cancelled || delay > MENU_RETRY_MAX_MS) return;
       timer = setTimeout(() => void attempt(delay * 2), delay);
     };
-    void attempt(MENU_RETRY_FIRST_MS);
+    const cancelStart = afterStartupReads(() => void attempt(MENU_RETRY_FIRST_MS));
     return () => {
       cancelled = true;
+      cancelStart();
       clearTimeout(timer);
     };
   }, [eager, readKey, refreshKey]);

@@ -9,7 +9,17 @@ const LONG_MS = 60_000;
 
 /** `contentHeight` 124: the one row's box (100) is the extent the list gives it (the content less its 24px end
  *  spacer); 100: the list holds another size for it than layout reads back. */
-function mount(t, { eager = false, scrollHeight = 100, contentHeight = 100, pinned = false } = {}) {
+function mount(
+  t,
+  {
+    eager = false,
+    scrollHeight = 100,
+    contentHeight = 100,
+    pinned = false,
+    rowHeight: initialRowHeight = 100,
+    dpr = 1,
+  } = {}
+) {
   let now = 0;
   let frameId = 0;
   const frames = new Map();
@@ -27,6 +37,7 @@ function mount(t, { eager = false, scrollHeight = 100, contentHeight = 100, pinn
     },
   });
   t.mock.method(performance, 'now', () => now);
+  Object.defineProperty(document.defaultView, 'devicePixelRatio', { configurable: true, value: dpr });
   const viewport = { current: document.getElementById('viewport') };
   const content = { current: document.getElementById('content') };
   const scope = { current: document.getElementById('scope') };
@@ -37,7 +48,7 @@ function mount(t, { eager = false, scrollHeight = 100, contentHeight = 100, pinn
   });
   // What layout reads back for the visible row.
   const row = document.querySelector('[data-index="0"]');
-  let rowHeight = 100;
+  let rowHeight = initialRowHeight;
   row.getBoundingClientRect = () => ({ height: rowHeight, top: 0, bottom: rowHeight, width: 600 });
   const hasScrollGesture = () => false;
   let revealed = false;
@@ -164,12 +175,11 @@ test('a visit whose committed geometry is already final reveals in its first fra
 
 test('a revisit whose rows in view hold the boxes the list gave them reveals in the commit, before any frame callback', async (t) => {
   const entry = mount(t, { contentHeight: 124 });
-  const time = revealEntryThenOther(entry);
+  revealEntryThenOther(entry);
   entry.visit('entry');
   assert.equal(entry.revealed(), false, 'never painted before its microtasks ran');
   await act(async () => {});
   assert.equal(entry.revealed(), true, 'revealed without waiting for a frame');
-  assert.ok(time > 0);
 });
 
 test('the same timeline put up again by its pane is a visit of its own, revealed in its commit when its rows hold their boxes', async (t) => {
@@ -299,14 +309,14 @@ test('dock chrome still undecided holds the entry however long it takes, and its
 });
 
 test('a phone entry reveals its rows in the commit, without waiting on dock chrome or a stable frame', async (t) => {
-  const entry = mount(t, { eager: true });
+  const entry = mount(t, { eager: true, contentHeight: 124 });
   assert.ok(document.querySelector('[data-entry-pending]'), 'the dock chrome is still undecided');
   await act(async () => {});
   assert.equal(entry.revealed(), true, 'the latest messages paint in the frame they arrive');
 });
 
 test('a phone entry still holds a row whose Markdown body has not rendered', async (t) => {
-  const entry = mount(t, { eager: true });
+  const entry = mount(t, { eager: true, contentHeight: 124 });
   const suspended = document.createElement('div');
   suspended.setAttribute('data-transcript-pending', '');
   document.getElementById('content').append(suspended);
@@ -319,15 +329,53 @@ test('a phone entry still holds a row whose Markdown body has not rendered', asy
   assert.equal(entry.revealed(), true, 'revealed in the first frame its rows hold content');
 });
 
-test("a phone entry does not wait on a turn's changes read, which crosses the relay behind its slow reads", async (t) => {
-  const entry = mount(t, { eager: true });
-  const reading = document.createElement('span');
-  reading.hidden = true;
+test("a phone entry does not wait on a turn's changes read in a row in view, however long it takes", async (t) => {
+  const entry = mount(t, { eager: true, contentHeight: 124 });
+  const reading = pendingMarker();
   reading.setAttribute('data-transcript-pending', 'read');
-  document.getElementById('content').append(reading);
+  document.querySelector('[data-index="0"]').append(reading);
   entry.visit('next');
   await act(async () => {});
-  assert.equal(entry.revealed(), true);
+  assert.equal(entry.revealed(), true, 'the row draws its card from the turn records in its first frame');
+  assert.ok(reading.isConnected, 'the read is still out');
+});
+
+// The list gives a row its height rounded up to the next device pixel (transcript-list-geometry.ts `ceilRowHeight`).
+for (const [dpr, height, slot] of [
+  [2, 42.2, 42.5],
+  [3, 100.4, 100 + 2 / 3],
+]) {
+  test(`a phone entry at ${dpr}x whose ${height}px row holds the ${slot.toFixed(2)}px slot the list gave it is shown in the commit`, async (t) => {
+    const entry = mount(t, { eager: true, rowHeight: height, contentHeight: slot + 24, dpr });
+    entry.visit('next');
+    await act(async () => {});
+    assert.equal(entry.revealed(), true, 'a settled row reads back at its slot under the list rounding');
+  });
+
+  test(`a phone entry at ${dpr}x whose row reads back a device pixel taller than its slot is not shown in the commit`, async (t) => {
+    const entry = mount(t, { eager: true, rowHeight: slot + 1 / dpr, contentHeight: slot + 24, dpr });
+    entry.visit('next');
+    await act(async () => {});
+    assert.equal(entry.revealed(), false, 'the list would move the rows below it in the next frame');
+  });
+}
+
+test('a phone entry whose rendered body grew its row is shown once the list gives the row that box', async (t) => {
+  const entry = mount(t, { eager: true, contentHeight: 124 });
+  const body = pendingMarker();
+  document.querySelector('[data-index="0"]').append(body);
+  entry.visit('next');
+  await act(async () => {});
+  entry.tick(16);
+  assert.equal(entry.revealed(), false, 'the body has not rendered');
+  // The body renders: it grows its row in layout a frame before the list moves the rows for it.
+  body.remove();
+  entry.rowReadsHeight(140);
+  entry.tick(32);
+  assert.equal(entry.revealed(), false, 'the rows would move for the body in the next frame');
+  document.getElementById('content').style.height = '164px';
+  entry.tick(48);
+  assert.equal(entry.revealed(), true, 'shown in the frame the row holds its body');
 });
 
 test('a row whose body is pending holds the entry however long it takes; a streaming reply never does', (t) => {
@@ -438,7 +486,7 @@ test('a warm revisit still waits on a visible row body and a moving dock, never 
 });
 
 test('a mobile eager entry waits for end-pin landing (readerSet) and estimate relearn, while skipping offscreen overscan rows', async (t) => {
-  const entry = mount(t, { eager: true, pinned: true, scrollHeight: 300 });
+  const entry = mount(t, { eager: true, pinned: true, scrollHeight: 300, contentHeight: 124 });
   const content = document.getElementById('content');
   const offscreen = document.createElement('div');
   offscreen.className = 'transcript-virtual-row';

@@ -3648,6 +3648,9 @@ test('the git button opens the Git tab; each row runs its own action and nothing
     foot?.querySelector('.composer-island-foot-meta')?.textContent,
     `main · ${translate('Files {{count}}', { count: 2 })}`
   );
+  // The phone hides only the branch (the head names it); the counts stay.
+  const footBranch = foot.querySelector('.composer-island-foot-meta > .composer-island-foot-branch');
+  assert.equal(footBranch?.textContent, 'main · ');
   const viewChanges = foot?.querySelector('.composer-island-button');
   assert.equal(viewChanges?.textContent, translate('Island: View changes'));
   await act(async () => viewChanges.click());

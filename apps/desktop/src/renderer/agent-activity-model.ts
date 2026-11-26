@@ -17,6 +17,7 @@ import {
 } from '../shared/agent-activity';
 import type { RecordValue } from './desktop-types';
 import { record } from './record-utils';
+import { effortAutoField, mergeEffortAuto } from './route-auto-effort';
 import { timeMs } from './transcript-primitives';
 import { sectionStoreFor } from './section-store';
 
@@ -270,8 +271,8 @@ interface LiveAgentSummary {
   fast: boolean;
   /** The route's model parameters (service tier, Daybreak…); absent when it has none. */
   modelParameters?: Record<string, string>;
-  /** Per-route Auto reasoning; only an explicit `false` opts out. */
-  autoEffort: boolean;
+  /** Explicit per-route Auto reasoning choice (`true` = Auto, `false` = manual level). */
+  effortAuto?: boolean;
   tag: string;
   title: string;
   status: string;
@@ -381,7 +382,7 @@ function liveAgentSummary(
     ...(Object.keys(record(entry.modelParameters)).length
       ? { modelParameters: record(entry.modelParameters) as Record<string, string> }
       : {}),
-    autoEffort: entry.autoEffort !== false,
+    ...effortAutoField(entry.effortAuto, true),
     tag: tag || taskId,
     title: String(entry.title || '').trim(),
     status: unconfirmed || desktopAgentStatus(entry),
@@ -411,7 +412,7 @@ function mergeLiveAgentSummary(current: LiveAgentSummary, next: LiveAgentSummary
     ...(current.modelParameters || next.modelParameters
       ? { modelParameters: current.modelParameters || next.modelParameters }
       : {}),
-    autoEffort: current.autoEffort && next.autoEffort,
+    ...effortAutoField(mergeEffortAuto(current.effortAuto, next.effortAuto), true),
     tag: current.tag || next.tag,
     title: current.title || next.title,
     status:

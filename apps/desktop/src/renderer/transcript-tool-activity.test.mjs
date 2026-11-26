@@ -1543,24 +1543,26 @@ test('the thinking spinner shows the runtime-resolved turn effort, falling back 
 
     // Auto off: the resolved effort, else the saved level — spelled like the model chip.
     await setAuto(false);
-    assert.match(await thinkingText({ ...capable, effort: 'high', turnEffort: 'medium' }), /Thinking \(Medium\)/);
+    assert.match(await thinkingText({ ...capable, effort: 'high', effortAuto: false, turnEffort: 'medium' }), /Thinking \(Medium\)/);
     assert.match(
-      await thinkingText({ ...capable, effort: 'high', turnEffort: 'low' }),
+      await thinkingText({ ...capable, effort: 'high', effortAuto: false, turnEffort: 'low' }),
       /Thinking \(Low\)/,
       're-judged step'
     );
-    assert.match(await thinkingText({ ...capable, effort: 'high', turnEffort: null }), /Thinking \(High\)/);
-    assert.match(await thinkingText({ effort: 'xhigh' }), /Thinking \(XHigh\)/);
+    assert.match(await thinkingText({ ...capable, effort: 'high', effortAuto: false, turnEffort: null }), /Thinking \(High\)/);
+    assert.match(await thinkingText({ effort: 'xhigh', effortAuto: false }), /Thinking \(XHigh\)/);
 
-    // Auto on + capable: no saved-level stand-in before the turn effort resolves.
+    // Auto on (`effortAuto: true`) + capable + installed judge: no saved-level stand-in before the turn effort resolves.
     await setAuto(true);
-    assert.match(await thinkingText({ ...capable, effort: 'high', turnEffort: 'medium' }), /Thinking \(Medium\)/);
-    assert.match(await thinkingText({ ...capable, effort: 'high', turnEffort: null }), /Thinking$/);
-    assert.match(await thinkingText({ ...capable, effort: 'high' }), /Thinking$/);
+    assert.match(await thinkingText({ ...capable, effort: 'high', effortAuto: true, turnEffort: 'medium' }), /Thinking \(Medium\)/);
+    assert.match(await thinkingText({ ...capable, effort: 'high', effortAuto: true, turnEffort: null }), /Thinking$/);
+    assert.match(await thinkingText({ ...capable, effort: 'high', effortAuto: true }), /Thinking$/);
     // A saved max/ultra no longer disables Auto: no stand-in either.
-    assert.match(await thinkingText({ ...capable, effort: 'max' }), /Thinking$/);
+    assert.match(await thinkingText({ ...capable, effort: 'max', effortAuto: true }), /Thinking$/);
+    // Explicit manual choice (`effortAuto: false`) keeps the saved level even while the old switch is on.
+    assert.match(await thinkingText({ ...capable, effort: 'high', effortAuto: false }), /Thinking \(High\)/);
     // Auto on but the model is not capable: the saved level stands.
-    assert.match(await thinkingText({ ...plain, effort: 'high' }), /Thinking \(High\)/);
+    assert.match(await thinkingText({ ...plain, effort: 'high', effortAuto: true }), /Thinking \(High\)/);
     await setAuto(false);
   } finally {
     await act(async () => dom.root.unmount());

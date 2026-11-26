@@ -41,10 +41,21 @@ test('all three connecting-side surfaces carry the identical layout CSS', () => 
     /\.mxp-col\{[^}]*max-width:340px[^}]*overflow:auto[^}]*45dvh/,
     'column scrolls only on a truly short viewport'
   );
-  // One 340px column at the optical center (~45%): logo 48 + 20 + title 30 + 8 + description 45 + 24 + middle 80, actions flowing 24px below.
+  // One 340px column at the optical center (~45%): logo 48 + 20 + title 28 + 8 + description 44 + 24 + middle 80, actions flowing 24px below.
+  // Title and description grow past their one- and two-line floors with a larger text size instead of cutting.
   assert.match(css, /\.mxp-vis\{[^}]*width:48px;height:48px/);
-  assert.match(css, /\.mxp-title\{[^}]*height:30px;margin-top:20px;[^}]*font-size:22px;[^}]*font-weight:700/);
-  assert.match(css, /\.mxp-sub\{[^}]*height:45px;margin-top:8px;[^}]*word-break:keep-all;[^}]*text-wrap:balance/);
+  assert.match(
+    css,
+    /\.mxp-title\{[^}]*min-height:28px;margin-top:20px;[^}]*font-size:20px;line-height:28px;font-weight:700/
+  );
+  assert.match(
+    css,
+    /\.mxp-sub\{[^}]*min-height:44px;margin-top:8px;[^}]*line-height:22px;[^}]*word-break:keep-all;[^}]*text-wrap:balance/
+  );
+  assert.match(
+    css,
+    /@media \(orientation:landscape\) and \(max-height:500px\)\{\.mxp-col\{[^}]*grid-template-columns:minmax\(0,1fr\) minmax\(0,1fr\)/
+  );
   assert.match(css, /\.mxp-extra\{[^}]*height:80px;margin-top:24px/);
   assert.match(css, /--mxp-btn-h:48px/);
   assert.match(css, /\.mxp-btn\{[^}]*min-height:var\(--mxp-btn-h\)/);

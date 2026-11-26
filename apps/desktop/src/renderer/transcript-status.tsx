@@ -661,7 +661,7 @@ export function LiveActivity({
   const autoShown = useAutoEffortShown(
     cachedAutoEffortCapable(String(snapshot.provider || ''), String(snapshot.model || '')),
     String(snapshot.effort || ''),
-    snapshot.autoEffort
+    snapshot.effortAuto
   );
   const pauseRef = useRef({ turn: 0, total: 0, since: 0 });
   const clockPaused = String(activity?.mode || '') === 'resuming';

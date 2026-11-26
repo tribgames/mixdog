@@ -1,5 +1,6 @@
 import { readGlobalCapabilities } from './global-capability-reads';
 import { record } from './record-utils';
+import { afterStartupReads } from './startup-reads';
 import { peekQuotaFocus, readQuotaSubscription, type QuotaFocus } from './usage-surface-mode';
 
 type Row = Record<string, unknown>;
@@ -83,16 +84,19 @@ function readAhead(api: QuotaApi, question: Row): Promise<Row> {
 }
 
 /** Read ahead what opening subscription usage will show — `focus` for a
- *  meter's own — and the newest page of that window's history below it. */
-export function prefetchQuotaUsage(api: QuotaApi, focus: QuotaFocus | null = null): void {
-  void readAhead(api, openingQuotaQuestion(focus))
-    .then((answer) => {
-      const shown = record(answer.selection);
-      if (!shown.provider) return undefined;
-      return readAhead(
-        api,
-        quotaHistoryQuestion(String(shown.provider), String(shown.account || ''), String(shown.label || ''))
-      );
-    })
-    .catch(() => undefined);
+ *  meter's own — and the newest page of that window's history below it.
+ *  Returns a cancel for a read-ahead still held at start. */
+export function prefetchQuotaUsage(api: QuotaApi, focus: QuotaFocus | null = null): () => void {
+  return afterStartupReads(() => {
+    void readAhead(api, openingQuotaQuestion(focus))
+      .then((answer) => {
+        const shown = record(answer.selection);
+        if (!shown.provider) return undefined;
+        return readAhead(
+          api,
+          quotaHistoryQuestion(String(shown.provider), String(shown.account || ''), String(shown.label || ''))
+        );
+      })
+      .catch(() => undefined);
+  });
 }

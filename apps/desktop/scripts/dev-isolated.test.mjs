@@ -603,7 +603,7 @@ test('a failed --copy-auth aborts the start and cleans up its instance', async (
   assert.deepEqual(await readdir(join(root, 'leases')), []);
 });
 
-test('stale leases (dead owner or past TTL) are reclaimed; a live one is refused', async (t) => {
+test('stale leases (dead process) are reclaimed; live leases are never treated as stale or swept', async (t) => {
   const root = await tempRoot(t);
   const list = () => [];
   const writeLease = async (name, lease) => {
@@ -621,7 +621,7 @@ test('stale leases (dead owner or past TTL) are reclaimed; a live one is refused
     startedAt: new Date().toISOString(),
     ttlMs: 60_000,
   });
-  const old = await writeLease('old', {
+  const longRunning = await writeLease('long-running', {
     pid: process.pid,
     cdpPort: 9602,
     startedAt: new Date(Date.now() - 3 * 3600_000).toISOString(),
@@ -629,18 +629,20 @@ test('stale leases (dead owner or past TTL) are reclaimed; a live one is refused
   await writeLease('live', { pid: process.pid, cdpPort: 9603, startedAt: new Date().toISOString(), ttlMs: 60_000 });
 
   assert.equal(leaseIsStale({ pid: process.pid, startedAt: new Date().toISOString() }), false);
+  assert.equal(
+    leaseIsStale({ pid: process.pid, startedAt: new Date(Date.now() - 3 * 3600_000).toISOString() }),
+    false,
+    'a live process is never stale regardless of age'
+  );
   await acquireLease(root, 'dead', { list });
   assert.equal(existsSync(dead), false);
   await assert.rejects(acquireLease(root, 'live', { list }), /is running/);
 
   const swept = await sweep(root, { list });
-  assert.deepEqual(
-    swept.map((result) => result.name),
-    ['old']
-  );
-  assert.equal(existsSync(old), false);
-  assert.deepEqual((await readdir(join(root, 'leases'))).sort(), ['dead.json', 'live.json']);
-  assert.deepEqual(await readdir(join(root, 'ports')), ['9603.json']);
+  assert.deepEqual(swept, []);
+  assert.equal(existsSync(longRunning), true);
+  assert.deepEqual((await readdir(join(root, 'leases'))).sort(), ['dead.json', 'live.json', 'long-running.json']);
+  assert.deepEqual((await readdir(join(root, 'ports'))).sort(), ['9602.json', '9603.json']);
 });
 
 test('process matching: the instance tree and its daemon, never a reused or unrelated pid', () => {
@@ -689,7 +691,7 @@ test('process matching: a killed ancestor pid reused by another process does not
   assert.deepEqual(ids, [79]);
 });
 
-test('stop kills the whole tree, an orphaned daemon included, and deletes the instance', async (t) => {
+test('stop kills the whole tree, including an orphaned daemon staged inside the instance, and deletes the instance', async (t) => {
   const root = await tempRoot(t);
   const instanceDir = join(root, 'instances', 'tree-abcdef');
   const profile = join(instanceDir, 'profile');
@@ -699,6 +701,8 @@ test('stop kills the whole tree, an orphaned daemon included, and deletes the in
   await mkdir(target);
   await writeFile(join(target, 'keep.txt'), 'x');
   await symlink(target, join(instanceDir, 'src'), process.platform === 'win32' ? 'junction' : 'dir');
+  // Lease timestamp is recorded before instance processes spawn, just as startInstance does.
+  const startedAt = new Date().toISOString();
   // A parent naming the instance that spawns a grandchild which does not.
   const tree = spawn(
     process.execPath,
@@ -710,10 +714,9 @@ test('stop kills the whole tree, an orphaned daemon included, and deletes the in
     { stdio: ['ignore', 'pipe', 'ignore'] }
   );
   const treeReady = new Promise((resolve) => tree.stdout.once('data', resolve));
-  // A daemon whose parent is gone: found only through the profile's daemon.json.
-  const daemonDir = join(root, 'repo', 'target');
+  // An orphaned daemon running from the instance's staged `<instanceDir>/core/` copy.
+  const daemonDir = join(instanceDir, 'core');
   await mkdir(daemonDir, { recursive: true });
-  // A stand-in for the core binary: a script whose path ends in `mixdogd`, as the core's command line does.
   await writeFile(join(daemonDir, 'mixdogd'), 'setInterval(() => {}, 1000);');
   const daemon = spawn(process.execPath, [join(daemonDir, 'mixdogd')], {
     stdio: 'ignore',
@@ -721,13 +724,12 @@ test('stop kills the whole tree, an orphaned daemon included, and deletes the in
     windowsHide: true,
   });
   daemon.unref();
-  await writeFile(join(profile, 'runtime', 'daemon.json'), JSON.stringify({ pid: daemon.pid }));
   t.after(() => {
     for (const pid of [tree.pid, daemon.pid]) if (isPidAlive(pid)) process.kill(pid);
   });
   await treeReady; // the grandchild exists once the parent says so
 
-  const lease = { name: 'tree', instanceDir, profile, startedAt: new Date().toISOString(), cdpPort: 9700 };
+  const lease = { name: 'tree', instanceDir, profile, startedAt, cdpPort: 9700 };
   await mkdir(join(root, 'leases'), { recursive: true });
   await writeFile(join(root, 'leases', 'tree.json'), JSON.stringify(lease));
   const result = await stopInstance(root, lease);

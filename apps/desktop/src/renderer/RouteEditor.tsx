@@ -1,7 +1,7 @@
 import { type ReactNode, useId } from 'react';
 import { createPortal } from 'react-dom';
 import type { DesktopModelOption } from '../shared/contract';
-import { displayEffortLabel } from './auto-effort-store';
+import { displayEffortLabel, formatAutoEffortLabel } from './auto-effort-store';
 import { t } from './i18n';
 import { ModelCatalog } from './model-catalog';
 import { ROUTE_SPEED_NAMES, type RouteSpeed, routeSpeed } from './model-route-utils';
@@ -31,9 +31,10 @@ interface RouteEditorProps {
    *  bottom of the screen, `below` for a dialog or settings field. */
   placement?: 'above' | 'below';
   /** A side-panel field (bot profile, Lead editor): the sheet drops down at
-   *  the trigger's width and edges (above only without room below), every
-   *  pane opens inside that same box, and the trigger never morphs — no
-   *  flyout ever leaves the panel. Rows open on click, not hover. */
+   *  the trigger's width and edges (above only without room below), a pane
+   *  flies out beside it where the panel has the room and otherwise opens
+   *  inside that same box, and the trigger never morphs — no flyout ever
+   *  leaves the panel. */
   dropdown?: boolean;
   /** The pill edge the sheet lines up with: `start` where the pill grows
    *  rightwards (it leads its row), `end` where it sits at its row's right
@@ -49,6 +50,8 @@ interface RouteEditorProps {
   /** How the route signs in, shown beside the model on the trigger (route chain rows). */
   triggerProvider?: string;
   effort: string;
+  /** Effort Auto resolved for the current/last turn on this route. */
+  turnEffort?: string;
   effortOptions: Array<{ value: string; label: string }>;
   fast: boolean;
   fastVisible: boolean;
@@ -102,6 +105,7 @@ function routeSheetContent({
   provider,
   model,
   effort,
+  turnEffort,
   effortOptions,
   fast,
   fastVisible,
@@ -111,7 +115,7 @@ function routeSheetContent({
   autoEffort,
 }: Pick<
   RouteEditorProps,
-  'provider' | 'model' | 'effort' | 'effortOptions' | 'fast' | 'fastVisible' | 'contextVisible' | 'autoEffort'
+  'provider' | 'model' | 'effort' | 'turnEffort' | 'effortOptions' | 'fast' | 'fastVisible' | 'contextVisible' | 'autoEffort'
 > & {
   modelParameterOptions: NonNullable<RouteEditorProps['modelParameterOptions']>;
   modelParameters: Record<string, string>;
@@ -121,7 +125,7 @@ function routeSheetContent({
   const autoEffortOn = displayEffortLabel(effort, { autoOn: autoEffort?.enabled === true, capable: true }) !== null;
   // Effort names ("Auto", "High") are untranslated product terms, like "Fast",
   // on the model chip and the Reasoning effort row.
-  const effortLabel = autoEffortOn ? 'Auto' : (selectedEffort?.label ?? '');
+  const effortLabel = autoEffortOn ? formatAutoEffortLabel(turnEffort) : (selectedEffort?.label ?? '');
   const ultrafastAvailable = modelParameterOptions.some(
     (parameter) => parameter.id === 'serviceTier' && parameter.options.some((option) => option.value === 'ultrafast')
   );
@@ -170,6 +174,7 @@ export function RouteEditor({
   triggerModel,
   triggerProvider = '',
   effort,
+  turnEffort = '',
   effortOptions,
   fast,
   fastVisible,
@@ -227,6 +232,7 @@ export function RouteEditor({
     provider,
     model,
     effort,
+    turnEffort,
     effortOptions,
     fast,
     fastVisible,
@@ -272,7 +278,7 @@ export function RouteEditor({
       if (drill) return sheet.current;
       return pane === 'model' ? modelFlyout.current : optionFlyout.current;
     },
-    // A drilled pane or a dropdown takes the rows' place: those open on click.
+    // A drilled pane takes the rows' place: those open on click.
     hoverable: (next) => !paneDrills(next),
     focusPanel: focusPane,
     trigger: (key) => rowButtons.current[key],
@@ -298,6 +304,7 @@ export function RouteEditor({
     modelParameters,
     tuningDisabled,
     effort,
+    turnEffort,
     effortOptions,
     autoEffort,
     autoEffortOn,

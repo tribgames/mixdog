@@ -145,6 +145,13 @@ interface AgentsSectionProps {
   headerProps?: ReorderProps;
 }
 
+function indicatorAttention(indicator: { kind: string } | null | undefined, asking?: boolean): SessionAttention | '' {
+  if (indicator?.kind === 'attention') return asking ? 'asking' : 'needs-you';
+  if (indicator?.kind === 'running') return 'running';
+  if (indicator?.kind === 'unread') return 'unread';
+  return '';
+}
+
 /** The status a bot's row shows (running spinner, needs-you, failure, unread);
  *  a running home thread the caller's signal missed still spins. */
 function contactAttention(
@@ -153,10 +160,53 @@ function contactAttention(
 ): SessionAttention | '' {
   return strongestSessionAttention([
     contact.session ? (attentionOf?.(contact.session.id) ?? '') : '',
-    contact.indicator?.kind === 'attention' ? (contact.asking ? 'asking' : 'needs-you') : '',
-    contact.indicator?.kind === 'running' ? 'running' : '',
-    contact.indicator?.kind === 'unread' ? 'unread' : '',
+    indicatorAttention(contact.indicator, contact.asking),
   ]);
+}
+
+function SectionHeadingToggle({
+  label,
+  open,
+  onToggleOpen,
+  status,
+  className = '',
+  unreadLabel,
+}: {
+  label: string;
+  open: boolean;
+  onToggleOpen(): void;
+  status: SessionAttention | '';
+  className?: string;
+  unreadLabel?: string;
+}) {
+  return (
+    <button
+      type="button"
+      className={`sidebar-recent-heading sidebar-heading-toggle ${className}`.trim()}
+      aria-expanded={open}
+      onClick={toggleHeading(onToggleOpen)}
+    >
+      <span>{label}</span>
+      {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+      <SectionHeadingStatus
+        status={status}
+        name={label}
+        unreadLabel={unreadLabel ?? t('{{name}} has new activity', { name: label })}
+      />
+    </button>
+  );
+}
+
+function sectionDropHandlers(sessionDrop: SectionSessionDrop | undefined, reorder: ReturnType<typeof reorderTarget>) {
+  return {
+    onDragOver: (event: React.DragEvent<HTMLElement>) => {
+      if (!sessionDrop?.onDragOver(event)) reorder?.onDragOver?.(event);
+    },
+    onDragLeave: sessionDrop?.onDragLeave,
+    onDrop: (event: React.DragEvent<HTMLElement>) => {
+      if (!sessionDrop?.onDrop(event)) reorder?.onDrop?.(event);
+    },
+  };
 }
 
 /** One bot row: a session drag source (drop it on a pane to open it) and a
@@ -249,27 +299,12 @@ function AgentsSection({
     ? ''
     : strongestSessionAttention([
         ...contacts.map((contact) => contactAttention(contact, attentionOf)),
-        ...rooms.map(({ indicator }) =>
-          indicator?.kind === 'running' ? 'running' : indicator?.kind === 'unread' ? 'unread' : ''
-        ),
+        ...rooms.map(({ indicator }) => indicatorAttention(indicator)),
       ]);
   return (
     <section className="sidebar-recent sidebar-agents" aria-label={t('Bots')} {...reorder}>
       <div className="sidebar-category-header" {...reorderHandle(headerProps)}>
-        <button
-          type="button"
-          className="sidebar-recent-heading sidebar-heading-toggle"
-          aria-expanded={open}
-          onClick={toggleHeading(onToggleOpen)}
-        >
-          <span>{t('Bots')}</span>
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          <SectionHeadingStatus
-            status={headingStatus}
-            name={t('Bots')}
-            unreadLabel={t('{{name}} has new activity', { name: t('Bots') })}
-          />
-        </button>
+        <SectionHeadingToggle label={t('Bots')} open={open} onToggleOpen={onToggleOpen} status={headingStatus} />
       </div>
       {open && (
         <nav className="session-list agent-session-list" aria-label={t('Bots')} {...botList.listProps}>
@@ -379,32 +414,59 @@ export function favoritesSection({
       data-session-drop={sessionDrop?.active ? 'true' : undefined}
       data-session-drop-zone={sessionDrop?.key}
       {...reorder}
-      onDragOver={(event) => {
-        if (!sessionDrop?.onDragOver(event)) reorder?.onDragOver?.(event);
-      }}
-      onDragLeave={sessionDrop?.onDragLeave}
-      onDrop={(event) => {
-        if (!sessionDrop?.onDrop(event)) reorder?.onDrop?.(event);
-      }}
+      {...sectionDropHandlers(sessionDrop, reorder)}
     >
       <div className="sidebar-category-header" {...reorderHandle(headerProps)}>
-        <button
-          type="button"
-          className="sidebar-recent-heading sidebar-heading-toggle"
-          aria-expanded={open}
-          onClick={toggleHeading(onToggleOpen)}
-        >
-          <span>{t('Favorites')}</span>
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          <SectionHeadingStatus
-            status={headingStatus}
-            name={t('Favorites')}
-            unreadLabel={t('{{name}} has new activity', { name: t('Favorites') })}
-          />
-        </button>
+        <SectionHeadingToggle label={t('Favorites')} open={open} onToggleOpen={onToggleOpen} status={headingStatus} />
       </div>
       {open && (
         <nav className="session-list favorite-session-list" aria-label={t('Favorites')}>
+          {renderRows(rows)}
+        </nav>
+      )}
+    </section>
+  );
+}
+
+/** 확인 필요 and 작업 중 (session-sidebar-status-groups.ts): sessions by their
+ *  status, newest first, whatever their project. Unordered and no drop
+ *  target: a session leaves the group when its status does. */
+export function statusSection({
+  group,
+  label,
+  rows,
+  open,
+  onToggleOpen,
+  headerProps,
+  renderRows,
+  attentionOf,
+}: {
+  group: string;
+  label: string;
+  rows: DesktopSessionSummary[];
+  open: boolean;
+  onToggleOpen(): void;
+  headerProps?: ReorderProps;
+  renderRows: RenderForkRows;
+  attentionOf(sessionId: string): SessionAttention | '';
+}) {
+  const headingStatus = groupSessionAttention(
+    !open,
+    rows.map((session) => session.id),
+    attentionOf
+  );
+  return (
+    <section
+      className="sidebar-recent sidebar-status-group"
+      data-status-group={group}
+      aria-label={label}
+      {...reorderTarget(headerProps)}
+    >
+      <div className="sidebar-category-header" {...reorderHandle(headerProps)}>
+        <SectionHeadingToggle label={label} open={open} onToggleOpen={onToggleOpen} status={headingStatus} />
+      </div>
+      {open && (
+        <nav className="session-list status-session-list" aria-label={label}>
           {renderRows(rows)}
         </nav>
       )}
@@ -458,25 +520,16 @@ export function recentSection({
       data-session-drop={sessionDrop?.active ? 'true' : undefined}
       data-session-drop-zone={sessionDrop?.available ? sessionDrop.key : undefined}
       {...reorder}
-      onDragOver={(event) => {
-        if (!sessionDrop?.onDragOver(event)) reorder?.onDragOver?.(event);
-      }}
-      onDragLeave={sessionDrop?.onDragLeave}
-      onDrop={(event) => {
-        if (!sessionDrop?.onDrop(event)) reorder?.onDrop?.(event);
-      }}
+      {...sectionDropHandlers(sessionDrop, reorder)}
     >
       <div className="sidebar-category-header" {...reorderHandle(headerProps)} {...rowOverflowHostProps()}>
-        <button
-          type="button"
-          className="sidebar-recent-heading sidebar-heading-toggle"
-          aria-expanded={open}
-          onClick={toggleHeading(onToggleOpen)}
-        >
-          <span>{t('Recent')}</span>
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          <SectionHeadingStatus status={headingStatus} name={t('Recent')} unreadLabel={t('Recent has new activity')} />
-        </button>
+        <SectionHeadingToggle
+          label={t('Recent')}
+          open={open}
+          onToggleOpen={onToggleOpen}
+          status={headingStatus}
+          unreadLabel={t('Recent has new activity')}
+        />
         <RowOverflowMenu
           label={t('Actions')}
           items={[
@@ -491,16 +544,14 @@ export function recentSection({
       </div>
       {open && (
         <nav id="recent-session-list" className="session-list recent-session-list" aria-label={t('Recent sessions')}>
-          {!sessionsReady && rowCount === 0 ? (
-            <InitialSurface />
-          ) : (
-            sessionsReady &&
-            rowCount === 0 && (
+          {rowCount === 0 &&
+            (!sessionsReady ? (
+              <InitialSurface />
+            ) : (
               <p className="sidebar-section-empty mx-empty-state" ref={emptyStateHost}>
                 {t('No sessions.')}
               </p>
-            )
-          )}
+            ))}
           {renderRows(allRows, visibleRows.length, hasMoreRows ? sentinelRef : undefined)}
         </nav>
       )}
@@ -526,7 +577,14 @@ function reorderTarget(props?: ReorderProps) {
   return target;
 }
 
-export type ProjectSessionGroup = { key: string; path: string; name: string; rows: DesktopSessionSummary[] };
+export type ProjectSessionGroup = {
+  key: string;
+  path: string;
+  name: string;
+  rows: DesktopSessionSummary[];
+  /** The project's sessions another group shows (즐겨찾기, a status group). */
+  shownElsewhere?: number;
+};
 
 /** Registered projects as sidebar folders. A session belongs to the project
  *  the user moved it to, else the deepest project containing its projectPath,
@@ -715,7 +773,7 @@ function projectFolderGroup(
           aria-haspopup={onFolderMenu ? 'menu' : undefined}
           data-tooltip={group.path}
           hidden={rename?.key === group.key}
-          onClick={() => onToggleProject(group.key)}
+          onClick={toggleHeading(() => onToggleProject(group.key))}
           onKeyDown={(event) => {
             if (!onFolderMenu || !isContextMenuKey(event)) return;
             event.preventDefault();
@@ -749,7 +807,7 @@ function projectFolderGroup(
           className={`session-list project-session-list${branches.length > 0 ? ' project-session-list-split' : ''}`}
           aria-label={group.name}
         >
-          {group.rows.length === 0 && (
+          {group.rows.length === 0 && !group.shownElsewhere && (
             <p className="sidebar-section-empty mx-empty-state" ref={emptyStateHost}>
               {t('No sessions.')}
             </p>
@@ -790,9 +848,8 @@ function projectFolderGroup(
   );
 }
 
-/** One top-level category per registered project, after Bots, Favorites and
- *  Recent's slot in the section order. The heading is the drag handle for
- *  reordering and its hover + starts a task in that project. */
+/** One top-level category per registered project. The heading is the drag
+ *  handle for reordering and its hover + starts a task in that project. */
 export function projectsSection(props: ProjectsSectionProps) {
   return <>{props.groups.map((group) => projectFolderGroup(group, props))}</>;
 }
@@ -839,48 +896,39 @@ export function archivedSection({
       {...reorderTarget(headerProps)}
     >
       <div className="sidebar-category-header" {...reorderHandle(headerProps)} {...rowOverflowHostProps()}>
-        <button
-          type="button"
-          className="sidebar-recent-heading sidebar-heading-toggle sidebar-archived-toggle"
-          aria-expanded={open}
-          onClick={toggleHeading(onToggleOpen)}
-        >
-          <span>{t('Archived')}</span>
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          <SectionHeadingStatus
-            status={headingStatus}
-            name={t('Archived')}
-            unreadLabel={t('{{name}} has new activity', { name: t('Archived') })}
-          />
-        </button>
-        {
-          <RowOverflowMenu
-            label={t('Actions')}
-            items={[
-              {
-                id: 'restore-all',
-                label: t('Restore all'),
-                disabled: actionsDisabled,
-                onSelect: onRestoreAll,
-              },
-              {
-                id: 'delete-all-archived',
-                label: t('Delete all archived sessions'),
-                danger: true,
-                separatorBefore: true,
-                disabled: actionsDisabled,
-                children: [
-                  {
-                    id: 'confirm-delete-all-archived',
-                    label: t('Confirm delete'),
-                    danger: true,
-                    onSelect: onDeleteAll,
-                  },
-                ],
-              },
-            ]}
-          />
-        }
+        <SectionHeadingToggle
+          label={t('Archived')}
+          className="sidebar-archived-toggle"
+          open={open}
+          onToggleOpen={onToggleOpen}
+          status={headingStatus}
+        />
+        <RowOverflowMenu
+          label={t('Actions')}
+          items={[
+            {
+              id: 'restore-all',
+              label: t('Restore all'),
+              disabled: actionsDisabled,
+              onSelect: onRestoreAll,
+            },
+            {
+              id: 'delete-all-archived',
+              label: t('Delete all archived sessions'),
+              danger: true,
+              separatorBefore: true,
+              disabled: actionsDisabled,
+              children: [
+                {
+                  id: 'confirm-delete-all-archived',
+                  label: t('Confirm delete'),
+                  danger: true,
+                  onSelect: onDeleteAll,
+                },
+              ],
+            },
+          ]}
+        />
       </div>
       {open && (
         <nav className="session-list archived-session-list" aria-label={t('Archived sessions')}>

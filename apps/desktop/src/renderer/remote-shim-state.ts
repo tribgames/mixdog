@@ -128,6 +128,9 @@ export interface RemoteShimState {
   /** The current host advertised `routeAutoEffort` in its challenge: it takes
    *  `autoEffort` in model selections and `+noauto` automation refs. */
   peerRouteAutoEffort: boolean;
+  /** The current host takes `effortAuto` in model selections; one that offers
+   *  only `routeAutoEffort` takes the older `autoEffort` key instead. */
+  peerRouteEffortAuto: boolean;
   /** The current host advertised `visualize`: it serves the agent visualize
    *  panel's state, tab commands and pane reads. Absent means an older host. */
   peerVisualize: boolean;
@@ -409,6 +412,7 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     peerUsageRequests: false,
     peerProjectRecovery: false,
     peerRouteAutoEffort: false,
+    peerRouteEffortAuto: false,
     peerVisualize: false,
     peerFileDownloads: false,
     peerSecretInput: false,

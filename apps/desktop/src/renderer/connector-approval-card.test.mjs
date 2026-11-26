@@ -112,10 +112,43 @@ test('a tool or hook-ask card offers once, this conversation, always for every a
   );
 });
 
-test('every remembered choice names the tool, never the action category, whatever the card is', () => {
+test('each remembered choice names what is stored: the action category for category grants and the tool for tool grants', () => {
   const rows = (approval) => approvalCardRows(approvalCardModel(approval), { agentName: 'Mailer', officeLabel: '' });
-  // A classified send: the card shows its action, the choices cover the tool.
-  const send = rows({
+  // A bot's outbound category grant covers any tool of that action category.
+  const categorySend = rows({
+    kind: 'outbound',
+    name: 'mcp__gmail-2__send_email',
+    grantAction: 'email',
+    outbound: { category: 'email' },
+    remember: ['once', 'session', 'agent'],
+  });
+  assert.deepEqual(
+    categorySend.map((row) => [row.label, row.decision.remember ?? '']),
+    [
+      ['Allow just once', ''],
+      ['Allow for this conversation', 'session'],
+      ['Allow for this agent', 'agent'],
+      ['Deny', ''],
+    ]
+  );
+  assert.equal(
+    categorySend[1].desc,
+    "Send an email from any tool won't ask again in this conversation until you close, delete, or reset it, change its agent, or restart the app."
+  );
+  assert.equal(categorySend[2].desc, "Send an email from any tool won't ask again for Mailer, in any conversation");
+  for (const row of categorySend) {
+    assert.ok(!/send_email|gmail/.test(row.desc ?? ''), `${row.label}: ${row.desc}`);
+  }
+  // An outbound card without grantAction still describes its outbound action category.
+  const implicitCategory = rows({
+    kind: 'outbound',
+    name: 'github',
+    outbound: { category: 'comment' },
+    remember: ['once', 'agent'],
+  });
+  assert.equal(implicitCategory[1].desc, "Post a comment from any tool won't ask again for Mailer, in any conversation");
+  // A per-tool grant (e.g. a hook ask on an outbound call) names that tool, never the category.
+  const toolSend = rows({
     kind: 'outbound',
     name: 'mcp__gmail-2__send_email',
     grantAction: 'tool:mcp__gmail__send_email',
@@ -123,7 +156,7 @@ test('every remembered choice names the tool, never the action category, whateve
     remember: ['once', 'session', 'agent', 'always'],
   });
   assert.deepEqual(
-    send.map((row) => [row.label, row.decision.remember ?? '']),
+    toolSend.map((row) => [row.label, row.decision.remember ?? '']),
     [
       ['Allow just once', ''],
       ['Allow for this conversation', 'session'],
@@ -133,11 +166,11 @@ test('every remembered choice names the tool, never the action category, whateve
     ]
   );
   assert.equal(
-    send[1].desc,
+    toolSend[1].desc,
     "send_email (gmail) won't ask again in this conversation until you close, delete, or reset it, change its agent, or restart the app."
   );
-  assert.equal(send[2].desc, "send_email (gmail) won't ask again for Mailer, in any conversation");
-  assert.equal(send[3].desc, "send_email (gmail) won't ask again for any agent, in any conversation");
+  assert.equal(toolSend[2].desc, "send_email (gmail) won't ask again for Mailer, in any conversation");
+  assert.equal(toolSend[3].desc, "send_email (gmail) won't ask again for any agent, in any conversation");
   // A hook's ask on a plain tool names that tool.
   const tool = rows({
     kind: 'approval',
@@ -146,7 +179,7 @@ test('every remembered choice names the tool, never the action category, whateve
     remember: ['once', 'session', 'always'],
   });
   assert.equal(tool[2].desc, "github won't ask again for any agent, in any conversation");
-  for (const row of [...send, ...tool]) {
+  for (const row of [...toolSend, ...tool]) {
     assert.ok(!/any tool|Send an email|Post a comment/.test(row.desc ?? ''), `${row.label}: ${row.desc}`);
   }
 });

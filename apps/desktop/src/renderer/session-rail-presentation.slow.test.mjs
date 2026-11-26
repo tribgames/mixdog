@@ -189,7 +189,7 @@ const HARNESS = `
       resize: box('.session-rail-resize'),
       dock: box('.pane-side-dock'),
       dockEdge: box('.pane-side-dock .workbench-side-panel-resize'),
-      railVars: ['--session-rail-reserve', '--session-rail-over', '--session-rail-band']
+      railVars: ['--session-rail-reserve', '--session-rail-band']
         .map((name) => document.querySelector('.pane-cell').style.getPropertyValue(name))
         .join(''),
       // Whether the composer under the panel can take focus (Tab or a click) and so typing.

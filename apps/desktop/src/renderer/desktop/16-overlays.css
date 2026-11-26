@@ -93,6 +93,10 @@
   pointer-events: auto;
   animation: mx-toast-in var(--mx-motion-chrome);
 }
+/* The phone lane spans the screen (measureToastLane), and its toasts fill it. */
+html[data-mixdog-mobile-tabs] .mx-toast-region > .mx-toast {
+  width: auto;
+}
 /* A remote device is waiting for approval while Settings → Connection is
    closed: one quiet toast-styled notice in the toast lane (top-right, under
    the tab strip) that opens the page where the approval dialog lives. */

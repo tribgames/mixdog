@@ -10,7 +10,6 @@ import {
   htmlLineBreaksToBreaks,
   linkifyLocalPaths,
   repairAdjacentStrongPunctuation,
-  sourceOffsets,
   stripHtmlComments,
   trimAutolinkCjkSuffix,
   trimTrailingCodeNewline,
@@ -23,13 +22,9 @@ interface MarkdownAstNode {
   tagName?: string;
   value?: string;
   /** Where the node starts in the parsed text (absent for nodes a plugin
-   *  made): a streamed reply's fade finds what each character showed in by it
-   *  (markdown-stream-fade). */
+   *  made): a reply keys its blocks by it (markdown-document), a top-level
+   *  raw-HTML block being a text node. */
   offset?: number;
-  /** A text node whose characters do not sit at consecutive offsets from
-   *  `offset`: where the run breaks, as flat [value index, offset] pairs
-   *  (sourceJumps). */
-  jumps?: number[];
   properties?: Record<string, unknown>;
   children?: MarkdownAstNode[];
 }
@@ -51,27 +46,6 @@ interface SyntaxNode {
 function offsetOf(node: SyntaxNode): { offset?: number } {
   const offset = node.position?.start?.offset;
   return typeof offset === 'number' ? { offset } : {};
-}
-
-/** `offset` is the text's start in `source`; `jumps` are flat [value index, offset] pairs where the run of consecutive offsets breaks. */
-function textOffsets(
-  node: SyntaxNode,
-  value: string,
-  source: string,
-  code: boolean
-): { offset?: number; jumps?: number[] } {
-  const start = node.position?.start?.offset;
-  const end = node.position?.end?.offset;
-  if (typeof start !== 'number' || typeof end !== 'number') return {};
-  const offsets = sourceOffsets(source, start, end, value, code);
-  if (offsets === null) return {};
-  const jumps: number[] = [];
-  let next = start;
-  offsets.forEach((offset, index) => {
-    if (offset !== next) jumps.push(index, offset);
-    next = offset + 1;
-  });
-  return jumps.length > 0 ? { offset: start, jumps } : { offset: start };
 }
 
 // react-markdown displays raw HTML as literal text unless a rehype HTML
@@ -131,36 +105,27 @@ function normalizedProperties(value: unknown): Record<string, unknown> | undefin
   return properties;
 }
 
-/** `node` of the tree parsed from `source`; `code`: inside a code element,
- *  where nothing decodes. */
-function normalizeAstNode(node: SyntaxNode, source: string, code = false): MarkdownAstNode {
-  if (node.type === 'text') {
-    const value = String(node.value ?? '');
-    return { type: 'text', value, ...textOffsets(node, value, source, code) };
-  }
+function normalizeAstNode(node: SyntaxNode): MarkdownAstNode {
+  if (node.type === 'text') return { type: 'text', value: String(node.value ?? ''), ...offsetOf(node) };
   if (node.type === 'element') {
     const properties = normalizedProperties(node.properties);
-    const tagName = String(node.tagName || 'span');
-    const inner = code || tagName === 'code';
     return {
       type: 'element',
-      tagName,
+      tagName: String(node.tagName || 'span'),
       ...offsetOf(node),
       ...(properties ? { properties } : {}),
-      children: Array.isArray(node.children)
-        ? node.children.map((child) => normalizeAstNode(child, source, inner))
-        : [],
+      children: Array.isArray(node.children) ? node.children.map(normalizeAstNode) : [],
     };
   }
   return {
     type: 'root',
-    children: Array.isArray(node.children) ? node.children.map((child) => normalizeAstNode(child, source)) : [],
+    children: Array.isArray(node.children) ? node.children.map(normalizeAstNode) : [],
   };
 }
 
 type MarkdownProcessor = {
   parse(source: string): SyntaxNode;
-  runSync(tree: SyntaxNode, source: string): SyntaxNode;
+  runSync(tree: SyntaxNode): SyntaxNode;
 };
 
 function buildProcessor(mathPlugins?: typeof import('./markdown-math-plugins')): MarkdownProcessor {
@@ -224,10 +189,8 @@ export function loadMarkdownMathSupport(): Promise<void> {
 }
 
 function runProcessor(processor: MarkdownProcessor, source: string): MarkdownAstRoot {
-  const parsed = processor.parse(source);
-  // The plugins place the text they make by the source (markdown-plugins).
-  const transformed = processor.runSync(parsed, source);
-  return normalizeAstNode(transformed, source) as MarkdownAstRoot;
+  const transformed = processor.runSync(processor.parse(source));
+  return normalizeAstNode(transformed) as MarkdownAstRoot;
 }
 
 export function parseMarkdownToHast(text: string): MarkdownAstRoot {

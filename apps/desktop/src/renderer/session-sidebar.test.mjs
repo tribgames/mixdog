@@ -38,7 +38,6 @@ test('auxiliary sidebars omit duplicate lists while a visited Sessions surface k
     sessionsReady: true,
     selection: { kind: 'new' },
     onNewTask() {},
-    onNewStudio() {},
     onResumeSession() {},
     async onRenameSession() {},
     async onArchiveSession() {},
@@ -392,10 +391,8 @@ test('the Recent actions menu archives recent sessions and confirms archived del
       archiveAllRecent.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    assert.deepEqual(archivedCalls, [
-      ['recent-one', true],
-      ['recent-two', true],
-    ]);
+    // recent-one's unseen turn lists it under 확인 필요, out of Recent's reach.
+    assert.deepEqual(archivedCalls, [['recent-two', true]]);
 
     await act(async () => archivedTrigger.click());
     const restoreAll = document.querySelector('[data-action-id="restore-all"]');
@@ -428,10 +425,13 @@ test('a collapsed Recent section keeps its actions, and the Archived header open
   try {
     const recentSection = document.querySelector('section[aria-label="Recent sessions"]');
     const archivedSection = document.querySelector('.sidebar-archived');
-    const recentToggle = recentSection.querySelector('.sidebar-heading-toggle');
-    await act(async () => recentToggle.click());
-    assert.ok(recentSection.querySelector('.sidebar-heading-dot'));
-    // A collapsed section's status never takes its actions away.
+    const needsSection = document.querySelector('section[aria-label="Needs you"]');
+    await act(async () => {
+      recentSection.querySelector('.sidebar-heading-toggle').click();
+      needsSection.querySelector('.sidebar-heading-toggle').click();
+    });
+    // A collapsed group speaks for its rows; a collapsed section keeps its actions.
+    assert.ok(needsSection.querySelector('.sidebar-heading-dot'));
     assert.ok(recentSection.querySelector('.row-overflow-trigger'));
     assert.ok(archivedSection.querySelector('.row-overflow-trigger'));
 
@@ -507,7 +507,285 @@ test('with no saved order, Recent (open) comes before Projects', async () => {
   }
 });
 
-test('registered projects list as folders above an unchanged Recent', async () => {
+test('each session lists once: favourites, status groups by recency, then quiet sessions by project', async () => {
+  const { restore } = installDom();
+  const { SessionSidebar } = await import('./session-sidebar.tsx');
+  const root = createRoot(document.getElementById('root'));
+  window.localStorage.removeItem('mixdog:session-sidebar-section-order');
+  const session = (id, activityAt, fields = {}) => ({
+    id,
+    title: id,
+    preview: '',
+    updatedAt: activityAt,
+    activityAt,
+    messageCount: 1,
+    cwd: '',
+    classification: 'task',
+    projectPath: null,
+    working: false,
+    ...fields,
+  });
+  const props = {
+    open: true,
+    sessions: [
+      session('star-in-project', 9, { favorite: true, projectPath: 'C:/Work/Alpha' }),
+      session('unread-loose', 8),
+      session('running-in-project', 7, { projectPath: 'C:/Work/Alpha' }),
+      session('unread-in-project', 6, { projectPath: 'C:/Work/Alpha' }),
+      session('quiet-loose', 5),
+      session('quiet-in-project', 4, { projectPath: 'C:/Work/Alpha' }),
+    ],
+    sessionsReady: true,
+    projects: [{ name: 'Alpha', path: 'C:/Work/Alpha', alias: null }],
+    unreadSessionIds: new Set(['unread-loose', 'unread-in-project', 'star-in-project']),
+    workingSessionIds: new Set(['running-in-project']),
+    selection: { kind: 'new' },
+    onNewTask() {},
+    onResumeSession() {},
+    async onRenameSession() {},
+    async onArchiveSession() {},
+    async onFavoriteSession() {},
+    async onDeleteSession() {},
+  };
+  const sections = () =>
+    [...document.querySelectorAll('.session-sidebar-scroll > section')].map((section) => [
+      section.getAttribute('aria-label'),
+      [...section.querySelectorAll('.session-row[data-session-id]')].map((row) => row.dataset.sessionId),
+    ]);
+  try {
+    await act(async () => root.render(React.createElement(SessionSidebar, props)));
+    assert.deepEqual(sections(), [
+      ['Favorites', ['star-in-project']],
+      ['Needs you', ['unread-loose', 'unread-in-project']],
+      ['Working', ['running-in-project']],
+      ['Recent sessions', ['quiet-loose']],
+      ['Alpha', ['quiet-in-project']],
+    ]);
+    // The turn ends and is seen: the session comes back to its folder, and an empty group goes.
+    await act(async () =>
+      root.render(
+        React.createElement(SessionSidebar, {
+          ...props,
+          unreadSessionIds: new Set(),
+          workingSessionIds: new Set(['unread-loose']),
+        })
+      )
+    );
+    assert.deepEqual(sections(), [
+      ['Favorites', ['star-in-project']],
+      ['Working', ['unread-loose']],
+      ['Recent sessions', ['quiet-loose']],
+      ['Alpha', ['running-in-project', 'unread-in-project', 'quiet-in-project']],
+    ]);
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+async function renderPlacementSidebar(sessions, extra = {}, storage = {}) {
+  const { restore } = installDom();
+  for (const [key, value] of Object.entries(storage)) window.localStorage.setItem(key, JSON.stringify(value));
+  const { SessionSidebar } = await import('./session-sidebar.tsx');
+  const root = createRoot(document.getElementById('root'));
+  const props = {
+    open: true,
+    sessions,
+    sessionsReady: true,
+    projects: [{ name: 'Alpha', path: 'C:/Work/Alpha', alias: null }],
+    selection: { kind: 'new' },
+    onNewTask() {},
+    onResumeSession() {},
+    async onRenameSession() {},
+    async onArchiveSession() {},
+    async onFavoriteSession() {},
+    async onDeleteSession() {},
+    ...extra,
+  };
+  const render = (next = {}) =>
+    act(async () => root.render(React.createElement(SessionSidebar, Object.assign(props, next))));
+  await render();
+  const sections = () =>
+    [...document.querySelectorAll('.session-sidebar-scroll > section')].map((section) => [
+      section.getAttribute('aria-label'),
+      [...section.querySelectorAll('.session-row[data-session-id]')].map((row) => row.dataset.sessionId),
+    ]);
+  return {
+    render,
+    sections,
+    async cleanup() {
+      await act(async () => root.unmount());
+      restore();
+    },
+  };
+}
+
+const placementRow = (id, activityAt, fields = {}) => ({
+  id,
+  title: id,
+  preview: '',
+  updatedAt: activityAt,
+  activityAt,
+  messageCount: 1,
+  cwd: '',
+  classification: 'task',
+  projectPath: null,
+  working: false,
+  ...fields,
+});
+
+test('a rename in progress keeps its editor and draft while its session changes status or group', async () => {
+  const renamed = [];
+  const sessions = [placementRow('loose', 5), placementRow('other', 4)];
+  const list = await renderPlacementSidebar(sessions, {
+    async onRenameSession(id, title) {
+      renamed.push([id, title]);
+    },
+  });
+  try {
+    const main = () => document.querySelector('.session-row[data-session-id="loose"] .session-row-main');
+    await act(async () => {
+      main().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'F2', bubbles: true, cancelable: true }));
+    });
+    const input = () => document.querySelector('.session-row[data-session-id="loose"] .session-title-input');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input(), 'half typed');
+      input().dispatchEvent(new window.Event('input', { bubbles: true }));
+    });
+    // A turn starts: the row being renamed stays put instead of moving to 작업 중.
+    await list.render({ workingSessionIds: new Set(['loose']) });
+    assert.deepEqual(list.sections()[0], ['Recent sessions', ['loose', 'other']]);
+    // The catalog moves it into the project: the row in its folder still holds the editor and draft.
+    await list.render({ sessions: [{ ...sessions[0], projectPath: 'C:/Work/Alpha' }, sessions[1]] });
+    assert.ok(input()?.closest('.project-group'), 'the editor moved with its row');
+    assert.equal(input().value, 'half typed');
+    await act(async () => {
+      input().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    assert.deepEqual(renamed, [['loose', 'half typed']]);
+    // Once the rename ends, the running session takes its place in 작업 중.
+    assert.deepEqual(list.sections()[0], ['Working', ['loose']]);
+  } finally {
+    await list.cleanup();
+  }
+});
+
+test('the open session shows when it comes to rest in a folded folder, past its first rows', async () => {
+  const sessions = Array.from({ length: 7 }, (_, index) =>
+    placementRow(`p-${index}`, 10 - index, { projectPath: 'C:/Work/Alpha' })
+  );
+  const list = await renderPlacementSidebar(
+    sessions,
+    { selection: { kind: 'session', id: 'p-6' }, unreadSessionIds: new Set(['p-6']) },
+    { 'mixdog:session-sidebar-project-open': { 'c:/work/alpha': false } }
+  );
+  try {
+    assert.deepEqual(list.sections(), [
+      ['Needs you', ['p-6']],
+      ['Recent sessions', []],
+      ['Alpha', []],
+    ]);
+    // Opening it clears its unread turn: it rests in its folder, which opens far enough to show it.
+    await list.render({ unreadSessionIds: new Set() });
+    assert.deepEqual(list.sections().at(-1), ['Alpha', ['p-0', 'p-1', 'p-2', 'p-3', 'p-4', 'p-5', 'p-6']]);
+    // Folding the folder again while it stays there sticks.
+    await act(async () => document.querySelector('.project-folder-toggle').click());
+    await list.render({ sessions: [...sessions] });
+    assert.deepEqual(list.sections().at(-1), ['Alpha', []]);
+  } finally {
+    await list.cleanup();
+  }
+});
+
+test('a folded 작업 중 stays folded when the open session starts a turn, and speaks for it', async () => {
+  const sessions = [placementRow('open', 5), placementRow('other', 4)];
+  const list = await renderPlacementSidebar(
+    sessions,
+    { selection: { kind: 'session', id: 'open' } },
+    { 'mixdog:session-sidebar-section-open': { working: false } }
+  );
+  try {
+    await list.render({ workingSessionIds: new Set(['open']) });
+    const working = document.querySelector('section[aria-label="Working"]');
+    assert.equal(working.querySelector('.sidebar-heading-toggle').getAttribute('aria-expanded'), 'false');
+    assert.ok(
+      working.querySelector('.sidebar-heading-status .session-row-spinner'),
+      'the folded heading shows the turn'
+    );
+    assert.deepEqual(list.sections(), [
+      ['Working', []],
+      ['Recent sessions', ['other']],
+      ['Alpha', []],
+    ]);
+    // The turn ends: the session is back in Recent, where it shows.
+    await list.render({ workingSessionIds: new Set() });
+    assert.deepEqual(list.sections(), [
+      ['Recent sessions', ['open', 'other']],
+      ['Alpha', []],
+    ]);
+  } finally {
+    await list.cleanup();
+  }
+});
+
+test('with 즐겨찾기 hidden a custom Recent order keeps the starred sessions it now lists', async () => {
+  const list = await renderPlacementSidebar(
+    [placementRow('a', 5), placementRow('star', 4, { favorite: true }), placementRow('b', 3)],
+    {},
+    {
+      'mixdog:session-sidebar-hidden-sections': ['favorites'],
+      'mixdog:session-sidebar-session-order-mode': { sessions: 'custom', favorites: 'custom' },
+      'mixdog:session-sidebar-session-custom-order': { recent: ['b', 'a'] },
+    }
+  );
+  try {
+    assert.deepEqual(list.sections()[0], ['Recent sessions', ['star', 'b', 'a']]);
+    const stored = JSON.parse(window.localStorage.getItem('mixdog:session-sidebar-session-custom-order'));
+    assert.deepEqual(stored.recent, ['star', 'b', 'a'], 'the starred session holds its place from now on');
+  } finally {
+    await list.cleanup();
+  }
+});
+
+test('a pointer click on a project folder releases its focus; keyboard activation keeps it', async () => {
+  const list = await renderPlacementSidebar([placementRow('inside', 5, { projectPath: 'C:/Work/Alpha' })]);
+  try {
+    const toggle = () => document.querySelector('.project-folder-toggle');
+    await act(async () => toggle().focus());
+    await act(async () => toggle().click());
+    assert.equal(document.activeElement, toggle(), 'keyboard activation keeps focus');
+    assert.equal(toggle().getAttribute('aria-expanded'), 'false');
+    await act(async () => toggle().focus());
+    await act(async () =>
+      toggle().dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }))
+    );
+    assert.notEqual(document.activeElement, toggle(), 'pointer click released focus');
+    assert.equal(toggle().getAttribute('aria-expanded'), 'true');
+  } finally {
+    await list.cleanup();
+  }
+});
+
+test('with 즐겨찾기 hidden a favourite lists where it rests, in its folder or in Recent', async () => {
+  const list = await renderPlacementSidebar(
+    [
+      placementRow('star-project', 3, { favorite: true, projectPath: 'C:/Work/Alpha' }),
+      placementRow('star-loose', 2, { favorite: true }),
+    ],
+    {},
+    { 'mixdog:session-sidebar-hidden-sections': ['favorites'] }
+  );
+  try {
+    assert.deepEqual(list.sections(), [
+      ['Recent sessions', ['star-loose']],
+      ['Alpha', ['star-project']],
+    ]);
+  } finally {
+    await list.cleanup();
+  }
+});
+
+test('registered projects list as folders; Recent keeps the sessions outside them', async () => {
   const { restore } = installDom();
   const { SessionSidebar } = await import('./session-sidebar.tsx');
   const root = createRoot(document.getElementById('root'));
@@ -550,7 +828,6 @@ test('registered projects list as folders above an unchanged Recent', async () =
           },
           selection: { kind: 'new' },
           onNewTask() {},
-          onNewStudio() {},
           onResumeSession() {},
           async onRenameSession() {},
           async onArchiveSession() {},
@@ -561,7 +838,7 @@ test('registered projects list as folders above an unchanged Recent', async () =
     const ids = (node) =>
       [...node.querySelectorAll('.session-row[data-session-id]')].map((row) => row.dataset.sessionId);
     const recent = document.querySelector('section[aria-label="Recent sessions"]');
-    assert.deepEqual(ids(recent), ['alpha-cwd', 'loose', 'beta-project', 'alpha-old']);
+    assert.deepEqual(ids(recent), ['loose']);
     assert.deepEqual(
       [...document.querySelectorAll('.session-sidebar-scroll > section')].map((section) =>
         section.getAttribute('aria-label')
@@ -640,7 +917,6 @@ test('right-click menus offer per-target actions for sessions and project folder
           projects: [{ name: 'Alpha', path: 'C:/Work/Alpha', alias: null }],
           selection: { kind: 'new' },
           onNewTask() {},
-          onNewStudio() {},
           onNewProjectTask: (path) => calls.push(['new-task', path]),
           onResumeSession: (id) => calls.push(['open', id]),
           onOpenSessionInSplit: (id) => calls.push(['split', id]),
@@ -657,8 +933,7 @@ test('right-click menus offer per-target actions for sessions and project folder
         })
       )
     );
-    const recent = document.querySelector('section[aria-label="Recent sessions"]');
-    const liveRow = recent.querySelector('.session-row[data-session-id="live"]');
+    const liveRow = document.querySelector('.project-group .session-row[data-session-id="live"]');
     await act(async () => rightClick(liveRow));
     assert.deepEqual(menuLabels(), [
       'Open',
@@ -757,7 +1032,6 @@ test('sections and folders default open, persist choices, and a selected session
     ],
     selection,
     onNewTask() {},
-    onNewStudio() {},
     onResumeSession() {},
     async onRenameSession() {},
     async onArchiveSession() {},
@@ -822,7 +1096,6 @@ test('a selected session reveals its collapsed branch sub-category', async () =>
     projects: [{ name: 'Alpha', path: 'C:/Work/Alpha', alias: null }],
     selection,
     onNewTask() {},
-    onNewStudio() {},
     onResumeSession() {},
     async onRenameSession() {},
     async onArchiveSession() {},
@@ -861,7 +1134,6 @@ test('the Sessions header menu offers Add project, also with zero projects', asy
             adds += 1;
           },
           onNewTask() {},
-          onNewStudio() {},
           onResumeSession() {},
           async onRenameSession() {},
           async onArchiveSession() {},
@@ -902,7 +1174,6 @@ test('a pointer click on a section header releases its focus; keyboard activatio
           selection: { kind: 'new' },
           onAddProject() {},
           onNewTask() {},
-          onNewStudio() {},
           onResumeSession() {},
           async onRenameSession() {},
           async onArchiveSession() {},
@@ -910,20 +1181,18 @@ test('a pointer click on a section header releases its focus; keyboard activatio
         })
       )
     );
-    for (const label of ['Recent sessions']) {
-      const toggle = () => document.querySelector(`section[aria-label="${label}"] .sidebar-heading-toggle`);
-      // Keyboard activation (Enter/Space dispatch click with detail 0) keeps the focus ring target.
-      await act(async () => toggle().focus());
-      await act(async () => toggle().click());
-      assert.equal(document.activeElement, toggle(), `${label}: keyboard activation keeps focus`);
-      // A pointer click (detail 1) must not leave a mouse-focused header: a later
-      // Shift/Ctrl/arrow key would flip it to :focus-visible (the selected-looking box).
-      await act(async () => toggle().focus());
-      await act(async () =>
-        toggle().dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }))
-      );
-      assert.notEqual(document.activeElement, toggle(), `${label}: pointer click released focus`);
-    }
+    const toggle = () => document.querySelector('section[aria-label="Recent sessions"] .sidebar-heading-toggle');
+    // Keyboard activation (Enter/Space dispatch click with detail 0) keeps the focus ring target.
+    await act(async () => toggle().focus());
+    await act(async () => toggle().click());
+    assert.equal(document.activeElement, toggle(), 'keyboard activation keeps focus');
+    // A pointer click (detail 1) must not leave a mouse-focused header: a later
+    // Shift/Ctrl/arrow key would flip it to :focus-visible (the selected-looking box).
+    await act(async () => toggle().focus());
+    await act(async () =>
+      toggle().dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }))
+    );
+    assert.notEqual(document.activeElement, toggle(), 'pointer click released focus');
   } finally {
     await act(async () => root.unmount());
     restore();

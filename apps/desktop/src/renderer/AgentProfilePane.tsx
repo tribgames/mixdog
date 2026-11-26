@@ -15,6 +15,7 @@ import {
   mascotLook,
 } from '../shared/core-src/runtime/shared/agent-avatar.mjs';
 import type { DesktopApi, DesktopModelOption, DesktopModelSelection } from '../shared/contract';
+import { effortAutoField } from './route-auto-effort';
 import {
   AgentAvatar,
   MascotAvatar,
@@ -96,7 +97,7 @@ function routeSelection(value: unknown, leaf = false): DesktopModelSelection {
     model,
     ...(typeof route.effort === 'string' && route.effort ? { effort: route.effort } : {}),
     ...(typeof route.fast === 'boolean' ? { fast: route.fast } : {}),
-    ...(route.autoEffort === false ? { autoEffort: false } : {}),
+    ...effortAutoField(route.effortAuto, true),
     ...(typeof route.contextPercent === 'number' ? { contextPercent: route.contextPercent } : {}),
     ...(typeof route.contextTokens === 'number' ? { contextTokens: route.contextTokens } : {}),
     ...(route.modelParameters && typeof route.modelParameters === 'object'

@@ -21,7 +21,7 @@ const HARNESS = `
     // The wake resync re-sends the whole catalog: same rows, new objects.
     window.resync = () => setSessions((rows) => rows.map((row) => ({ ...row })));
     return <SessionSidebar open sessions={sessions} sessionsReady selection={{ kind: 'new' }} onNewTask={noop}
-      onNewStudio={noop} onResumeSession={noop} onRenameSession={none} onArchiveSession={none}
+      onResumeSession={noop} onRenameSession={none} onArchiveSession={none}
       onFavoriteSession={none} onDeleteSession={none} />;
   }
   createRoot(document.getElementById('root')).render(<Harness />);

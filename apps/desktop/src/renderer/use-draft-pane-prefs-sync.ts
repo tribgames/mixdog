@@ -1,8 +1,10 @@
 import { type MutableRefObject, useCallback, useEffect, useMemo, useRef } from 'react';
 import type { DesktopModelSelection } from '../shared/contract';
+import { ensureAutoEffortLoaded } from './auto-effort-store';
 import type { Snapshot } from './desktop-types';
 import {
   backfillLeadRoute,
+  convertDraftPanePrefs,
   type DraftPanePrefs,
   type ResolvedDraftPrefs,
   draftModelSelectionFromSnapshot,
@@ -12,6 +14,7 @@ import {
   readStoredLastNewTaskPrefs,
   reresolveDraftEntries,
   reresolvedLastNewTaskPrefs,
+  storedDraftPrefsNeedConversion,
 } from './draft-pane-prefs-store';
 import type { NavigationSelection } from './navigation';
 import { subscribeSetupChanges } from './setup-change-refresh';
@@ -40,7 +43,7 @@ export function useSnapshotDraftModelSelection(
       snapshot.sessionId,
       snapshot.effort,
       snapshot.fast,
-      snapshot.autoEffort,
+      snapshot.effortAuto,
       snapshot.modelParameters,
       snapshot.model,
       snapshot.provider,
@@ -109,10 +112,36 @@ export function useHydrateDraftPrefs({
   useEffect(() => {
     // Hydrate BEFORE the focused-draft restore effect (declaration order), so
     // a restored layout's drafts reopen with their saved prefs.
+    let cancelled = false;
+    const runBackfill = () => {
+      const api = window.mixdogDesktop;
+      const tried = lastNewTaskPrefs.current?.modelSelection;
+      if (!api?.setModelRoute || !tried) return;
+      void backfillLeadRoute({
+        last: lastNewTaskPrefs.current,
+        setModelRoute: (selection) => api.setModelRoute(selection) as unknown as Promise<Snapshot>,
+      })
+        .then(({ route }) => {
+          if (cancelled) return;
+          // Skipped because another route already is the Lead route: the
+          // last-used cache follows it instead of keeping the tried model.
+          const next = followLeadRoute(lastNewTaskPrefs.current, tried, route);
+          if (next?.modelSelection) {
+            lastNewTaskPrefs.current = next;
+            persistDraftPanePrefs();
+          }
+          // The answer can arrive after a Lead published since: the inheriting
+          // drafts take the Lead through the ordered read, never this answer.
+          refreshHostMainRoute();
+        })
+        .catch(() => {});
+    };
     try {
       const last = readStoredLastNewTaskPrefs();
-      if (last.value) lastNewTaskPrefs.current = last.value;
       const entries = readStoredDraftPaneEntries();
+      // The stored values go into memory in this commit, converted or not: a
+      // later effect persists the whole map, and an entry not yet in it is lost.
+      if (last.value) lastNewTaskPrefs.current = last.value;
       let changed = false;
       for (const [key, value] of entries.rows) {
         if (draftPanePrefs.current.has(key)) continue;
@@ -123,30 +152,36 @@ export function useHydrateDraftPrefs({
       // Migrated values live in memory only until something is staged: write
       // them under the current keys right away.
       if (last.legacy || entries.legacy) persistDraftPanePrefs();
-      const api = window.mixdogDesktop;
-      const tried = lastNewTaskPrefs.current?.modelSelection;
-      if (api?.setModelRoute && tried) {
-        void backfillLeadRoute({
-          last: lastNewTaskPrefs.current,
-          setModelRoute: (selection) => api.setModelRoute(selection) as unknown as Promise<Snapshot>,
-        })
-          .then(({ route }) => {
-            // Skipped because another route already is the Lead route: the
-            // last-used cache follows it instead of keeping the tried model.
-            const next = followLeadRoute(lastNewTaskPrefs.current, tried, route);
-            if (next?.modelSelection) {
-              lastNewTaskPrefs.current = next;
+      if (storedDraftPrefsNeedConversion(last.value, entries.rows)) {
+        // The legacy flag is rewritten in place once the old switch is known;
+        // until then, and if it never is, the entries keep it as stored.
+        void ensureAutoEffortLoaded()
+          .then((master) => {
+            if (cancelled) return;
+            if (master) {
+              const legacySwitchOn = master.enabled === true;
+              if (lastNewTaskPrefs.current) {
+                lastNewTaskPrefs.current =
+                  convertDraftPanePrefs(lastNewTaskPrefs.current, legacySwitchOn) ?? lastNewTaskPrefs.current;
+              }
+              for (const [key, value] of draftPanePrefs.current) {
+                draftPanePrefs.current.set(key, convertDraftPanePrefs(value, legacySwitchOn) ?? value);
+              }
+              repaintDrafts();
               persistDraftPanePrefs();
             }
-            // The answer can arrive after a Lead published since: the inheriting
-            // drafts take the Lead through the ordered read, never this answer.
-            refreshHostMainRoute();
+            runBackfill();
           })
           .catch(() => {});
+      } else {
+        runBackfill();
       }
     } catch {
       /* best-effort */
     }
+    return () => {
+      cancelled = true;
+    };
   }, [persistDraftPanePrefs, refreshHostMainRoute, repaintDrafts]);
 }
 

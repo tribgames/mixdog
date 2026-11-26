@@ -102,7 +102,7 @@ test('a mounted picker follows model and effort route feeds, not the running ses
   const next = { ...model, model: 'gpt-next-route', display: 'Next route' };
   availableModels = [model, next];
   const id = 'picker-route-feed';
-  let route = { provider: model.provider, model: model.model, effort: 'low', fast: false, autoEffort: false };
+  let route = { provider: model.provider, model: model.model, effort: 'low', fast: false, effortAuto: false };
   let fold = sessionReducer.initial({ thread: { id }, state: { route }, items: [], hasOlder: false });
   const listeners = new Set();
   const client = {
@@ -321,7 +321,7 @@ test('after a quota hop the composer keeps the edited conversation’s speed, ef
     model: primary.model,
     effort: 'high',
     fast: false,
-    autoEffort: false,
+    effortAuto: false,
     modelParameters: {},
   };
   const note = (value) => ({ method: 'thread/route/updated', params: { value } });
@@ -338,14 +338,14 @@ test('after a quota hop the composer keeps the edited conversation’s speed, ef
   window.mixdogDesktop.setFast = (fast, session) => write({ fast }, session);
   window.mixdogDesktop.invokeCapability = (input) =>
     input.capability === 'setEffort'
-      ? write({ effort: input.args[0], autoEffort: false }, input.sessionId)
+      ? write({ effort: input.args[0], effortAuto: false }, input.sessionId)
       : oldInvoke(input);
   try {
     await mountedStreamPicker(id, { route: initial }, async ({ host, stream }) => {
       await act(async () => sheetRow('Reasoning effort').click());
       await act(async () => option('Low').click());
       const primaryWrite = writes.shift();
-      assert.deepEqual(primaryWrite.pick, { effort: 'low', autoEffort: false });
+      assert.deepEqual(primaryWrite.pick, { effort: 'low', effortAuto: false });
       let selected = { ...initial, provider: fallback.provider, model: fallback.model };
       await stream([note(selected)]);
       await act(async () => primaryWrite.answer.resolve({}));
@@ -505,7 +505,7 @@ test('an answered pick stays previewed until the stream shows the state its call
     model: model.model,
     effort: 'high',
     fast: false,
-    autoEffort: false,
+    effortAuto: false,
     modelParameters: {},
   };
   try {
@@ -549,7 +549,7 @@ test('an answer read at a trailing note that schedules no frame still ends its p
     model: model.model,
     effort: 'high',
     fast: false,
-    autoEffort: false,
+    effortAuto: false,
     modelParameters: {},
   };
   try {
@@ -588,7 +588,7 @@ test('an answer whose position read races a replaced subscription still ends its
     model: model.model,
     effort: 'high',
     fast: false,
-    autoEffort: false,
+    effortAuto: false,
     modelParameters: {},
   };
   try {
@@ -1292,7 +1292,7 @@ test('an explicit effort pick on an Auto route turns its Auto effort off, in a s
       effort: 'high',
       fast: false,
       fastCapable: false,
-      autoEffort: true,
+      effortAuto: true,
       modelParameters: {},
       modelDisabled: false,
       tuningDisabled: false,
@@ -1329,19 +1329,19 @@ test('an explicit effort pick on an Auto route turns its Auto effort off, in a s
           model: autoModel.model,
           effort: 'low',
           fast: false,
-          autoEffort: false,
+          effortAuto: false,
         },
       })
     );
     assert.equal(applied.at(-1).effort, 'low');
-    assert.equal(applied.at(-1).autoEffort, false, 'the remembered route keeps Auto off');
+    assert.equal(applied.at(-1).effortAuto, false, 'the remembered route keeps Auto off');
 
     await act(async () => root.unmount());
     root = createRoot(host);
     await act(async () => root.render(selector({ onDraftModelSelection: (s) => drafts.push(s) })));
     await pickLow();
     assert.equal(drafts.at(-1).effort, 'low');
-    assert.equal(drafts.at(-1).autoEffort, false, 'a new task started from the draft keeps the picked level');
+    assert.equal(drafts.at(-1).effortAuto, false, 'a new task started from the draft keeps the picked level');
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -1624,4 +1624,50 @@ test('exact context tokens: input parsing, clamping, and the default/stop collap
   assert.equal(routedExactContextTokens(500000, 500000, max), 0);
   assert.equal(routedExactContextTokens(640000, 500000, max), 640000);
   assert.equal(routedExactContextTokens(undefined, 500000, max), 0);
+});
+
+test('modelChoiceSelection preserves all three autoEffort states even while judge is uninstalled', async () => {
+  const { modelChoiceSelection } = await import('./model-controls.tsx');
+  const { publishAutoEffort } = await import('./auto-effort-store.ts');
+  const oldFlag = window.mixdogDesktop.routeAutoEffort;
+  window.mixdogDesktop.routeAutoEffort = true;
+  publishAutoEffort({ autoEffort: { installed: false, enabled: true, supported: true } });
+  const baseOption = (id, extra = {}) => ({
+    ...model,
+    model: id,
+    autoEffortCapable: true,
+    ...extra,
+  });
+  const current = {
+    provider: model.provider,
+    model: 'current-model',
+    effort: 'high',
+    fast: false,
+    effortAuto: undefined,
+    modelParameters: {},
+    contextPercent: 100,
+    exactContextField: {},
+  };
+  try {
+    const plain = modelChoiceSelection(baseOption('unpicked-model'), current);
+    assert.equal(Object.hasOwn(plain, 'effortAuto'), false, 'unpicked model omits effortAuto instead of writing false');
+    assert.equal(modelChoiceSelection(baseOption('saved-on', { savedEffortAuto: true }), current).effortAuto, true);
+    assert.equal(modelChoiceSelection(baseOption('saved-off', { savedEffortAuto: false }), current).effortAuto, false);
+    assert.equal(
+      Object.hasOwn(modelChoiceSelection(baseOption('current-model'), current), 'effortAuto'),
+      false,
+      'same model with absent effortAuto keeps it absent'
+    );
+    assert.equal(
+      modelChoiceSelection(baseOption('current-model'), { ...current, effortAuto: true }).effortAuto,
+      true
+    );
+    assert.equal(
+      modelChoiceSelection(baseOption('current-model'), { ...current, effortAuto: false }).effortAuto,
+      false
+    );
+  } finally {
+    window.mixdogDesktop.routeAutoEffort = oldFlag;
+    publishAutoEffort({ autoEffort: { installed: false, enabled: false, supported: true } });
+  }
 });

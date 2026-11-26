@@ -1,4 +1,5 @@
 import { createElement, Fragment, type ReactNode, useCallback, useContext, useMemo, useRef } from 'react';
+import { effortAutoKey } from './route-auto-effort';
 import { greetingSuggestions } from '../shared/greeting-suggestions';
 import { stripAgentMessageEnvelope } from '../shared/core-src/runtime/shared/agent-message-envelope.mjs';
 import {
@@ -384,7 +385,7 @@ export function useConversationRowRenderer({
   const liveThinking = liveActive ? snapshot.thinking : undefined;
   const liveHasApproval = liveActive && Boolean(snapshot.toolApproval);
   const liveEffort = liveActive
-    ? `${snapshot.turnEffort ?? ''}|${snapshot.effort ?? ''}|${snapshot.autoEffort ? 1 : 0}|${snapshot.provider ?? ''}|${snapshot.model ?? ''}`
+    ? `${snapshot.turnEffort ?? ''}|${snapshot.effort ?? ''}|${effortAutoKey(snapshot.effortAuto)}|${snapshot.provider ?? ''}|${snapshot.model ?? ''}`
     : '';
   const roomTypingKey = roomTyping ? `${roomTyping.speaker}\0${roomTyping.name}\0${roomTyping.deciding ? 1 : 0}` : '';
   const askingKey = asking.length ? asking.join('\0') : '';

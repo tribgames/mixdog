@@ -56,6 +56,8 @@ export interface MediaLane {
   authType: string;
   authProvider: string;
   authenticated: boolean;
+  /** Plain-language cause when `authenticated` is false for a reason other than sign-in. */
+  unavailableReason?: string;
   catalogError?: string;
   catalogErrorCode?: string;
   catalogWarning?: string;

@@ -209,8 +209,8 @@ export type Snapshot = RecordValue & {
   turnEffort?: string | null;
   fast?: boolean;
   fastCapable?: boolean;
-  /** Per-route Auto reasoning; absent means on, only `false` turns it off. */
-  autoEffort?: boolean;
+  /** Explicit per-route Auto reasoning choice (`true` = Auto, `false` = manual level). */
+  effortAuto?: boolean;
   modelParameters?: Record<string, string>;
   contextPercent?: number;
   /** Exact context window in force (only when it is a non-default value). */

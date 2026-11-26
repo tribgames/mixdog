@@ -1,5 +1,6 @@
 import { Check } from 'lucide-react';
 import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import { formatAutoEffortLabel } from './auto-effort-store';
 import { clampContextTokens, parseContextTokensInput } from './route-editor-context';
 import type { DesktopModelOption } from '../shared/contract';
 import { t, tExisting } from './i18n';
@@ -187,6 +188,7 @@ export type RouteAutoEffort = { enabled: boolean; pending: boolean; unavailable?
 
 export function routeEffortPane({
   effort,
+  turnEffort = '',
   effortOptions,
   autoEffort = null,
   autoEffortOn = false,
@@ -196,6 +198,7 @@ export function routeEffortPane({
   onOptionKeyDown,
 }: {
   effort: string;
+  turnEffort?: string;
   effortOptions: Array<{ value: string; label: string }>;
   /** Present only for a model that supports Auto: adds "Auto" as the first item. */
   autoEffort?: RouteAutoEffort;
@@ -222,7 +225,7 @@ export function routeEffortPane({
           }}
           onKeyDown={onOptionKeyDown}
         >
-          <span>Auto</span>
+          <span>{autoEffortOn ? formatAutoEffortLabel(turnEffort) : 'Auto'}</span>
           {autoEffortOn && <RouteSelectionCheck />}
         </button>
       )}
@@ -388,6 +391,8 @@ function RouteContextPane({
   }, [editing]);
   const atDefault = shownContextPercent === contextDefaultPercent && !contextCustom;
   const tokensLabel = formatContextWindow(shownContextTokens).replace(/ Context$/, '');
+  const unitSuffix = /m$/i.test(text.trim()) ? '' : 'k';
+  const tokensClassName = contextCustom ? 'route-context-tokens is-custom' : undefined;
   return (
     <>
       <div className="route-context-head">
@@ -410,10 +415,10 @@ function RouteContextPane({
                 }}
                 onBlur={() => endEdit(true)}
               />
-              <em>{/m$/i.test(text.trim()) ? '' : 'k'}</em>
+              <em>{unitSuffix}</em>
             </label>
           ) : (
-            <span aria-hidden="true" className={contextCustom ? 'route-context-tokens is-custom' : undefined}>
+            <span aria-hidden="true" className={tokensClassName}>
               {tokensLabel}
             </span>
           )}

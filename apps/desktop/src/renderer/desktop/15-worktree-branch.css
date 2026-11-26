@@ -287,7 +287,22 @@ html[data-mixdog-mobile-tabs] .branch-menu-item {
   padding: 0;
 }
 html[data-mixdog-mobile-tabs] .composer-island-panel-foot.branch-menu-foot .composer-island-button[data-icon-only] {
-  width: 40px;
+  width: var(--mx-touch);
+}
+/* A long branch name reads over two lines before it is cut; a two-line row
+   keeps 6px above and below them. */
+html[data-mixdog-mobile-tabs] .branch-menu-item {
+  padding-block: 6px;
+}
+html[data-mixdog-mobile-tabs] .branch-menu-item > span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+html[data-mixdog-mobile-tabs] .branch-menu-search-frame {
+  padding-inline: 7px;
 }
 .composer-island-panel-foot.branch-menu-foot .composer-island-button[data-icon-only] > span {
   display: none;

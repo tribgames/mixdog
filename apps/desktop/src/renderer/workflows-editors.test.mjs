@@ -152,7 +152,7 @@ test('a slot-2-only speed edit sends slot 1 unchanged and shows both speeds as s
       sent.push(selection);
       return {
         value: {
-          preset: { ...PRIMARY, id: 'workflow-lead', fallbacks: [{ ...SLOT2, fast: true, autoEffort: false }] },
+          preset: { ...PRIMARY, id: 'workflow-lead', fallbacks: [{ ...SLOT2, fast: true, effortAuto: false }] },
         },
         snapshot: { ...PRIMARY, modelParameters: { serviceTier: 'ultrafast' } },
       };
@@ -184,7 +184,7 @@ test('a slot-2-only speed edit sends slot 1 unchanged and shows both speeds as s
   const shown = harness.mainRoutes.at(-1);
   assert.equal(shown.fast, true);
   assert.equal(shown.modelParameters?.serviceTier, undefined, 'slot 1 still shows ordinary Fast');
-  assert.deepEqual(shown.fallbacks, [{ ...SLOT2, fast: true, autoEffort: false }], 'the resolved fallback wins');
+  assert.deepEqual(shown.fallbacks, [{ ...SLOT2, fast: true, effortAuto: false }], 'the resolved fallback wins');
 });
 
 test('saving an agent definition omits unchanged fallbacks and sends an edited list', async (t) => {

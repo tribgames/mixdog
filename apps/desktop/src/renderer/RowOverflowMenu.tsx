@@ -30,6 +30,8 @@ type RowOverflowMenuEntry = {
 type RowOverflowMenuItem = RowOverflowMenuEntry & {
   /** A submenu that opens beside the item. */
   children?: RowOverflowMenuEntry[];
+  /** The submenu's current choice, shown muted before the chevron. */
+  value?: string;
 };
 
 const menuItemRole = (item: RowOverflowMenuEntry) => {
@@ -175,6 +177,7 @@ function renderRowOverflowItem({
         <span className="row-overflow-check">{item.checked && <Check size={14} aria-hidden="true" />}</span>
       )}
       <span className="row-overflow-label">{item.label}</span>
+      {item.value && <span className="row-overflow-value">{item.value}</span>}
       {opener && <ChevronRight className="row-overflow-submenu" size={14} aria-hidden="true" />}
     </button>
   );
@@ -201,6 +204,8 @@ function renderRowOverflowPanel({
 }) {
   const parent = items.find((item) => item.id === submenuId);
   const children = parent?.children;
+  const rootCheckGutter = hasCheckItems(items);
+  const childCheckGutter = children ? hasCheckItems(children) : false;
   return createPortal(
     <div
       ref={panel}
@@ -210,7 +215,7 @@ function renderRowOverflowPanel({
       onKeyDown={rowOverflowMenuKeyDown}
       style={placement}
     >
-      {items.map((item) => renderRowOverflowItem({ item, checkGutter: hasCheckItems(items), submenu, setOpen }))}
+      {items.map((item) => renderRowOverflowItem({ item, checkGutter: rootCheckGutter, submenu, setOpen }))}
       {parent && children?.length ? (
         <SubmenuPanel
           anchor={submenu.element(parent.id)}
@@ -219,7 +224,7 @@ function renderRowOverflowPanel({
           label={t('{{label}} menu', { label: parent.label })}
           onKeyDown={rowOverflowMenuKeyDown}
         >
-          {children.map((item) => renderRowOverflowItem({ item, checkGutter: hasCheckItems(children), setOpen }))}
+          {children.map((item) => renderRowOverflowItem({ item, checkGutter: childCheckGutter, setOpen }))}
         </SubmenuPanel>
       ) : null}
     </div>,

@@ -43,6 +43,7 @@ export interface StudioModelLane {
 
 export function authTypeLabel(authType: unknown): string {
   if (authType === 'oauth') return t('Account');
+  if (authType === 'acp') return t('Agent');
   return authType === 'api-key' ? t('API key') : '';
 }
 

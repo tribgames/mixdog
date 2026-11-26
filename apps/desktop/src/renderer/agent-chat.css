@@ -819,8 +819,10 @@ html:not([data-mixdog-mobile-tabs]) .studio-dock {
     html[data-mixdog-mobile-tabs] .composer
   )
   .composer-text-field {
-  flex: 1 1 auto;
-  min-width: 0;
+  /* Chips that leave it under 120px push the field onto its own line instead
+     of squeezing it, and the typed text with it, out of the card. */
+  flex: 1 1 0;
+  min-width: min(100%, 120px);
 }
 :is(
     .composer[data-chat-mode="agent"],
@@ -879,7 +881,11 @@ html:not([data-mixdog-mobile-tabs]) .composer .composer-primary-actions {
 }
 .mx-chat-tag {
   flex: none;
-  margin-left: 6px;
+  max-width: calc(100% - 12px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 6px 0 6px 6px;
   padding: 0 8px;
   border: 0;
   border-radius: 12px;

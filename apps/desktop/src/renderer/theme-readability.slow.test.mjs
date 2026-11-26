@@ -211,7 +211,7 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
     });
     for (const [theme, dock, workspace, frame] of [
       ['dark', 'rgb(24, 24, 27)', 'rgb(17, 17, 19)', [0, 0, 0, 0]],
-      ['light', 'rgb(247, 247, 247)', 'rgb(252, 252, 252)', [247, 247, 247, 128]],
+      ['light', 'rgb(247, 247, 247)', 'rgb(252, 252, 252)', [247, 247, 247, 127.5]],
       ['dark', 'rgb(24, 24, 27)', 'rgb(17, 17, 19)', [0, 0, 0, 0]],
     ]) {
       const surfaces = await page.evaluate((theme) => {
@@ -239,7 +239,9 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
           ),
         };
       }, theme);
-      assert.equal(surfaces.frame[3], frame[3]);
+      // Half alpha has no 8-bit value: Chromium's canvas stores it as 128 from
+      // rgba() and 127 from the color() that color-mix serializes to.
+      assert.ok(Math.abs(surfaces.frame[3] - frame[3]) <= 0.5, `frame alpha ${surfaces.frame[3]}`);
       // Dark keeps its opaque sidebar; paper lets 5% of native Mica through.
       const expectedSidebar = theme === 'light' ? [252, 252, 252, 240] : [24, 24, 27, 255];
       assert.equal(surfaces.sidebar.rgba[3], expectedSidebar[3]);

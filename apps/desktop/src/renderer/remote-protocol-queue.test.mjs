@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createRemoteCallQueue } from './remote-protocol-queue.ts';
+import { createRemoteCallQueue, runQueued } from './remote-protocol-queue.ts';
 
 const deferred = () => Promise.withResolvers();
 
@@ -405,6 +405,32 @@ test('review reads ride the slow lane, so a snapshot read never waits behind the
     assert.deepEqual(seen, ['snapshot', 'read-mark', 'third'], method);
     queue.close();
   }
+});
+
+test("a conversation's changes card reads all go out at once, never behind review or patch reads", async () => {
+  const connection = {};
+  const held = deferred();
+  const changes = (checkpointId, patch) => [
+    { capability: 'getTurnChanges', args: [{ checkpointId, ...(patch ? { patch: true } : {}) }], sessionId: 's1' },
+  ];
+  const slow = [
+    runQueued(connection, 'gitReview', [], () => held.promise),
+    ...['c1', 'c2', 'c3'].map((id) => runQueued(connection, 'invokeCapability', changes(id, true), () => held.promise)),
+  ];
+  const started = [];
+  const answer = deferred();
+  const cards = Array.from({ length: 6 }, (_, card) =>
+    runQueued(connection, 'invokeCapability', changes(`card-${card}`, false), async () => {
+      started.push(card);
+      await answer.promise;
+    })
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(started, [0, 1, 2, 3, 4, 5], 'every card in view is read in one round trip');
+  answer.resolve();
+  await Promise.all(cards);
+  held.resolve();
+  await Promise.all(slow);
 });
 
 test('a hung resolveLocalPaths does not hold submit or settings calls behind it', async () => {

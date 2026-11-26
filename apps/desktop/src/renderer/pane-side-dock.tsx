@@ -83,7 +83,7 @@ import { sideFileKey, type PaneSideDockFile } from './side-file-tabs';
 import { SessionRailCard } from './SessionRailCard';
 import { useSessionDiffStripHasTabs } from './use-session-diff-tabs';
 import { paneDockRailLayout } from './pane-side-dock-layout';
-import { SESSION_RAIL_GAP, useSessionRailWidth } from './session-rail-layout';
+import { useSessionRailWidth } from './session-rail-layout';
 
 export {
   PANE_SIDE_DOCK_DEFAULT_WIDTH,
@@ -200,26 +200,31 @@ function PaneDockChromeRow({
   onClose(): void;
 }) {
   const panelActions = useDockPanelActions(leafId);
+  let ariaLabel: string | undefined;
+  if (diffShowing) ariaLabel = t('Changes');
+  else if (titleHidden) ariaLabel = panelTitle;
+  let left: ReactNode = null;
+  if (diffShowing && diff) {
+    left = (
+      <>
+        <div className="browser-tab is-active dock-header-chip">
+          <span className="browser-tab-select" title={`${diff.rel}\n${diffScopeLabel(diff.source)}`}>
+            <FileIcon size={14} aria-hidden="true" />
+            <span>{diff.rel.split('/').at(-1) ?? diff.rel}</span>
+          </span>
+        </div>
+        {renderDiffHeaderControls?.() ?? <DiffHeaderControls {...diffView} />}
+      </>
+    );
+  } else if (!titleHidden) {
+    left = <span className="dock-header-title">{panelTitle}</span>;
+  }
   return (
     <DockHeaderRow
       className="pane-side-dock-chrome"
       actions={diffShowing ? undefined : panelActions}
-      ariaLabel={diffShowing ? t('Changes') : titleHidden ? panelTitle : undefined}
-      left={
-        diffShowing && diff ? (
-          <>
-            <div className="browser-tab is-active dock-header-chip">
-              <span className="browser-tab-select" title={`${diff.rel}\n${diffScopeLabel(diff.source)}`}>
-                <FileIcon size={14} aria-hidden="true" />
-                <span>{diff.rel.split('/').at(-1) ?? diff.rel}</span>
-              </span>
-            </div>
-            {renderDiffHeaderControls?.() ?? <DiffHeaderControls {...diffView} />}
-          </>
-        ) : titleHidden ? null : (
-          <span className="dock-header-title">{panelTitle}</span>
-        )
-      }
+      ariaLabel={ariaLabel}
+      left={left}
       onClose={onClose}
     />
   );
@@ -521,13 +526,14 @@ function renderPaneDockSurfaces(
   const heldFiles = Object.values(entry.held ?? {}).flatMap((part) =>
     (part.files ?? []).filter((file) => isFileDirty?.(sideFileKey(file)))
   );
+  const onFocusPaneForFiles = focused ? undefined : onFocusPane;
   const fileSurface =
     dockBodyMounted && (entry.files?.length || heldFiles.length) ? (
       <PaneDockFileSurface
         leafId={leafId}
         files={entry.files ?? []}
         heldFiles={heldFiles}
-        onFocusPane={focused ? undefined : onFocusPane}
+        onFocusPane={onFocusPaneForFiles}
         activeFile={activeFile}
         active={fileShowing}
         problems={fileProblems}
@@ -622,11 +628,10 @@ function renderPaneDockMain(
         resizable={widthResizable}
         // A sub-agent's conversation under a surface is not shown, so it runs nothing until uncovered; the other views
         // keep what they show under it (a Changes list's turn behind its stacked diff).
-        renderView={(id, active, titleDragProps) =>
-          dockBodyMounted
-            ? renderView(id, id === 'agent-session' ? active && !surfacesActive : active, titleDragProps)
-            : null
-        }
+        renderView={(id, active, titleDragProps) => {
+          if (!dockBodyMounted) return null;
+          return renderView(id, id === 'agent-session' ? active && !surfacesActive : active, titleDragProps);
+        }}
         hiddenKey={dockBodyMounted ? 'body' : ''}
       />
     </div>
@@ -958,9 +963,7 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
   previewPanelWidthRef.current = (next) => applyDockPreview(next, null);
   previewDiffWidthRef.current = (next) => applyDockPreview(null, next);
   const railVisible = railWanted && !railCovered;
-  const railOver =
-    railVisible && railPresentation === 'beside' ? Math.max(0, railWidth + SESSION_RAIL_GAP - railReserve) : 0;
-  committedEdge.current = `${placement}|${openNow}|${overlay}|${dockExpanded}|${asideWidth}|${pairShowing ? diffWidth : 0}|${bottom ? dockHeight : 0}|${railVisible}|${railWidth}|${railReserve}|${railOver}|${railPresentation}`;
+  committedEdge.current = `${placement}|${openNow}|${overlay}|${dockExpanded}|${asideWidth}|${pairShowing ? diffWidth : 0}|${bottom ? dockHeight : 0}|${railVisible}|${railWidth}|${railReserve}|${railPresentation}`;
   const diffContext: DockDiffSurfaceContext = {
     diffShowing: bodyShowing.diffShowing,
     diffView,

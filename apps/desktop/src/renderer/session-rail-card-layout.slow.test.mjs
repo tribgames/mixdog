@@ -204,7 +204,7 @@ async function openPage(t) {
   return { page, errors };
 }
 
-test('the session panel stands right of the reading column: in its margin, or the conversation re-centres left of it', async (t) => {
+test('the session panel stands right of the reading column: the conversation re-centres left of it at every pane width', async (t) => {
   const { page, errors } = await openPage(t);
   const at = async (width, card, reserve = 0, dock = 0) => {
     await page.setViewport({ width, height: 800 });
@@ -219,13 +219,10 @@ test('the session panel stands right of the reading column: in its margin, or th
 
   const centre = (rect) => (rect.left + rect.right) / 2;
 
-  // A wide pane: the margin beside the reading column holds the panel, so nothing moves.
   const bare = await at(2000, 0);
-  const wide = await at(2000, 400);
-  near(wide.row.left, bare.row.left, 'the reading column stays where it was');
-  near(wide.row.right, bare.row.right, 'the reading column stays where it was');
-  near(wide.composer.left, bare.composer.left, 'the composer too');
-  near(wide.composer.right, bare.composer.right, 'the composer too');
+  const frame = 2000 - bare.cellWidth;
+  const roomy = sessionRailFit({ cellWidth: bare.cellWidth, railPref: 400 });
+  const wide = await at(2000, roomy.width, roomy.reserve);
   // A band at the pane's edge: its width and the gap, both grid rows from the pane's top; the tab strip ends at it.
   near(wide.panel.right, wide.cell.right, "the panel on the pane's edge");
   near(wide.panel.right - wide.panel.left, 400 + SESSION_RAIL_GAP, 'its width and the gap');
@@ -251,9 +248,8 @@ test('the session panel stands right of the reading column: in its margin, or th
   assert.ok(wide.scrollbar > 0, 'the transcript shows its scrollbar');
   near(wide.scroller.right, wide.panel.left, "the scroller's right edge, its scrollbar's, meets the panel");
   assert.ok(wide.row.right <= wide.scroller.right - wide.scrollbar, 'the reading column ends before the scrollbar');
-  // The jump-to-latest chip stays at the pane's centre, where it was without the panel.
-  near(centre(wide.chip), centre(bare.chip), 'the chip stays where it was');
-  near(centre(wide.chip), centre(wide.cell), "the chip at the pane's centre");
+  // The jump-to-latest chip at the centre of the room left of the panel.
+  near(centre(wide.chip), (wide.cell.left + wide.panel.left) / 2, 'the chip left of the panel, centred');
 
   // The narrowest pane the layout shows it beside the conversation in: the conversation re-centres left of the
   // panel at its floor, and the scroller ends at the panel.
@@ -274,29 +270,36 @@ test('the session panel stands right of the reading column: in its margin, or th
   );
   assert.ok(tight.composer.right <= tight.panel.left, 'and so does the composer');
 
-  // Either side of the width where the scroller clears the panel: above it nothing moves, below it reserve grows
-  // continuously by twice the overlap (1px at boundary - 1); the rows keep their width.
-  const frame = 2000 - bare.cellWidth;
-  const boundary = 848 + 2 * (400 + SESSION_RAIL_GAP);
-  for (const cellWidth of [boundary + 1, boundary - 1]) {
-    const fitted = sessionRailFit({ cellWidth, railPref: 400 });
-    assert.equal(fitted.reserve, cellWidth > boundary ? 0 : 1, `${cellWidth}: the reserve`);
-    const without = await at(cellWidth + frame, 0);
-    const beside = await at(cellWidth + frame, fitted.width, fitted.reserve);
-    assert.equal(beside.cellWidth, cellWidth);
-    const width = (rect) => rect.right - rect.left;
-    assert.ok(
-      Math.abs(width(beside.row) - width(without.row)) <= 0.5,
-      `${cellWidth}: the rows keep their width: ${width(beside.row)} ≠ ${width(without.row)}`
-    );
-    assert.ok(beside.row.right <= beside.panel.left, `${cellWidth}: the rows end before the panel`);
-    if (fitted.reserve === 0) {
-      near(beside.row.left, without.row.left, `${cellWidth}: the rows stay where they were`);
+  // The reading frame (the rows with the scrollbar track they pay from their right inset) and the composer have equal
+  // margins between the pane's left edge and the panel's at every width the panel stands beside the conversation in,
+  // the 1,199px pane of a 1,253px window without the session list among them; without the panel, within the pane.
+  for (const cellWidth of [1199, 1300, 1464, 1700, 2400]) {
+    for (const pref of [SESSION_RAIL_MIN_WIDTH, 400]) {
+      const fitted = sessionRailFit({ cellWidth, railPref: pref });
+      const shown = await at(cellWidth + frame, fitted.width, fitted.reserve);
+      assert.equal(shown.cellWidth, cellWidth);
+      const room = { left: shown.cell.left, right: shown.panel.left };
+      const reading = { left: shown.row.left, right: shown.row.right + shown.scrollbar };
+      for (const [part, rect] of [
+        ['reading frame', reading],
+        ['composer', shown.composer],
+      ]) {
+        near(
+          rect.left - room.left,
+          room.right - rect.right,
+          `${pref}px panel, ${cellWidth}px pane: the ${part}'s margins`
+        );
+      }
+      const without = await at(cellWidth + frame, 0);
+      near(
+        without.composer.left - without.cell.left,
+        without.cell.right - without.composer.right,
+        `${cellWidth}px pane without the panel: the composer's margins`
+      );
     }
   }
 
   // The panel's whole resize edge takes the pointer (a dock open at the side covers the panel, so none stands beside it).
-  const roomy = sessionRailFit({ cellWidth: 2000 - frame, railPref: 400 });
   await at(2000, roomy.width, roomy.reserve);
   const railEdge = await page.evaluate(() => window.hitsAcross('.session-rail-resize'));
   assert.deepEqual(

@@ -9,7 +9,7 @@ interface MigrationState {
   converting?: unknown;
   done?: unknown;
   total?: unknown;
-  setAside?: { id?: unknown; count?: unknown; dir?: unknown } | null;
+  setAside?: { id?: unknown; count?: unknown; dir?: unknown; moved?: unknown; inPlace?: unknown } | null;
 }
 
 /** The completed migration whose set-aside items the person was told of (its identity), kept by this browser profile. */
@@ -26,14 +26,17 @@ export function useMigrationConverting(): { done: number; total: number } | null
 }
 
 /** What the completed migration set aside, until the person has been told once. */
-function useSetAside(): { id: string; count: number; dir: string } | null {
+function useSetAside(): { id: string; count: number; dir: string; moved: number; inPlace: string[] } | null {
   const state = useSection<MigrationState>('migration');
   const aside = state?.converting === true ? null : state?.setAside;
   const id = typeof aside?.id === 'string' ? aside.id : '';
   const count = Number(aside?.count);
   const dir = typeof aside?.dir === 'string' ? aside.dir : '';
   if (!id || !dir || !Number.isFinite(count) || count <= 0) return null;
-  return { id, count, dir };
+  const inPlace = Array.isArray(aside?.inPlace) ? aside.inPlace.filter((f): f is string => typeof f === 'string' && f.length > 0) : [];
+  const rawMoved = Number(aside?.moved);
+  const moved = Number.isFinite(rawMoved) && rawMoved >= 0 ? rawMoved : inPlace.length > 0 ? Math.max(0, count - inPlace.length) : count;
+  return { id, count, dir, moved, inPlace };
 }
 
 function told(id: string): boolean {
@@ -69,14 +72,25 @@ export function MigrationSetAsideNotice() {
     }
     setDismissed(aside.id);
   };
-  return (
-    <div className="session-migration-notice" role="status">
-      <p>
-        {t('Updating from the earlier version set aside {{items}} items it could not convert. They are kept in {{dir}}.', {
+  const message =
+    aside.inPlace.length === 0
+      ? t('Updating from the earlier version set aside {{items}} items it could not convert. They are kept in {{dir}}.', {
           items: aside.count,
           dir: aside.dir,
-        })}
-      </p>
+        })
+      : aside.moved === 0
+        ? t('Updating from the earlier version found damaged files and left them in place: {{files}}. Details are in {{dir}}.', {
+            files: aside.inPlace.join(', '),
+            dir: aside.dir,
+          })
+        : t('Updating from the earlier version set aside {{items}} items in {{dir}} and left damaged files in place: {{files}}.', {
+            items: aside.moved,
+            dir: aside.dir,
+            files: aside.inPlace.join(', '),
+          });
+  return (
+    <div className="session-migration-notice" role="status">
+      <p>{message}</p>
       <button type="button" onClick={dismiss}>
         {t('OK')}
       </button>

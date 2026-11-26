@@ -47,7 +47,8 @@ async function pickerText() {
   await act(async () => document.querySelector('.agent-profile .model-trigger').click());
   await act(async () => new Promise((resolve) => dom.window.requestAnimationFrame(resolve)));
   await act(async () => document.querySelector('.route-sheet .route-sheet-row').click());
-  return document.querySelector('.route-sheet[data-drilled]').textContent;
+  // The catalog drills into the sheet in a narrow panel and flies out beside it where there is room.
+  return document.querySelector('.route-sheet[data-drilled], .route-sheet-flyout--model:not([hidden])').textContent;
 }
 
 test('the profile model picker recovers from a partial boot catalog once its retry time passes', async (t) => {

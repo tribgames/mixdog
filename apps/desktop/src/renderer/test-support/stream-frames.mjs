@@ -64,22 +64,14 @@ export const STREAM_FRAME_PROBE = `
   })();
 `;
 
-function opacities(runs) {
-  const out = [];
-  for (const [offset, length, opacity] of runs ?? [])
-    for (let index = 0; index < length; index += 1) out[offset + index] = opacity;
-  return out;
-}
-
 /**
  * What changes on screen between consecutive frames from `from` to `to`
  * beyond the reveal itself, as messages (empty: none): the reply's article,
  * its markdown root or a top-level block in view replaced; a painted
- * character's opacity dropping, or rising faster than a fade of `fadeMs`
- * allows (a fade sped up, or text popping in); the reply's height changing in
- * a frame that painted no new character.
+ * character below full ink (streamed text shows without a fade); the reply's
+ * height changing in a frame that painted no new character.
  */
-export function completionFlashes(frames, { from, to, fadeMs }) {
+export function completionFlashes(frames, { from, to }) {
   const found = [];
   let previous = null;
   for (const frame of frames) {
@@ -98,17 +90,8 @@ export function completionFlashes(frames, { from, to, fadeMs }) {
       if (Math.abs(frame.height - previous.height) > 0.5 && frame.painted === previous.painted) {
         found.push(`${at}: height ${previous.height} -> ${frame.height} with no new character`);
       }
-      const was = opacities(previous.runs);
-      const now = opacities(frame.runs);
-      const limit = ((frame.t - previous.t) / fadeMs) * 1.25 + 0.02;
-      let drops = 0;
-      let jumps = 0;
-      for (let index = 0; index < Math.min(was.length, now.length); index += 1) {
-        if (now[index] < was[index] - 0.02) drops += 1;
-        else if (now[index] - was[index] > limit) jumps += 1;
-      }
-      if (drops) found.push(`${at}: ${drops} painted character(s) lost opacity`);
-      if (jumps) found.push(`${at}: ${jumps} character(s) gained opacity faster than a ${fadeMs} ms fade`);
+      const faint = frame.runs.filter((run) => run[2] < 1).reduce((sum, run) => sum + run[1], 0);
+      if (faint) found.push(`${at}: ${faint} painted character(s) below full ink`);
     }
     previous = frame;
   }

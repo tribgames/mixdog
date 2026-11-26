@@ -144,8 +144,8 @@ test('the sections have no heading rows and the "…" menu has no Section order 
   await act(async () => m.document.querySelector('.agent-activity-page .row-overflow-trigger').click());
   assert.equal(m.document.querySelector('[data-action-id="order-agent-sections"]'), null);
   assert.doesNotMatch(m.document.querySelector('.row-overflow-menu').textContent, /Section order/);
-  assert.ok(m.document.querySelector('[data-action-id^="show-group-"]'), 'the toggles stay');
-  assert.ok(m.document.querySelector('[data-action-id="retain-1h"]'), 'Keep finished agents stays');
+  assert.ok(m.document.querySelector('[data-action-id="show-groups"]'), 'the toggles stay');
+  assert.ok(m.document.querySelector('[data-action-id="keep-finished-agents"]'), 'Keep finished agents stays');
 });
 
 test('a synced value applies live and on first read; bot order and section order share one list', async (t) => {
@@ -211,11 +211,17 @@ test('no Lead block, and no divider for it, before Mixy exists', async (t) => {
   assert.ok(m.document.querySelector('.mixy-empty'), 'the create prompt shows');
 });
 
-// Show/hide groups: the "…" menu's four check items; hidden ones ride in the same stored list as `hidden:<id>`.
-const toggle = async (m, id) => {
+// Show/hide groups: the check items of the "…" menu's Show groups submenu; hidden ones ride in the same stored list as `hidden:<id>`.
+const openGroups = async (m) => {
   if (!m.document.querySelector('.row-overflow-menu')) {
     await act(async () => m.document.querySelector('.agent-activity-page .row-overflow-trigger').click());
   }
+  if (!m.document.querySelector('[data-action-id^="show-group-"]')) {
+    await act(async () => m.document.querySelector('[data-action-id="show-groups"]').click());
+  }
+};
+const toggle = async (m, id) => {
+  await openGroups(m);
   await act(async () => m.document.querySelector(`[data-action-id="show-group-${id}"]`).click());
 };
 const roomCount = (m) => m.document.querySelectorAll('[data-agent-room]').length;
@@ -224,6 +230,11 @@ test('a fresh order shows four checked items, Agents unchecked, and no Agents se
   const m = mount(t, { fresh: true });
   await m.render();
   await act(async () => m.document.querySelector('.agent-activity-page .row-overflow-trigger').click());
+  assert.equal(m.document.querySelector('[data-action-id^="show-group-"]'), null, 'the groups wait in their submenu');
+  const category = m.document.querySelector('[data-action-id="show-groups"]');
+  assert.equal(category.getAttribute('aria-haspopup'), 'menu');
+  assert.equal(category.querySelector('.row-overflow-value').textContent, '4/5');
+  await openGroups(m);
   const items = [...m.document.querySelectorAll('[data-action-id^="show-group-"]')];
   assert.deepEqual(
     items.map((item) => [item.dataset.actionId, item.textContent, item.getAttribute('aria-checked')]),

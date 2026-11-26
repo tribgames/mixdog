@@ -33,6 +33,12 @@ import {
   type SidebarSectionContext,
 } from './session-sidebar-render';
 import { sessionAttentionOf, useSessionAttentionIndex } from './session-attention-index';
+import {
+  PLACING_GROUPS,
+  placeStatusSessions,
+  restingRows,
+  type SidebarStatusPlacement,
+} from './session-sidebar-status-groups';
 import { permanentBotDeleteMessage, sessionLabel } from './session-sidebar-rows';
 import {
   MIN_SIDEBAR_WIDTH,
@@ -46,9 +52,12 @@ import {
   groupProjectSessions,
   projectBranchKey,
   splitBranchRows,
+  type ProjectSessionGroup,
+  type SectionSessionDrop,
+  type SessionGapDrop,
 } from './session-sidebar-sections';
 import { withOpen, type OpenMap } from './sidebar-open-state';
-import type { ForkRowRole } from './session-fork-groups';
+import { groupForkRows, type ForkRowRole } from './session-fork-groups';
 import { usePersistedListOrder } from './use-persisted-list-order';
 import {
   applySessionOrder,
@@ -60,13 +69,11 @@ import {
   type SessionOrderPrefs,
 } from './session-order';
 import { ScmContextMenu } from './ScmContextMenu';
-import type { ProjectSessionGroup, SectionSessionDrop, SessionGapDrop } from './session-sidebar-sections';
 import { SettingsConfirmDialog } from './settings/capability-controls';
 import { useStableEvent } from './use-stable-event';
-import { useSidebarAgents } from './session-sidebar-agents';
+import { useSidebarAgents, type SidebarRoomRow } from './session-sidebar-agents';
 import type { AgentContact } from './agent-contacts-model';
 import { agentContactMenuItems, agentRoomMenuItems, restoreAgent } from './agent-profile-actions';
-import type { SidebarRoomRow } from './session-sidebar-agents';
 
 /** The "work in progress" confirmation: archiving or deleting a busy session
  *  waits for it; `run` is the action the confirm button performs. */
@@ -180,7 +187,7 @@ function useBusyGuardedActions({
 const NO_PROJECTS: readonly DesktopProjectSummary[] = [];
 /** Default top-to-bottom order of the session categories; the user can drag
  *  any heading to reorder them. */
-const SIDEBAR_SECTIONS = ['agents', 'favorites', 'recent', 'projects', 'archived'] as const;
+const SIDEBAR_SECTIONS = ['agents', 'favorites', 'needs', 'working', 'recent', 'projects', 'archived'] as const;
 
 /** The sidebar's width: persisted, clamped, and flushed on pagehide mid-drag. */
 function useSidebarWidth() {
@@ -212,12 +219,13 @@ function useSidebarWidth() {
   return { sidebarWidth, resizeStart, updateSidebarWidth, finishSidebarResize };
 }
 
-/** Warms the first recent rows during idle time; returns the per-row prefetch request. */
+/** Warms the first of `likelyRows` (the sessions most likely opened next)
+ *  during idle time; returns the per-row prefetch request. */
 export function useSessionPrefetch(
   onPrefetchSession: ((sessionId: string) => Promise<boolean>) | undefined,
   open: boolean,
   sessionsReady: boolean,
-  visibleRecentRows: readonly DesktopSessionSummary[]
+  likelyRows: readonly DesktopSessionSummary[]
 ) {
   // Every press or focus asks again: the shared read and its caches dedupe
   // what is held or in flight, and a failed or outdated one is made anew.
@@ -230,7 +238,7 @@ export function useSessionPrefetch(
   useEffect(() => {
     if (!open || !sessionsReady || !onPrefetchSession) return undefined;
     if (!isMobileDeviceSurface()) return undefined;
-    const sessionIds = visibleRecentRows.slice(0, 2).map((session) => session.id);
+    const sessionIds = likelyRows.slice(0, 2).map((session) => session.id);
     if (sessionIds.length === 0) return undefined;
     const host = window as typeof window & {
       requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
@@ -243,7 +251,7 @@ export function useSessionPrefetch(
       if (idle !== undefined) host.cancelIdleCallback?.(idle);
       if (timer) window.clearTimeout(timer);
     };
-  }, [onPrefetchSession, open, requestPrefetch, sessionsReady, visibleRecentRows]);
+  }, [onPrefetchSession, open, requestPrefetch, sessionsReady, likelyRows]);
   return requestPrefetch;
 }
 
@@ -252,24 +260,18 @@ function useSessionEditor(
   sessions: readonly DesktopSessionSummary[],
   onRenameSession: (sessionId: string, title: string) => Promise<void>
 ) {
-  // One session can render in several lists (a project folder and Recent);
-  // the editor belongs to the one row the user started it from.
-  const [editingRowKey, setEditingRowKey] = useState('');
-  // The edited session itself: a windowed list keeps its row mounted.
   const [editingSessionId, setEditingSessionId] = useState('');
   const [sessionTitleDraft, setSessionTitleDraft] = useState('');
   const [sessionTitleInvalid, setSessionTitleInvalid] = useState(false);
   const [confirmingSessionId, setConfirmingSessionId] = useState('');
   const [deletingSessionId, setDeletingSessionId] = useState('');
-  const openSessionEditor = useCallback((session: DesktopSessionSummary, rowKey: string) => {
+  const openSessionEditor = useCallback((session: DesktopSessionSummary) => {
     setConfirmingSessionId('');
-    setEditingRowKey(rowKey);
     setEditingSessionId(session.id);
     setSessionTitleDraft(sessionLabel(session));
     setSessionTitleInvalid(false);
   }, []);
   const closeSessionEditor = useCallback(() => {
-    setEditingRowKey('');
     setEditingSessionId('');
     setSessionTitleDraft('');
     setSessionTitleInvalid(false);
@@ -294,7 +296,7 @@ function useSessionEditor(
     }
   }, [confirmingSessionId, sessions]);
   return {
-    editingRowKey,
+    editingRowKey: editingSessionId,
     editingSessionId,
     sessionTitleDraft,
     setSessionTitleDraft,
@@ -331,17 +333,16 @@ function useSessionOrdering(
     () => rowsOfIds(projection.favoriteIds, sessionsById),
     [projection.favoriteIds, sessionsById]
   );
-  const activityRows = useMemo(
-    () => rowsOfIds(projection.activityIds, sessionsById),
-    [projection.activityIds, sessionsById]
-  );
   const favoriteRows = useMemo(
     () => applySessionOrder(activityFavoriteRows, orderPrefs.favorites, customOrders.favorites),
     [activityFavoriteRows, orderPrefs.favorites, customOrders.favorites]
   );
+  // Every unarchived session: what is not shown by 즐겨찾기 or a status group
+  // (each may be hidden) rests in 최근 or its folder.
+  const liveRows = useMemo(() => allRows.filter((session) => !session.archived), [allRows]);
   const rows = useMemo(
-    () => applySessionOrder(activityRows, orderPrefs.sessions, customOrders.recent),
-    [activityRows, orderPrefs.sessions, customOrders.recent]
+    () => applySessionOrder(liveRows, orderPrefs.sessions, customOrders.recent),
+    [liveRows, orderPrefs.sessions, customOrders.recent]
   );
   const updateOrderPrefs = useCallback((update: Partial<SessionOrderPrefs>) => {
     setOrderPrefs((current) => {
@@ -362,18 +363,22 @@ function useSessionOrdering(
     orderPrefs,
     customOrders,
     activityFavoriteRows,
-    activityRows,
     favoriteRows,
+    liveRows,
     rows,
     updateOrderPrefs,
     updateCustomOrders,
   };
 }
 
-/** Bulk archive/restore/delete over a list of rows; one bulk action at a time. */
+/** Bulk archive/restore/delete over a list of rows; one bulk action at a time.
+ *  A restore goes through `restoreSession`, the row's own restore (a deleted
+ *  bot's chat comes back with its bot); archiving asks about busy sessions
+ *  once for the whole batch, then archives each plainly. */
 function useBulkArchiveActions(
   archivedRows: readonly DesktopSessionSummary[],
   onArchiveSession: (sessionId: string, archived: boolean) => Promise<void>,
+  restoreSession: (sessionId: string, archived: false) => Promise<void>,
   onDeleteSession: (sessionId: string) => Promise<void>,
   guardBusy: BusyGuard
 ) {
@@ -387,7 +392,7 @@ function useBulkArchiveActions(
           await Promise.all(
             targets.map(async (session) => {
               try {
-                await onArchiveSession(session.id, archived);
+                await (archived ? onArchiveSession(session.id, true) : restoreSession(session.id, false));
               } catch {
                 // The row-level action restores failures; continue with the rest.
               }
@@ -405,7 +410,7 @@ function useBulkArchiveActions(
         );
       else await run();
     },
-    [bulkAction, guardBusy, onArchiveSession]
+    [bulkAction, guardBusy, onArchiveSession, restoreSession]
   );
   const deleteAllArchived = useCallback(async () => {
     if (bulkAction || archivedRows.length === 0) return;
@@ -433,26 +438,27 @@ function useBulkArchiveActions(
 }
 
 /** Registered projects as sidebar folders over the session rows: grouping and
- *  the user's folder order. */
+ *  the user's folder order. A folder shows the project's sessions no placing
+ *  group (즐겨찾기, a status group) shows. */
 function useProjectGroups({
   allRows,
   projects,
-  selection,
   revealedProject,
   orderPrefs,
   customOrders,
   updateProjectOpen,
+  statusPlacement,
 }: {
   allRows: readonly DesktopSessionSummary[];
   projects: readonly DesktopProjectSummary[];
-  selection: NavigationSelection;
   revealedProject: { path: string; nonce: number } | undefined;
   orderPrefs: SessionOrderPrefs;
   customOrders: CustomSessionOrders;
   updateProjectOpen: (update: (current: OpenMap) => OpenMap) => void;
+  statusPlacement: SidebarStatusPlacement;
 }) {
-  // Favorites stay in their project folder: the folder is a classification,
-  // not a second Recent.
+  // Membership holds every unarchived session of the project (drops, menus,
+  // the custom order); the folder shows only the ones resting there.
   const activityProjectGroups = useMemo(
     () =>
       projects.length === 0
@@ -463,69 +469,97 @@ function useProjectGroups({
           ),
     [allRows, projects]
   );
-  useProjectReveal(activityProjectGroups, selection, revealedProject, updateProjectOpen);
   const activityProjectKeys = useMemo(() => activityProjectGroups.map((group) => group.key), [activityProjectGroups]);
   const projectOrder = usePersistedListOrder('mixdog:session-sidebar-project-order', activityProjectKeys, {
     dropAnchor: ':scope > .project-folder',
   });
+  const projectOrders = useMemo(() => {
+    const orders = new Map<string, DesktopSessionSummary[]>();
+    for (const group of activityProjectGroups) {
+      orders.set(group.key, applySessionOrder(group.rows, orderPrefs.sessions, customOrders[`project:${group.key}`]));
+    }
+    return orders;
+  }, [activityProjectGroups, customOrders, orderPrefs.sessions]);
   const projectGroups = useMemo(() => {
     const byKey = new Map(activityProjectGroups.map((group) => [group.key, group]));
     return projectOrder.orderedIds.flatMap((key) => {
       const group = byKey.get(key);
-      return group
-        ? [
-            {
-              ...group,
-              rows: applySessionOrder(group.rows, orderPrefs.sessions, customOrders[`project:${key}`]),
-            },
-          ]
-        : [];
+      if (!group) return [];
+      const rows = restingRows(projectOrders.get(key) ?? group.rows, statusPlacement);
+      return [{ ...group, rows, shownElsewhere: group.rows.length - rows.length }];
     });
-  }, [activityProjectGroups, customOrders, orderPrefs.sessions, projectOrder.orderedIds]);
-  return { activityProjectGroups, projectOrder, projectGroups };
+  }, [activityProjectGroups, projectOrders, projectOrder.orderedIds, statusPlacement]);
+  useProjectReveal(activityProjectGroups, revealedProject, updateProjectOpen);
+  return { activityProjectGroups, projectOrder, projectGroups, projectOrders };
 }
 
-/** Opens the folder of a newly selected session and of a newly added project. */
-function useProjectReveal(
-  activityProjectGroups: readonly ProjectSessionGroup[],
-  selection: NavigationSelection,
-  revealedProject: { path: string; nonce: number } | undefined,
-  updateProjectOpen: (update: (current: OpenMap) => OpenMap) => void
-) {
-  // Selecting a session (identity change, not a list refresh) opens its
-  // collapsed project folder. The id is remembered once its folder is found, so
-  // collapsing that folder again while the session stays selected sticks.
-  const selectedSessionId = selection.kind === 'session' ? selection.id : '';
-  const revealedSelectionRef = useRef('');
+/** Keeps the selected session's row in view of the list: each time it comes
+ *  to rest (selected, or moved there by its status), its resting place opens:
+ *  최근, or its project folder (and branch) with enough rows shown to reach
+ *  it. Once per arrival, so folding it again while the session stays there
+ *  sticks. A status group, like 즐겨찾기 and 보관됨, keeps the user's fold:
+ *  its folded heading carries the session's mark. */
+function useSelectedSessionReveal({
+  selectedId,
+  statusPlacement,
+  recentRows,
+  projectGroups,
+  openSection,
+  updateProjectOpen,
+  revealProjectRows,
+}: {
+  selectedId: string;
+  statusPlacement: SidebarStatusPlacement;
+  recentRows: readonly DesktopSessionSummary[];
+  projectGroups: readonly ProjectSessionGroup[];
+  openSection(section: string): void;
+  updateProjectOpen: (update: (current: OpenMap) => OpenMap) => void;
+  revealProjectRows(key: string, rows: number): void;
+}) {
+  const revealedRef = useRef('');
   useEffect(() => {
-    if (!selectedSessionId) {
-      revealedSelectionRef.current = '';
+    if (!selectedId) {
+      revealedRef.current = '';
       return;
     }
-    if (revealedSelectionRef.current === selectedSessionId) return;
-    const group = activityProjectGroups.find((candidate) =>
-      candidate.rows.some((session) => session.id === selectedSessionId)
-    );
-    if (!group) return;
-    revealedSelectionRef.current = selectedSessionId;
-    // A session already on screen (e.g. clicked in Recent) needs no reveal;
-    // opening a folder above it would shift the row out from under the pointer.
-    const shown = [
-      ...document.querySelectorAll<HTMLElement>('.session-sidebar-sessions .session-row[data-session-id]'),
-    ].some((row) => row.dataset.sessionId === selectedSessionId && row.getClientRects().length > 0);
-    if (shown) return;
-    // In a project split by branch, the session's branch sub-category opens too.
-    const branch = splitBranchRows(group.rows).branches.find((candidate) =>
-      candidate.rows.some((session) => session.id === selectedSessionId)
-    );
+    const holds = (rows: readonly DesktopSessionSummary[]) => rows.some((session) => session.id === selectedId);
+    let status = '';
+    if (statusPlacement.needs.includes(selectedId)) status = 'needs';
+    else if (statusPlacement.working.includes(selectedId)) status = 'working';
+    const section = status || (holds(recentRows) ? 'recent' : '');
+    const group = section ? undefined : projectGroups.find((candidate) => holds(candidate.rows));
+    const home = section || (group ? `project:${group.key}` : '');
+    // Not listed yet (the catalog lands after the selection): wait for it.
+    if (!home || revealedRef.current === `${selectedId}\n${home}`) return;
+    revealedRef.current = `${selectedId}\n${home}`;
+    if (status) return;
+    if (!group) {
+      openSection('recent');
+      return;
+    }
+    // In a project split by branch, the session's branch sub-category opens
+    // and shows all its rows; else the folder shows the fork groups up to it.
+    const branch = splitBranchRows(group.rows).branches.find((candidate) => holds(candidate.rows));
     updateProjectOpen((current) => {
       const opened = withOpen(current, group.key, true);
       return branch ? withOpen(opened, projectBranchKey(group.key, branch.name), true) : opened;
     });
-  }, [activityProjectGroups, selectedSessionId, updateProjectOpen]);
-  // A project added from the Projects header menu opens and scrolls into view
-  // once its folder exists in the grouping (the catalog refresh lands after the
-  // add resolves); each add is handled once.
+    if (branch) return;
+    let covered = 0;
+    for (const fork of groupForkRows(group.rows)) {
+      covered += 1 + fork.forks.length;
+      if (fork.session.id === selectedId || holds(fork.forks)) break;
+    }
+    revealProjectRows(group.key, covered);
+  }, [selectedId, statusPlacement, recentRows, projectGroups, openSection, updateProjectOpen, revealProjectRows]);
+}
+
+/** Opens and scrolls to the folder of a newly added project. */
+function useProjectReveal(
+  activityProjectGroups: readonly ProjectSessionGroup[],
+  revealedProject: { path: string; nonce: number } | undefined,
+  updateProjectOpen: (update: (current: OpenMap) => OpenMap) => void
+) {
   const revealedNonceRef = useRef(revealedProject?.nonce ?? 0);
   useEffect(() => {
     if (!revealedProject || revealedNonceRef.current === revealedProject.nonce) return;
@@ -834,29 +868,56 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     orderPrefs,
     customOrders,
     activityFavoriteRows,
-    activityRows,
     favoriteRows,
+    liveRows,
     rows,
     updateOrderPrefs,
     updateCustomOrders,
   } = useSessionOrdering(sessions, hasSessionSurface, showAgents, agents.contactHomeIds);
   const openState = useSidebarOpenState();
   const archivedRows = useMemo(() => allRows.filter((session) => session.archived), [allRows]);
+  const attentionOf = (sessionId: string) =>
+    sessionAttentionOf(attentionIndex, sessionId, {
+      running: workingSessionIds?.has(sessionId) === true,
+      unread: unreadSessionIds?.has(sessionId) === true,
+    });
+  const shownPlacingGroups = useMemo(
+    () => new Set(PLACING_GROUPS.filter((group) => !hiddenSections.has(group))),
+    [hiddenSections]
+  );
+  // The row being renamed stays in its group, so its editor is never remounted mid-word.
+  const renamingIds = useMemo(
+    () => new Set(editor.editingSessionId ? [editor.editingSessionId] : []),
+    [editor.editingSessionId]
+  );
+  const statusPlacementRef = useRef<SidebarStatusPlacement | undefined>(undefined);
+  statusPlacementRef.current = placeStatusSessions(
+    liveRows,
+    attentionOf,
+    shownPlacingGroups,
+    statusPlacementRef.current,
+    renamingIds
+  );
+  // Like the catalog: a session changes group once the reader's scroll is over.
+  const statusPlacement = useHeldDuringUserScroll(recentScrollerRef, statusPlacementRef.current);
+  const rowsById = useMemo(() => new Map(allRows.map((session) => [session.id, session])), [allRows]);
+  const statusRows = useCallback((ids: readonly string[]) => ids.flatMap((id) => rowsById.get(id) ?? []), [rowsById]);
+  const needsRows = useMemo(() => statusRows(statusPlacement.needs), [statusRows, statusPlacement.needs]);
+  const workingRows = useMemo(() => statusRows(statusPlacement.working), [statusRows, statusPlacement.working]);
   const [recentRowLimit, setRecentRowLimit] = useState(RECENT_SESSION_INITIAL_ROWS);
   const sectionOrder = usePersistedListOrder('mixdog:session-sidebar-section-order', SIDEBAR_SECTIONS, {
     dropAnchor: ':scope > .sidebar-category-header',
-    // Bots joined the order later: a saved order keeps them on top, where they always were.
     placeNewAtDefault: true,
   });
   const folders = useProjectFolderState();
-  const { activityProjectGroups, projectOrder, projectGroups } = useProjectGroups({
+  const { activityProjectGroups, projectOrder, projectGroups, projectOrders } = useProjectGroups({
     allRows,
     projects,
-    selection,
     revealedProject,
     orderPrefs,
     customOrders,
     updateProjectOpen: folders.updateProjectOpen,
+    statusPlacement,
   });
   const {
     sessionGroupKeys,
@@ -878,30 +939,53 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     sessionsReady,
     orderPrefs,
     activityFavoriteRows,
-    activityRows,
+    liveRows,
     activityProjectGroups,
     updateCustomOrders,
   });
+  // 최근 leaves a project's sessions to its folder, unless the folders are hidden.
+  const projectsShown = !hiddenSections.has('projects');
+  const recentRows = useMemo(
+    () => restingRows(rows, statusPlacement, projectsShown ? sessionGroupKeys : undefined),
+    [rows, statusPlacement, projectsShown, sessionGroupKeys]
+  );
+  useSelectedSessionReveal({
+    selectedId: selection.kind === 'session' ? selection.id : '',
+    statusPlacement,
+    recentRows,
+    projectGroups,
+    openSection: openState.openSection,
+    updateProjectOpen: folders.updateProjectOpen,
+    revealProjectRows: folders.revealProjectRows,
+  });
+  // The phone warms the sessions most likely opened next: those asking for
+  // the user, then the running ones, then the newest quiet ones.
+  const likelyRows = useMemo(
+    () => [...needsRows, ...workingRows, ...restingRows(liveRows, statusPlacement)].slice(0, 2),
+    [needsRows, workingRows, liveRows, statusPlacement]
+  );
   const [archivedRowLimit, setArchivedRowLimit] = useState(RECENT_SESSION_INITIAL_ROWS);
-  const bulk = useBulkArchiveActions(archivedRows, onArchiveSession, onDeleteSession, guardBusy);
+  const bulk = useBulkArchiveActions(archivedRows, onArchiveSession, archiveSession, onDeleteSession, guardBusy);
   useEffect(() => {
     if (selection.kind !== 'session') return;
-    const selectedIndex = rows.findIndex((session) => session.id === selection.id);
+    const selectedIndex = recentRows.findIndex((session) => session.id === selection.id);
     if (selectedIndex < recentRowLimit) return;
     setRecentRowLimit(selectedIndex + 1);
-  }, [recentRowLimit, rows, selection]);
+  }, [recentRowLimit, recentRows, selection]);
   const revealMoreRecentRows = useCallback(
     (wanted: number) => {
-      setRecentRowLimit((current) => nextSessionRowLimit(current, wanted, rows.length));
+      setRecentRowLimit((current) => nextSessionRowLimit(current, wanted, recentRows.length));
     },
-    [rows.length]
+    [recentRows.length]
   );
-  const visibleRecentRows = rows.slice(0, recentRowLimit);
+  const visibleRecentRows = recentRows.slice(0, recentRowLimit);
   const sessionReorder = useSessionRowReorder({
     favoriteRows,
-    rows,
+    recentRows,
+    recentOrder: rows,
     visibleRecentRowCount: visibleRecentRows.length,
     projectGroups,
+    projectOrders,
     projectRowLimits: folders.projectRowLimits,
     projectOpen: folders.projectOpen,
     orderPrefs,
@@ -920,10 +1004,15 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     open,
     panelActive,
     selection,
-    rows,
+    rows: recentRows,
     visibleRecentRowCount: visibleRecentRows.length,
     revealMoreRecentRows,
     recentOpen: openState.recentOpen,
+    agentsOpen: openState.agentsOpen,
+    favoritesOpen: openState.favoritesOpen,
+    needsOpen: openState.needsOpen,
+    workingOpen: openState.workingOpen,
+    hiddenSections,
     archivedOpen: openState.archivedOpen,
     archivedRows,
     archivedRowLimit,
@@ -932,11 +1021,11 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     projectOpen: folders.projectOpen,
     projectGroups,
     projectRowLimits: folders.projectRowLimits,
-    projectsOpen: openState.projectsOpen,
     sectionOrder,
+    statusPlacement,
   });
   useSidebarBootSurface(open, sessionsReady);
-  const requestPrefetch = useSessionPrefetch(onPrefetchSession, open, sessionsReady, visibleRecentRows);
+  const requestPrefetch = useSessionPrefetch(onPrefetchSession, open, sessionsReady, likelyRows);
   const {
     contextMenu,
     menuOriginId,
@@ -991,11 +1080,6 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       items: agentRoomMenuItems(row.room),
     })
   );
-  const attentionOf = (sessionId: string) =>
-    sessionAttentionOf(attentionIndex, sessionId, {
-      running: workingSessionIds?.has(sessionId) === true,
-      unread: unreadSessionIds?.has(sessionId) === true,
-    });
   const [rowReorders] = useState(createRowReorderCache);
   const rowContext: SessionRowContext = {
     rowReorders,
@@ -1015,8 +1099,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     setDraggedSession,
     setSessionDropKey,
   };
-  const renderOrderedRow = (session: DesktopSessionSummary, listKey?: string, rowScope?: string, fork?: ForkRowRole) =>
-    renderSessionRow(session, listKey, rowContext, rowScope, fork);
+  const renderOrderedRow = (session: DesktopSessionSummary, listKey?: string, fork?: ForkRowRole) =>
+    renderSessionRow(session, listKey, rowContext, fork);
   const selectedId = selection.kind === 'session' ? selection.id : '';
   const pinnedSessionIds = useMemo(
     () =>
@@ -1043,7 +1127,9 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     openState,
     folders,
     favoriteRows,
-    rows,
+    needsRows,
+    workingRows,
+    rows: recentRows,
     visibleRecentRows,
     hasMoreRecentRows,
     recentSentinelRef,
@@ -1065,9 +1151,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     projectRenameEditor,
     renderOrderedRow,
     sessionsReady,
-    workingSessionIds,
     attentionOf,
-    onAddProject,
     onNewProjectTask,
     onNewTask,
   };

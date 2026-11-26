@@ -27,19 +27,12 @@ const FRAME = PANE_SIDE_DOCK_SHEET_FRAME_WIDTH;
 const paneFor = (width) => DESKTOP_WORKSPACE_MIN_WIDTH + SESSION_RAIL_GAP + width;
 // The narrowest pane every side-dock surface stands beside the conversation in.
 const BESIDE_FROM = DESKTOP_WORKSPACE_MIN_WIDTH + FRAME + PANE_SIDE_DOCK_MIN_WIDTH;
-// --pane-column's cap (12-transcript.css), the column a pane wider than 1,060px gives its rows.
-const COLUMN_CAP = 848;
 
 test('the panel takes what the conversation at its floor leaves it: it yields to its minimum, then lies over the conversation', () => {
   // A panel the user widened to 400.
   const fit = (cellWidth) => sessionRailFit({ cellWidth, railPref: 400 });
   const beside = (width, reserve) => ({ width, reserve, presentation: 'beside' });
-  // The scroller, giving up the panel's band on both sides, still holds the column: nothing moves.
-  const roomy = COLUMN_CAP + 2 * (400 + SESSION_RAIL_GAP);
-  assert.deepEqual(fit(roomy), beside(400, 0));
-  assert.deepEqual(fit(roomy + 500), beside(400, 0), 'no wider than its preferred width');
-  // Below `roomy`, reserve grows continuously by twice the overlap (1px at roomy - 1) until the left margin runs out.
-  assert.deepEqual(fit(roomy - 1), beside(400, 1));
+  assert.deepEqual(fit(3000), beside(400, 400 + SESSION_RAIL_GAP), 'no wider than its preferred width');
   assert.deepEqual(fit(paneFor(400)), beside(400, 400 + SESSION_RAIL_GAP));
   assert.deepEqual(fit(paneFor(400) - 1), beside(399, 399 + SESSION_RAIL_GAP), 'then the panel gives up width');
   assert.deepEqual(
@@ -66,36 +59,13 @@ test('the panel takes what the conversation at its floor leaves it: it yields to
   }
 });
 
-test('nothing moves while the reading column clears the panel, and below that the column shifts continuously with no cliff', () => {
+test('beside the panel the conversation gives up its whole band at every pane width, so its column centres left of the panel', () => {
   for (const pref of [SESSION_RAIL_MIN_WIDTH, 400]) {
-    const band = pref + SESSION_RAIL_GAP;
-    const fit = (cellWidth) => sessionRailFit({ cellWidth, railPref: pref });
-    const boundary = COLUMN_CAP + 2 * band;
-    assert.deepEqual(
-      fit(boundary),
-      { width: pref, reserve: 0, presentation: 'beside' },
-      `${pref}: the rows keep 848px beside the band`
-    );
-    assert.deepEqual(
-      fit(boundary - 1),
-      { width: pref, reserve: 1, presentation: 'beside' },
-      `${pref}: one pixel less shifts reserve continuously by 1px, not a full-band cliff`
-    );
-    // Once the left margin is exhausted (COLUMN_CAP + band), reserve reaches the full band.
-    assert.equal(fit(COLUMN_CAP + band).reserve, band, `${pref}: saturates at the full band`);
-    // Every 1px step across the transition moves the reading column's center by at most 1px.
-    for (let width = COLUMN_CAP + band; width < boundary; width += 1) {
-      const c1 = (width - fit(width).reserve) / 2;
-      const c2 = (width + 1 - fit(width + 1).reserve) / 2;
-      assert.ok(Math.abs(c2 - c1) <= 1, `${pref} at ${width}px: center jumped ${Math.abs(c2 - c1)}px`);
+    for (let cellWidth = BESIDE_FROM; cellWidth <= 3000; cellWidth += 1) {
+      const fitted = sessionRailFit({ cellWidth, railPref: pref });
+      assert.equal(fitted.reserve, fitted.width + SESSION_RAIL_GAP, `${pref}px panel in a ${cellWidth}px pane`);
     }
   }
-  // Regression for default 300px rail (taken=308): 1464px vs 1463px shifts center by <= 1px (not 154px).
-  const at1464 = sessionRailFit({ cellWidth: 1464, railPref: SESSION_RAIL_MIN_WIDTH });
-  const at1463 = sessionRailFit({ cellWidth: 1463, railPref: SESSION_RAIL_MIN_WIDTH });
-  assert.equal(at1464.reserve, 0);
-  assert.equal(at1463.reserve, 1);
-  assert.ok(Math.abs((1464 - at1464.reserve) / 2 - (1463 - at1463.reserve) / 2) <= 1);
 });
 
 test('the panel belongs to the session or draft the pane shows: a retained or another conversation keeps its composer', () => {
@@ -242,26 +212,6 @@ test('the conversation is told the room it gives up for the panel, and is given 
   assert.equal(cell.style.getPropertyValue('--session-rail-reserve'), '0px');
   await act(async () => view.root.render(null));
   assert.equal(cell.style.getPropertyValue('--session-rail-reserve'), '');
-});
-
-test('while the margin holds the panel the scroller is told the room the panel takes; with a reserve, none; gone with the panel', async (t) => {
-  const view = await railCard(t, { width: 400, reserve: 0 });
-  const cell = view.document.querySelector('.session-rail').parentElement;
-  assert.equal(cell.style.getPropertyValue('--session-rail-over'), `${400 + SESSION_RAIL_GAP}px`);
-  await act(async () => view.root.render(view.element({ width: 336 })));
-  assert.equal(
-    cell.style.getPropertyValue('--session-rail-over'),
-    `${336 + SESSION_RAIL_GAP}px`,
-    'it follows the width'
-  );
-  await act(async () => view.root.render(view.element({ width: 336, reserve: 336 + SESSION_RAIL_GAP })));
-  assert.equal(
-    cell.style.getPropertyValue('--session-rail-over'),
-    '0px',
-    'the conversation already ends before the panel'
-  );
-  await act(async () => view.root.render(null));
-  assert.equal(cell.style.getPropertyValue('--session-rail-over'), '');
 });
 
 test("the cell carries the panel's band, with a reserve or without, and loses it with the panel", async (t) => {
@@ -610,7 +560,7 @@ test("the Agents section is the island's list: a fold a kind, a line an agent wi
   const intervals = [];
   const now = Date.now();
   const opened = [];
-  const route = (model) => ({ provider: 'anthropic', model, effort: 'medium', fast: null, autoEffort: null });
+  const route = (model) => ({ provider: 'anthropic', model, effort: 'medium', fast: null, effortAuto: null });
   const pool = [
     {
       ...agent('fold-rules', 'running', 'streaming'),
@@ -673,13 +623,15 @@ test("the Agents section is the island's list: a fold a kind, a line an agent wi
   await openKinds(document);
   // One fold a kind, in the order its first agent appeared, its agents under it; the state column's holder last.
   const outline = () =>
-    [...list.children].map((child) =>
-      child.matches('.composer-island-agent-group')
-        ? `fold ${child.querySelector('.composer-island-agent-fold-name').textContent}`
-        : child.matches('.composer-island-agent-item')
-          ? child.querySelector('.agent-pool-name').textContent
-          : 'sizer'
-    );
+    [...list.children].map((child) => {
+      if (child.matches('.composer-island-agent-group')) {
+        return `fold ${child.querySelector('.composer-island-agent-fold-name').textContent}`;
+      }
+      if (child.matches('.composer-island-agent-item')) {
+        return child.querySelector('.agent-pool-name').textContent;
+      }
+      return 'sizer';
+    });
   // A kind on another model is a kind of its own: Worker on Opus, then (by name, both with no start time) Reviewer and
   // Worker on Fable.
   assert.deepEqual(outline(), [
@@ -1030,7 +982,7 @@ test('restarting agents moves no row and folds no kind: a follow-up, a stop, a c
 
 test("a kind's line carries the route its agents with a known route share as its tooltip, not on the line; one whose route is not known yet changes nothing", async (t) => {
   const { AgentsSection } = await import('./session-rail-jobs.tsx');
-  const route = { provider: 'anthropic', model: 'claude-opus', effort: 'medium', fast: null, autoEffort: null };
+  const route = { provider: 'anthropic', model: 'claude-opus', effort: 'medium', fast: null, effortAuto: null };
   const pool = [
     { ...agent('a', 'running', 'streaming'), ...route },
     { ...agent('b', 'completed'), ...route, settledAt: Date.now() - 1_000 },
@@ -1160,7 +1112,7 @@ test("a catalog that arrives after the section is drawn reaches its rows' model 
       model: 'claude-opus',
       effort: 'medium',
       fast: null,
-      autoEffort: null,
+      effortAuto: true,
     },
   ];
   const { document } = await mount(

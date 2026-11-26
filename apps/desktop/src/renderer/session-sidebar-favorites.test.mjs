@@ -28,7 +28,6 @@ async function mount(t, sessions, handlers = {}) {
         sessionsReady: true,
         selection: { kind: 'new' },
         onNewTask() {},
-        onNewStudio() {},
         onResumeSession() {},
         async onRenameSession() {},
         async onArchiveSession() {},
@@ -90,6 +89,8 @@ test('the ⋯ menu Show sections submenu toggles section visibility and persists
     [
       ['Bots', 'true'],
       ['Favorites', 'true'],
+      ['Needs you', 'true'],
+      ['Working', 'true'],
       ['Projects', 'true'],
       ['Recent', 'true'],
       ['Archived', 'true'],

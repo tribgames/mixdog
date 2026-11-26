@@ -86,7 +86,6 @@ async function mount(t, sessions, handlers = {}, storage = {}) {
           sessionsReady: true,
           selection: { kind: 'new' },
           onNewTask() {},
-          onNewStudio() {},
           onResumeSession() {},
           async onRenameSession() {},
           async onArchiveSession() {},
@@ -128,7 +127,7 @@ test('the sidebar shows the original with a fork icon and chevron, then numbered
   assert.equal(slot.firstElementChild.getAttribute('data-fork'), 'root');
   assert.ok(copy.classList.contains('session-row-copy'));
   assert.ok(toggle.classList.contains('session-row-fork-toggle'));
-  assert.equal(toggle.textContent, '2', 'the branch count precedes the chevron');
+  assert.equal(toggle.textContent, '', 'only the chevron follows the title');
   assert.equal(document.querySelector('[data-session-id="f1"] [data-fork="child"]') !== null, true);
   assert.equal(document.querySelector('[data-session-id="solo"] .session-row-fork-toggle'), null);
   // The title still opens the session; the chevron does not.
@@ -187,17 +186,40 @@ test('dragging an original after another session moves its whole group there', a
   const { document, window } = await mount(t, forked());
   assert.deepEqual(ids(document), ['orig', 'f1', 'f2', 'solo']);
   const drag = dragRow(document, window, 'orig', 'solo');
+  const linePosition = (id) => document.querySelector(`[data-session-id="${id}"]`).getAttribute('data-drop-position');
   await act(async () => {
     drag.start();
     drag.dragover();
   });
-  // The drop line moves below the group's last visible row, not between the original and its forks.
-  assert.equal(document.querySelector('[data-session-id="orig"]').getAttribute('data-drop-position'), null);
+  // The line marks the drop target; no row of the travelling group draws one.
+  assert.equal(linePosition('solo'), 'after');
+  assert.deepEqual(['orig', 'f1', 'f2'].map(linePosition), [null, null, null]);
   await act(async () => {
     drag.drop();
     drag.end();
   });
   assert.deepEqual(ids(document), ['solo', 'orig', 'f1', 'f2']);
+});
+
+test('a drop after an open group draws its line under the group’s last fork', async (t) => {
+  const { document, window } = await mount(t, [
+    row('solo', { title: 'Solo', activityAt: 40 }),
+    ...forked().slice(0, 3),
+  ]);
+  assert.deepEqual(ids(document), ['solo', 'orig', 'f1', 'f2']);
+  const drag = dragRow(document, window, 'solo', 'orig');
+  const linePosition = (id) => document.querySelector(`[data-session-id="${id}"]`).getAttribute('data-drop-position');
+  await act(async () => {
+    drag.start();
+    drag.dragover();
+  });
+  // Not between the original and its forks: below the last one.
+  assert.deepEqual(['orig', 'f1', 'f2'].map(linePosition), [null, null, 'after']);
+  await act(async () => {
+    drag.drop();
+    drag.end();
+  });
+  assert.deepEqual(ids(document), ['orig', 'f1', 'f2', 'solo']);
 });
 
 test('dragging another session before a group lands above the whole group', async (t) => {

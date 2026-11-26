@@ -148,7 +148,7 @@ export function RouteChainEditor({
               // One model may sit on two rows (API key and subscription).
               providerLabel
               // A chain row sits in a narrow panel or dialog column: the picker
-              // drops down under its chip instead of flying out beside it.
+              // drops down under its chip, and its panes open beside it only where they fit.
               dropdown
               value={entry as unknown as DesktopModelSelection}
               models={models.filter((model) => {

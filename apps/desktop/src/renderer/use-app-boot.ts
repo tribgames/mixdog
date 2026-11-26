@@ -152,12 +152,16 @@ export function useAppModuleWarmup(startupSettled: boolean, trackSidebarPanelMod
     // The subscription usage that dialog opens on: its first open after boot
     // waited on a cold ledger read. A remote client reads it when the dialog opens instead.
     if (desktopFeatureEnabled('usage') && !isRemoteHostRenderer()) {
+      let cancelQuotaUsage: (() => void) | undefined;
       cancels.push(
         scheduleBootWarmup({
           id: 'data:quota-usage',
           priority: BOOT_WARMUP.quotaUsage,
-          run: () => prefetchQuotaUsage(window.mixdogDesktop),
-        })
+          run: () => {
+            cancelQuotaUsage = prefetchQuotaUsage(window.mixdogDesktop);
+          },
+        }),
+        () => cancelQuotaUsage?.()
       );
     }
     if (!nativeWindow && !hiddenPanelsStayCold()) {

@@ -1,7 +1,12 @@
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 
-import { createBootSurfaceBarrier, desktopBootCoverTimeoutAllowed, markBootStage } from './boot-metrics';
+import {
+  createBootSurfaceBarrier,
+  desktopBootCoverTimeoutAllowed,
+  markBootStage,
+  onFirstConversationPaint,
+} from './boot-metrics';
 import { useBootFailure, useBootProgress, useBootUpdating } from './boot-progress';
 import { useLocalCoreLink, useLocalCoreLinkFailure } from './local-core-link';
 import { ownScrollWrites } from './own-scroll-writes';
@@ -9,6 +14,7 @@ import { DesktopBootFailure, DesktopLoadingSurface } from './RendererRecovery';
 import { t } from './i18n';
 import { currentRemoteConnectionState, subscribeRemoteConnectionState } from './remote-connection-state';
 import { isRemoteHostRenderer } from './remote-ui-projection';
+import { releaseStartupReads } from './startup-reads';
 
 const SURFACE_FONT_WAIT_MAX_MS = 300;
 const STARTUP_SURFACE_FALLBACK_MS = 1_200;
@@ -308,6 +314,15 @@ export function DesktopBootGate({
     markBootStage('desktop-revealed', timedOut ? 'timeout' : 'ready');
   }, [barrier, revealed, timedOut]);
   useEffect(() => () => barrier.dispose(), [barrier]);
+  useEffect(() => {
+    if (!handoffComplete) return undefined;
+    // A timed-out cover hands off a usable workspace whose transcript may never paint.
+    if (timedOut) {
+      releaseStartupReads();
+      return undefined;
+    }
+    return onFirstConversationPaint(releaseStartupReads);
+  }, [handoffComplete, timedOut]);
 
   const gateRef = useRef<HTMLDivElement>(null);
   const [brandSettled, setBrandSettled] = useState(false);

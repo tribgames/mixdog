@@ -1,7 +1,20 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import type { RecordValue } from './desktop-types';
 import { cachedModelCatalogRevision, readCachedModelCatalog, subscribeCachedModelCatalog } from './model-catalog-cache';
+import { readEffortAuto } from './route-auto-effort';
 import { subscribeSetupChanges } from './setup-change-refresh';
+
+export {
+  convertLegacyAutoEffort,
+  effortAutoField,
+  effortAutoKey,
+  mergeEffortAuto,
+  needsLegacyAutoEffortConversion,
+  pickEffortAuto,
+  readEffortAuto,
+  resolveEffortAuto,
+  type EffortAutoState,
+} from './route-auto-effort';
 
 export type AutoEffortState = { installed: boolean; enabled: boolean; supported: boolean };
 
@@ -64,45 +77,68 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
-/** The route's own Auto flag: only an explicit `false` turns it off. */
-function routeAutoEffortOn(routeAutoEffort: boolean | null | undefined): boolean {
-  return routeAutoEffort !== false;
+/** Ensure the host's Auto effort tool-module state has been read at least once
+ *  (used by one-time legacy localStorage conversion on load). */
+export async function ensureAutoEffortLoaded(): Promise<AutoEffortState | null> {
+  if (current !== null) return current;
+  await refreshAutoEffort();
+  return current;
 }
 
-function masterAutoEffortOn(master: AutoEffortState | null): boolean {
-  return master?.installed === true && master.supported && master.enabled;
+function judgeAvailable(master: AutoEffortState | null): boolean {
+  return master?.installed === true && master.supported;
 }
 
-/** The host accepts per-route Auto reasoning: the `autoEffort` selection field
+/** Whether Auto reasoning is active for a route: ONLY explicit `effortAuto === true`
+ *  with the judge runtime installed & supported. Never reads the legacy feature switch. */
+export function routeAutoEffortActive(
+  effortAuto: boolean | null | undefined,
+  master: AutoEffortState | null
+): boolean {
+  return judgeAvailable(master) && readEffortAuto(effortAuto) === true;
+}
+
+export function compactEffortName(effort: string | null | undefined): string {
+  const raw = String(effort || '').trim();
+  if (!raw) return '';
+  if (/^(?:extra[\s-]*high|xhigh)$/i.test(raw)) return 'XHigh';
+  return `${raw.slice(0, 1).toLocaleUpperCase()}${raw.slice(1).toLowerCase()}`;
+}
+
+export function formatAutoEffortLabel(resolvedEffort?: string | null): string {
+  const resolved = compactEffortName(resolvedEffort);
+  return resolved ? `Auto (${resolved})` : 'Auto';
+}
+
+/** The host accepts per-route Auto reasoning: the `effortAuto` selection field
  *  and `+noauto` automation refs. An older remote host rejects both. */
 export function hostRouteAutoEffort(): boolean {
   return window.mixdogDesktop?.routeAutoEffort === true;
 }
 
-/** A model whose route may carry its own `autoEffort` on this host. */
+/** A model whose route may carry its own `effortAuto` on this host. */
 export function routeAutoEffortCapable(option: { autoEffortCapable?: boolean } | null | undefined): boolean {
   return option?.autoEffortCapable === true && hostRouteAutoEffort();
 }
 
-/** RouteEditor's Auto props for a model: the switch shows only when the model
- *  supports it, the host takes per-route Auto, and the master (Settings →
- *  Built-in) is installed, supported and enabled; its state and changes belong
- *  to the route, never the master. */
+/** RouteEditor's Auto props for a model: Auto is offered as an effort choice
+ *  whenever the model supports it, the host takes per-route Auto, and the judge
+ *  runtime is installed and supported. */
 export function useAutoEffortRoute(
   capable: boolean,
-  routeAutoEffort: boolean | null | undefined,
+  effortAuto: boolean | null | undefined,
   onChange: (enabled: boolean) => unknown,
   modelKnown = false
 ) {
   const hostSupportsRouteAuto = hostRouteAutoEffort();
   const wantsMaster = hostSupportsRouteAuto && (capable || modelKnown);
   const master = useAutoEffort(wantsMaster);
-  const masterOn = hostSupportsRouteAuto && masterAutoEffortOn(master);
+  const available = hostSupportsRouteAuto && judgeAvailable(master);
   let autoEffort: { enabled: boolean; pending: boolean; unavailable?: boolean } | null = null;
-  if (capable && masterOn) autoEffort = { enabled: routeAutoEffortOn(routeAutoEffort), pending: false };
+  if (capable && available) autoEffort = { enabled: routeAutoEffortActive(effortAuto, master), pending: false };
   // The core says Auto cannot apply to this model: the sheet says so instead of
   // offering a setting that would do nothing, and the level in force stays shown.
-  else if (modelKnown && !capable && masterOn) autoEffort = { enabled: false, pending: false, unavailable: true };
+  else if (modelKnown && !capable && available) autoEffort = { enabled: false, pending: false, unavailable: true };
   return {
     autoEffort,
     onChangeAutoEffort: (enabled: boolean) => {
@@ -114,10 +150,9 @@ export function useAutoEffortRoute(
   };
 }
 
-/** The single rule for an effort label: "Auto" when the switch is on and the
- *  model supports it, whatever level is saved (Auto's base is the global
- *  "Auto reasoning base" setting); otherwise null, meaning "show the saved
- *  level". */
+/** The single rule for an effort label: "Auto" when Auto is active and the
+ *  model supports it, whatever level is saved; otherwise null, meaning "show
+ *  the saved level". */
 export function displayEffortLabel(_savedEffort: string, opts: { autoOn: boolean; capable: boolean }): 'Auto' | null {
   return opts.autoOn && opts.capable ? 'Auto' : null;
 }
@@ -136,17 +171,22 @@ export function cachedAutoEffortCapable(provider: string, model: string): boolea
   );
 }
 
-/** Live `displayEffortLabel` for a route: "Auto" needs the master switch on AND
- *  the route's own `autoEffort` not turned off. */
-export function useAutoEffortShown(capable: boolean, savedEffort: string, routeAutoEffort?: boolean | null): boolean {
+/** Live `displayEffortLabel` for a route. */
+export function useAutoEffortShown(capable: boolean, savedEffort: string, effortAuto?: boolean | null): boolean {
   const master = useAutoEffort(capable);
-  const autoOn = masterAutoEffortOn(master) && routeAutoEffortOn(routeAutoEffort);
+  const autoOn = routeAutoEffortActive(effortAuto, master);
   return displayEffortLabel(savedEffort, { autoOn, capable }) !== null;
 }
 
-/** The master switch (Settings → Built-in) is on; `wanted` triggers the first read. */
+/** The Auto reasoning state (judge availability + legacy default); `wanted` triggers the first read. */
+export function useAutoEffortState(wanted: boolean): AutoEffortState | null {
+  return useAutoEffort(wanted);
+}
+
+/** The legacy feature switch is installed, supported and on; `wanted` triggers the first read. */
 export function useAutoEffortMasterOn(wanted: boolean): boolean {
-  return masterAutoEffortOn(useAutoEffort(wanted));
+  const master = useAutoEffort(wanted);
+  return judgeAvailable(master) && master?.enabled === true;
 }
 
 /** The switch state; `wanted` (the model supports it) triggers the first read. */

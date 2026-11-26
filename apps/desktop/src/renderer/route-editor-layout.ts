@@ -114,8 +114,9 @@ export function useRouteLayout({
   dropdown = false,
   rowWide = false,
 }: {
-  /** RouteEditor `dropdown`: the sheet and every pane share one box under
-   *  (or above) the trigger at its width; no side flyout. */
+  /** RouteEditor `dropdown`: the sheet hangs under (or above) the trigger at
+   *  its width; a pane flies out beside it where its panel has the room and
+   *  otherwise takes that same box. */
   dropdown?: boolean;
   /** The trigger is a session panel row: the sheet stands on the row's own edges (onAnchorEdges); its panes still
    *  open beside it, or over it where no side has the room. */
@@ -185,23 +186,23 @@ export function useRouteLayout({
   const paneLayout = useCallback(
     (nextSheet: RoutePanelBox, next: RouteSheetPane, viewport: RouteViewportBox) => {
       const triggerRect = trigger.current?.getBoundingClientRect();
+      const row = rowButtons.current[next];
+      const rowTop = row ? settledTop(row) : undefined;
+      const size = {
+        maxHeight: preferredFlyoutHeight(next, effortCount),
+        width: preferredFlyoutWidth(next),
+        catalog: next === 'model',
+      };
       if (dropdown && triggerRect) {
         const bounds = dropdownViewport(viewport);
-        const height = routeDrillHeight(preferredFlyoutHeight(next, effortCount), bounds);
-        const box = dropdownBox(triggerRect, height, bounds, preferredFlyoutWidth(next));
+        if (routeFlyoutFitsBeside(nextSheet, bounds, size.width)) {
+          return routePaneLayout(nextSheet, bounds, size, rowTop);
+        }
+        const height = routeDrillHeight(size.maxHeight, bounds);
+        const box = dropdownBox(triggerRect, height, bounds, size.width);
         return { box: next === 'model' ? box : routeContentFit(box), drilled: true };
       }
-      const row = rowButtons.current[next];
-      return routePaneLayout(
-        nextSheet,
-        viewport,
-        {
-          maxHeight: preferredFlyoutHeight(next, effortCount),
-          width: preferredFlyoutWidth(next),
-          catalog: next === 'model',
-        },
-        row ? settledTop(row) : undefined
-      );
+      return routePaneLayout(nextSheet, viewport, size, rowTop);
     },
     [dropdown, dropdownBox, dropdownViewport, effortCount, rowButtons, trigger]
   );

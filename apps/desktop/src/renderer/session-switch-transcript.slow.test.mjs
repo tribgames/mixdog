@@ -1460,6 +1460,53 @@ test("a press on Undo of a card kept back gives the read's card and does nothing
   );
 });
 
+test("two panes on one session: each pane's preview and changes cards stand on what that pane drew, also when the other pane's cards go", async (t) => {
+  const p = await rig(t);
+  await p.act(() => {
+    window.rig.core.seed('A', 30, { tools: 1 });
+    window.rig.core.seed('B', 12);
+    window.rig.ws.open(window.rig.ws.session('A'));
+  });
+  await p.act(() => window.rig.ws.split(window.rig.ws.session('A')));
+  // The turn writes a page its reply links and a file; the core reads back the file and one a command made, not the
+  // page: no card can take that read without a preview going.
+  await p.act(() => {
+    const { core } = window.rig;
+    core.changes('A-u31', ['src/app.ts', 'build/out.js']);
+    core.holdReads();
+    core.prompt('A');
+    core.tool('A', 'A-w31', { name: 'write', input: { path: 'src/page.html', content: '<h1>hi</h1>\n' } });
+    core.tool('A', 'A-w31.1', { name: 'write', input: { path: 'src/app.ts', content: 'one\ntwo\n' } });
+    core.reply('A', { body: 'Open [the page](src/page.html) to see it.' });
+    core.end('A');
+  });
+  const cardsOf = (pane) =>
+    p.run(
+      (pane) =>
+        [
+          ...document.querySelectorAll(
+            `#pane-conversation-slot-${pane} > .persistent-pane-surface:not([data-retained]):not([data-preparing]) :is(.transcript-visualize-turn, .turn-changes-card)`
+          ),
+        ].map((card) =>
+          card.dataset.visualizeCount
+            ? `previews ${card.dataset.visualizeCount}`
+            : `files ${card.dataset.fileCount}${card.dataset.read ? `/${card.dataset.read}` : ''}`
+        ),
+      pane
+    );
+  const drawn = ['previews 1', 'files 1'];
+  assert.deepEqual(await cardsOf('pane-1'), drawn, 'the turn end draws its records in the first pane');
+  assert.deepEqual(await cardsOf('pane-2'), drawn, 'and in the second');
+  await p.act(() => window.rig.wheel('pane-1', -40));
+  await p.act(() => window.rig.core.answerReads());
+  const kept = ['previews 1', 'files 1/updating'];
+  assert.deepEqual(await cardsOf('pane-1'), kept, "the first pane's reader keeps what was drawn");
+  assert.deepEqual(await cardsOf('pane-2'), kept, 'the second pane would lose a preview: it keeps it too');
+  // The second pane shows another session: its cards go, and the first pane's stand as they were.
+  await p.act(() => window.rig.ws.replace(window.rig.ws.session('B'), 'pane-2'));
+  assert.deepEqual(await cardsOf('pane-1'), kept, "the other pane's cards going takes nothing from this one");
+});
+
 test('a turn that wrote several files in a row (one card of calls in the transcript): its changes card lists them from the first frame, the read unanswered', async (t) => {
   const p = await rig(t);
   await p.act(() => {

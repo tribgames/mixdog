@@ -384,13 +384,13 @@ test('a selection inside the reply that is still streaming holds follow: the sel
       { kind: 'assistant', id: 'r', text: `${body(1)}\n\n${words(count)}`, at: 1_100, streaming: true },
     ]);
   await page.evaluate((s) => window.fixture.step(s), streaming(40));
-  // What is sent is written out: all of it revealed, none of it still fading in. The row grows, and follow moves the
-  // text up, until then: a point read earlier would no longer be on the first paragraph.
+  // What is sent is written out: all of it revealed. The row grows, and follow moves the text up, until then: a point
+  // read earlier would no longer be on the first paragraph.
   await page.waitForFunction(
     (written, last) => {
       const row = [...document.querySelectorAll('.transcript-virtual-row-content[data-tag="AssistantPart"]')].at(-1);
       const first = row?.querySelector('[data-md-unit="p@0"]');
-      return first?.textContent === written && row.textContent.endsWith(last) && !row.querySelector('mx-fade');
+      return first?.textContent === written && row.textContent.endsWith(last);
     },
     { timeout: 10_000, polling: 100 },
     body(1),

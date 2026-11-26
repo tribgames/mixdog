@@ -347,8 +347,9 @@ test('Web Search adds from its own catalog and excludes the occupied provider', 
   const sheet = document.querySelector('.route-sheet');
   assert.ok(sheet, 'uses the existing model picker');
   await act(async () => sheet.querySelector('.route-sheet-row').click());
-  // A chain row's picker drops down: the catalog opens inside the same sheet.
-  const catalog = document.querySelector('.route-sheet[data-dropdown][data-drilled]');
+  // A chain row's picker drops down; in a dialog the catalog flies out beside it.
+  assert.equal(document.querySelector('.route-sheet[data-drilled]'), null);
+  const catalog = document.querySelector('.route-sheet-flyout--model:not([hidden])');
   assert.ok(catalog);
   assert.match(catalog.textContent, /Search second/);
   assert.doesNotMatch(catalog.textContent, /Test model/);
@@ -379,7 +380,7 @@ test('a custom provider in a route chain picker shows its registered name, not i
   await act(async () => new Promise((resolve) => dom.window.requestAnimationFrame(resolve)));
   const sheet = document.querySelector('.route-sheet');
   await act(async () => sheet.querySelector('.route-sheet-row').click());
-  const catalog = document.querySelector('.route-sheet[data-dropdown][data-drilled]');
+  const catalog = document.querySelector('.route-sheet-flyout--model:not([hidden])');
   assert.match(catalog.textContent, /Team Gateway/);
   assert.doesNotMatch(catalog.textContent, /custom-c07a1b4c/);
 });

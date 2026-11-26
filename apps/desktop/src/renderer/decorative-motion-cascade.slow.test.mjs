@@ -272,7 +272,9 @@ test('the arcs cross the loop seam with an ordinary step, as drawn', async (t) =
   // 48 = the next loop's first) and measure each frame's ink and the arcs'
   // angle (the phase of the 3-fold pattern) at 8x.
   const page = await launch(t);
-  await page.setViewport({ width: 1200, height: 900, deviceScaleFactor: 4 });
+  // Near the seam the arcs are dots under 0.5deg long: at 4x their raster
+  // noise outweighs the frame-to-frame ink change.
+  await page.setViewport({ width: 1200, height: 900, deviceScaleFactor: 8 });
   await page.addStyleTag({
     content:
       'body { background: #000 !important; } .live-activity-icon svg { display: none; } [data-context]:not([data-context="visible"]) { display: none; }',

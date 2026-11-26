@@ -59,15 +59,24 @@ import {
   visualizeTabForTargets,
   visualizeTurnEndAt,
 } from './visualize-card-model';
-import { TurnChangesCard, TurnChangesContext, TurnChangesUndo, TurnRowsContext } from './TurnChangesCard';
+import {
+  TurnCardsDrawnContext,
+  TurnChangesCard,
+  TurnChangesContext,
+  TurnChangesUndo,
+  TurnRowsContext,
+} from './TurnChangesCard';
 import type { TranscriptRowModel } from './transcript-rows';
 import {
   type TurnChangesFile,
   type TurnChangesRef,
   type TurnChangesReply,
+  recordedTurnChanges,
   turnCardHeld,
+  useDrawnTurnChanges,
   useTurnChanges,
 } from './turn-changes-model';
+import { MarkdownProjectContext } from './MarkdownLink';
 import {
   claimTurnPreviewEnd,
   noteTurnPreviewTargets,
@@ -424,11 +433,7 @@ export function ToolVisualizeCards({
    *  ran no tool round. */
   endedAt?: number;
 }) {
-  const all = useMemo(() => visualizeCardCalls(items), [items]);
-  // A sub-agent's or room member's opens and previews live in the panel of
-  // the conversation it works for: its cards read their tabs (and its turn)
-  // there, and open its previews there.
-  const scope = useVisualizeOwnerSession(transcriptSessionId, all);
+  const { scope, state, live, opened } = useLiveVisualizeTargets(transcriptSessionId, items);
   const surface = useContext(TurnChangesContext);
   const rowsOf = useContext(TurnRowsContext);
   const trailingTurnToken = useContext(TrailingTurnKeyContext);
@@ -450,14 +455,7 @@ export function ToolVisualizeCards({
   // and an open still running is not a card yet.
   const heldSince = useVisualizeHeldSince(scope);
   const heldCalls = useVisualizeHeldCalls(scope);
-  // An open whose tab had nothing left to show when its turn ended (closed,
-  // or its file gone) gets no card: the host recorded that once, at the
-  // turn's end, in the state every window and device receives.
   const rehydrating = useVisualizeStateRehydrating(scope);
-  const state = useVisualizeState(scope);
-  const goneOpens = state.goneOpens;
-  const live = useMemo(() => all.filter((call) => !visualizeCardGone(goneOpens, call)), [all, goneOpens]);
-  const opened = useMemo(() => finishedTargets(live), [live]);
   const agentCalls = useMemo(
     () => (turnHeld || rehydrating ? NO_PREVIEW_CALLS : visualizeCardsShown(live, heldSince, heldCalls)),
     [turnHeld, rehydrating, live, heldSince, heldCalls]
@@ -522,6 +520,30 @@ const NO_CHANGED_FILES: readonly TurnChangesFile[] = [];
 const NO_SURFACED: readonly string[] = [];
 const NO_PREVIEW_CALLS: readonly VisualizeCardCall[] = [];
 
+function useLiveVisualizeTargets(transcriptSessionId: string, items: readonly TranscriptItem[]) {
+  const all = useMemo(() => visualizeCardCalls(items), [items]);
+  // A sub-agent's or room member's opens and previews live in the panel of
+  // the conversation it works for: its cards read their tabs (and its turn)
+  // there, and open its previews there.
+  const scope = useVisualizeOwnerSession(transcriptSessionId, all);
+  const state = useVisualizeState(scope);
+  // An open whose tab had nothing left to show when its turn ended (closed,
+  // or its file gone) gets no card: the host recorded that once, at the
+  // turn's end, in the state every window and device receives.
+  const goneOpens = state.goneOpens;
+  const live = useMemo(() => all.filter((call) => !visualizeCardGone(goneOpens, call)), [all, goneOpens]);
+  const opened = useMemo(() => finishedTargets(live), [live]);
+  return { scope, state, live, opened };
+}
+
+function surfacedKeyOf(surfacedBefore: readonly string[], state: VisualizeSessionState): string {
+  return [...surfacedBefore, ...state.tabs.flatMap((tab) => tab.panes.map((pane) => pane.target))].join('\n');
+}
+
+function splitSurfaced(surfacedKey: string): readonly string[] {
+  return surfacedKey ? surfacedKey.split('\n') : NO_SURFACED;
+}
+
 function useTurnPreviews({
   sessionId,
   state,
@@ -559,18 +581,24 @@ function useTurnPreviews({
     boundary: turnChanges?.boundary ?? '',
     enabled: Boolean(changesSession && checkpointId) && !running,
   });
+  // The tiles come from the reply this view's changes card draws (TurnChangesCard.tsx): its records' at the turn's end, the
+  // read once that card takes it. Before that card's first commit, from what it will draw.
+  const drawnReply = useDrawnTurnChanges(useContext(TurnCardsDrawnContext), changesSession, checkpointId);
+  const rowsOf = useContext(TurnRowsContext);
+  const project = useContext(MarkdownProjectContext) || '';
+  const recordedFallback =
+    rowsOf && !running && checkpointId ? recordedTurnChanges(rowsOf(), checkpointId, project) : null;
+  const drawn = drawnReply !== undefined ? drawnReply : (reply ?? recordedFallback);
   // Nothing new appears while the turn runs.
-  const ready = Boolean(changesSession) && !running && reply?.status === 'ready';
-  const files = ready && reply ? reply.files : NO_CHANGED_FILES;
-  const root = ready && reply ? reply.root : '';
+  const ready = Boolean(changesSession) && !running && drawn?.status === 'ready';
+  const files = ready && drawn ? drawn.files : NO_CHANGED_FILES;
+  const root = ready && drawn ? drawn.root : '';
   // Surfaced earlier: linked or opened by earlier turns (the transcript), or
   // shown by a panel tab now (the host's state). Keyed by content: the caller
   // builds the list afresh on every render.
-  const surfacedKey = [...surfacedBefore, ...state.tabs.flatMap((tab) => tab.panes.map((pane) => pane.target))].join(
-    '\n'
-  );
+  const surfacedKey = surfacedKeyOf(surfacedBefore, state);
   const found = useMemo(
-    () => turnPreviewFiles(files, root, opened, replyText, surfacedKey ? surfacedKey.split('\n') : []),
+    () => turnPreviewFiles(files, root, opened, replyText, splitSurfaced(surfacedKey)),
     [files, root, opened, replyText, surfacedKey]
   );
   const at = useMemo(() => Math.max(visualizeTurnEndAt(items), endedAt), [items, endedAt]);
@@ -611,11 +639,16 @@ function useTurnPreviews({
   const shown = heldSince === null || (at > 0 && at < heldSince);
   const settled = fresh && Boolean(reply) && !running && shown;
   useEffect(() => {
-    if (!settled || !turnPreviewOpenPending(changesSession, checkpointId)) return;
+    if (!settled || !reply || !turnPreviewOpenPending(changesSession, checkpointId)) return;
     takeTurnPreviewOpen(changesSession, checkpointId);
-    const order = turnPreviewOpenOrder(found);
+    // What opens is what the core read, whichever reply the tiles stand on.
+    const read =
+      reply.status === 'ready'
+        ? turnPreviewFiles(reply.files, reply.root, opened, replyText, splitSurfaced(surfacedKey))
+        : [];
+    const order = turnPreviewOpenOrder(read);
     if (order.length) void openTurnPreviews(sessionId, order, { reveal: !agentOpens });
-  }, [settled, changesSession, checkpointId, found, sessionId, agentOpens]);
+  }, [settled, reply, changesSession, checkpointId, opened, replyText, surfacedKey, sessionId, agentOpens]);
   return { calls, marked, visualized, reading };
 }
 
@@ -639,19 +672,11 @@ function SynchronousPreviewedTurnChangesCard({
   previewContext: TurnPreviewContext;
 }) {
   const { sessionId, toolItems, replyText, surfacedBefore } = previewContext;
-  const all = useMemo(() => visualizeCardCalls(toolItems), [toolItems]);
-  const scope = useVisualizeOwnerSession(sessionId, all);
-  const state = useVisualizeState(scope);
-  const goneOpens = state.goneOpens;
-  const live = useMemo(() => all.filter((call) => !visualizeCardGone(goneOpens, call)), [all, goneOpens]);
-  const opened = useMemo(() => finishedTargets(live), [live]);
-  const surfacedKey = [...surfacedBefore, ...state.tabs.flatMap((tab) => tab.panes.map((pane) => pane.target))].join(
-    '\n'
-  );
+  const { state, opened } = useLiveVisualizeTargets(sessionId, toolItems);
+  const surfacedKey = surfacedKeyOf(surfacedBefore, state);
   const visualizedFor = useCallback(
     (reply: TurnChangesReply): readonly string[] | undefined => {
-      const surfaced = surfacedKey ? surfacedKey.split('\n') : NO_SURFACED;
-      const found = turnPreviewFiles(reply.files, reply.root, opened, replyText, surfaced);
+      const found = turnPreviewFiles(reply.files, reply.root, opened, replyText, splitSurfaced(surfacedKey));
       if (!found.length) return visualized;
       const targets = found.map((file) => file.target);
       return visualized?.length ? [...visualized, ...targets] : targets;

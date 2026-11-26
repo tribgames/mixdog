@@ -17,6 +17,7 @@ import { reconcileSessionProjection } from '../main/state-delta';
 import { noteCarried } from './list-carry';
 import { rowsHeldFrom, streamPositionReached } from '../../../../packages/protocol-client/src/index.ts';
 import { registerIdleReclaim } from './idle-reclaim';
+import { readEffortAuto } from './route-auto-effort';
 import { sessionHasTab } from './transcript-list-reader-place';
 
 type SessionLaneSource = (listener: (update: DesktopSessionStateUpdate) => void) => () => void;
@@ -249,25 +250,31 @@ function laneTranscript(snapshot: Snapshot | null): TranscriptItem[] | null {
 // Presentation read-outs only: a windowed/disk projection that carries none
 // of them must not push the pane back to "unknown" while it keeps painting
 // the retained rows. Live/work fields are deliberately absent from this list.
-const LANE_PRESENTATION_FIELDS: ReadonlyArray<keyof Snapshot> = [
+const LANE_SESSION_PRESENTATION_FIELDS: ReadonlyArray<keyof Snapshot> = [
   'stats',
-  'contextWindow',
-  'displayContextWindow',
-  'autoCompactTokenLimit',
   'provider',
   'model',
-  'effort',
-  'fast',
-  'fastCapable',
-  'autoEffort',
-  'modelParameters',
-  'contextPercent',
   'workflow',
   'currentProject',
   'project',
   'cwd',
   'promptHistoryList',
   'desktopSessionTitle',
+];
+
+// Route-scoped fields: only copied when the incoming frame stays on the SAME
+// provider+model, so a model switch never refills effort/fast/effortAuto/context
+// from the outgoing model.
+const LANE_ROUTE_PRESENTATION_FIELDS: ReadonlyArray<keyof Snapshot> = [
+  'contextWindow',
+  'displayContextWindow',
+  'autoCompactTokenLimit',
+  'effort',
+  'fast',
+  'fastCapable',
+  'effortAuto',
+  'modelParameters',
+  'contextPercent',
 ];
 
 function mergedLaneFrame(
@@ -284,14 +291,22 @@ function mergedLaneFrame(
     if (prior.failedTurnKeys) merged.failedTurnKeys = prior.failedTurnKeys;
     if (prior.transcriptTurnKeys) merged.transcriptTurnKeys = prior.transcriptTurnKeys;
   }
-  for (const field of LANE_PRESENTATION_FIELDS) {
+  for (const field of LANE_SESSION_PRESENTATION_FIELDS) {
     if (merged[field] == null && prior[field] != null) merged[field] = prior[field];
   }
-  // The exact window travels with contextPercent: a frame that reports the
-  // percent without it has cleared the exact value; only a frame with neither
-  // (a partial projection) keeps the prior one.
-  if (!Object.hasOwn(next, 'contextTokens') && next.contextPercent == null && prior.contextTokens != null) {
-    merged.contextTokens = prior.contextTokens;
+  const sameRoute =
+    laneRouteText(prior, 'provider') === laneRouteText(merged, 'provider') &&
+    laneRouteText(prior, 'model') === laneRouteText(merged, 'model');
+  if (sameRoute) {
+    for (const field of LANE_ROUTE_PRESENTATION_FIELDS) {
+      if (merged[field] == null && prior[field] != null) merged[field] = prior[field];
+    }
+    // The exact window travels with contextPercent: a frame that reports the
+    // percent without it has cleared the exact value; only a frame with neither
+    // (a partial projection) keeps the prior one.
+    if (!Object.hasOwn(next, 'contextTokens') && next.contextPercent == null && prior.contextTokens != null) {
+      merged.contextTokens = prior.contextTokens;
+    }
   }
   if (!Object.hasOwn(next, 'goal') && prior.goal != null) {
     merged.goal = prior.goal;
@@ -343,8 +358,8 @@ function laneFrameWithRetainedRoute(prior: Snapshot | null, next: Snapshot): Sna
       merged.fast = prior.fast;
       changed = true;
     }
-    if (typeof next.autoEffort !== 'boolean' && typeof prior.autoEffort === 'boolean') {
-      merged.autoEffort = prior.autoEffort;
+    if (readEffortAuto(next.effortAuto) === undefined && readEffortAuto(prior.effortAuto) !== undefined) {
+      merged.effortAuto = readEffortAuto(prior.effortAuto);
       changed = true;
     }
     if (typeof next.fastCapable !== 'boolean' && typeof prior.fastCapable === 'boolean') {

@@ -26,7 +26,14 @@ import {
 import { RouteEditor } from './RouteEditor';
 import type { RouteSessionChoice } from './route-editor-panes';
 import { routedExactContextTokens } from './route-editor-context';
-import { hostRouteAutoEffort, routeAutoEffortCapable, useAutoEffortRoute } from './auto-effort-store';
+import {
+  effortAutoField,
+  hostRouteAutoEffort,
+  pickEffortAuto,
+  readEffortAuto,
+  routeAutoEffortCapable,
+  useAutoEffortRoute,
+} from './auto-effort-store';
 import { OpenSelect } from './OpenSelect';
 import { InitialSurface } from './InitialSurface';
 import { modelContextWindow, modelDisplayName, modelFastAvailable, modelMaxContextWindow } from './provider-display';
@@ -426,20 +433,20 @@ export function contextTokensForPercent(
     : Math.floor((contextWindow.maxTokens * percent) / 100);
 }
 
-function modelChoiceSelection(
+export function modelChoiceSelection(
   option: DesktopModelOption,
   current: {
     provider: string;
     model: string;
     effort: string;
     fast: boolean;
-    autoEffort: boolean | undefined;
+    effortAuto?: boolean | undefined;
     modelParameters: Record<string, string>;
     contextPercent: number;
     exactContextField: { contextTokens?: number };
   }
 ): DesktopModelSelection {
-  const { effort, autoEffort, exactContextField } = current;
+  const { effort, effortAuto, exactContextField } = current;
   const values = option.effortOptions.map((entry) => entry.value);
   const sameModel = option.provider === current.provider && option.model === current.model;
   const remembered = routePreferenceStore.get(option.provider, option.model);
@@ -457,12 +464,11 @@ function modelChoiceSelection(
     else if (typeof option.savedFast === 'boolean') requestedFast = option.savedFast;
     else requestedFast = option.fastPreferred;
   }
-  let nextAutoEffort: boolean | undefined;
-  if (routeAutoEffortCapable(option)) {
-    if (sameModel) nextAutoEffort = autoEffort !== false;
-    else if (typeof remembered?.autoEffort === 'boolean') nextAutoEffort = remembered.autoEffort;
-    else nextAutoEffort = option.savedAutoEffort ?? true;
-  }
+  const nextEffortAuto = routeAutoEffortCapable(option)
+    ? sameModel
+      ? readEffortAuto(effortAuto)
+      : pickEffortAuto(remembered?.effortAuto, option.savedEffortAuto)
+    : undefined;
   const nextModelParameters = preferredModelParameters(
     option,
     sameModel ? current.modelParameters : remembered?.modelParameters || {}
@@ -482,7 +488,7 @@ function modelChoiceSelection(
     model: option.model,
     ...(nextEffort ? { effort: nextEffort } : {}),
     ...(nextFast === undefined ? {} : { fast: nextFast }),
-    ...(nextAutoEffort === undefined ? {} : { autoEffort: nextAutoEffort }),
+    ...effortAutoField(nextEffortAuto, true),
     ...(option.modelParameterOptions?.length
       ? { modelParameters: routeModelParameters(nextModelParameters, optionMaxWindow) }
       : {}),
@@ -499,7 +505,8 @@ export const ModelSelector = memo(function ModelSelector({
   effort: sourceEffort,
   fast: sourceFast,
   fastCapable: sourceFastCapable,
-  autoEffort: sourceAutoEffort,
+  effortAuto: sourceEffortAuto,
+  turnEffort = '',
   modelParameters: sourceModelParameters,
   contextPercent: sourceContextPercent,
   contextTokens: sourceContextTokens,
@@ -531,8 +538,10 @@ export const ModelSelector = memo(function ModelSelector({
   effort: string;
   fast: boolean;
   fastCapable: boolean;
-  /** The route's own Auto reasoning flag; absent means on. */
-  autoEffort?: boolean;
+  /** Explicit per-route Auto reasoning choice (`true` = Auto, `false` = manual level). */
+  effortAuto?: boolean;
+  /** The effort Auto resolved for the active/last turn on this route. */
+  turnEffort?: string;
   modelParameters?: Record<string, string>;
   contextPercent?: number;
   /** Exact context window; overrides contextPercent. */
@@ -565,7 +574,7 @@ export const ModelSelector = memo(function ModelSelector({
     model: sourceModel,
     effort: sourceEffort,
     fast: sourceFast,
-    ...(typeof sourceAutoEffort === 'boolean' ? { autoEffort: sourceAutoEffort } : {}),
+    ...effortAutoField(sourceEffortAuto, true),
     modelParameters: sourceModelParameters,
     contextPercent: sourceContextPercent,
     ...(sourceContextTokens ? { contextTokens: sourceContextTokens } : {}),
@@ -575,14 +584,14 @@ export const ModelSelector = memo(function ModelSelector({
     model,
     effort = '',
     fast = false,
-    autoEffort,
+    effortAuto,
     modelParameters,
     contextPercent,
     contextTokens: selectedContextTokens,
   } = selection;
-  // Every route write carries the route's known Auto flag, like `fast`.
+  // Every route write carries the route's explicit Auto flag, like `fast`.
   // An older host rejects the field, so it travels only to a host that takes it.
-  const autoEffortField = hostRouteAutoEffort() && typeof autoEffort === 'boolean' ? { autoEffort } : {};
+  const carriedEffortAutoField = effortAutoField(effortAuto, hostRouteAutoEffort());
   // Newest request wins. An older reply may land after a newer choice, so only
   // the current token may publish its snapshot; useModelSelection already
   // ignores a stale settle.
@@ -618,7 +627,7 @@ export const ModelSelector = memo(function ModelSelector({
   const notApplicable = agentRoute?.notApplicable ?? NOTHING_LEFT_OUT;
   const autoEffortRoute = useAutoEffortRoute(
     known?.autoEffortCapable === true && !notApplicable.has('autoEffort'),
-    autoEffort,
+    effortAuto,
     (enabled) => changeAutoEffort(enabled),
     known !== undefined
   );
@@ -713,7 +722,7 @@ export const ModelSelector = memo(function ModelSelector({
         model,
         effort,
         fast: displayedFast,
-        autoEffort,
+        effortAuto,
         modelParameters: selectedModelParameters,
         contextPercent: normalizedContextPercent,
         exactContextField,
@@ -745,7 +754,7 @@ export const ModelSelector = memo(function ModelSelector({
         model,
         ...(effort ? { effort } : {}),
         fast: next.fast,
-        ...autoEffortField,
+        ...carriedEffortAutoField,
         modelParameters: routeModelParameters(next.modelParameters, maxContextWindow),
         contextPercent: normalizedContextPercent,
         ...exactContextField,
@@ -761,14 +770,14 @@ export const ModelSelector = memo(function ModelSelector({
       : undefined;
     // A picked level is explicit: it turns the route's Auto effort off (the
     // runtime's setEffort does the same), or Auto would replace it next turn.
-    const pickedAutoEffort = hostRouteAutoEffort() ? { autoEffort: false } : {};
+    const pickedEffortAuto = hostRouteAutoEffort() ? { effortAuto: false } : {};
     await route(
       {
         provider,
         model,
         effort,
         ...(nextFast === undefined ? {} : { fast: nextFast }),
-        ...pickedAutoEffort,
+        ...pickedEffortAuto,
         modelParameters: routeModelParameters(modelParameters ?? {}, maxContextWindow),
         contextPercent: normalizedContextPercent,
         ...exactContextField,
@@ -795,7 +804,7 @@ export const ModelSelector = memo(function ModelSelector({
       model,
       ...(effort ? { effort } : {}),
       ...(fastControlVisible ? { fast: displayedFast } : {}),
-      ...autoEffortField,
+      ...carriedEffortAutoField,
       ...routedParameterFields,
       contextPercent: nextContextPercent,
       ...(nextContextTokens ? { contextTokens: nextContextTokens } : {}),
@@ -809,7 +818,7 @@ export const ModelSelector = memo(function ModelSelector({
       model,
       ...(effort ? { effort } : {}),
       ...(fastControlVisible ? { fast: displayedFast } : {}),
-      autoEffort: enabled,
+      effortAuto: enabled,
       ...routedParameterFields,
       contextPercent: normalizedContextPercent,
       ...exactContextField,
@@ -831,7 +840,7 @@ export const ModelSelector = memo(function ModelSelector({
       model,
       ...(effort ? { effort } : {}),
       ...(nextFast === undefined ? {} : { fast: nextFast }),
-      ...autoEffortField,
+      ...carriedEffortAutoField,
       modelParameters: routeModelParameters(nextModelParameters, maxContextWindow),
       contextPercent: normalizedContextPercent,
       ...exactContextField,
@@ -853,6 +862,7 @@ export const ModelSelector = memo(function ModelSelector({
         model={model}
         triggerModel={triggerModel}
         effort={notApplicable.has('effort') ? '' : effort || agentTier?.effort || ''}
+        turnEffort={notApplicable.has('effort') ? '' : turnEffort}
         effortOptions={notApplicable.has('effort') ? [] : known?.effortOptions || []}
         fast={displayedFast && !notApplicable.has('fast')}
         fastVisible={fastControlVisible}

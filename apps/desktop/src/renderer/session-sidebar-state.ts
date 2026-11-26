@@ -3,6 +3,7 @@ import type { DesktopSessionSummary } from '../shared/contract';
 import { beginBootSurface, reportBootSurfaceReady, reportBootSurfaceStage } from './boot-metrics';
 import { commitForkGroupOrder, visibleForkRootIds } from './session-fork-groups';
 import {
+  commitShownOrder,
   listOrderId,
   splitListOrderId,
   syncCustomOrders,
@@ -20,6 +21,7 @@ import {
   readOpenMap,
   readProjectOpenMap,
   toggleOpen,
+  withOpen,
   writeOpenMap,
   type OpenMap,
   type OpenStateStorage,
@@ -96,16 +98,19 @@ function usePersistedOpenMap(
 
 /** Open/collapsed state of the session categories and of the fork groups. */
 export function useSidebarOpenState() {
-  // Open/collapsed choices persist; an absent entry falls back to its default
-  // (everything open except Archived).
   const [sectionOpen, updateSectionOpen] = usePersistedOpenMap(SECTION_OPEN_KEY, readOpenMap);
   const sectionIsOpen = (id: string) => isOpen(sectionOpen, id, SECTION_OPEN_DEFAULTS[id] ?? true);
   const toggleSection = (id: string) =>
     updateSectionOpen((current) => toggleOpen(current, id, SECTION_OPEN_DEFAULTS[id] ?? true));
+  const openSection = useCallback(
+    (id: string) => updateSectionOpen((current) => withOpen(current, id, true, SECTION_OPEN_DEFAULTS[id] ?? true)),
+    [updateSectionOpen]
+  );
   const agentsOpen = sectionIsOpen('agents');
   const favoritesOpen = sectionIsOpen('favorites');
+  const needsOpen = sectionIsOpen('needs');
+  const workingOpen = sectionIsOpen('working');
   const recentOpen = sectionIsOpen('recent');
-  const projectsOpen = sectionIsOpen('projects');
   const archivedOpen = sectionIsOpen('archived');
   const [forkOpen, updateForkOpen] = usePersistedOpenMap(FORK_OPEN_KEY, readOpenMap);
   const toggleFork = useCallback(
@@ -117,10 +122,12 @@ export function useSidebarOpenState() {
     toggleFork,
     agentsOpen,
     favoritesOpen,
+    needsOpen,
+    workingOpen,
     recentOpen,
-    projectsOpen,
     archivedOpen,
     toggleSection,
+    openSection,
   };
 }
 
@@ -138,23 +145,31 @@ export function useProjectFolderState() {
       new Map(current).set(key, (current.get(key) ?? PROJECT_SESSION_PAGE_ROWS) + RECENT_SESSION_PAGE_ROWS)
     );
   }, []);
-  return { projectOpen, updateProjectOpen, projectRowLimits, toggleProject, showMoreProjectRows };
+  /** Shows at least `rows` rows of the folder. */
+  const revealProjectRows = useCallback((key: string, rows: number) => {
+    setProjectRowLimits((current) =>
+      (current.get(key) ?? PROJECT_SESSION_PAGE_ROWS) >= rows ? current : new Map(current).set(key, rows)
+    );
+  }, []);
+  return { projectOpen, updateProjectOpen, projectRowLimits, toggleProject, showMoreProjectRows, revealProjectRows };
 }
 
 /** A custom list keeps its positions when activity later reorders: persist
- *  sessions the stored order does not know yet (they sit on top). */
+ *  sessions the stored order does not know yet (they sit on top). 최근's
+ *  order covers every unarchived session (`liveRows`), the rows it is
+ *  applied to: favourites rest there once 즐겨찾기 is hidden. */
 export function useCustomOrderSync({
   sessionsReady,
   orderPrefs,
   activityFavoriteRows,
-  activityRows,
+  liveRows,
   activityProjectGroups,
   updateCustomOrders,
 }: {
   sessionsReady: boolean;
   orderPrefs: SessionOrderPrefs;
   activityFavoriteRows: readonly DesktopSessionSummary[];
-  activityRows: readonly DesktopSessionSummary[];
+  liveRows: readonly DesktopSessionSummary[];
   activityProjectGroups: readonly ProjectSessionGroup[];
   updateCustomOrders: (update: (current: CustomSessionOrders) => CustomSessionOrders) => void;
 }) {
@@ -165,23 +180,27 @@ export function useCustomOrderSync({
       lists.push({ key: 'favorites', ids: activityFavoriteRows.map((session) => session.id) });
     }
     if (orderPrefs.sessions === 'custom') {
-      lists.push({ key: 'recent', ids: activityRows.map((session) => session.id) });
+      lists.push({ key: 'recent', ids: liveRows.map((session) => session.id) });
       for (const group of activityProjectGroups) {
         lists.push({ key: `project:${group.key}`, ids: group.rows.map((session) => session.id) });
       }
     }
     if (lists.length) updateCustomOrders((current) => syncCustomOrders(current, lists));
-  }, [activityFavoriteRows, activityProjectGroups, activityRows, orderPrefs, sessionsReady, updateCustomOrders]);
+  }, [activityFavoriteRows, activityProjectGroups, liveRows, orderPrefs, sessionsReady, updateCustomOrders]);
 }
 
 /** Drag-reorder of session rows inside their own list (Favorites, Recent, one
  *  project folder). One hook instance serves every list: ids are list-scoped,
- *  and `accepts` keeps a drop inside the list the drag started in. */
+ *  and `accepts` keeps a drop inside the list the drag started in. A list's
+ *  shown rows can be part of its order (`order`, every session the list key
+ *  orders): the others keep their places through a drop. */
 export function useSessionRowReorder({
   favoriteRows,
-  rows,
+  recentRows,
+  recentOrder,
   visibleRecentRowCount,
   projectGroups,
+  projectOrders,
   projectRowLimits,
   projectOpen,
   orderPrefs,
@@ -189,23 +208,29 @@ export function useSessionRowReorder({
   updateCustomOrders,
 }: {
   favoriteRows: readonly DesktopSessionSummary[];
-  rows: readonly DesktopSessionSummary[];
+  recentRows: readonly DesktopSessionSummary[];
+  recentOrder: readonly DesktopSessionSummary[];
   visibleRecentRowCount: number;
   projectGroups: readonly ProjectSessionGroup[];
+  projectOrders: ReadonlyMap<string, readonly DesktopSessionSummary[]>;
   projectRowLimits: ReadonlyMap<string, number>;
   projectOpen: OpenMap;
   orderPrefs: SessionOrderPrefs;
   updateOrderPrefs: (update: Partial<SessionOrderPrefs>) => void;
   updateCustomOrders: (update: (current: CustomSessionOrders) => CustomSessionOrders) => void;
 }) {
-  const orderLists = new Map<string, { rows: readonly DesktopSessionSummary[]; visible: number }>();
-  orderLists.set('favorites', { rows: favoriteRows, visible: favoriteRows.length });
-  orderLists.set('recent', { rows, visible: visibleRecentRowCount });
+  const orderLists = new Map<
+    string,
+    { rows: readonly DesktopSessionSummary[]; visible: number; order: readonly DesktopSessionSummary[] }
+  >();
+  orderLists.set('favorites', { rows: favoriteRows, visible: favoriteRows.length, order: favoriteRows });
+  orderLists.set('recent', { rows: recentRows, visible: visibleRecentRowCount, order: recentOrder });
   for (const group of projectGroups) {
     const limit = projectRowLimits.get(group.key) ?? PROJECT_SESSION_PAGE_ROWS;
     orderLists.set(`project:${group.key}`, {
       rows: group.rows,
       visible: isOpen(projectOpen, group.key) ? Math.min(limit, group.rows.length) : 0,
+      order: projectOrders.get(group.key) ?? group.rows,
     });
   }
   // Reordering is group-aware like rendering: one id per fork group (its
@@ -223,7 +248,10 @@ export function useSessionRowReorder({
         .map(splitListOrderId)
         .filter((entry) => entry.listKey === listKey)
         .map((entry) => entry.sessionId);
-      const full = commitForkGroupOrder(list.rows, list.visible, nextRootIds);
+      const full = commitShownOrder(
+        list.order.map((session) => session.id),
+        commitForkGroupOrder(list.rows, list.visible, nextRootIds)
+      );
       updateCustomOrders((current) => ({ ...current, [listKey]: full }));
       // Dragging in an activity-ordered list turns that list's mode to Custom.
       const kind = listKey === 'favorites' ? 'favorites' : 'sessions';

@@ -141,8 +141,8 @@ export function normalizePreset(preset) {
   const out = { id, name, type: 'agent', provider, model };
   if (preset.effort) out.effort = String(preset.effort).trim();
   if (preset.fast === true && FAST_CAPABLE_PRESET_PROVIDERS.has(provider)) out.fast = true;
-  // Auto effort is on unless the preset opts out; only the off state is kept.
-  if (preset.autoEffort === false) out.autoEffort = false;
+  if (typeof preset.effortAuto === 'boolean') out.effortAuto = preset.effortAuto;
+  else if (preset.autoEffort === false) out.autoEffort = false;
   out.tools = ['full', 'readonly', 'mcp'].includes(preset.tools) ? preset.tools : 'full';
   // The Lead preset's fallback models (validated when written, by the route normalizer).
   if (Array.isArray(preset.fallbacks) && preset.fallbacks.length) out.fallbacks = preset.fallbacks;

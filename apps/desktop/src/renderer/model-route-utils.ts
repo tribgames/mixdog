@@ -1,18 +1,19 @@
 import type { DesktopModelOption } from '../shared/contract';
 import { agentRouteFields } from '../shared/desktop-transcript-limits';
 import { record, rows, type UnknownRecord } from './record-utils';
+import { readEffortAuto, type EffortAutoState } from './route-auto-effort';
 
 type ParsedModelRef = {
   route: string;
   effort: string;
   fast: boolean;
-  /** Per-route Auto reasoning; `+noauto` turns it off, absent means on. */
-  autoEffort: boolean;
+  /** Explicit per-route Auto reasoning; `+noauto` turns it off, absent stays undefined. */
+  effortAuto: EffortAutoState;
   modelParameters: Record<string, string>;
 };
 
 /** `+noauto` route suffix: this route opts out of Auto reasoning (the stored
- *  form of `autoEffort: false`, next to `+fast`). */
+ *  form of `effortAuto: false`, next to `+fast`). */
 const NO_AUTO_EFFORT_SUFFIX = '+noauto';
 const FAST_SUFFIX = '+fast';
 
@@ -21,9 +22,9 @@ export function parseModelRef(ref: string): ParsedModelRef {
   const queryAt = raw.indexOf('?');
   let route = queryAt >= 0 ? raw.slice(0, queryAt) : raw;
   const modelParameters = queryAt >= 0 ? Object.fromEntries(new URLSearchParams(raw.slice(queryAt + 1))) : {};
-  let autoEffort = true;
+  let effortAuto: EffortAutoState;
   if (route.endsWith(NO_AUTO_EFFORT_SUFFIX)) {
-    autoEffort = false;
+    effortAuto = false;
     route = route.slice(0, -NO_AUTO_EFFORT_SUFFIX.length);
   }
   let fast = false;
@@ -40,7 +41,7 @@ export function parseModelRef(ref: string): ParsedModelRef {
       route = route.slice(0, at);
     }
   }
-  return { route, effort, fast, autoEffort, modelParameters };
+  return { route, effort, fast, effortAuto, modelParameters };
 }
 
 /** Effort picked for a model whose remembered choices it does not offer. */
@@ -146,7 +147,7 @@ export function routeOption(value: UnknownRecord): DesktopModelOption {
   });
   const savedEffort = String(value.savedEffort || '');
   const savedFast = typeof value.savedFast === 'boolean' ? value.savedFast : undefined;
-  const savedAutoEffort = typeof value.savedAutoEffort === 'boolean' ? value.savedAutoEffort : undefined;
+  const savedEffortAuto = readEffortAuto(value.savedEffortAuto);
   const fastCapable = value.fastCapable === true;
   const fastEfforts = Array.isArray(value.fastEfforts)
     ? value.fastEfforts.map((entry) =>
@@ -168,7 +169,7 @@ export function routeOption(value: UnknownRecord): DesktopModelOption {
     fastPreferred: fastCapable && (value.fastPreferred === true || savedFast === true),
     ...(savedEffort ? { savedEffort } : {}),
     ...(savedFast === undefined ? {} : { savedFast }),
-    ...(savedAutoEffort === undefined ? {} : { savedAutoEffort }),
+    ...(savedEffortAuto === undefined ? {} : { savedEffortAuto }),
     ...(value.supportsVision === true ? { supportsVision: true } : {}),
     ...(value.defaultEffort ? { defaultEffort: String(value.defaultEffort) } : {}),
     ...(value.defaultFast === true ? { defaultFast: true } : {}),

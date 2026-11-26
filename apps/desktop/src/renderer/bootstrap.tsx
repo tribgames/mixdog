@@ -31,6 +31,7 @@ import { markBootStage } from './boot-metrics';
 import { installRendererPerfProbe } from './renderer-perf-probe';
 import { scheduleFontWarmup } from './font-warmup';
 import { defaultSessionLaneStore } from './session-lane-store';
+import { holdStartupReads } from './startup-reads';
 
 markBootStage('renderer-entry');
 if (import.meta.env?.DEV) performance.mark('mixdog:startup:renderer-entry');
@@ -72,6 +73,7 @@ applyStoredUserTheme();
 // Listen before React mounts. Persisted pane session ids are not registered
 // here: usePaneWorkspace first authorizes them against the durable catalog.
 defaultSessionLaneStore.start();
+holdStartupReads();
 
 const nativeDesktop = isNativeDesktopWindow();
 let criticalFontsReady: Promise<unknown> = Promise.resolve();

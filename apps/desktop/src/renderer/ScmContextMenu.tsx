@@ -3,6 +3,7 @@ import type React from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { phoneSafeInsets } from './anchored-panel';
 import { t } from './i18n';
 import { closeOnUserScroll } from './menu-dismiss';
 import { useMobileBack } from './mobile-back';
@@ -103,14 +104,19 @@ function menuPosition(
   const height = surface?.scrollHeight || surface?.offsetHeight || 0;
   const viewportWidth = window.innerWidth || 0;
   const viewportHeight = window.innerHeight || 0;
+  // A phone's system bars and notch are off limits too (none on the PC).
+  const inset = phoneSafeInsets();
+  const minTop = 8 + inset.top;
+  const maxBottom = viewportHeight - 8 - inset.bottom;
   const start = alignEnd ? x - width : x;
-  const left = width && viewportWidth ? Math.max(8, Math.min(start, viewportWidth - width - 8)) : start;
-  const top = height && viewportHeight && y + height > viewportHeight - 8 ? Math.max(8, flipY - height) : y;
+  const left =
+    width && viewportWidth ? Math.max(8 + inset.left, Math.min(start, viewportWidth - width - 8 - inset.right)) : start;
+  const top = height && viewportHeight && y + height > maxBottom ? Math.max(minTop, flipY - height) : y;
   return {
     position: 'fixed',
     left,
     top,
-    ...(viewportHeight ? { maxHeight: Math.max(120, viewportHeight - 16) } : {}),
+    ...(viewportHeight ? { maxHeight: Math.max(120, maxBottom - minTop) } : {}),
   };
 }
 

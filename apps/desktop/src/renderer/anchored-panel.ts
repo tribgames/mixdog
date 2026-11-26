@@ -121,11 +121,32 @@ export const viewportRect = (): AnchorRect => {
   return { left, top, right: left + width, bottom: top + height, width, height };
 };
 
+/** The phone's system bars and notch (safe-area insets) in px, from the phone
+ *  root's --mx-safe-inset-* (07-mobile-chrome.css); none on the PC. Read
+ *  without touching the DOM, so a caller watching body mutations never loops. */
+export function phoneSafeInsets(): { top: number; right: number; bottom: number; left: number } {
+  if (typeof document === 'undefined') return { top: 0, right: 0, bottom: 0, left: 0 };
+  const style = window.getComputedStyle(document.documentElement);
+  const read = (side: string) => parseFloat(style.getPropertyValue(`--mx-safe-inset-${side}`)) || 0;
+  return { top: read('top'), right: read('right'), bottom: read('bottom'), left: read('left') };
+}
+
+/** The viewport less the phone's safe-area insets. */
+function safeViewportRect(): AnchorRect {
+  const view = viewportRect();
+  const inset = phoneSafeInsets();
+  const left = view.left + inset.left;
+  const top = view.top + inset.top;
+  const right = Math.max(left, view.right - inset.right);
+  const bottom = Math.max(top, view.bottom - inset.bottom);
+  return { left, top, right, bottom, width: right - left, height: bottom - top };
+}
+
 /** The area a popup may use: the trigger's pane (a split workspace's leaf, the
  *  workspace, or the session sidebar) clipped to what is visible, else the
  *  visible viewport (dialogs). */
 export function paneBounds(element: Element | null | undefined): AnchorRect {
-  const view = viewportRect();
+  const view = safeViewportRect();
   const sheet = element?.closest('.pane-leaf, .workspace, .session-sidebar');
   if (!sheet) return view;
   const rect = rectFrom(sheet);

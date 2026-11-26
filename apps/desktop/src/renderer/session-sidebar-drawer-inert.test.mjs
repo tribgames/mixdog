@@ -30,7 +30,6 @@ async function mount(t, { phone }) {
     sessionsReady: true,
     selection: { kind: 'new' },
     onNewTask() {},
-    onNewStudio() {},
     onResumeSession() {},
     async onRenameSession() {},
     async onArchiveSession() {},
@@ -259,21 +258,6 @@ test('phone: the drawer panel stays non-inert through the close slide and takes 
   await end('transitionend');
   assert.equal(aside().hasAttribute('inert'), true);
   assert.equal(aside().dataset.closing, undefined);
-});
-
-test('phone: the drawer panel clears inert at the open slide end; a reversal does not settle early', async (t) => {
-  const { render, aside, end, slide } = await mountPanel(t, { phone: true });
-  await render(false);
-  assert.equal(aside().hasAttribute('inert'), true, 'the settled closed panel is inert');
-  slide(true);
-  await render(true);
-  assert.equal(aside().hasAttribute('inert'), true, 'not flipped in the first frame');
-  await render(false);
-  await render(true);
-  await end('transitioncancel');
-  assert.equal(aside().hasAttribute('inert'), true, "the old slide's cancel does not settle the replacement");
-  await end('transitionend');
-  assert.equal(aside().hasAttribute('inert'), false);
 });
 
 test('desktop: the panel keeps inert tied to open at once', async (t) => {

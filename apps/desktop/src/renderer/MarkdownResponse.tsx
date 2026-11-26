@@ -3,7 +3,6 @@ import { memo, useEffect, useLayoutEffect, useReducer, useRef, useState } from '
 import type { MarkdownAstRoot } from './markdown-ast';
 import { createBlockParking, MarkdownBlockParkingContext } from './markdown-block-parking';
 import { finishDocument, LiveMarkdownDocument, type MarkdownPage } from './markdown-document';
-import type { StreamFadeTimeline } from './markdown-stream-fade';
 import { containsMarkdownMath } from './markdown-math-detect';
 import {
   canSyncParseMarkdown,
@@ -46,13 +45,10 @@ interface ReplyDocument {
 export const MarkdownResponse = memo(function MarkdownResponse({
   text,
   streaming,
-  fadeTimeline = null,
   preparsedRoot = null,
 }: {
   text: string;
   streaming: boolean;
-  /** The reply's fade timeline (useStreamFade); null: nothing fades. */
-  fadeTimeline?: StreamFadeTimeline | null;
   /** Final AST already parsed off-thread by the caller (e.g. replies past the AST cache bound). */
   preparsedRoot?: MarkdownAstRoot | null;
 }) {
@@ -64,12 +60,11 @@ export const MarkdownResponse = memo(function MarkdownResponse({
     if (streaming) noteStreamCommit(text.length);
   }, [streaming, text]);
   // A reply keeps only the blocks near the reader in the DOM; one still
-  // arriving or fading in also keeps its held blocks.
+  // arriving also keeps its held blocks.
   const [parking] = useState(createBlockParking);
-  const growing = streaming || Boolean(fadeTimeline);
   useLayoutEffect(() => {
-    parking.attach(markdownRef.current, true, growing);
-  }, [parking, growing]);
+    parking.attach(markdownRef.current, true, streaming);
+  }, [parking, streaming]);
   useEffect(() => () => parking.attach(null, false), [parking]);
   // A reply that unmounts asks for no more of its live parses.
   useEffect(() => {
@@ -149,7 +144,7 @@ export const MarkdownResponse = memo(function MarkdownResponse({
         className={`markdown ${streaming ? 'streaming' : ''}${workerPipeline.current ? ' streamed' : ''}`}
       >
         {pages ? (
-          <MarkdownDocumentView root={pages} fadeTimeline={fadeTimeline} copyControl={CopyControl} />
+          <MarkdownDocumentView root={pages} copyControl={CopyControl} />
         ) : (
           <span hidden data-transcript-pending />
         )}

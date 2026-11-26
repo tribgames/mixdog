@@ -57,7 +57,7 @@ export function normalizedProviderModels(value: unknown): DesktopModelOption[] {
         ? row.savedEffort
         : undefined;
     const savedFast = typeof row.savedFast === 'boolean' ? row.savedFast : undefined;
-    const savedAutoEffort = typeof row.savedAutoEffort === 'boolean' ? row.savedAutoEffort : undefined;
+    const savedEffortAuto = typeof row.savedEffortAuto === 'boolean' ? row.savedEffortAuto : undefined;
     const savedContextPercent = Number(row.savedContextPercent);
     const modelParameterOptions = Array.isArray(row.modelParameterOptions)
       ? (row.modelParameterOptions as DesktopModelOption['modelParameterOptions'])
@@ -94,7 +94,7 @@ export function normalizedProviderModels(value: unknown): DesktopModelOption[] {
         fastPreferred: fastCapable && (row.fastPreferred === true || row.savedFast === true),
         ...(savedEffort ? { savedEffort } : {}),
         ...(savedFast === undefined ? {} : { savedFast }),
-        ...(savedAutoEffort === undefined ? {} : { savedAutoEffort }),
+        ...(savedEffortAuto === undefined ? {} : { savedEffortAuto }),
         ...(Number.isFinite(savedContextPercent) && savedContextPercent >= 10 && savedContextPercent <= 100
           ? { savedContextPercent }
           : {}),

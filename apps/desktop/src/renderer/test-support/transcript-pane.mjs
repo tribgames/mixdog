@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { installTestDom } from './test-dom.mjs';
 import { MarkdownProjectContext } from '../MarkdownLink.tsx';
-import { TurnChangesContext, TurnRowsContext } from '../TurnChangesCard.tsx';
-import { resetTurnChangesCache } from '../turn-changes-model.ts';
+import { TurnCardsDrawnContext, TurnChangesContext, TurnRowsContext } from '../TurnChangesCard.tsx';
+import { createDrawnTurnChanges, resetTurnChangesCache } from '../turn-changes-model.ts';
 import { resetTurnPreviews, runningTurnKeyOf } from '../turn-preview-model.ts';
 import { trailingTurnRuns, useConversationLinkSurfaces } from '../use-conversation-link-surfaces.ts';
 import { useConversationRowRenderer } from '../use-conversation-row-renderer.ts';
@@ -153,6 +153,7 @@ export async function mountTranscriptPane(t) {
       questionCard,
       agentMode: false,
     });
+    const drawnCards = React.useMemo(createDrawnTurnChanges, []);
     view.rows = transcriptRows;
     const rowsOf = () => view.rows;
     return h(
@@ -164,8 +165,12 @@ export async function mountTranscriptPane(t) {
         h(
           TurnRowsContext.Provider,
           { value: rowsOf },
-          transcriptRows.map((row, index) =>
-            h('div', { key: row.key, 'data-row-key': row.key }, renderTranscriptRow(row, index, transcriptRows))
+          h(
+            TurnCardsDrawnContext.Provider,
+            { value: drawnCards },
+            transcriptRows.map((row, index) =>
+              h('div', { key: row.key, 'data-row-key': row.key }, renderTranscriptRow(row, index, transcriptRows))
+            )
           )
         )
       )

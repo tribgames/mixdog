@@ -157,12 +157,17 @@ test('the Lead menu pins and unpins, stored as pin:<sessionId> in the bot order'
   assert.equal(m.document.querySelector('[data-lead-pin]'), null);
 });
 
-test('the ⋯ menu offers Keep finished agents as radios (1 hour default) and stores the choice', async (t) => {
+test('the ⋯ menu offers Keep finished agents as a submenu of radios (1 hour default) and stores the choice', async (t) => {
   const m = mount(t, { sessions: SESSIONS });
   await m.render();
   assert.deepEqual(m.leads(), ['fresh']);
   await act(async () => m.document.querySelector('.agent-activity-page .row-overflow-trigger').click());
   const radios = () => [...m.document.querySelectorAll('[role="menuitemradio"]')];
+  const category = () => m.document.querySelector('[data-action-id="keep-finished-agents"]');
+  assert.deepEqual(radios(), [], 'the choices wait inside their category row');
+  assert.equal(category().getAttribute('aria-haspopup'), 'menu');
+  assert.equal(category().querySelector('.row-overflow-value').textContent, '1 hour');
+  await act(async () => category().click());
   assert.deepEqual(
     radios().map((el) => [el.textContent.trim(), el.getAttribute('aria-checked')]),
     [
@@ -172,14 +177,12 @@ test('the ⋯ menu offers Keep finished agents as radios (1 hour default) and st
       ['Forever', 'false'],
     ]
   );
-  assert.equal(
-    m.document.querySelector('[data-action-id="keep-finished-agents"]').textContent.trim(),
-    'Keep finished agents'
-  );
+  assert.equal(category().querySelector('.row-overflow-label').textContent, 'Keep finished agents');
   await act(async () => m.document.querySelector('[data-action-id="retain-1d"]').click());
   assert.deepEqual(m.host.calls.at(-1), ['shown:agents', 'retain:1d']);
   assert.deepEqual(m.leads(), ['fresh', 'two-hours'], 'the list follows at once');
   assert.equal(m.document.querySelector('[data-action-id="retain-1d"]').getAttribute('aria-checked'), 'true');
+  assert.equal(category().querySelector('.row-overflow-value').textContent, '1 day', 'the row shows the choice');
   await act(async () => m.document.querySelector('[data-action-id="retain-1h"]').click());
   assert.deepEqual(m.host.calls.at(-1), ['shown:agents'], 'the default retention is stored as no entry');
 });

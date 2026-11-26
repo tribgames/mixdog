@@ -216,6 +216,21 @@
   width: 16px;
   height: 16px;
 }
+/* In the composer the pill is one line: a long member list ends in an
+   ellipsis instead of wrapping out of the 22px pill. */
+.composer-room-ask {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: calc(100% - 12px);
+  margin-top: 6px;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+.composer-room-ask > .composer-room-ask-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* "To: @name" on the user's own bubble: plain text, no face or pill. */
 .agent-room-to-user {
   align-self: flex-end;

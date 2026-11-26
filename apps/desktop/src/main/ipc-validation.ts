@@ -385,6 +385,7 @@ const MODEL_SELECTION_KEYS = new Set([
   'effort',
   'fast',
   'autoEffort',
+  'effortAuto',
   'modelParameters',
   'contextPercent',
   'contextTokens',
@@ -1702,6 +1703,7 @@ export function requiredModelSelection(value: unknown): DesktopModelSelection {
   const effort = selection.effort;
   const fast = selection.fast;
   const autoEffort = selection.autoEffort;
+  const effortAuto = selection.effortAuto;
   const modelParameters = selection.modelParameters;
   const contextPercent = selection.contextPercent;
   const contextTokens = selection.contextTokens;
@@ -1723,6 +1725,9 @@ export function requiredModelSelection(value: unknown): DesktopModelSelection {
   }
   if (autoEffort !== undefined && typeof autoEffort !== 'boolean') {
     throw new TypeError('selection.autoEffort must be a boolean.');
+  }
+  if (effortAuto !== undefined && typeof effortAuto !== 'boolean') {
+    throw new TypeError('selection.effortAuto must be a boolean.');
   }
   if (
     modelParameters !== undefined &&
@@ -1761,6 +1766,7 @@ export function requiredModelSelection(value: unknown): DesktopModelSelection {
     ...(effort === undefined ? {} : { effort: requiredString(effort, 'selection.effort', 64) }),
     ...(fast === undefined ? {} : { fast }),
     ...(autoEffort === undefined ? {} : { autoEffort }),
+    ...(effortAuto === undefined ? {} : { effortAuto }),
     ...(modelParameters === undefined ? {} : { modelParameters: { ...(modelParameters as Record<string, string>) } }),
     ...(contextPercent === undefined ? {} : { contextPercent }),
     ...(contextTokens === undefined ? {} : { contextTokens }),

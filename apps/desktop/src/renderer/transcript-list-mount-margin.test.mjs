@@ -116,7 +116,7 @@ test('createTranscriptWidthSync detects spacer width changes and re-measures doc
   assert.equal(dockSyncs, 1, 'initial pass records spacer width');
   sync();
   assert.equal(dockSyncs, 1, 'unchanged viewport and spacer widths skip work');
-  // Padding change (--session-rail-over) alters spacer width while viewport offsetWidth stays 1000.
+  // A padding change alters spacer width while viewport offsetWidth stays 1000.
   spacer.offsetWidth = 700;
   sync();
   assert.equal(dockSyncs, 2, 'spacer width change triggers width sync and dock inset measurement');

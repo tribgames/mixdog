@@ -2,7 +2,7 @@ import {
   Archive,
   ArchiveRestore,
   ChevronDown,
-  ChevronUp,
+  ChevronRight,
   CornerDownRight,
   GitFork,
   MessageCircle,
@@ -84,7 +84,6 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
   onOpenMenu,
   forkKind,
   forkExpanded,
-  forkCount,
   forkNumber,
   onToggleFork,
 }: {
@@ -97,12 +96,11 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
   /** Fork grouping: the original (`root`, with its expansion) or a numbered fork. */
   forkKind?: 'root' | 'child';
   forkExpanded?: boolean;
-  forkCount?: number;
   forkNumber?: number;
   onToggleFork?(sessionId: string): void;
   /** Right-click / Menu key: the sidebar owns the menu and its items. */
   onOpenMenu?(session: DesktopSessionSummary, point: { x: number; y: number }, rowKey: string): void;
-  /** This row's list-scoped key; the inline editor opens on one row only. */
+  /** Row identifier; the inline editor opens on one row only. */
   rowKey: string;
   editingRowKey: string;
   sessionTitleDraft: string;
@@ -138,7 +136,6 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
       onOpenMenu={onOpenMenu && ((target, point) => onOpenMenu(target, point, rowKey))}
       forkKind={forkKind}
       forkExpanded={forkExpanded}
-      forkCount={forkCount}
       forkNumber={forkNumber}
       onToggleFork={onToggleFork}
       onTitleDraftChange={onTitleDraftChange}
@@ -169,7 +166,6 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
 function useTitleOverflow(label: string) {
   const titleRef = useRef<HTMLElement>(null);
   const [overflowing, setOverflowing] = useState(false);
-  // Only a title that does not fit fades at the row edge.
   // biome-ignore lint/correctness/useExhaustiveDependencies: label is not read, but a new title changes the text width and must re-measure.
   useLayoutEffect(() => {
     const title = titleRef.current;
@@ -185,8 +181,7 @@ function useTitleOverflow(label: string) {
   return { titleRef, overflowing };
 }
 
-/** Pressing F2 in the composer renames the session it sends to. The first
- *  visible row to handle it claims the key (the session may also sit in another list). */
+/** Pressing F2 in the composer renames the session it sends to. */
 function useComposerRenameShortcut(
   enabled: boolean,
   session: DesktopSessionSummary,
@@ -287,38 +282,49 @@ function SessionRowActions({
         </>
       )}
       {session.archived !== true && !confirmingDelete && (
-        <button
-          type="button"
-          className={`session-row-action session-row-favorite ${session.favorite === true ? 'active' : ''}`}
-          aria-label={session.favorite === true ? t('Remove from favorites') : t('Add to favorites')}
-          aria-pressed={session.favorite === true}
-          data-tooltip={session.favorite === true ? t('Remove from favorites') : t('Add to favorites')}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            void onFavoriteSession(session.id, session.favorite !== true).catch(() => {});
-          }}
-        >
-          <Star size={14} fill={session.favorite === true ? 'currentColor' : 'none'} />
-        </button>
-      )}
-      {session.archived !== true && !confirmingDelete && (
-        <button
-          type="button"
-          className="session-row-action session-row-archive"
-          aria-label={t('Archive {{name}}', { name: label })}
-          data-tooltip={t('Archive')}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            void onArchiveSession(session.id, true).catch(() => {});
-          }}
-        >
-          <Archive size={14} />
-        </button>
+        <>
+          <button
+            type="button"
+            className={`session-row-action session-row-favorite ${session.favorite === true ? 'active' : ''}`}
+            aria-label={session.favorite === true ? t('Remove from favorites') : t('Add to favorites')}
+            aria-pressed={session.favorite === true}
+            data-tooltip={session.favorite === true ? t('Remove from favorites') : t('Add to favorites')}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void onFavoriteSession(session.id, session.favorite !== true).catch(() => {});
+            }}
+          >
+            <Star size={14} fill={session.favorite === true ? 'currentColor' : 'none'} />
+          </button>
+          <button
+            type="button"
+            className="session-row-action session-row-archive"
+            aria-label={t('Archive {{name}}', { name: label })}
+            data-tooltip={t('Archive')}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void onArchiveSession(session.id, true).catch(() => {});
+            }}
+          >
+            <Archive size={14} />
+          </button>
+        </>
       )}
     </div>
   );
+}
+
+function leadingSlotIcon(forkKind: 'root' | 'child' | undefined, deletedBot: string) {
+  if (forkKind === 'root') {
+    return <GitFork className="session-row-fork-icon" data-fork="root" size={14} aria-hidden="true" />;
+  }
+  if (forkKind === 'child') {
+    return <CornerDownRight className="session-row-fork-icon" data-fork="child" size={14} aria-hidden="true" />;
+  }
+  if (deletedBot) return <DeletedBotFace agentId={deletedBot} />;
+  return <MessageCircle className="session-row-chat-icon" size={14} aria-hidden="true" />;
 }
 
 const SessionRow = React.memo(function SessionRow({
@@ -346,7 +352,6 @@ const SessionRow = React.memo(function SessionRow({
   onOpenMenu,
   forkKind,
   forkExpanded,
-  forkCount,
   forkNumber,
   onToggleFork,
 }: {
@@ -357,7 +362,6 @@ const SessionRow = React.memo(function SessionRow({
   attention: SessionAttention | '';
   forkKind?: 'root' | 'child';
   forkExpanded?: boolean;
-  forkCount?: number;
   forkNumber?: number;
   onToggleFork?(sessionId: string): void;
   onOpenMenu?(session: DesktopSessionSummary, point: { x: number; y: number }): void;
@@ -543,16 +547,7 @@ const SessionRow = React.memo(function SessionRow({
       >
         {/* The 16px leading slot: every row's name starts on one line. */}
         <span className="session-row-slot" aria-hidden="true">
-          {forkKind === 'root' ? (
-            <GitFork className="session-row-fork-icon" data-fork="root" size={14} aria-hidden="true" />
-          ) : forkKind === 'child' ? (
-            <CornerDownRight className="session-row-fork-icon" data-fork="child" size={14} aria-hidden="true" />
-          ) : deletedBot ? (
-            <DeletedBotFace agentId={deletedBot} />
-          ) : (
-            // The tab strip's session icon (WorkspaceTabStrip sessionTabGlyph).
-            <MessageCircle className="session-row-chat-icon" size={14} aria-hidden="true" />
-          )}
+          {leadingSlotIcon(forkKind, deletedBot)}
         </span>
         <span className="session-row-copy">
           <b ref={titleRef} data-overflow={overflowing || undefined}>
@@ -587,8 +582,11 @@ const SessionRow = React.memo(function SessionRow({
               onToggleFork?.(session.id);
             }}
           >
-            {forkCount ? <span className="session-row-fork-count">{forkCount}</span> : null}
-            {forkExpanded ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
+            {forkExpanded ? (
+              <ChevronDown size={12} aria-hidden="true" />
+            ) : (
+              <ChevronRight size={12} aria-hidden="true" />
+            )}
           </span>
         )}
         <NotificationMuteMark target={{ kind: 'session', id: session.id }} />

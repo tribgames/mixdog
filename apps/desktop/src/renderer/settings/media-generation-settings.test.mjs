@@ -586,3 +586,34 @@ test('a saved-default retry refreshes the rollback pin without replacing a pendi
 
 test('a saved-default retry publishes the host pin after the latest save fails while an older save is pending', () =>
   checkPinRetry(true));
+
+test('an unavailable ACP lane names its actual cause instead of Sign-in required', async () => {
+  const api = fakeApi({
+    lanes: [
+      {
+        id: 'acp-antigravity',
+        label: 'Antigravity',
+        authType: 'acp',
+        authProvider: 'acp-antigravity',
+        authenticated: false,
+        unavailableReason: 'ACP agents are turned off in Settings.',
+        supportedKinds: ['image'],
+        kinds: [],
+        image: null,
+        video: null,
+      },
+    ],
+  });
+  const view = await mount(api);
+  try {
+    await click(trigger('image'));
+    await click(sheetRow('Model'));
+    const row = optionRows().find((entry) => name(entry) === 'Antigravity');
+    assert.ok(row, 'Antigravity row is listed');
+    assert.equal(row.disabled, true);
+    assert.ok(row.textContent.includes('ACP agents are turned off in Settings.'), `expected cause in row: ${row.textContent}`);
+    assert.ok(!row.textContent.includes('Sign-in required'), `must not say Sign-in required: ${row.textContent}`);
+  } finally {
+    await view.dispose();
+  }
+});

@@ -158,6 +158,23 @@ function sharedAllowScope(tool: string): string {
   return t("{{tool}} won't ask again for any agent, in any conversation", { tool });
 }
 
+function sessionAllowCategoryScope(action: string): string {
+  return t(
+    "{{action}} from any tool won't ask again in this conversation until you close, delete, or reset it, change its agent, or restart the app.",
+    { action }
+  );
+}
+
+/** What the scope line says "Allow for this agent" changes for a category grant:
+ *  every tool of that action category for this agent, in any conversation. */
+function agentAllowCategoryScope(agent: string, action: string): string {
+  return t("{{action}} from any tool won't ask again for {{agent}}, in any conversation", { agent, action });
+}
+
+function sharedAllowCategoryScope(action: string): string {
+  return t("{{action}} from any tool won't ask again for any agent, in any conversation", { action });
+}
+
 function actionText(action: string): string {
   const texts: Record<string, string> = {
     comment: t('Posts the comment below.'),
@@ -314,7 +331,7 @@ export function approvalCardModel(approval: Approval) {
     rememberSession: Array.isArray(approval.remember) && approval.remember.includes('session'),
     /** "Always allow" is offered: a saved allow of every agent's (requests.mjs). */
     rememberShared: Array.isArray(approval.remember) && approval.remember.includes('always'),
-    /** The tool every remembered choice covers: `tool:<identity>` (requests.mjs). */
+    /** What every remembered choice covers: an action category or `tool:<identity>`. */
     grantAction: typeof approval.grantAction === 'string' ? approval.grantAction : '',
     secretId: String(secret?.requestId || ''),
     /** The bound field (requests.mjs SECRET_FORMS): 아이디 + 비밀번호 for a
@@ -474,9 +491,13 @@ export function approvalCardRows(
       { ...cancel, label: t('Deny') },
     ];
   }
-  // Every remembered choice covers the one tool asked about: the request's own
-  // grant key (`tool:<identity>`, the same for every account of a connector).
-  const grantTool = model.grantAction.startsWith('tool:') ? model.grantAction.slice('tool:'.length) : model.callName;
+  // Each remembered choice names what is stored: the action category (for any
+  // tool of that category) for a category grant, or the one tool (`tool:<id>`
+  // or the card's tool) for a tool grant.
+  const isToolGrant = model.grantAction.startsWith('tool:');
+  const grantCategory = isToolGrant ? '' : model.grantAction || model.action;
+  const grantTool = isToolGrant ? model.grantAction.slice('tool:'.length) : model.callName;
+  const categoryName = grantCategory ? actionLabel(grantCategory) : '';
   const toolName = connectorToolLabel(grantTool);
   return [
     { label: t('Allow just once'), decision: { approved: true }, edits: true },
@@ -484,7 +505,7 @@ export function approvalCardRows(
       ? [
           {
             label: t('Allow for this conversation'),
-            desc: sessionAllowToolScope(toolName),
+            desc: categoryName ? sessionAllowCategoryScope(categoryName) : sessionAllowToolScope(toolName),
             decision: { approved: true, remember: 'session' as const },
             edits: true,
           },
@@ -494,7 +515,7 @@ export function approvalCardRows(
       ? [
           {
             label: t('Allow for this agent'),
-            desc: agentAllowToolScope(agentName, toolName),
+            desc: categoryName ? agentAllowCategoryScope(agentName, categoryName) : agentAllowToolScope(agentName, toolName),
             decision: { approved: true, remember: 'agent' as const },
             edits: true,
           },
@@ -504,7 +525,7 @@ export function approvalCardRows(
       ? [
           {
             label: t('Always allow'),
-            desc: sharedAllowScope(toolName),
+            desc: categoryName ? sharedAllowCategoryScope(categoryName) : sharedAllowScope(toolName),
             decision: { approved: true, remember: 'always' as const },
             edits: true,
           },

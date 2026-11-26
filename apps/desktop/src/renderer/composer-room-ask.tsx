@@ -164,7 +164,7 @@ export function RoomAskChip({ members }: { members: readonly RoomMemberLabel[] }
       {members.map((member) => (
         <RoomMemberFace key={member.id} member={member} />
       ))}
-      {`→ ${members.map((member) => member.name).join(', ')}`}
+      <span className="composer-room-ask-label">{`→ ${members.map((member) => member.name).join(', ')}`}</span>
     </span>
   );
 }

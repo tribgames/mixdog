@@ -483,6 +483,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.row-overflow-value {
+  max-width: 45%;
+  flex: 0 1 auto;
+  overflow: hidden;
+  color: var(--mx-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .row-overflow-submenu {
   flex: 0 0 auto;
   color: var(--mx-text-muted);

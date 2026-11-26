@@ -63,10 +63,10 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
     if (ctx.serverBase) {
       const base = new URL(ctx.serverBase);
       const scheme = base.protocol === 'https:' ? 'wss' : 'ws';
-      return `${scheme}://${base.host}/ws?token=${auth}`;
+      return `${scheme}://${base.host}/ws?token=${auth}&hold=1`;
     }
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-    return `${scheme}://${location.host}/ws?token=${auth}`;
+    return `${scheme}://${location.host}/ws?token=${auth}&hold=1`;
   };
 
   const storeBrowserId = (): void => {

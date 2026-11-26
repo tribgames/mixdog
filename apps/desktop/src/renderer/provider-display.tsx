@@ -2,7 +2,7 @@ import type { SVGProps } from 'react';
 
 import type { DesktopModelOption } from '../shared/contract';
 
-import { useAutoEffortShown } from './auto-effort-store';
+import { formatAutoEffortLabel, useAutoEffortShown } from './auto-effort-store';
 import { t } from './i18n';
 import { agentModelName, agentNameInDisplay } from './model-catalog-cache';
 // @ts-expect-error Shared runtime ESM intentionally has no separate declaration file.
@@ -361,11 +361,12 @@ export function routeDaybreakBlue(
 export function ModelRouteLabel({
   model,
   effort = '',
+  turnEffort = '',
   fast = false,
   blue = false,
   effortLabel = '',
   autoEffortCapable = false,
-  autoEffort,
+  effortAuto,
   ultra = false,
   provider = '',
 }: {
@@ -373,20 +374,22 @@ export function ModelRouteLabel({
   /** How the route signs in ("OpenAI API", "OpenAI OAuth"), shown beside the model; route chain rows only. */
   provider?: string;
   effort?: string | null | undefined;
+  /** Effort Auto resolved for the active/last turn on this route. */
+  turnEffort?: string | null | undefined;
   fast?: boolean;
   /** The fast route runs the Ultrafast service tier: shown as an orange "Ultrafast". */
   ultra?: boolean;
   /** Daybreak Blue is on: shown right after the model ("GPT-6 Sol Blue XHigh"). */
   blue?: boolean;
   effortLabel?: string;
-  /** The model supports Auto reasoning: with the master switch on and this route not opted out, it replaces the saved level. */
+  /** The model supports Auto reasoning: when Auto is active for this route, it replaces the saved level. */
   autoEffortCapable?: boolean;
-  /** The route's own Auto flag; only `false` opts out, absent means on. */
-  autoEffort?: boolean | null;
+  /** Explicit per-route Auto reasoning choice (`true` = Auto, `false` = manual level). */
+  effortAuto?: boolean | null;
 }) {
-  const autoShown = useAutoEffortShown(autoEffortCapable, String(effort || ''), autoEffort);
+  const autoShown = useAutoEffortShown(autoEffortCapable, String(effort || ''), effortAuto);
   const parts = autoShown
-    ? modelRouteDisplayParts(model, '', fast, 'Auto')
+    ? modelRouteDisplayParts(model, '', fast, formatAutoEffortLabel(turnEffort))
     : modelRouteDisplayParts(model, effort, fast, effortLabel);
   return (
     <span className="model-route-label">

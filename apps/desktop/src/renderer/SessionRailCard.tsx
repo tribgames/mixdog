@@ -43,16 +43,10 @@ function applyRailDom(
   const nextBeside = nextPresentation === 'beside';
   const nextFull = nextPresentation === 'full';
   const taken = nextWidth + SESSION_RAIL_GAP;
-  const effectiveReserve = nextBeside ? nextReserve : 0;
-  const over = nextBeside ? Math.max(0, taken - effectiveReserve) : 0;
   aside.dataset.presentation = nextPresentation;
   if (nextFull) aside.style.removeProperty('width');
   else aside.style.width = `${nextWidth}px`;
-  cell.style.setProperty('--session-rail-reserve', `${effectiveReserve}px`);
-  // Scrollbar clearance for the portion of the panel still overlapping the
-  // workspace right margin; balanced on the left so the transcript keeps the
-  // workspace's exact centre while its scrollbar sits beside the panel.
-  cell.style.setProperty('--session-rail-over', `${over}px`);
+  cell.style.setProperty('--session-rail-reserve', `${nextBeside ? nextReserve : 0}px`);
   // The panel's whole width: the tab strip ends at its edge, its toggle beside the panel; over the whole pane the
   // panel stands under the strip.
   cell.style.setProperty('--session-rail-band', `${nextFull ? 0 : taken}px`);
@@ -83,7 +77,7 @@ export function SessionRailCard({
   /** The New Task draft the pane shows instead: only its conversation draws here. */
   draftId?: string;
   width: number;
-  /** The width the conversation re-centres left of; 0 while its right margin holds the panel. */
+  /** The width the conversation gives up on its right and re-centres left of. */
   reserve: number;
   presentation?: PaneSidePresentation;
   /** A dock open at the pane's side covers the panel (paneDockRailLayout). */
@@ -111,7 +105,6 @@ export function SessionRailCard({
     applyRailDom(root.current, covered, width, reserve, presentation);
     return () => {
       cell.style.removeProperty('--session-rail-reserve');
-      cell.style.removeProperty('--session-rail-over');
       cell.style.removeProperty('--session-rail-band');
     };
   }, [reserve, width, presentation, covered]);

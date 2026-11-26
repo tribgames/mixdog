@@ -23,7 +23,7 @@ const REST = 400;
 const noop = () => {};
 const wait = (ms) => act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
 
-async function renderEditor(t) {
+async function renderEditor(t, props = {}) {
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
@@ -60,6 +60,7 @@ async function renderEditor(t) {
         onChangeEffort: noop,
         onChangeSpeed: noop,
         onChangeContext: noop,
+        ...props,
       })
     )
   );
@@ -97,6 +98,16 @@ test('a hover still pending when the sheet closes opens no pane after it', async
     );
     assert.equal(trigger.getAttribute('aria-expanded'), 'false');
   }
+});
+
+test('a dialog field dropdown opens a row’s pane beside its sheet on hover', async (t) => {
+  const host = await renderEditor(t, { dropdown: true, placement: 'below' });
+  await act(async () => host.querySelector('.model-trigger').click());
+  await hover(row('Reasoning effort'));
+  await wait(REST);
+  assert.equal(row('Reasoning effort').getAttribute('aria-expanded'), 'true');
+  assert.equal(document.querySelector('.route-sheet[data-drilled]'), null, 'the pane took the rows’ place');
+  assert.equal(visibleFlyouts().length, 1);
 });
 
 test('Escape closes the open pane and cancels the hover heading for another row', async (t) => {

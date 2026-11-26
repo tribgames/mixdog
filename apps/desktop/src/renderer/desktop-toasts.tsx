@@ -7,6 +7,8 @@ import { ErrorNotice, safeErrorDetails } from './ErrorNotice';
 import { groupToasts, reduceToasts } from './desktop-toast-state';
 import { reportRendererNotice } from './RendererRecovery';
 import { presentedModalDialog } from './surface-input-focus';
+import { isPhoneSurfaceMarked } from './mobile-surface';
+import { phoneSafeInsets } from './anchored-panel';
 import { relayPayloadTooLargeMessage } from '../shared/remote-payload-limit';
 import { type DesktopNotice, readDesktopNotice } from '../shared/desktop-notice';
 import { useSectionEntries } from './section-store';
@@ -172,8 +174,12 @@ function measureToastLane(): LanePlacement | null {
   const sheet = panel?.getBoundingClientRect();
   if (!sheet?.width || !sheet.height) return null;
   const strip = panel?.querySelector('.workspace-tabs-shell')?.getBoundingClientRect();
-  const right = Math.max(16, window.innerWidth - sheet.right + 16);
-  const width = Math.min(320, Math.max(0, sheet.width - 32));
+  // The PC lane is a 320px column at the right; a phone's spans the screen
+  // inside the notch's safe area.
+  const inset = phoneSafeInsets();
+  const right = Math.max(16, window.innerWidth - sheet.right + 16) + inset.right;
+  const room = Math.max(0, sheet.width - 32 - inset.left - inset.right);
+  const width = isPhoneSurfaceMarked() ? room : Math.min(320, room);
   let top = Math.max(16, (strip?.height ? strip.bottom : sheet.top) + 16);
   const header = presentedModalDialog()
     ?.querySelector(':scope > header, .mixdog-settings__header')

@@ -65,6 +65,12 @@ const REVIEW_FILE_PATCH_CALLS: ReadonlySet<string> = new Set([
   'invokeCapability:getTurnReviewFilePatch',
 ]);
 
+// A turn's changes card read (TurnChangesCard.tsx): one per card a conversation mounts, read beside the slow reads,
+// all of a view at once, so a card never waits on a worktree diff or a patch read.
+const TURN_CHANGES_CALL = 'invokeCapability:getTurnChanges';
+const TURN_CHANGES_PATCH_CALL = `${TURN_CHANGES_CALL}+patch`;
+const TURN_CHANGES_CONCURRENCY = 6;
+
 // Whole-Project index walks, text greps and document page renders take seconds, occasionally minutes.
 const SLOW_READS = new Set([
   'searchWorkspaceText',
@@ -89,9 +95,9 @@ const SLOW_READS = new Set([
   'ghPrView',
   'ghPrDiff',
   // Keyed by capability at the dispatch site: a worktree diff read, and a
-  // turn's recorded changes (its patch text can be large).
+  // turn's recorded changes with their patch text (it can be large).
   'invokeCapability:getTurnReviewDiff',
-  'invokeCapability:getTurnChanges',
+  TURN_CHANGES_PATCH_CALL,
   // Review panel reads: each walks or diffs the worktree (a git process per
   // call, many per refresh), so a snapshot read must not wait behind them.
   'gitReview',
@@ -202,6 +208,7 @@ export function createRemoteCallQueue(
   const catalog = createCallLane(2);
   const search = createCallLane(searchConcurrency);
   const terminal = createCallLane(1);
+  const turnChanges = createCallLane(TURN_CHANGES_CONCURRENCY);
   // key -> supersede hooks of the calls under that key not yet started: a
   // session's side questions, or one search scope's queries.
   const waitingSide = new Map<string, Set<() => void>>();
@@ -218,7 +225,8 @@ export function createRemoteCallQueue(
         return runLatest(general, search, waitingSearch, call.latest, method, task, call.superseded);
       }
       let lane: CallLane | null = null;
-      if (SLOW_READS.has(method)) lane = slow;
+      if (method === TURN_CHANGES_CALL) lane = turnChanges;
+      else if (SLOW_READS.has(method)) lane = slow;
       else if (VOICE_CALLS.has(method)) lane = voice;
       else if (SIDE_QUESTION_CALLS.has(method)) lane = side;
       else if (CATALOG_READS.has(method)) lane = catalog;
@@ -235,7 +243,7 @@ export function createRemoteCallQueue(
     stats(): { queued: number; active: number; waitingKeys: number } {
       let queued = 0;
       let active = 0;
-      for (const lane of [general, slow, voice, side, catalog, search, terminal]) {
+      for (const lane of [general, slow, voice, side, catalog, search, terminal, turnChanges]) {
         const counts = lane.stats();
         queued += counts.queued;
         active += counts.active;
@@ -250,6 +258,7 @@ export function createRemoteCallQueue(
       catalog.close();
       search.close();
       terminal.close();
+      turnChanges.close();
     },
   };
 }
@@ -291,6 +300,7 @@ function createCallLane(concurrency: number) {
       if (closed) return Promise.reject(new Error('Remote client disconnected.'));
       const read =
         PARALLEL_READS.has(method) ||
+        method === TURN_CHANGES_CALL ||
         SLOW_READS.has(method) ||
         CATALOG_READS.has(method) ||
         SEARCH_READS.has(method) ||
@@ -358,12 +368,11 @@ function remoteCallStatName(method: string, params: unknown): string {
   const capabilities = callCapabilities(method, params);
   if (!capabilities.length) return method;
   const name = `${method}:${capabilities.join('+')}`;
-  if (name === 'invokeCapability:getTurnReviewDiff') {
-    const args = (Array.isArray(params) ? (params[0] as { args?: unknown } | null)?.args : null) as unknown;
-    const options = Array.isArray(args) ? (args[0] as { known?: unknown } | null) : null;
-    if (typeof options?.known === 'string') return `${name}+tagged`;
-  }
-  return name;
+  if (name !== 'invokeCapability:getTurnReviewDiff' && name !== TURN_CHANGES_CALL) return name;
+  const args = (Array.isArray(params) ? (params[0] as { args?: unknown } | null)?.args : null) as unknown;
+  const options = Array.isArray(args) ? (args[0] as { known?: unknown; patch?: unknown } | null) : null;
+  if (name === TURN_CHANGES_CALL) return options?.patch === true ? TURN_CHANGES_PATCH_CALL : name;
+  return typeof options?.known === 'string' ? `${name}+tagged` : name;
 }
 
 /** The lane key of a call: its method, or for a capability call the capability name when that capability rides a slow-read, voice or
@@ -371,7 +380,8 @@ function remoteCallStatName(method: string, params: unknown): string {
 function remoteCallQueueKey(method: string, statName: string): string {
   if (statName.startsWith('invokeCapability:getTurnReviewDiff')) return 'invokeCapability:getTurnReviewDiff';
   if (
-    statName === 'invokeCapability:getTurnChanges' ||
+    statName === TURN_CHANGES_CALL ||
+    statName === TURN_CHANGES_PATCH_CALL ||
     REVIEW_FILE_PATCH_CALLS.has(statName) ||
     VOICE_CALLS.has(statName) ||
     SIDE_QUESTION_CALLS.has(statName) ||

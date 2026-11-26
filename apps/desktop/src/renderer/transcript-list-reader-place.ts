@@ -7,10 +7,12 @@ import { usePaneKey } from './pane-key-context';
 import { useSurfaceActive } from './surface-activity';
 import { transcriptDockInset } from './transcript-list-dock-inset';
 import {
+  ceilRowHeight,
   coreScrollState,
   firstRowEndingAfter,
   logicalScrollOffset,
   type ReadingAnchor,
+  rememberRowHeight,
   type TranscriptVirtualizer,
   viewportSize,
 } from './transcript-list-geometry';
@@ -357,7 +359,7 @@ export function useReaderPlace({
     const node = [...(element?.querySelectorAll<HTMLElement>('.transcript-virtual-row') ?? [])].find(
       (candidate) => candidate.dataset.timelineKey === String(row.key)
     );
-    const box = node ? Math.round(node.getBoundingClientRect().height) : 0;
+    const box = node ? rememberRowHeight(node, ceilRowHeight(node.getBoundingClientRect().height)) : 0;
     if (node && box > 0 && box !== size) instance.resizeItem(index, box);
     anchorHold.current = { key: row.key, offset: top, index, start: null };
     restoreReadingAnchor(true);

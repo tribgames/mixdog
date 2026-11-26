@@ -7,6 +7,7 @@ import { isContactAgentRow } from '../shared/agent-contacts';
 import type { RecordValue } from './desktop-types';
 import { t } from './i18n';
 import { preferredModelEffort } from './model-route-utils';
+import { readEffortAuto } from './route-auto-effort';
 import { ModelRouteLabel, ProviderIcon, modelDisplayName, routeDaybreakBlue } from './provider-display';
 import { record } from './record-utils';
 import { contextMenuRowProps } from './ScmContextMenu';
@@ -21,7 +22,7 @@ type AgentRouteSummary = {
   blue: boolean;
   effortLabel: string;
   autoEffortCapable: boolean;
-  autoEffort: boolean;
+  effortAuto?: boolean;
 };
 
 /** Web Search never runs per-call Auto reasoning: an explicit route sends its
@@ -56,7 +57,7 @@ export function agentRouteSummary(
       routeDaybreakBlue(record(route.modelParameters) as Record<string, string>, selected?.modelParameterOptions),
     effortLabel: rawEffortLabel,
     autoEffortCapable: !webSearch && selected?.autoEffortCapable === true,
-    autoEffort: !webSearch && route.autoEffort !== false,
+    effortAuto: webSearch ? false : readEffortAuto(route.effortAuto),
   };
 }
 
@@ -87,7 +88,7 @@ export function AgentRouteSummaryView({ summary }: { summary: AgentRouteSummary 
         blue={summary.blue}
         effortLabel={summary.effortLabel}
         autoEffortCapable={summary.autoEffortCapable}
-        autoEffort={summary.autoEffort}
+        effortAuto={summary.effortAuto}
       />
     </small>
   );

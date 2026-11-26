@@ -125,3 +125,15 @@
     min-width: 36px;
   }
 }
+/* A phone toast reads its whole sentence, and its dismiss takes the 44px tier
+   hung into the toast's 12px padding, so the copy keeps its line. */
+html[data-mixdog-mobile-tabs] .mx-toast .error-notice-copy > span {
+  display: block;
+  overflow: visible;
+}
+html[data-mixdog-mobile-tabs] .mx-toast .error-notice .error-notice-dismiss {
+  min-width: var(--mx-touch);
+  min-height: var(--mx-touch);
+  justify-content: center;
+  margin: -12px -12px -12px 0;
+}

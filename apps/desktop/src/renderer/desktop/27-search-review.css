@@ -768,6 +768,10 @@ html[data-mixdog-mobile-tabs] .turn-review-files-panel .composer-island-phead .r
   color: var(--mx-text);
   font-weight: var(--mx-weight-medium);
 }
+/* The phone's header has the room: the file count is never cut. */
+html[data-mixdog-mobile-tabs] .session-diff-summary .session-diff-count {
+  flex-shrink: 0;
+}
 .session-diff-summary .diff-stats {
   margin-left: 0;
   display: inline-flex;
@@ -913,6 +917,10 @@ html[data-mixdog-mobile-tabs] .turn-review-files-panel .composer-island-phead .r
   /* Scales with the chat text size inside the transcript only (1 elsewhere). */
   font-size: calc(13px * var(--mx-content-scale, 1));
   line-height: calc(19px * var(--mx-content-scale, 1));
+}
+/* The phone reads code on the 20px rung of the line ladder. */
+html[data-mixdog-mobile-tabs] :is(.session-diff-section, .tool-diff-frame) .inline-diff {
+  line-height: calc(20px * var(--mx-content-scale, 1));
 }
 :is(.session-diff-section, .tool-diff-frame) .inline-diff-ln {
   width: auto;

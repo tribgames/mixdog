@@ -92,7 +92,7 @@ export interface SubmenuOptions<K extends string> {
   /** The open submenu's panel. */
   panel(): HTMLElement | null | undefined;
   /** False where the submenu would take the menu's place instead of opening
-   *  beside it (a drilled pane, a dropdown): such items open on click or key. */
+   *  beside it (a drilled pane): such items open on click or key. */
   hoverable?(key: K): boolean;
   /** Focuses inside a submenu opened from the keyboard; its first item by default. */
   focusPanel?(key: K): void;

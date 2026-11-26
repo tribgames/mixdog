@@ -2488,12 +2488,11 @@ test("a new pane's first painted frame has the dock and the session panel laid o
     (cell) => cell.querySelector('.pane-side-dock').dataset.overlay
   );
   assert.deepEqual(overlay, { frames: ['true'], settled: 'true' });
-  // 1,300px: a 300px panel (308px band); continuous overlap reserve = 2 * (308 - (1300 - 848) / 2) = 164px.
-  const rail = await firstFrame(1300, { ...resizableDockProps(closed()), sessionId: 's1' }, (cell) => [
-    cell.style.getPropertyValue('--session-rail-reserve'),
-    cell.style.getPropertyValue('--session-rail-over'),
-  ]);
-  assert.deepEqual(rail, { frames: [['164px', '144px']], settled: ['164px', '144px'] });
+  // 1,300px: a 300px panel, whose 308px band the conversation gives up.
+  const rail = await firstFrame(1300, { ...resizableDockProps(closed()), sessionId: 's1' }, (cell) =>
+    cell.style.getPropertyValue('--session-rail-reserve')
+  );
+  assert.deepEqual(rail, { frames: ['308px'], settled: '308px' });
 });
 
 test('panel resize (rendered): a touch drag on the handle previews, toggles data-resizing, and commits like the mouse', async () => {

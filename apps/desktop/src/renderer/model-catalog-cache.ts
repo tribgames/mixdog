@@ -4,6 +4,7 @@ import { catalogStorageKey, catalogStorageScope } from './catalog-storage-scope'
 import { isSshConnectionWindow } from './desktop-connection';
 import { requireDesktopProviders } from './desktop-provider-retry';
 import { record, recordOrNull, rows } from './record-utils';
+import { readEffortAuto } from './route-auto-effort';
 import { invokeOrHeld } from './section-capabilities';
 
 const MODEL_CATALOG_STORAGE_KEY = 'mixdog.desktop-model-catalog.v2';
@@ -93,7 +94,9 @@ function modelOption(value: unknown): DesktopModelOption | null {
     fastPreferred: option.fastPreferred === true,
     ...(typeof option.savedEffort === 'string' ? { savedEffort: option.savedEffort } : {}),
     ...(typeof option.savedFast === 'boolean' ? { savedFast: option.savedFast } : {}),
-    ...(typeof option.savedAutoEffort === 'boolean' ? { savedAutoEffort: option.savedAutoEffort } : {}),
+    ...(readEffortAuto(option.savedEffortAuto) !== undefined
+      ? { savedEffortAuto: readEffortAuto(option.savedEffortAuto) }
+      : {}),
     ...(typeof option.savedContextPercent === 'number' && Number.isFinite(option.savedContextPercent)
       ? { savedContextPercent: option.savedContextPercent }
       : {}),

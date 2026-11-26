@@ -55,4 +55,27 @@ test('while the earlier conversations convert the list says how many have settle
     source.publishSection('migration', { converting: false, setAside: { id: 'def', count: 1, dir } })
   );
   assert.ok(notice(), 'another migration is');
+
+  const file = 'C:\\Users\\me\\.mixdog\\data\\project-connectors.json';
+  await act(async () =>
+    source.publishSection('migration', {
+      converting: false,
+      setAside: { id: 'ghi', count: 1, moved: 0, inPlace: [file], dir },
+    })
+  );
+  assert.equal(
+    notice()?.querySelector('p').textContent,
+    `Updating from the earlier version found damaged files and left them in place: ${file}. Details are in ${dir}.`
+  );
+
+  await act(async () =>
+    source.publishSection('migration', {
+      converting: false,
+      setAside: { id: 'jkl', count: 3, moved: 2, inPlace: [file], dir },
+    })
+  );
+  assert.equal(
+    notice()?.querySelector('p').textContent,
+    `Updating from the earlier version set aside 2 items in ${dir} and left damaged files in place: ${file}.`
+  );
 });

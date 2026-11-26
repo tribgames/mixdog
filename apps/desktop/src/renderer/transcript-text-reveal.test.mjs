@@ -54,7 +54,7 @@ const live = (session, id, text, streaming = true, paced = true) => ({
   paced,
 });
 
-/** A manual clock for the reveal's steps and the fade placement. */
+/** A manual clock for the reveal's steps. */
 function installClock(t) {
   let clock = performance.now();
   t.mock.method(performance, 'now', () => clock);
@@ -63,7 +63,6 @@ function installClock(t) {
   };
 }
 
-const fading = (host) => [...host.querySelectorAll('[data-stream-fade]')];
 const painted = (host) => (host.querySelectorAll('.message.assistant .markdown')[0]?.textContent ?? '').length;
 
 async function pane(t, session) {
@@ -80,92 +79,57 @@ async function step(view, tick, ms) {
   await parsed(view.host);
 }
 
-test('coding: the first text shows as a step and its words fade in', async (t) => {
-  const { view } = await pane(t, 'fade');
-  await view.render([prompt('u1'), live('fade', 'f1', 'Hello there friend, here we go again')]);
-  assert.match(view.host.querySelector('.markdown').textContent, /^Hello there friend,\s*$/, 'a first step');
-  assert.deepEqual(
-    fading(view.host).map((phrase) => [
-      phrase.textContent,
-      phrase.style.getPropertyValue('--mx-fade-ms'),
-      phrase.style.getPropertyValue('--mx-fade-delay'),
-    ]),
-    [['Hello there friend,', '400ms', '0ms']],
-    'its words fade as one phrase, 400 ms, at once'
-  );
+test('coding: the first text shows as a step of about 6 characters', async (t) => {
+  const { view } = await pane(t, 'first');
+  await view.render([prompt('u1'), live('first', 'f1', 'Hello there friend, here we go again')]);
+  assert.match(view.host.querySelector('.markdown').textContent, /^Hello\s*$/, 'a first step, back to the last space');
   await view.cleanup();
 });
 
-test('coding: later text reveals in steps, each fading in', async (t) => {
+test('coding: later text steps at once after an idle gap, then one step per cadence', async (t) => {
   const { view, tick } = await pane(t, 'steps');
+  const full = `Hi ${'word '.repeat(40)}`;
   await view.render([prompt('u1'), live('steps', 's1', 'Hi ')]);
   await step(view, tick, 5);
-  await view.render([prompt('u1'), live('steps', 's1', `Hi ${'word '.repeat(40)}`)]);
-  assert.equal(painted(view.host), 2, 'waits its cadence');
-  for (let i = 0; i < 3; i += 1) await step(view, tick, 200);
-  const shown = painted(view.host);
-  assert.ok(shown > 2 && shown < 200, `in steps (${shown})`);
-  assert.ok(fading(view.host).length > 0);
+  await view.render([prompt('u1'), live('steps', 's1', full)]);
+  await step(view, tick, 0);
+  let shown = painted(view.host);
+  assert.ok(shown > 2 && shown < full.trim().length, `no wait after the idle gap (${shown})`);
+  for (let i = 0; i < 3; i += 1) {
+    await step(view, tick, 200);
+    const next = painted(view.host);
+    assert.ok(next > shown && next < full.trim().length, `in steps (${next})`);
+    shown = next;
+  }
   await view.cleanup();
 });
 
-test('coding: the part ending shows the rest at once as one last phrase from then; once it ended no wrapper stays', async (t) => {
+test('coding: the part ending shows the rest at once and settles', async (t) => {
   const { view, tick } = await pane(t, 'end');
   const full = `Hi ${'word '.repeat(40)}`;
   const article = () => view.host.querySelector('.message.assistant');
   await view.render([prompt('u1'), live('end', 'e1', 'Hi ')]);
   await view.render([prompt('u1'), live('end', 'e1', full)]);
   assert.ok(painted(view.host) < full.trim().length, 'streaming, it paces');
-  // 80 ms into the phrase "Hi" opened, the part ends.
   tick(80);
   await view.render([prompt('u1'), live('end', 'e1', full, false)]);
   assert.equal(view.host.querySelector('.markdown').textContent, full.trim(), 'ended: the rest shows at once');
-  assert.ok(article().classList.contains('streaming'), 'its last phrase fading: still live');
-  const tail = fading(view.host).at(-1);
-  assert.deepEqual(
-    [tail.textContent, tail.style.getPropertyValue('--mx-fade-delay'), tail.style.getPropertyValue('--mx-fade-ms')],
-    [full.trim().slice(3), '0ms', '400ms'],
-    'the rest is one element fading from the moment the part ended'
-  );
-  const paragraph = view.host.querySelector('.markdown p');
-  // The fade timers run in real time.
-  tick(400);
-  await act(async () => sleep(500));
-  assert.ok(article().classList.contains('settled'), 'settled as its last fade ended');
-  assert.deepEqual(fading(view.host), [], 'no wrapper outlives its fade');
-  assert.equal(view.host.querySelector('.markdown p'), paragraph, 'its blocks stayed in place');
-  assert.equal(view.host.querySelector('.markdown').textContent, full.trim());
+  assert.ok(article().classList.contains('settled'), 'nothing holds it live');
   await view.cleanup();
 });
 
-test('coding: a still-streaming reply drops its fade wrappers even when the timer for the fade end runs early', async (t) => {
-  const { view, tick } = await pane(t, 'early');
-  await view.render([prompt('u1'), live('early', 'e1', 'Hi there')]);
-  assert.equal(fading(view.host).length, 1, 'its words fade in');
-  // The timer set for the fade's end (400 ms) runs while the clock still reads just short of it, as Chromium may run a
-  // long timer early and setTimeout drops the fraction of its delay.
-  tick(399.5);
-  await act(async () => sleep(500));
-  tick(1000);
-  await act(async () => sleep(50));
-  assert.deepEqual(fading(view.host), [], 'no wrapper outlives its fade');
-  await view.cleanup();
-});
-
-test('coding: a reply that showed unfaded settles the moment it ends, with no fade to wait for', async (t) => {
-  const { view } = await pane(t, 'unfaded');
+test('coding: a reply past 400 characters shows at once and settles the moment it ends', async (t) => {
+  const { view } = await pane(t, 'joined');
   const article = () => view.host.querySelector('.message.assistant');
-  // Past 400 characters the first text shows at once, unfaded.
-  await view.render([prompt('u1'), live('unfaded', 'n1', BIG)]);
-  assert.deepEqual(fading(view.host), []);
-  await view.render([prompt('u1'), live('unfaded', 'n1', BIG, false)]);
-  assert.ok(article().classList.contains('settled'), 'nothing fades, so nothing holds it live');
+  await view.render([prompt('u1'), live('joined', 'n1', BIG)]);
+  assert.equal(view.host.querySelector('.markdown').textContent, BIG.trim());
+  await view.render([prompt('u1'), live('joined', 'n1', BIG, false)]);
+  assert.ok(article().classList.contains('settled'));
   await view.cleanup();
 });
 
-test('coding: a part ending with a tail past the parse cap shows it in the commit that ends it, fading in', async (t) => {
+test('coding: a part ending with a tail past the parse cap shows it in the commit that ends it', async (t) => {
   const { view, tick } = await pane(t, 'late');
-  const article = () => view.host.querySelector('.message.assistant');
   await view.render([prompt('u1'), live('late', 'l1', 'Intro ')]);
   tick(1000);
   // Past the main-thread parse cap (4,096 units) a streaming tail parses off
@@ -174,45 +138,33 @@ test('coding: a part ending with a tail past the parse cap shows it in the commi
   const host = view.host;
   // Every committed state from the end on: whether its tail had shown.
   const states = [];
-  const observer = new MutationObserver(() =>
-    states.push({
-      settled: article().classList.contains('settled'),
-      tail: host.querySelector('.markdown').textContent.endsWith('end'),
-    })
-  );
+  const observer = new MutationObserver(() => states.push(host.querySelector('.markdown').textContent.endsWith('end')));
   observer.observe(host, { subtree: true, childList: true, attributes: true, characterData: true });
   await view.render([prompt('u1'), live('late', 'l1', full, false)]);
   await act(async () => sleep(0));
   observer.disconnect();
   assert.ok(states.length > 0);
   assert.deepEqual(
-    states.filter((state) => !state.tail),
+    states.filter((tail) => !tail),
     [],
     'no commit of the ended part without its tail'
   );
-  const tail = fading(host).at(-1);
-  assert.match(tail.textContent, /word word[\s\S]*end$/);
-  assert.equal(tail.style.getPropertyValue('--mx-fade-ms'), '400ms');
-  assert.equal(tail.style.getPropertyValue('--mx-fade-delay'), '0ms', 'its fade starts as it shows');
-  assert.ok(article().classList.contains('streaming'), 'still live while it fades');
   await view.cleanup();
 });
 
-test('coding: a part ending inside a code block settles at once: nothing fades in code', async (t) => {
+test('coding: a part ending inside a code block settles at once', async (t) => {
   const { view, tick } = await pane(t, 'code-end');
   const article = () => view.host.querySelector('.message.assistant');
   await view.render([prompt('u1'), live('code-end', 'c1', 'Run:\n\n```sh\nnpm i')]);
+  for (let i = 0; i < 10 && !/npm i/.test(view.host.textContent); i += 1) await step(view, tick, 200);
   assert.match(view.host.textContent, /npm i/);
-  // The fades of what showed ended long ago.
-  tick(1000);
   await view.render([prompt('u1'), live('code-end', 'c1', 'Run:\n\n```sh\nnpm install\nnpm test\n```', false)]);
   assert.match(view.host.textContent, /npm test/);
-  assert.deepEqual(fading(view.host), []);
-  assert.ok(article().classList.contains('settled'), 'no fade shows, so nothing holds it live');
+  assert.ok(article().classList.contains('settled'), 'nothing holds it live');
   await view.cleanup();
 });
 
-test('coding: text shown when a hidden tab returns shows at once, unfaded', async (t) => {
+test('coding: text that arrived while the tab was hidden shows at once on return', async (t) => {
   const { view, tick } = await pane(t, 'hidden');
   const full = `Hi ${'word '.repeat(40)}`;
   await view.render([prompt('u1'), live('hidden', 'v1', 'Hi ')]);
@@ -227,11 +179,6 @@ test('coding: text shown when a hidden tab returns shows at once, unfaded', asyn
   await act(async () => document.dispatchEvent(new window.Event('visibilitychange')));
   await parsed(view.host);
   assert.equal(view.host.querySelector('.markdown').textContent, full.trim(), 'all of it shows');
-  assert.deepEqual(
-    fading(view.host).filter((phrase) => /word/.test(phrase.textContent)),
-    [],
-    'what showed on return is not faded in'
-  );
   await view.cleanup();
 });
 
@@ -256,7 +203,7 @@ test('coding: a settled render React never commits leaves the committed reveal w
   await view.render([prompt('u1'), live('abandon', 'a1', full)]);
   for (let i = 0; i < 10 && painted(view.host) <= 2; i += 1) await step(view, tick, 200);
   const cursor = painted(view.host);
-  assert.ok(cursor > 2 && cursor < full.trim().length / 2, `mid-backlog (${cursor} of ${full.trim().length})`);
+  assert.ok(cursor > 2 && cursor < full.trim().length, `mid-backlog (${cursor} of ${full.trim().length})`);
   // The same reply renders settled, but a sibling throws: React discards
   // that render, so it never commits and none of its effects run.
   t.mock.method(console, 'error', () => {});
@@ -278,7 +225,6 @@ test('coding: a settled render React never commits leaves the committed reveal w
   for (let i = 0; i < 5 && painted(view.host) === cursor; i += 1) await step(view, tick, 200);
   const next = painted(view.host);
   assert.ok(next > cursor && next < full.trim().length, `it goes on in steps (${next})`);
-  assert.equal(fading(view.host).at(-1).style.getPropertyValue('--mx-fade-ms'), '400ms', 'still fading in');
   await view.cleanup();
 });
 
@@ -303,7 +249,7 @@ test('coding: a bare list marker waits for its first glyph', async (t) => {
   await view.cleanup();
 });
 
-test('agent chat: deltas closer than 33 ms land in one paint, unfaded; unfinished rows are held', async (t) => {
+test('agent chat: deltas closer than 33 ms land in one paint; unfinished rows are held', async (t) => {
   const { view, tick } = await pane(t, 'chat');
   await view.render([prompt('u1'), live('chat', 'h1', 'Hi', true, false)]);
   tick(10);
@@ -313,7 +259,6 @@ test('agent chat: deltas closer than 33 ms land in one paint, unfaded; unfinishe
   await view.render([prompt('u1'), live('chat', 'h1', 'Hi there friend', true, false)]);
   await step(view, tick, REVEAL_INTERVAL_MS);
   assert.equal(view.host.querySelector('.markdown').textContent, 'Hi there friend', 'both land together');
-  assert.deepEqual(fading(view.host), []);
   tick(REVEAL_INTERVAL_MS);
   await view.render([prompt('u1'), live('chat', 'h1', 'Hi there friend\n\n| a | b', true, false)]);
   assert.doesNotMatch(view.host.textContent, /\| a/, 'the unfinished row is held back');
@@ -335,7 +280,7 @@ test('a mounted live row keeps revealing when more than 64 other live rows are r
   await view.cleanup();
 });
 
-test('reduced motion shows what arrives at once, with no fade', async (t) => {
+test('reduced motion shows what arrives at once', async (t) => {
   const { view, tick } = await pane(t, 'reduced');
   const original = globalThis.matchMedia;
   globalThis.matchMedia = (query) => ({
@@ -348,7 +293,6 @@ test('reduced motion shows what arrives at once, with no fade', async (t) => {
     tick(300);
     await view.render([prompt('u1'), live('reduced', 'x1', `Hi ${BIG}`)]);
     assert.ok(view.host.textContent.includes(BIG.trim()));
-    assert.deepEqual(fading(view.host), []);
   } finally {
     globalThis.matchMedia = original;
   }
@@ -492,9 +436,8 @@ test('MarkdownDocumentView UnitWaiting renders height-preserving plain-text fall
       React.createElement(MarkdownDocumentView, {
         root: {
           key: 'root',
-          items: [{ key: 'u0', node: null, text: prose, pending: true, base: 0, from: 0, end: 0, held: false }],
+          items: [{ key: 'u0', node: null, text: prose, pending: true, from: 0, held: false }],
         },
-        fadeTimeline: null,
         copyControl: () => null,
       })
     )

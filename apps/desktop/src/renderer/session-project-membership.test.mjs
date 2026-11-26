@@ -107,6 +107,8 @@ const fire = (window, target, type, init = {}) => {
 const group = (document, name) =>
   [...document.querySelectorAll('.project-group')].find((el) => el.textContent.includes(name));
 const recentRow = (document, id) => document.querySelector(`.recent-session-list [data-session-id="${id}"]`);
+// Recent leaves a project session to its folder: it is listed there only.
+const projectRow = (document, id) => document.querySelector(`.project-group [data-session-id="${id}"]`);
 
 test('dragging a session outlines only valid project folders and drops move it', async (t) => {
   const { document, window, moves } = await mount(t, [row('free'), row('inA', { cwd: 'C:\\Work\\Alpha' })]);
@@ -128,7 +130,7 @@ test('dragging a session outlines only valid project folders and drops move it',
   await act(async () => void fire(window, recentRow(document, 'free'), 'dragend'));
 
   // A session already inside a folder gets no highlight or drop on that folder.
-  await act(async () => void fire(window, recentRow(document, 'inA'), 'dragstart'));
+  await act(async () => void fire(window, projectRow(document, 'inA'), 'dragstart'));
   await act(async () => void fire(window, alpha, 'dragover'));
   assert.equal(alpha.dataset.sessionDrop, undefined);
   await act(async () => void fire(window, alpha, 'drop'));
@@ -156,7 +158,7 @@ test('the session menu moves to another project (excluding the current one) and 
     },
   });
   const openMenu = async () => {
-    await act(async () => void fire(window, recentRow(document, 'inA'), 'contextmenu'));
+    await act(async () => void fire(window, projectRow(document, 'inA'), 'contextmenu'));
   };
   const action = (id) => document.querySelector(`.dock-scm-context-menu [data-action-id="${id}"]`);
   await openMenu();

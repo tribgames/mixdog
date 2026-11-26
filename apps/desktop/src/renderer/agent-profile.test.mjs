@@ -53,13 +53,15 @@ async function type(input, value) {
   await act(async () => input.dispatchEvent(new dom.window.Event('input', { bubbles: true })));
 }
 
+// The catalog drills into the sheet in a narrow panel and flies out beside it where there is room.
+const openCatalog = () =>
+  document.querySelector('.route-sheet[data-drilled], .route-sheet-flyout--model:not([hidden])');
+
 async function pickModel(display) {
   await act(async () => document.querySelector('.agent-profile .model-trigger').click());
   await act(async () => new Promise((resolve) => dom.window.requestAnimationFrame(resolve)));
   await act(async () => document.querySelector('.route-sheet .route-sheet-row').click());
-  const option = [...document.querySelectorAll('.route-sheet[data-drilled] button')].find((button) =>
-    button.textContent.includes(display)
-  );
+  const option = [...openCatalog().querySelectorAll('button')].find((button) => button.textContent.includes(display));
   assert.ok(option, `the catalog lists ${display}`);
   await act(async () => option.click());
 }
@@ -828,7 +830,7 @@ test('the bot profile model picker names a custom provider by its setup name, li
   await act(async () => document.querySelector('.agent-profile .model-trigger').click());
   await act(async () => new Promise((resolve) => dom.window.requestAnimationFrame(resolve)));
   await act(async () => document.querySelector('.route-sheet .route-sheet-row').click());
-  const catalog = document.querySelector('.route-sheet[data-drilled]').textContent;
+  const catalog = openCatalog().textContent;
   assert.match(catalog, /fake-1/, 'the catalog lists the custom model');
   assert.match(catalog, /Fake/);
   assert.doesNotMatch(catalog, /custom-a367/, 'never the generated provider id');
@@ -842,12 +844,19 @@ test('the profile model row opens the shared picker as a dropdown under its chip
   }));
   const { api, calls } = fakeApi(WATCHER);
   await render(
-    React.createElement(AgentProfilePane, { sessionId: 'sess_home_github-watcher', active: true, api, models: tuned })
+    React.createElement(
+      'div',
+      { className: 'workbench-side-panel' },
+      React.createElement(AgentProfilePane, { sessionId: 'sess_home_github-watcher', active: true, api, models: tuned })
+    )
   );
   await settle();
   const chip = document.querySelector('.agent-profile .route-chain-row .model-trigger');
   const rect = { left: 600, right: 860, top: 300, bottom: 332, width: 260, height: 32, x: 600, y: 300 };
   chip.getBoundingClientRect = () => rect;
+  // A side panel just wider than the chip: no pane has the room beside the sheet.
+  const panelRect = { left: 580, right: 880, top: 0, bottom: 768, width: 300, height: 768, x: 580, y: 0 };
+  chip.closest('.workbench-side-panel').getBoundingClientRect = () => panelRect;
   const open = async () => {
     if (chip.getAttribute('aria-expanded') !== 'true') await act(async () => chip.click());
     await act(async () => new Promise((resolve) => dom.window.requestAnimationFrame(resolve)));

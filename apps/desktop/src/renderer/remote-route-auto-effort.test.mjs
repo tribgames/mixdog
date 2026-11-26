@@ -5,9 +5,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { withPhoneApi } from './test-support/phone-api-rig.mjs';
 
-const selection = { provider: 'anthropic', model: 'opus', effort: 'high', autoEffort: false };
+const selection = { provider: 'anthropic', model: 'opus', effort: 'high', effortAuto: false };
 
-async function sentSelections(routeAutoEffort) {
+async function sentSelections(routeAutoEffort, routeEffortAuto = false) {
   const answer = () => null;
   const handlers = {
     setModelRoute: answer,
@@ -17,6 +17,7 @@ async function sentSelections(routeAutoEffort) {
   };
   return withPhoneApi(handlers, async ({ ctx, api, calls }) => {
     ctx.peerRouteAutoEffort = routeAutoEffort;
+    ctx.peerRouteEffortAuto = routeEffortAuto;
     const sent = async (pending) => {
       await pending;
       return calls.at(-1);
@@ -33,18 +34,40 @@ async function sentSelections(routeAutoEffort) {
   });
 }
 
-test('a host without routeAutoEffort never receives the autoEffort field', async () => {
+test('a host without routeAutoEffort never receives effortAuto or autoEffort', async () => {
   const { advertised, selections, draft } = await sentSelections(false);
   assert.equal(advertised, false);
   for (const sent of selections) {
+    assert.equal(Object.hasOwn(sent, 'effortAuto'), false);
     assert.equal(Object.hasOwn(sent, 'autoEffort'), false);
     assert.deepEqual({ ...sent }, { provider: 'anthropic', model: 'opus', effort: 'high' });
   }
   assert.equal(draft.projectPath, '/p', 'the rest of the draft is untouched');
 });
 
-test('a host advertising routeAutoEffort receives the route flag as given', async () => {
-  const { advertised, selections } = await sentSelections(true);
-  assert.equal(advertised, true);
-  for (const sent of selections) assert.equal(sent.autoEffort, false);
+test('a host advertising only routeAutoEffort receives the choice under the older autoEffort key', async () => {
+  const { selections } = await sentSelections(true);
+  for (const sent of selections) {
+    assert.deepEqual({ ...sent }, { provider: 'anthropic', model: 'opus', effort: 'high', autoEffort: false });
+  }
+});
+
+test('fallback entries and capability requests get the older key too', async () => {
+  const answer = () => null;
+  await withPhoneApi({ setModelRoute: answer, invokeCapability: answer }, async ({ ctx, api, calls }) => {
+    ctx.peerRouteAutoEffort = true;
+    ctx.peerRouteEffortAuto = false;
+    await api.setModelRoute({ ...selection, fallbacks: [{ provider: 'openai', model: 'gpt', effortAuto: true }] }, 's1');
+    assert.deepEqual(calls.at(-1).params[0].fallbacks, [{ provider: 'openai', model: 'gpt', autoEffort: true }]);
+    await api.invokeCapability({ capability: 'setRoute', route: selection });
+    assert.deepEqual(calls.at(-1).params[0], {
+      capability: 'setRoute',
+      route: { provider: 'anthropic', model: 'opus', effort: 'high', autoEffort: false },
+    });
+  });
+});
+
+test('a host advertising routeEffortAuto receives the route flag as given', async () => {
+  const { selections } = await sentSelections(true, true);
+  for (const sent of selections) assert.equal(sent.effortAuto, false);
 });

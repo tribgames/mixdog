@@ -14,6 +14,12 @@ import {
 
 export const NATIVE_APP_USER_AGENT_TOKEN = 'MixdogApp/';
 export const NATIVE_PUSH_EVENT = 'mixdognativepush';
+/** Fired on `window` by the shell when the app moves to the background or the screen locks. */
+export const NATIVE_BACKGROUND_EVENT = 'mixdognativebackground';
+/** Fired on `window` by the shell when the app returns to the foreground after a background stop. */
+export const NATIVE_FOREGROUND_EVENT = 'mixdognativeforeground';
+/** Fired on `window` by the shell when the active network changes while the app is on screen. */
+export const NATIVE_NETWORK_CHANGE_EVENT = 'mixdognativenetwork';
 
 export type NativeAppPlatform = 'ios' | 'android';
 

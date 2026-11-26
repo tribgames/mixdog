@@ -423,6 +423,17 @@
 html[data-mixdog-mobile-tabs] .browser-tab-list > .dock-header-chip:not(:only-child):not(.is-active) {
   min-width: 30px;
 }
+/* Phone sheet strips (file, terminal, visualize): a tab is as wide as its name,
+   up to the strip, and a run of tabs past the strip scrolls sideways. */
+html[data-mixdog-mobile-tabs] .dock-header-row .browser-tab-list > .browser-tab,
+html[data-mixdog-mobile-tabs] .visualize-pane .visualize-tabs > .dock-header-chip.browser-tab {
+  container-type: normal;
+  flex: 0 0 auto;
+  max-width: 100%;
+}
+html[data-mixdog-mobile-tabs] .dock-header-row .browser-tab-new {
+  min-width: var(--mx-touch);
+}
 /* Side-dock file tabs: a preview tab (the next link replaces it) is italic,
    like a preview tab in the pane workspace strip. */
 .browser-tab.is-preview .browser-tab-select > span:not(.progress-spinner-turn) {

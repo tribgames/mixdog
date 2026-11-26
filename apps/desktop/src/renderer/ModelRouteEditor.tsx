@@ -1,5 +1,11 @@
 import type { DesktopModelOption, DesktopModelSelection } from '../shared/contract';
-import { routeAutoEffortCapable, useAutoEffortRoute } from './auto-effort-store';
+import {
+  effortAutoField,
+  pickEffortAuto,
+  readEffortAuto,
+  routeAutoEffortCapable,
+  useAutoEffortRoute,
+} from './auto-effort-store';
 import { t } from './i18n';
 import {
   modelOffersUltrafast,
@@ -28,6 +34,7 @@ export function ModelRouteEditor({
   dropdown = false,
   composerParity = false,
   autoEffortSwitch = false,
+  turnEffort = '',
   onChange,
   onOpenProviders,
 }: {
@@ -42,6 +49,8 @@ export function ModelRouteEditor({
   composerParity?: boolean;
   /** Show the Auto effort switch without the rest of the composer parity set. */
   autoEffortSwitch?: boolean;
+  /** Effort resolved by Auto for the current turn, when applicable. */
+  turnEffort?: string;
   models: DesktopModelOption[];
   value: DesktopModelSelection;
   disabled?: boolean;
@@ -69,7 +78,7 @@ export function ModelRouteEditor({
       : preferred;
   const fastAvailable = modelFastAvailable(selected, effort, modelParameters);
   const fast = fastAvailable && (typeof value.fast === 'boolean' ? value.fast : selected?.fastPreferred === true);
-  const routeAutoEffort = value.autoEffort !== false;
+  const routeEffortAuto = readEffortAuto(value.effortAuto);
   let triggerModel = t('Select model');
   if (selected) {
     triggerModel = labelForModel?.(selected) || modelDisplayName(selected.model, selected.provider, selected.display);
@@ -94,13 +103,16 @@ export function ModelRouteEditor({
     // An exact window follows its own patch; a percent patch clears it.
     const keptContextTokens = sameModel ? value.contextTokens : undefined;
     const nextContextTokens = patch.contextPercent ? patch.contextTokens : keptContextTokens;
-    const nextAutoEffort = patch.autoEffort ?? (sameModel ? routeAutoEffort : (option.savedAutoEffort ?? true));
+    const nextEffortAuto = pickEffortAuto(
+      patch.effortAuto,
+      sameModel ? routeEffortAuto : option.savedEffortAuto
+    );
     return {
       provider: option.provider,
       model: option.model,
       ...(nextEffort ? { effort: nextEffort } : {}),
       ...(option.fastCapable ? { fast: nextFast } : {}),
-      ...(routeAutoEffortCapable(option) ? { autoEffort: nextAutoEffort } : {}),
+      ...effortAutoField(nextEffortAuto, routeAutoEffortCapable(option)),
       ...(option.modelParameterOptions?.length ? { modelParameters: nextParameters } : {}),
       ...(nextContextPercent ? { contextPercent: nextContextPercent } : {}),
       ...(nextContextTokens ? { contextTokens: nextContextTokens } : {}),
@@ -111,10 +123,10 @@ export function ModelRouteEditor({
   const contextVisible = composerParity && maxWindow > 0;
   const autoEffortRoute = useAutoEffortRoute(
     (composerParity || autoEffortSwitch) && selected?.autoEffortCapable === true,
-    value.autoEffort,
+    value.effortAuto,
     (enabled) => {
       if (!selected) return;
-      onChange(selectionFor(selected, { autoEffort: enabled }));
+      onChange(selectionFor(selected, { effortAuto: enabled }));
     },
     (composerParity || autoEffortSwitch) && selected !== undefined
   );
@@ -166,7 +178,7 @@ export function ModelRouteEditor({
       onSelectModel={(option) => onChange(selectionFor(option))}
       onChangeEffort={(nextEffort) => {
         // A picked level is explicit: it turns this route's Auto effort off.
-        if (selected) onChange(selectionFor(selected, { effort: nextEffort, autoEffort: false }));
+        if (selected) onChange(selectionFor(selected, { effort: nextEffort, effortAuto: false }));
       }}
       onChangeSpeed={(speed) => {
         if (!selected) return;
@@ -188,6 +200,7 @@ export function ModelRouteEditor({
       }}
       onOpenProviders={onOpenProviders}
       autoEffort={autoEffortRoute.autoEffort}
+      turnEffort={turnEffort}
       onChangeAutoEffort={autoEffortRoute.onChangeAutoEffort}
       onOpenSheet={autoEffortRoute.onOpenSheet}
       // A dialog/settings field: the sheet opens below it like every popup.

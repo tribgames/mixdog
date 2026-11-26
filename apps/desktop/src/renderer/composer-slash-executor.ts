@@ -12,7 +12,7 @@ import type {
 } from '../shared/contract';
 import type { GoalSnapshot } from './desktop-types';
 import { goalStatusLabel } from './session-goal-presentation';
-import { hostRouteAutoEffort } from './auto-effort-store';
+import { effortAutoField, hostRouteAutoEffort } from './auto-effort-store';
 import { type RouteSpeed, speedRouteFields } from './model-route-utils';
 import {
   resolveDesktopSlashCommand,
@@ -41,8 +41,8 @@ type SlashExecutorDeps = {
   effort: string;
   fast: boolean;
   fastCapable: boolean;
-  /** The route's own Auto reasoning flag; absent means on. */
-  autoEffort?: boolean;
+  /** Explicit per-route Auto reasoning choice (`true` = Auto, `false` = manual level). */
+  effortAuto?: boolean;
   modelParameters?: Record<string, string>;
   /** Whether the current model offers the Ultrafast service tier. */
   ultrafastCapable?: () => boolean;
@@ -283,15 +283,16 @@ async function commandCapability<T>(run: SlashRun, capability: DesktopCapability
   const { deps } = run;
   if (deps.draftMode && capability === 'setEffort' && deps.onDraftModelSelection && deps.provider && deps.model) {
     const nextEffort = String(args[0] || deps.effort);
-    // An explicit level turns the route's Auto effort off (runtime setEffort).
+    const isAuto = nextEffort.trim().toLowerCase() === 'auto';
+    // An explicit level turns the route's Auto effort off; `"auto"` turns it on.
     deps.onDraftModelSelection(
       modelSelection(deps, {
-        effort: nextEffort,
+        ...(isAuto ? {} : { effort: nextEffort }),
         ...(deps.fastCapable ? { fast: deps.fast } : {}),
-        ...(hostRouteAutoEffort() ? { autoEffort: false } : {}),
+        ...(hostRouteAutoEffort() ? { effortAuto: isAuto } : {}),
       })
     );
-    return nextEffort as T;
+    return (isAuto ? 'auto' : nextEffort) as T;
   }
   if (deps.draftMode && capability !== 'listPresets' && capability !== 'getUsageDashboard') {
     deps.setAttachmentError(t('Start the task with a message before running this command.'));
@@ -308,7 +309,7 @@ async function commandCapability<T>(run: SlashRun, capability: DesktopCapability
 
 function modelSelection(
   deps: SlashExecutorDeps,
-  patch: { effort?: string; fast?: boolean; autoEffort?: boolean; modelParameters?: Record<string, string> }
+  patch: { effort?: string; fast?: boolean; effortAuto?: boolean; modelParameters?: Record<string, string> }
 ): DesktopModelSelection {
   const { provider, model, effort } = deps;
   const { modelParameters = deps.modelParameters, ...rest } = patch;
@@ -316,7 +317,7 @@ function modelSelection(
     provider,
     model,
     effort,
-    ...(typeof deps.autoEffort === 'boolean' ? { autoEffort: deps.autoEffort } : {}),
+    ...effortAutoField(deps.effortAuto, true),
     ...rest,
     ...(modelParameters && Object.keys(modelParameters).length ? { modelParameters } : {}),
   };

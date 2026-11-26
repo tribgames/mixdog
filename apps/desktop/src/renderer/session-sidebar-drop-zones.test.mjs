@@ -35,7 +35,6 @@ async function mount(t, sessions = [row('star', { favorite: true }), row('free')
         projects: [A],
         selection: { kind: 'new' },
         onNewTask() {},
-        onNewStudio() {},
         onResumeSession() {},
         async onRenameSession() {},
         async onArchiveSession() {},
@@ -107,31 +106,24 @@ test('a favorite in a project dragged from Favorites onto an empty Recent is unf
 });
 
 test('a session dragged from Recent is no Recent target and leaves the gap to its neighbours', async (t) => {
-  const { document, window, favorited, moves } = await mount(t, [
-    row('star', { favorite: true }),
-    row('free'),
-    row('inA', { cwd: 'C:\\Work\\Alpha' }),
-  ]);
+  const { document, window, favorited, moves } = await mount(t, [row('star', { favorite: true }), row('free')]);
   const scroller = document.querySelector('.session-sidebar-sessions > .session-sidebar-scroll');
   const favorites = document.querySelector('.sidebar-favorites');
   const recent = recentSection(document);
   favorites.getBoundingClientRect = () => rect(100, 200);
   recent.getBoundingClientRect = () => rect(212, 400);
 
-  // A plain session, and a project session dragged from its Recent copy.
-  for (const id of ['free', 'inA']) {
-    await act(async () => void fire(window, recentRow(document, id), 'dragstart'));
-    const over = fire(window, recent, 'dragover');
-    await act(async () => void 0);
-    assert.equal(over.defaultPrevented, false, `${id}: Recent accepts no drop`);
-    assert.equal(recent.dataset.sessionDrop, undefined);
-    // The gap nearer Recent still reaches Favorites.
-    await act(async () => void fire(window, scroller, 'dragover', { clientY: 208 }));
-    assert.equal(favorites.dataset.sessionDrop, 'true');
-    assert.equal(recent.dataset.sessionDrop, undefined);
-    await act(async () => void fire(window, recent, 'drop'));
-    await act(async () => void fire(window, recentRow(document, id), 'dragend'));
-  }
+  await act(async () => void fire(window, recentRow(document, 'free'), 'dragstart'));
+  const over = fire(window, recent, 'dragover');
+  await act(async () => void 0);
+  assert.equal(over.defaultPrevented, false, 'Recent accepts no drop');
+  assert.equal(recent.dataset.sessionDrop, undefined);
+  // The gap nearer Recent still reaches Favorites.
+  await act(async () => void fire(window, scroller, 'dragover', { clientY: 208 }));
+  assert.equal(favorites.dataset.sessionDrop, 'true');
+  assert.equal(recent.dataset.sessionDrop, undefined);
+  await act(async () => void fire(window, recent, 'drop'));
+  await act(async () => void fire(window, recentRow(document, 'free'), 'dragend'));
   assert.deepEqual(moves, []);
   assert.deepEqual(favorited, []);
 

@@ -3,6 +3,7 @@ import type { CommandSurface as CommandSurfaceName } from './slash-commands';
 import { readGlobalCapabilities } from './global-capability-reads';
 import { record } from './record-utils';
 import { sectionSourceOf } from './section-capabilities';
+import { afterStartupReads } from './startup-reads';
 
 export type SurfaceApi = Pick<DesktopApi, 'invokeCapability'> &
   Partial<
@@ -229,6 +230,7 @@ export function holdStatsDataCache(api: SurfaceApi, { background = true }: { bac
     let lane: 'pending' | 'core' | 'node' = 'pending';
     let unsubscribeStats: (() => void) | undefined;
     let released = false;
+    let cancelWarm: (() => void) | undefined;
     const unsubscribeState = api.subscribeState?.(update);
     const unsubscribeSession = api.subscribeSessionState?.(({ sessionId, snapshot }) => update(snapshot, sessionId));
     if (background) page?.addEventListener('visibilitychange', onVisibility);
@@ -259,13 +261,14 @@ export function holdStatsDataCache(api: SurfaceApi, { background = true }: { bac
     }
     cache.release = () => {
       released = true;
+      cancelWarm?.();
       unsubscribeState?.();
       unsubscribeSession?.();
       unsubscribeStats?.();
       clearStaleRefresh(cache);
       page?.removeEventListener('visibilitychange', onVisibility);
     };
-    if (background) warm();
+    if (background) cancelWarm = afterStartupReads(warm);
   }
   let heldReleased = false;
   return () => {

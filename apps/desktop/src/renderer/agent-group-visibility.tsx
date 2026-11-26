@@ -86,6 +86,13 @@ const RETAIN_LABELS: Record<RetainChoice, () => string> = {
 };
 const retainLabel = (choice: RetainChoice): string => RETAIN_LABELS[choice]();
 
+function shownGroupsLabel(hiddenGroups: ReadonlySet<PaneToggleId>): string {
+  const shown = PANE_TOGGLE_IDS.filter((id) => !hiddenGroups.has(id)).length;
+  if (shown === PANE_TOGGLE_IDS.length) return t('All');
+  if (shown === 0) return t('None');
+  return `${shown}/${PANE_TOGGLE_IDS.length}`;
+}
+
 export function AgentGroupsMenu({
   hiddenGroups,
   onToggleGroup,
@@ -124,31 +131,38 @@ export function AgentGroupsMenu({
           onSelect: restoreGroups,
         },
         ...(hiddenGroups && onToggleGroup
-          ? PANE_TOGGLE_IDS.map((id, index) => ({
-              id: `show-group-${id}`,
-              label: groupLabel(id),
-              checked: !hiddenGroups.has(id),
-              separatorBefore: index === 0,
-              closeOnSelect: false,
-              onSelect: () => onToggleGroup(id, !hiddenGroups.has(id)),
-            }))
+          ? [
+              {
+                id: 'show-groups',
+                label: t('Show groups'),
+                value: shownGroupsLabel(hiddenGroups),
+                separatorBefore: true,
+                children: PANE_TOGGLE_IDS.map((id) => ({
+                  id: `show-group-${id}`,
+                  label: groupLabel(id),
+                  checked: !hiddenGroups.has(id),
+                  closeOnSelect: false,
+                  onSelect: () => onToggleGroup(id, !hiddenGroups.has(id)),
+                })),
+              },
+            ]
           : []),
         ...(retain && onRetain
           ? [
               {
                 id: 'keep-finished-agents',
                 label: t('Keep finished agents'),
-                separatorBefore: true,
-                disabled: true,
+                value: retainLabel(retain),
+                separatorBefore: !(hiddenGroups && onToggleGroup),
+                children: RETAIN_CHOICES.map((choice) => ({
+                  id: `retain-${choice}`,
+                  label: retainLabel(choice),
+                  checked: retain === choice,
+                  radio: true,
+                  closeOnSelect: false,
+                  onSelect: () => onRetain(choice),
+                })),
               },
-              ...RETAIN_CHOICES.map((choice) => ({
-                id: `retain-${choice}`,
-                label: retainLabel(choice),
-                checked: retain === choice,
-                radio: true,
-                closeOnSelect: false,
-                onSelect: () => onRetain(choice),
-              })),
             ]
           : []),
       ]}

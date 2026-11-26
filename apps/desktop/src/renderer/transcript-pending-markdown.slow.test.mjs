@@ -75,8 +75,10 @@ const HARNESS = `
     window.releaseWorker();
     change();
     const pending = await window.sample(held, anchorKey);
+    window.releaseWorker(true);
+    const landed = await window.sample(settled, anchorKey);
     window.releaseWorker();
-    return { pending, landed: await window.sample(settled, anchorKey) };
+    return { pending, landed };
   };
   window.sample = async (frames, anchorKey) => {
     const out = [];
@@ -99,21 +101,27 @@ const HARNESS = `
 `;
 
 // A worker that answers only when the test releases it: every frame sampled
-// before that is a frame with the parses pending.
+// before that is a frame with the parses pending. Released \`open\`, it also
+// answers what is posted later, as a real worker does: a row the list mounts
+// once the landed parses move its range asks only then.
 const SLOW_WORKER = `
   import { parseMarkdownToHast } from './markdown-ast';
   const held = [];
-  window.releaseWorker = () => {
+  let open = false;
+  window.releaseWorker = (keepOpen = false) => {
+    open = keepOpen;
     for (const release of held.splice(0)) release();
   };
   window.Worker = class {
     listeners = [];
     addEventListener(type, listener) { if (type === 'message') this.listeners.push(listener); }
     postMessage({ id, text }) {
-      held.push(() => {
+      const answer = () => {
         const root = parseMarkdownToHast(text);
         for (const listener of this.listeners) listener({ data: { id, root } });
-      });
+      };
+      if (open) setTimeout(answer, 0);
+      else held.push(answer);
     }
     terminate() {}
   };

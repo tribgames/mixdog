@@ -2,7 +2,13 @@ import { Bot } from 'lucide-react';
 import type React from 'react';
 import { useMemo, useRef, useState } from 'react';
 import type { DesktopAgentPoolRow } from '../shared/contract';
-import { cachedAutoEffortCapable, useAutoEffortMasterOn, useModelCatalogRevision } from './auto-effort-store';
+import {
+  type AutoEffortState,
+  cachedAutoEffortCapable,
+  routeAutoEffortActive,
+  useAutoEffortState,
+  useModelCatalogRevision,
+} from './auto-effort-store';
 import { cachedAgentTierRoute, cachedModelRow } from './model-catalog-cache';
 import { beginPaneDrag, finishPaneDrag, type PaneDragSession } from './pane-drag-session';
 import {
@@ -86,7 +92,7 @@ export function useSessionDragSource(sessionId: string, title: string, botId?: s
 /** What an agent row's model line shows, given the Auto reasoning master
  *  switch and whether the catalog marks its model capable; null when it
  *  shows nothing. */
-function agentRouteView(agent: DesktopAgentPoolRow, autoOn: boolean, capable: boolean) {
+function agentRouteView(agent: DesktopAgentPoolRow, autoState: AutoEffortState | null, capable: boolean) {
   if (!agent.provider || !agent.model || agent.status === 'unknown') return null;
   // An external agent's effort is the tier of the model it runs; Auto and a speed are not its to take.
   if (agentRouteProvider(agent.provider)) {
@@ -102,7 +108,7 @@ function agentRouteView(agent: DesktopAgentPoolRow, autoOn: boolean, capable: bo
     };
   }
   const observed = agent.routeObserved === true;
-  const auto = autoOn && capable && agent.autoEffort !== false;
+  const auto = capable && routeAutoEffortActive(agent.effortAuto, autoState);
   const modelParameters = agent.modelParameters as Record<string, string> | undefined;
   return {
     model: modelDisplayName(agent.model, agent.provider),
@@ -112,7 +118,7 @@ function agentRouteView(agent: DesktopAgentPoolRow, autoOn: boolean, capable: bo
     fast: agent.fast === true,
     ultra: modelParameters?.serviceTier === 'ultrafast',
     blue: routeDaybreakBlue(modelParameters),
-    observedAuto: observed && auto && agent.autoEffort === true,
+    observedAuto: observed && auto,
   };
 }
 
@@ -126,7 +132,7 @@ function useAgentRouteView(agent: DesktopAgentPoolRow) {
     () => Boolean(provider && model && cachedAutoEffortCapable(provider, model)),
     [provider, model, catalog]
   );
-  return agentRouteView(agent, useAutoEffortMasterOn(capable), capable);
+  return agentRouteView(agent, useAutoEffortState(capable), capable);
 }
 
 /** An agent row's second line: model and effort. */
@@ -152,7 +158,7 @@ export function useSharedRouteText(agents: readonly DesktopAgentPoolRow[]): stri
     () => agents.map(({ provider, model }) => Boolean(provider && model && cachedAutoEffortCapable(provider, model))),
     [routes, catalog]
   );
-  const master = useAutoEffortMasterOn(capable.some(Boolean));
+  const master = useAutoEffortState(capable.some(Boolean));
   const texts = new Set(
     agents.map((agent, index) => routeWords(agentRouteView(agent, master, capable[index] ?? false))).filter(Boolean)
   );

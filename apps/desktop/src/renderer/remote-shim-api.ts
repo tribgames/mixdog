@@ -96,16 +96,23 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     ? withFileGrantRefresh(relayCall, storedGrantSources(localStorage, ctx.pairingKeys.fileGrants))
     : withFileGrantRefresh(relayCall);
   const parity = (): boolean => ctx.peerRemoteParity === true;
-  // Per-route Auto reasoning follows its own flag: an older host's selection
-  // validator rejects the unknown `autoEffort` key, so it never reaches one.
-  const routeAutoEffort = (): boolean => ctx.peerRouteAutoEffort === true;
-  const hostSelection = <T>(selection: T): T => {
-    if (routeAutoEffort() || !selection || typeof selection !== 'object' || !('autoEffort' in selection)) {
-      return selection;
-    }
-    const { autoEffort: _omitted, ...rest } = selection as T & { autoEffort?: unknown };
-    return rest as T;
+  // A host's selection validator rejects keys it does not know, so each host
+  // gets the key it advertised: `effortAuto`, the older `autoEffort`, or neither.
+  const routeAutoEffort = (): boolean => ctx.peerRouteEffortAuto === true || ctx.peerRouteAutoEffort === true;
+  // Applied at every depth: fallback entries and the routes inside a
+  // capability request carry the same key.
+  const hostRouteKeys = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(hostRouteKeys);
+    if (!value || Object.getPrototypeOf(value) !== Object.prototype) return value;
+    const { effortAuto, autoEffort, ...rest } = value as Record<string, unknown>;
+    const next: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(rest)) next[key] = hostRouteKeys(entry);
+    const legacy = typeof effortAuto === 'boolean' ? effortAuto : autoEffort;
+    if (ctx.peerRouteAutoEffort === true && typeof legacy === 'boolean') next.autoEffort = legacy;
+    return next;
   };
+  const hostSelection = <T>(selection: T): T =>
+    ctx.peerRouteEffortAuto === true ? selection : (hostRouteKeys(selection) as T);
   // The worker can only answer same-origin requests.
   const laneUrl = (assetId: string, variant?: string): string => {
     const base = ctx.serverBase || location.origin;
@@ -480,7 +487,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     subscribeProviderModelsChanged: (listener) => listenOn(ctx.providerModelsListeners, listener),
     subscribeDesktopNotices: (listener) => listenOn(ctx.desktopNoticeListeners, listener),
     invokeCapability: <T = unknown>(request: DesktopCapabilityRequest) =>
-      call<DesktopCapabilityResult<T>>('invokeCapability', [request]),
+      call<DesktopCapabilityResult<T>>('invokeCapability', [hostSelection(request)]),
     readCapabilities: (requests) => call('readCapabilities', [requests]),
     // Always present: settings pages subscribe once at mount, possibly before
     // the handshake. An older host simply never emits the event.

@@ -31,6 +31,7 @@ export function useRoutePaneContent({
   modelParameters,
   tuningDisabled,
   effort,
+  turnEffort,
   effortOptions,
   autoEffort,
   autoEffortOn,
@@ -59,6 +60,7 @@ export function useRoutePaneContent({
   modelParameters: Record<string, string>;
   tuningDisabled: boolean;
   effort: string;
+  turnEffort?: string;
   effortOptions: Array<{ value: string; label: string }>;
   autoEffort: RouteAutoEffort;
   autoEffortOn: boolean;
@@ -153,6 +155,7 @@ export function useRoutePaneContent({
     if (target === 'effort') {
       return routeEffortPane({
         effort,
+        turnEffort,
         effortOptions,
         autoEffort,
         autoEffortOn,

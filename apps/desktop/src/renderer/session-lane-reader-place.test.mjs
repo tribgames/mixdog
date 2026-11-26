@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import React, { act } from 'react';
+import { installTestDom } from './test-support/test-dom.mjs';
+import { PaneKeyContext } from './pane-key-context.ts';
 import { setHistoryPositions } from '../../../../packages/protocol-client/src/rows.ts';
 import { _runIdleReclaimForTest } from './idle-reclaim.ts';
 import { registerBudgetedCache } from './renderer-cache-budget.ts';
@@ -12,6 +15,7 @@ import {
   pendingReaderPlace,
   readerPlace,
   readerPlaceCount,
+  useReaderPlace,
   voidReaderPlace,
 } from './transcript-list-reader-place.ts';
 
@@ -64,6 +68,66 @@ test('the row a list put its reader on keeps its top while it crosses the top of
   assert.equal(holdsReaderTop(list, row, 900), false);
   assert.equal(holdsReaderTop(list, row, 811), false, 'also when it is back under the top of the view');
 });
+
+for (const [dpr, height] of [
+  [2, 42.2],
+  [3, 100.4],
+]) {
+  test(`a list kept mounted, handed its reader's place again at ${dpr}x, sizes the ${height}px row as the list does: rounded up to the device pixel`, async (t) => {
+    const { root, document } = installTestDom(t, {
+      html: '<!doctype html><div id="root"></div><div id="viewport"><div class="transcript-virtual-row" data-timeline-key="r1"></div></div>',
+      rootId: 'root',
+    });
+    Object.defineProperty(document.defaultView, 'devicePixelRatio', { configurable: true, value: dpr });
+    const viewport = { current: document.getElementById('viewport') };
+    const node = viewport.current.querySelector('.transcript-virtual-row');
+    node.getBoundingClientRect = () => ({ top: 10, bottom: 10 + height, height, width: 400 });
+    // The slot an earlier pass held for the row at a whole pixel.
+    const measurementsCache = [
+      { index: 0, key: 'r0', start: 0, size: 300, end: 300 },
+      { index: 1, key: 'r1', start: 300, size: Math.round(height), end: 300 + Math.round(height) },
+    ];
+    const instance = {
+      options: { anchorTo: 'start' },
+      measurementsCache,
+      scrollOffset: 0,
+      scrollAdjustments: 0,
+      getSize: () => 600,
+      getTotalSize: () => measurementsCache.at(-1).end,
+      resizeItem(index, size) {
+        measurementsCache[index] = { ...measurementsCache[index], size };
+      },
+    };
+    const items = rows(2);
+    const rowsRef = { current: items.map((item, at) => ({ _tag: 'AssistantPart', key: `r${at}`, item })) };
+    const noop = () => {};
+    function Harness() {
+      useReaderPlace({
+        sessionKey: 's',
+        viewport,
+        rowsRef,
+        virtualizerRef: { current: instance },
+        scrollInset: { current: 0 },
+        deviation: { amount: () => 0 },
+        anchorHold: { current: null },
+        restoreReadingAnchor: noop,
+        flushDeferredResizes: noop,
+        syncDockInset: noop,
+      });
+      return null;
+    }
+    const tree = () => React.createElement(PaneKeyContext.Provider, { value: 'one' }, React.createElement(Harness));
+    keepReaderPlaces(tabs({ one: ['s'] }));
+    t.after(() => keepReaderPlaces(tabs({})));
+    act(() => root.render(tree()));
+    // The pane comes back to the session: the list kept mounted is handed the place its reader left.
+    act(() => openReaderPlace('one', 's', { position: 'p:r1', top: 10 }));
+    const held = measurementsCache[1].size;
+    assert.equal(pendingReaderPlace('one', 's'), null, 'the reader is put on its row');
+    assert.equal(held, Math.ceil(height * dpr) / dpr, 'the slot the row reads back at under the list rounding');
+    assert.notEqual(held, Math.round(height));
+  });
+}
 
 test('a surface outside the panes keeps no place', () => {
   openReaderPlace('', 's', { position: 'p:r10', top: 0 });
