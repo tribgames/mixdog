@@ -53,6 +53,7 @@ export function createPhoneApi(
       start: boot.start,
       synced: boot.synced,
       setVisibleSessions: boot.setVisibleSessions,
+      follows: (threadId: string) => boot.client()?.store.thread(threadId) !== undefined,
       refreshScreen: boot.refreshScreen,
       recycle: () => boot.link?.wake(),
       prefetchBootReads: router.prefetch,

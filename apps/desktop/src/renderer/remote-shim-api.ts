@@ -310,6 +310,12 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
       } catch {
         /* the next launch simply waits for React, as before */
       }
+      // The page takes a session it now shows as current only from a state published after it was named
+      // (session-lane-store.ts `liveSessionIds`). A thread the first sync already restored brings no new frame,
+      // so its pane would wait out the read watch; its held state is published again instead.
+      for (const sessionId of requested) {
+        if (ctx.phone.follows(sessionId)) void call('refreshSessionState', [sessionId]).catch(() => undefined);
+      }
       // The threads open on the core; false asks the page to name them again. Settled either way, the threads the view let go
       // of are no longer the client's (remote-session-states.ts ends their lanes).
       return ctx.phone.setVisibleSessions(requested).finally(() => {

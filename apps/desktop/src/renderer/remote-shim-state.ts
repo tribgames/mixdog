@@ -274,6 +274,8 @@ export interface PhoneLink {
   start(): Promise<unknown>;
   synced(): Promise<void>;
   setVisibleSessions(threadIds: readonly string[]): Promise<boolean>;
+  /** The connection that is up already folds this thread. */
+  follows(threadId: string): boolean;
   refreshScreen(): void;
   recycle(): void;
   /** Starts the app's mount-time reads beside the first view sync (Node's prefetchBootReads). */
