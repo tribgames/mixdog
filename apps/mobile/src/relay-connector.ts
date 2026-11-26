@@ -61,6 +61,8 @@ export interface RelayConnectorDeps {
   probeAnswered?(): void;
   /** The relay's cleartext resync hint (any resync but desktop-gone). */
   resyncHint?(word: Readonly<Record<string, unknown>>): void;
+  /** Monotonic millisecond clock; defaults to `performance.now()`. */
+  now?(): number;
   /** Present only where `RTCPeerConnection` exists: its absence is the transport opt-out. */
   webrtc?: {
     createPeer(configuration: RTCConfiguration): RTCPeerConnection;
@@ -76,10 +78,12 @@ export interface RelayConnectorDeps {
 export interface RelayConnector extends Connector {
   /** The page went hidden: no transport timer runs until `wake`. */
   hidden(): void;
-  /** Visible again: release a suspension and probe the live socket (and both transport paths) at once. True when a socket was probed. */
-  wake(): boolean;
+  /** Visible again: release a suspension, recycle a stale or forced unready dial, and probe the live socket (and both transport paths) at once. True when a socket was probed. */
+  wake(options?: { force?: boolean }): boolean;
   /** Nothing has arrived on the live socket since `since`, and no probe is out: a call sent then is worth a probe. */
   silentSince(since: number): boolean;
+  /** Nothing has arrived on a ready socket for at least `windowMs` on a monotonic clock, and no probe is out. */
+  silentFor(windowMs: number): boolean;
   /** The page stayed in the background: end the socket with 1000 `background` once what was handed to it is sent, and hold every open until `wake`. */
   suspend(): void;
   readonly suspended: boolean;
@@ -111,7 +115,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
       state.active?.hidden();
       state.current?.unprove();
     },
-    wake: () => {
+    wake: (options) => {
       if (suspended || held) {
         suspended = false;
         const resume = release;
@@ -120,12 +124,14 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
         resume?.();
         return false;
       }
+      if (state.current?.restartIfStale(options?.force === true)) return false;
       const probing = state.current?.probe() ?? false;
       state.active?.wake();
       return probing;
     },
     retire: () => state.current?.retire(),
     silentSince: (since) => state.current?.silentSince(since) ?? false,
+    silentFor: (windowMs) => state.current?.silentFor(windowMs) ?? true,
     suspend: () => {
       suspended = true;
       hold();

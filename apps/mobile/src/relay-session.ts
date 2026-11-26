@@ -52,6 +52,7 @@ const CLOSE_CATEGORIES: readonly string[] = [
   'transport failed',
   'keepalive timed out',
   'wake probe unanswered',
+  'wake dial restarted',
   'view sync failed',
   'relay connection timed out',
   'relay handshake timed out',
@@ -81,8 +82,9 @@ const SILENCE_BEFORE_PING_MS = 25_000;
 const PONG_DEADLINE_MS = 10_000;
 /** A foreground wake probes at once; frames still arriving this long after the probe prove a live leg, earlier ones may be a frozen page's backlog. */
 const WAKE_PROBE_MS = 2_500;
-const WAKE_TRAFFIC_PROOF_MS = 1_000;
+export const WAKE_TRAFFIC_PROOF_MS = 1_000;
 const PING = '{"ping":1}';
+const monotonicNow = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 const timers = {
   setTimeout: (callback: () => void, ms: number): unknown => setTimeout(callback, ms),
@@ -127,6 +129,7 @@ export class RelaySession {
   private readonly writer: TransportWriter;
   private readonly wsDeparture: CarrierDeparture;
   private readonly keepalive: ReturnType<typeof setInterval>;
+  private readonly now: () => number;
 
   private channel: RelayE2EEChannel | null = null;
   private mediaSid = '';
@@ -143,8 +146,11 @@ export class RelaySession {
   private readonly inflight = new Set<unknown>();
   private challengesSeen = 0;
   private generation = 0;
+  private wakeGeneration = 0;
+  private lastTrafficGeneration = 0;
   private lastTrafficAt = Date.now();
-  private pingSentAt = 0;
+  private lastTrafficMono: number;
+  private pingSentMono: number;
   private awaitingPong = false;
   private wakeTimer: ReturnType<typeof setTimeout> | undefined;
   private deadline: ReturnType<typeof setTimeout> | undefined;
@@ -160,6 +166,9 @@ export class RelaySession {
     this.sink = init.sink;
     this.resolveOpen = init.resolve;
     this.rejectOpen = init.reject;
+    this.now = init.deps.now ?? monotonicNow;
+    this.lastTrafficMono = this.now();
+    this.pingSentMono = this.lastTrafficMono;
     this.deadline = setTimeout(
       () => this.fail(CLOSE_HANDSHAKE_TIMEOUT, 'relay connection timed out'),
       init.reuse ? HANDSHAKE_DEADLINE_MS : OPEN_DEADLINE_MS
@@ -189,9 +198,12 @@ export class RelaySession {
 
     const ws = this.ws;
     ws.onmessage = (event) => {
+      const wakeGeneration = this.wakeGeneration;
       this.lastTrafficAt = Date.now();
+      this.lastTrafficMono = this.now();
+      this.lastTrafficGeneration = wakeGeneration;
       this.inbound = this.inbound
-        .then(() => (this.finished ? undefined : this.handle(event.data)))
+        .then(() => (this.finished ? undefined : this.handle(event.data, wakeGeneration)))
         .catch(() => this.fail(CLOSE_PROTOCOL_ERROR, 'frame failed', true));
     };
     ws.onclose = (event) => this.finish(event.code, event.reason, true);
@@ -206,22 +218,31 @@ export class RelaySession {
   // Page lifecycle hooks, reached through the connector.
 
   unprove(): void {
-    if (!this.finished) this.unproven = true;
+    if (this.finished) return;
+    this.unproven = true;
+    this.wakeGeneration += 1;
+    if (this.wakeTimer !== undefined) {
+      clearTimeout(this.wakeTimer);
+      this.wakeTimer = undefined;
+    }
   }
 
   /** False for a socket that is still opening or handshaking: nothing to prove yet, and a wake must not recycle a healthy first dial. */
   probe(): boolean {
     if (this.finished || !this.ready) return false;
+    if (this.wakeTimer !== undefined) return true;
     this.unproven = true;
-    this.pingSentAt = Date.now();
+    this.wakeGeneration += 1;
+    const wakeGeneration = this.wakeGeneration;
+    const sentAt = this.now();
+    this.pingSentMono = sentAt;
     this.awaitingPong = true;
     this.sendPing();
-    clearTimeout(this.wakeTimer);
-    const sentAt = this.pingSentAt;
     this.wakeTimer = setTimeout(() => {
       this.wakeTimer = undefined;
+      if (this.wakeGeneration !== wakeGeneration) return;
       // A leg still delivering a backlog queues the pong behind it.
-      if (this.lastTrafficAt - sentAt >= WAKE_TRAFFIC_PROOF_MS) {
+      if (this.lastTrafficGeneration === wakeGeneration && this.lastTrafficMono - sentAt >= WAKE_TRAFFIC_PROOF_MS) {
         this.proven();
         return;
       }
@@ -232,8 +253,20 @@ export class RelaySession {
     return true;
   }
 
+  restartIfStale(force: boolean): boolean {
+    if (this.finished || this.ready || (!force && !this.unproven)) return false;
+    this.quiet = true;
+    this.fail(CLOSE_NORMAL, 'wake dial restarted', true);
+    return true;
+  }
+
   silentSince(since: number): boolean {
     return this.wakeTimer === undefined && this.lastTrafficAt < since;
+  }
+
+  silentFor(windowMs: number): boolean {
+    if (!this.ready) return true;
+    return this.wakeTimer === undefined && this.now() - this.lastTrafficMono >= windowMs;
   }
 
   retire(): void {
@@ -243,6 +276,11 @@ export class RelaySession {
   /** What was handed to the socket (the background report) leaves first, then the transport says it is suspended. */
   suspend(): void {
     this.quiet = true;
+    this.wakeGeneration += 1;
+    if (this.wakeTimer !== undefined) {
+      clearTimeout(this.wakeTimer);
+      this.wakeTimer = undefined;
+    }
     this.outbound = this.outbound
       .then(() => this.peer?.suspend())
       .catch(() => undefined)
@@ -346,17 +384,17 @@ export class RelaySession {
       this.awaitingPong = false;
       return;
     }
-    const now = Date.now();
+    const now = this.now();
     if (this.awaitingPong) {
-      if (now - this.pingSentAt >= PONG_DEADLINE_MS) {
+      if (now - this.pingSentMono >= PONG_DEADLINE_MS) {
         this.awaitingPong = false;
         this.deps.unresponsive?.();
         this.recycle(CLOSE_NORMAL, 'keepalive timed out');
       }
       return;
     }
-    if (now - Math.max(this.lastTrafficAt, this.pingSentAt) >= SILENCE_BEFORE_PING_MS) {
-      this.pingSentAt = now;
+    if (now - Math.max(this.lastTrafficMono, this.pingSentMono) >= SILENCE_BEFORE_PING_MS) {
+      this.pingSentMono = now;
       this.awaitingPong = true;
       this.sendPing();
     }
@@ -371,10 +409,10 @@ export class RelaySession {
   // Receiving.
 
   /** The relay's own cleartext words: a pong answers a probe, `resync: desktop-gone` says the desktop leg left. */
-  private clearWord(word: Record<string, unknown>): boolean {
-    this.awaitingPong = false;
+  private clearWord(word: Record<string, unknown>, wakeGeneration: number): boolean {
+    if (wakeGeneration === this.wakeGeneration) this.awaitingPong = false;
     if ('pong' in word) {
-      if (this.wakeTimer !== undefined) {
+      if (this.wakeTimer !== undefined && wakeGeneration === this.wakeGeneration) {
         clearTimeout(this.wakeTimer);
         this.wakeTimer = undefined;
         this.proven();
@@ -389,11 +427,12 @@ export class RelaySession {
     return false;
   }
 
-  private async handle(data: unknown): Promise<void> {
+  private async handle(data: unknown, wakeGeneration: number): Promise<void> {
     let sealed: unknown = data;
     if (typeof data === 'string') {
       const parsed: unknown = JSON.parse(data);
-      if (parsed && typeof parsed === 'object' && this.clearWord(parsed as Record<string, unknown>)) return;
+      if (parsed && typeof parsed === 'object' && this.clearWord(parsed as Record<string, unknown>, wakeGeneration))
+        return;
       if (isRelayE2EEChallenge(parsed)) {
         // A challenge after ready means the desktop leg was replaced: the session ends and the next open answers it.
         if (this.ready) {

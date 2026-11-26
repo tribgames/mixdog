@@ -206,6 +206,16 @@ export interface View {
   actions: Action[][];
 }
 
+/** Whether Android Back should be handled inside the bundled pairing screen
+ *  rather than leaving it (back to a PC page or the launcher). */
+export function pairingBackAction(state: ScreenState): 'dismiss-update' | 'cancel' | null {
+  if (state.step === 'start') {
+    if (state.update) return 'dismiss-update';
+    return state.opening ? 'cancel' : null;
+  }
+  return 'cancel';
+}
+
 const act = (id: Action['id'], label: string, primary: boolean): Action => ({ id, label, primary });
 
 function updateActions(phase: UpdatePhase, s: Strings): Action[][] {

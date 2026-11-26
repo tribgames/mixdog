@@ -22,10 +22,12 @@ import java.util.HashMap;
  * reports an error here; the worker itself answers it (sw-shell.js).
  */
 public class MixdogWebViewClient extends BridgeWebViewClient {
+  private final MainActivity activity;
   private final MixdogReconnect reconnect;
 
-  MixdogWebViewClient(Bridge bridge, MixdogReconnect reconnect) {
+  MixdogWebViewClient(MainActivity activity, Bridge bridge, MixdogReconnect reconnect) {
     super(bridge);
+    this.activity = activity;
     this.reconnect = reconnect;
   }
 
@@ -78,6 +80,9 @@ public class MixdogWebViewClient extends BridgeWebViewClient {
     }
     reconnect.onPageStarted(url);
     MixdogNativeHost.pageStarted();
+    if (url != null && OriginPolicy.isBundled(OriginPolicy.originOf(url))) {
+      activity.applyPickerThemeBacking();
+    }
     super.onPageStarted(view, url, favicon);
   }
 

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="mixdogWebViewBand">#f7f7f7</color>
+    <color name="mixdogWebViewSurface">#fcfcfc</color>
+</resources>

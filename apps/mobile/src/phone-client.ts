@@ -47,9 +47,9 @@ export interface PhoneClientOptions extends Omit<RelayConnectorDeps, 'closed'> {
 export interface PhoneClient {
   readonly client: ProtocolClient<SessionFold>;
   /** Page lifecycle hooks of the transport session. */
-  readonly link: Pick<RelayConnector, 'hidden' | 'suspend' | 'suspended' | 'retire' | 'silentSince'> & {
+  readonly link: Pick<RelayConnector, 'hidden' | 'suspend' | 'suspended' | 'retire' | 'silentSince' | 'silentFor'> & {
     /** Foreground: releases a suspension, probes the live socket, and cuts a running redial wait short. */
-    wake(): boolean;
+    wake(options?: { force?: boolean }): boolean;
   };
   /** Present when `PhoneClientOptions.screen` was given: call `refresh()` when the page or the shown threads change. */
   readonly screen?: ScreenReporter;
@@ -190,13 +190,14 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
     suspend: () => connector.suspend(),
     retire: () => connector.retire(),
     silentSince: (since) => connector.silentSince(since),
+    silentFor: (windowMs) => connector.silentFor(windowMs),
     get suspended() {
       return connector.suspended;
     },
-    wake: () => {
+    wake: (wakeOptions) => {
       // A wake never inherits a grown backoff: the redial that follows it is the gap the user watches.
       schedule.reset();
-      const probing = connector.wake();
+      const probing = connector.wake(wakeOptions);
       for (const finish of [...sleepers]) finish();
       return probing;
     },

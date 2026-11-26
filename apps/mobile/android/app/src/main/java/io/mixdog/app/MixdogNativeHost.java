@@ -256,12 +256,7 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
         case "openAppUpdateInBrowser":
           return updater.openInBrowser() ? "true" : "false";
         case "openHostPicker":
-          activity.runOnUiThread(
-              () ->
-                  activity
-                      .getBridge()
-                      .getWebView()
-                      .loadUrl(activity.getBridge().getLocalUrl() + "/?manage=1"));
+          activity.openHostPicker();
           return "true";
         default:
           return "null";

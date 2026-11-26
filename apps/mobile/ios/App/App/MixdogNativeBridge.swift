@@ -95,6 +95,11 @@ final class MixdogNavigationDelegate: NSObject, WKNavigationDelegate {
     /// A new page replaced the old one: its pending native downloads go with it.
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         MixdogFileSave.shared.abortAll(for: webView)
+        if let url = webView.url,
+           let origin = MixdogOriginPolicy.origin(of: url),
+           MixdogOriginPolicy.bundled.contains(origin) {
+            (MixdogNativeBridge.shared.viewController as? MixdogViewController)?.applyPickerThemeBacking()
+        }
         inner.webView?(webView, didCommit: navigation)
     }
 
@@ -486,6 +491,7 @@ final class MixdogNativeBridge: NSObject, WKScriptMessageHandlerWithReply, UNUse
                   let base = controller.bridge?.config.serverURL,
                   let url = URL(string: "/?manage=1", relativeTo: base)
             else { return }
+            (controller as? MixdogViewController)?.applyPickerThemeBacking()
             controller.webView?.load(URLRequest(url: url))
         }
     }

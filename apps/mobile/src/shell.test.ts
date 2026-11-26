@@ -8,6 +8,8 @@ import {
   readHostBook,
   rememberHost,
 } from './hosts.ts';
+import { pairingBackAction } from './pairing-ui.ts';
+import { PICKER_NATIVE_THEME, syncPickerNativeTheme } from './picker-theme.ts';
 
 const ID = '0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9';
 
@@ -40,4 +42,72 @@ test('paired hosts are remembered, ordered and forgotten', () => {
   assert.equal(readHostBook(JSON.stringify(book)).hosts.length, 2);
   assert.deepEqual(readHostBook('{bad'), emptyHostBook());
   assert.equal(forgetHost(book, a.url).last, '');
+});
+
+test('bundled mobile pairing screens arm Back for every sub-step and update offer, never the plain PC list', () => {
+  assert.equal(pairingBackAction({ step: 'start' }), null);
+  assert.equal(
+    pairingBackAction({
+      step: 'start',
+      pcs: [{ url: `https://a.example.com/d/${ID}/`, name: 'PC', last: true }],
+    }),
+    null
+  );
+  assert.equal(
+    pairingBackAction({
+      step: 'start',
+      update: { version: '2.0.0', phase: 'available' },
+    }),
+    'dismiss-update'
+  );
+  assert.equal(
+    pairingBackAction({
+      step: 'start',
+      update: { version: '2.0.0', phase: 'failed' },
+    }),
+    'dismiss-update'
+  );
+  assert.equal(
+    pairingBackAction({
+      step: 'start',
+      update: { version: '2.0.0', phase: 'available' },
+      opening: `https://a.example.com/d/${ID}/`,
+    }),
+    'dismiss-update',
+    'update offer shown over an opening PC must dismiss the update offer first'
+  );
+  assert.equal(
+    pairingBackAction({
+      step: 'start',
+      opening: `https://a.example.com/d/${ID}/`,
+    }),
+    'cancel'
+  );
+  for (const step of ['code', 'waiting', 'waiting-offline', 'result'] as const) {
+    assert.equal(pairingBackAction({ step }), 'cancel');
+  }
+});
+
+test('bundled picker synchronizes its dark #181818 backing to Android and iOS bridges', () => {
+  const androidMessages: unknown[] = [];
+  const iosMessages: unknown[] = [];
+  syncPickerNativeTheme({
+    MixdogNativeTheme: {
+      postMessage(message) {
+        androidMessages.push(JSON.parse(message));
+      },
+    },
+    webkit: {
+      messageHandlers: {
+        mixdogTheme: {
+          postMessage(payload) {
+            iosMessages.push(payload);
+          },
+        },
+      },
+    },
+  });
+  assert.deepEqual(androidMessages, [PICKER_NATIVE_THEME]);
+  assert.deepEqual(iosMessages, [PICKER_NATIVE_THEME]);
+  assert.deepEqual(PICKER_NATIVE_THEME, { surface: '#181818', band: '#181818', followSystem: false });
 });

@@ -716,6 +716,325 @@ test('a wake does not probe a socket that is still opening', async () => {
   ws.onclose!({ code: 1000, reason: '' });
 });
 
+test('forced wake and post-hidden wake recycle an unready stuck dial immediately, while plain wake leaves a healthy dial alone', async () => {
+  const identity = await generateRelayE2EEServerIdentity();
+  const sockets: Array<{ ws: RelaySocket; closes: unknown[][] }> = [];
+  const closeInfos: Array<{ code: number; reason: string; quiet: boolean }> = [];
+  const redialIns: number[] = [];
+  let dialed: (() => void) | undefined;
+  const waitDial = (n: number) =>
+    sockets.length >= n ? Promise.resolve() : new Promise<void>((resolve) => (dialed = resolve));
+  let link: { hidden(): void; wake(options?: { force?: boolean }): boolean } | undefined;
+  const controller = new AbortController();
+  const pending = connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => {
+      const closes: unknown[][] = [];
+      const ws: RelaySocket = {
+        binaryType: '',
+        bufferedAmount: 0,
+        onopen: null,
+        onmessage: null,
+        onclose: null,
+        onerror: null,
+        send: () => {},
+        close: (...args: unknown[]) => void closes.push(args),
+      };
+      sockets.push({ ws, closes });
+      dialed?.();
+      dialed = undefined;
+      return ws;
+    },
+    signal: controller.signal,
+    onConnection: () => undefined,
+    onClose: (code, reason, info) => void closeInfos.push({ code, reason, quiet: info.quiet }),
+    redialIn: (ms) => void redialIns.push(ms),
+    linked: (l) => {
+      link = l;
+    },
+  });
+  pending.catch(() => undefined);
+  try {
+    await waitDial(1);
+    assert.equal(link!.wake(), false, 'plain wake leaves a healthy never-hidden dial alone');
+    assert.deepEqual(sockets[0].closes, []);
+    assert.equal(sockets.length, 1);
+
+    // Going hidden marks the in-flight dial unproven: returning to foreground recycles it silently at once.
+    link!.hidden();
+    assert.equal(link!.wake(), false);
+    assert.deepEqual(sockets[0].closes, [[4000, 'wake dial restarted']]);
+    assert.equal(closeInfos.at(-1)?.quiet, true);
+    await waitDial(2);
+    assert.deepEqual(redialIns, [], 'silent dial restart opens a fresh socket with no backoff');
+
+    // A fresh dial that was never hidden stays untouched by plain wake, but force recycles it immediately.
+    assert.equal(link!.wake(), false);
+    assert.deepEqual(sockets[1].closes, []);
+    assert.equal(sockets.length, 2);
+
+    assert.equal(link!.wake({ force: true }), false);
+    assert.deepEqual(sockets[1].closes, [[4000, 'wake dial restarted']]);
+    assert.equal(closeInfos.at(-1)?.quiet, true);
+    await waitDial(3);
+    assert.deepEqual(redialIns, []);
+  } finally {
+    controller.abort();
+  }
+});
+
+test('repeated wakes while a probe is in flight send one ping and keep the original wakeTimer deadline', async (t) => {
+  const identity = await generateRelayE2EEServerIdentity();
+  const far = relayPair(identity, false);
+  const served = serve(far.next, far.send);
+  far.start();
+  const phone = await connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => far.ws,
+    random: () => 0.5,
+    onConnection: () => undefined,
+  });
+  await Promise.all([phone.client.resumeThread('t1', { lastItems: 50 }), served]);
+
+  let pings = 0;
+  const originalSend = far.ws.send;
+  far.ws.send = (data) => {
+    if (data === '{"ping":1}') {
+      pings += 1;
+      return;
+    }
+    originalSend(data);
+  };
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.now() });
+  try {
+    assert.equal(phone.link.wake(), true);
+    assert.equal(pings, 1);
+
+    t.mock.timers.tick(1_500);
+    assert.deepEqual(far.closes, [], 'probe has not expired yet');
+
+    // Back-to-back wakes while the probe is running send no duplicate ping and do not extend the deadline.
+    assert.equal(phone.link.wake(), true);
+    assert.equal(phone.link.wake({ force: true }), true);
+    assert.equal(pings, 1, 'only one ping was sent');
+
+    t.mock.timers.tick(1_000);
+    assert.deepEqual(far.closes.at(0), [4000, 'wake probe unanswered']);
+  } finally {
+    t.mock.timers.reset();
+    await phone.client.close();
+  }
+});
+
+test('a hide clears an in-flight wake probe so pre-hide traffic cannot certify a dead link after resume', async (t) => {
+  const identity = await generateRelayE2EEServerIdentity();
+  const far = relayPair(identity, false);
+  const served = serve(far.next, far.send);
+  far.start();
+  let mono = 1_000;
+  let probeAnswered = 0;
+  const phone = await connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => far.ws,
+    now: () => mono,
+    random: () => 0.5,
+    onConnection: () => undefined,
+    probeAnswered: () => {
+      probeAnswered += 1;
+    },
+  });
+  await Promise.all([phone.client.resumeThread('t1', { lastItems: 50 }), served]);
+  await foldedThrough(phone.client, 't1', 12);
+
+  let pings = 0;
+  const originalSend = far.ws.send;
+  far.ws.send = (data) => {
+    if (data === '{"ping":1}') {
+      pings += 1;
+      return;
+    }
+    originalSend(data);
+  };
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.now() });
+  try {
+    // First wake arms a probe; traffic arrives 1,200 ms later (past WAKE_TRAFFIC_PROOF_MS) before the page hides.
+    assert.equal(phone.link.wake(), true);
+    assert.equal(pings, 1);
+
+    mono += 1_200;
+    t.mock.timers.tick(1_200);
+    await far.send(message(13, 'a2', 'agentMessage', { text: 'pre-hide' }));
+    await foldedThrough(phone.client, 't1', 13);
+
+    phone.link.hidden();
+    mono += 200;
+    t.mock.timers.tick(200);
+
+    // Resuming before the old deadline must send a fresh ping rather than reusing the pre-hide timer.
+    assert.equal(phone.link.wake(), true);
+    assert.equal(pings, 2);
+
+    // Past the old 2,500 ms deadline: pre-hide traffic must not certify the link.
+    mono += 1_100;
+    t.mock.timers.tick(1_100);
+    assert.equal(probeAnswered, 0);
+    assert.deepEqual(far.closes, []);
+
+    // With no post-resume traffic, the fresh 2,500 ms probe expires and closes the dead link.
+    mono += 1_400;
+    t.mock.timers.tick(1_400);
+    assert.equal(probeAnswered, 0);
+    assert.deepEqual(far.closes.at(0), [4000, 'wake probe unanswered']);
+  } finally {
+    t.mock.timers.reset();
+    await phone.client.close();
+  }
+});
+
+test('a backward Date.now() jump across hide/resume cannot make pre-hide traffic certify a dead link', async (t) => {
+  const identity = await generateRelayE2EEServerIdentity();
+  const far = relayPair(identity, false);
+  const served = serve(far.next, far.send);
+  far.start();
+  let probeAnswered = 0;
+  const phone = await connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => far.ws,
+    random: () => 0.5,
+    onConnection: () => undefined,
+    probeAnswered: () => {
+      probeAnswered += 1;
+    },
+  });
+  await Promise.all([phone.client.resumeThread('t1', { lastItems: 50 }), served]);
+  await foldedThrough(phone.client, 't1', 12);
+
+  let pings = 0;
+  const originalSend = far.ws.send;
+  far.ws.send = (data) => {
+    if (data === '{"ping":1}') {
+      pings += 1;
+      return;
+    }
+    originalSend(data);
+  };
+  const startWall = Date.now();
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: startWall });
+  try {
+    // Receive pre-hide traffic at the higher wall-clock timestamp.
+    await far.send(message(13, 'a2', 'agentMessage', { text: 'pre-hide' }));
+    await foldedThrough(phone.client, 't1', 13);
+
+    // Hide, step the wall clock backward by 60 s, then resume with no post-resume traffic.
+    phone.link.hidden();
+    t.mock.timers.setTime(startWall - 60_000);
+    assert.ok(Date.now() < startWall - 10_000);
+
+    assert.equal(phone.link.wake(), true);
+    assert.equal(pings, 1);
+
+    t.mock.timers.tick(2_500);
+    assert.equal(probeAnswered, 0, 'pre-hide traffic must not certify a dead link after a backward clock jump');
+    assert.deepEqual(far.closes.at(0), [4000, 'wake probe unanswered']);
+  } finally {
+    t.mock.timers.reset();
+    await phone.client.close();
+  }
+});
+
+test('a pre-hide pong delayed behind an async decrypt cannot certify a dead link after resume', async (t) => {
+  const identity = await generateRelayE2EEServerIdentity();
+  const far = relayPair(identity, false);
+  const served = serve(far.next, far.send);
+  far.start();
+  let probeAnswered = 0;
+  const phone = await connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => far.ws,
+    random: () => 0.5,
+    onConnection: () => undefined,
+    probeAnswered: () => {
+      probeAnswered += 1;
+    },
+  });
+  await Promise.all([phone.client.resumeThread('t1', { lastItems: 50 }), served]);
+  await foldedThrough(phone.client, 't1', 12);
+
+  let pings = 0;
+  const originalSend = far.ws.send;
+  far.ws.send = (data) => {
+    if (data === '{"ping":1}') {
+      pings += 1;
+      return;
+    }
+    originalSend(data);
+  };
+  const subtle = globalThis.crypto.subtle;
+  const originalDecrypt = subtle.decrypt.bind(subtle);
+  let releaseDecrypt!: () => void;
+  const decryptGate = new Promise<void>((resolve) => (releaseDecrypt = resolve));
+  let decrypting!: () => void;
+  const decryptStarted = new Promise<void>((resolve) => (decrypting = resolve));
+  let holdNext = true;
+  Object.defineProperty(subtle, 'decrypt', {
+    configurable: true,
+    writable: true,
+    value: (...args: Parameters<typeof originalDecrypt>) => {
+      if (!holdNext) return originalDecrypt(...args);
+      holdNext = false;
+      decrypting();
+      return decryptGate.then(() => originalDecrypt(...args));
+    },
+  });
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.now() });
+  try {
+    assert.equal(phone.link.wake(), true);
+    assert.equal(pings, 1);
+
+    // An encrypted frame blocks the inbound queue while a pre-hide pong arrives behind it.
+    await far.send(message(13, 'a2', 'agentMessage', { text: 'pre-hide' }));
+    await decryptStarted;
+    far.ws.onmessage!({ data: JSON.stringify({ pong: 1 }) });
+
+    // Page hides and resumes before the blocked decrypt finishes: a fresh probe starts.
+    phone.link.hidden();
+    t.mock.timers.tick(100);
+    assert.equal(phone.link.wake(), true);
+    assert.equal(pings, 2);
+
+    // The pre-hide decrypt finishes and the queued pre-hide pong now reaches clearWord().
+    releaseDecrypt();
+    await foldedThrough(phone.client, 't1', 13);
+    await settle();
+    assert.equal(probeAnswered, 0, 'queued pre-hide pong must not satisfy the post-resume probe');
+    assert.deepEqual(far.closes, []);
+
+    // With no post-resume pong or traffic, the fresh deadline expires and closes the dead link.
+    t.mock.timers.tick(2_500);
+    assert.equal(probeAnswered, 0);
+    assert.deepEqual(far.closes.at(0), [4000, 'wake probe unanswered']);
+  } finally {
+    Object.defineProperty(subtle, 'decrypt', { configurable: true, writable: true, value: originalDecrypt });
+    t.mock.timers.reset();
+    await phone.client.close();
+  }
+});
+
 test('a socket parked on desktop-gone is closed by a suspension', async () => {
   const identity = await generateRelayE2EEServerIdentity();
   const far = relayPair(identity, false);

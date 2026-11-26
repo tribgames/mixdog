@@ -17,9 +17,11 @@ import {
 import { createNativeFetch } from './native-fetch.ts';
 import { openHostFlow } from './open-host.ts';
 import { originsOfBook } from './origins.ts';
+import { syncPickerNativeTheme } from './picker-theme.ts';
 import { nativeAppInfo } from '../../desktop/src/shared/native-app.ts';
 import { uiLanguageForLocale } from '../../desktop/src/shared/ui-language.ts';
 import {
+  pairingBackAction,
   previewFromLocation,
   renderPairing,
   stringsFor,
@@ -66,6 +68,8 @@ async function updateBridge(method: string, args?: unknown): Promise<unknown> {
 
 const strings = stringsFor(navigator.language);
 document.documentElement.lang = uiLanguageForLocale(navigator.language) ?? 'en';
+syncPickerNativeTheme();
+window.addEventListener('pageshow', () => syncPickerNativeTheme());
 
 const screen = document.getElementById('screen') as HTMLElement;
 trackKeyboardInset(screen);
@@ -98,6 +102,7 @@ let navigating = false;
 
 function render(): void {
   drawn = true;
+  if (!previewing) armBack(pairingBackAction(ui) !== null);
   // The start step lists the saved PCs (a preview brings its own).
   const state: ScreenState = previewing
     ? ui
@@ -148,7 +153,6 @@ async function openSaved(url: string): Promise<void> {
   }
   if (attempt === openGeneration && !navigating) {
     ui = { ...ui, opening: undefined };
-    armBack(false);
     render();
   }
 }
@@ -183,19 +187,22 @@ function armBack(on: boolean): void {
   backArmed = on;
 }
 // Only Back leaves our entry (to the load entry below it). An armed entry
-// cancels; the next step that needs Back pushes the one entry again.
+// dismisses the update offer or cancels the current flow; the next step that
+// needs Back pushes the one entry again.
 window.addEventListener('popstate', () => {
   const state = window.history.state as { mixdogBack?: unknown } | null;
   if (!backEntry || typeof state?.mixdogBack === 'boolean') return;
   backEntry = false;
   const armed = backArmed;
   backArmed = false;
-  if (armed) cancelOpen();
+  if (!armed) return;
+  if (pairingBackAction(ui) === 'dismiss-update') onAction('update-later');
+  else cancelOpen();
 });
 
 function go(step: Step, extra: { result?: ResultKind; error?: string } = {}): void {
-  armBack(step !== 'start');
   ui = { ...ui, step, result: extra.result, error: extra.error ?? '', busy: false, opening: undefined };
+  armBack(!previewing && pairingBackAction(ui) !== null);
   render();
 }
 
@@ -447,6 +454,7 @@ function dismissUpdate(): void {
   updateRequested = false;
   if (version) void readUpdate('dismissAppUpdate', { version });
   ui = { ...ui, update: undefined };
+  if (!previewing) armBack(pairingBackAction(ui) !== null);
 }
 
 const manage = new URLSearchParams(window.location.search).has('manage');
@@ -479,7 +487,7 @@ function onAction(id: Action['id']): void {
       break;
     case 'update-later':
       dismissUpdate();
-      if (!manage && book.last) void launch();
+      if (!manage && !ui.opening && book.last) void launch();
       else render();
       break;
   }

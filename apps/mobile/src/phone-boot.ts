@@ -27,6 +27,7 @@ import { createLaneFeeds, type LaneFeeds } from './phone-lanes.ts';
 import type { PhoneConnection, VersionRefusal } from './phone-status.ts';
 import { createViewManager, type ViewManager } from './phone-view.ts';
 import type { RelaySocket } from './relay-connector.ts';
+import { WAKE_TRAFFIC_PROOF_MS } from './relay-session.ts';
 
 /** A quick app switch must not cost the connection: going hidden only arms this, and the suspension runs if the page is still hidden when it ends. */
 export const BACKGROUND_GRACE_MS = 30_000;
@@ -41,6 +42,7 @@ export interface PhoneEnv {
   visualizePanels(): readonly string[];
   readonly webrtc?: Parameters<typeof connectPhone>[0]['webrtc'];
   readonly random?: () => number;
+  readonly now?: () => number;
   /** Recover from a core initialize refusal without touching the saved pairing. */
   updateRequired(reason: VersionRefusal): void;
 }
@@ -292,6 +294,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
         if (generation === pairingGeneration) dialLink = link;
       },
       ...(env.webrtc ? { webrtc: env.webrtc } : {}),
+      ...(env.now ? { now: env.now } : {}),
       random,
       signal: controller.signal,
       onConnection: (state) => {
@@ -432,6 +435,16 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
       return;
     }
     if (frozen) return;
+    if (
+      event?.type === 'focus' &&
+      !background &&
+      !ctx.backgroundSuspended &&
+      !resyncOnWake &&
+      phone &&
+      !phone.link.silentFor(WAKE_TRAFFIC_PROOF_MS)
+    ) {
+      return;
+    }
     clearTimeout(graceTimer);
     graceTimer = undefined;
     if (background) {
@@ -440,16 +453,17 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     }
     if (ctx.backgroundSuspended) beginRemoteConnectionTimeline('wake');
     ctx.backgroundSuspended = false;
+    const force = event?.type === 'online' || event?.type === REMOTE_WAKE_EVENT;
     if (!phone) {
       // Before the first connection the redial wait (up to 60 s) and a suspension are the link's: a wake releases both.
-      dialLink?.wake();
+      dialLink?.wake({ force });
       releaseHolders();
       void start().catch(() => undefined);
       return;
     }
-    const probing = phone.link.wake();
+    const probing = phone.link.wake({ force });
     if (!probing) resyncOnWake = true;
-    else if (resyncOnWake || event?.type === 'online' || event?.type === REMOTE_WAKE_EVENT) {
+    else if (resyncOnWake || force) {
       resyncOnWake = false;
       resyncAfterProbe = true;
     }

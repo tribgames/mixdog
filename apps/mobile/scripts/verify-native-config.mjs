@@ -121,6 +121,136 @@ check(
   'android reconnect hooks'
 );
 check(manifest.includes('android.permission.ACCESS_NETWORK_STATE'), 'manifest ACCESS_NETWORK_STATE');
+const lightColors = read('android/app/src/main/res/values/colors.xml');
+const darkColors = read('android/app/src/main/res/values-night/colors.xml');
+check(
+  /<color name="mixdogWebViewSurface">#fcfcfc<\/color>/iu.test(lightColors) &&
+    /<color name="mixdogWebViewBand">#f7f7f7<\/color>/iu.test(lightColors) &&
+    /<color name="mixdogWebViewSurface">#111111<\/color>/iu.test(darkColors) &&
+    /<color name="mixdogWebViewBand">#181818<\/color>/iu.test(darkColors),
+  'android light/dark WebView backing colors match renderer themes'
+);
+check(
+  mainActivity.includes('findViewById(com.getcapacitor.android.R.id.webview)') &&
+    mainActivity.includes('applyWebViewThemeColors(this, webView)') &&
+    mainActivity.includes('webView.setBackgroundColor(surface)') &&
+    mainActivity.includes('((View) webView.getParent()).setBackgroundColor(band)') &&
+    mainActivity.includes('R.color.mixdogWebViewSurface') &&
+    mainActivity.includes('R.color.mixdogWebViewBand') &&
+    mainActivity.includes('onConfigurationChanged'),
+  'android MainActivity programmatically applies DayNight backing colors to WebView and its parent'
+);
+check(
+  mainActivity.includes('"MixdogNativeTheme"') &&
+    mainActivity.includes('addWebMessageListener') &&
+    mainActivity.includes('isMainFrame') &&
+    mainActivity.includes('OriginPolicy.isAllowed') &&
+    mainActivity.includes('explicitWebViewSurfaceColor') &&
+    mainActivity.includes('explicitWebViewBandColor') &&
+    mainActivity.includes('followSystem'),
+  'android WebView synchronizes explicit Mixdog theme backing without overwriting onConfigurationChanged'
+);
+const reconnectJava = read(`${javaDir}MixdogReconnect.java`);
+const webViewClientJava = read(`${javaDir}MixdogWebViewClient.java`);
+const androidPickerStart = mainActivity.indexOf('void applyPickerThemeBacking()');
+const androidPickerEnd =
+  androidPickerStart >= 0 ? mainActivity.indexOf('\n  void openHostPicker()', androidPickerStart) : -1;
+const androidPickerBody =
+  androidPickerStart >= 0
+    ? mainActivity.slice(androidPickerStart, androidPickerEnd >= 0 ? androidPickerEnd : undefined)
+    : '';
+const androidOpenPickerStart = mainActivity.indexOf('void openHostPicker()');
+const androidOpenPickerEnd =
+  androidOpenPickerStart >= 0
+    ? mainActivity.indexOf('\n  private void applyWebViewThemeColors(', androidOpenPickerStart)
+    : -1;
+const androidOpenPickerBody =
+  androidOpenPickerStart >= 0
+    ? mainActivity.slice(androidOpenPickerStart, androidOpenPickerEnd >= 0 ? androidOpenPickerEnd : undefined)
+    : '';
+check(
+  androidPickerBody.includes('ContextCompat.getColor(this, R.color.mixdogBand)') &&
+    androidPickerBody.includes('explicitWebViewSurfaceColor = pickerBg;') &&
+    androidPickerBody.includes('explicitWebViewBandColor = pickerBg;') &&
+    androidPickerBody.includes('applyWebViewThemeColors(this, webView);') &&
+    androidOpenPickerBody.includes('applyPickerThemeBacking();') &&
+    mainActivity.includes('setAppearanceLightStatusBars') &&
+    mainActivity.includes('setAppearanceLightNavigationBars') &&
+    reconnectJava.includes('activity.openHostPicker()') &&
+    nativeHost.includes('activity.openHostPicker()') &&
+    webViewClientJava.includes('OriginPolicy.isBundled(OriginPolicy.originOf(url))') &&
+    webViewClientJava.includes('activity.applyPickerThemeBacking()'),
+  'android resets dark #181818 picker backing and system bars when returning to the bundled saved-PC picker'
+);
+const viewController = read('ios/App/App/MixdogViewController.swift');
+const applyBackingStart = viewController.indexOf('private func applyBackingColors(');
+const applyBackingEnd = applyBackingStart >= 0 ? viewController.indexOf('\n    func ', applyBackingStart) : -1;
+const applyBackingBody =
+  applyBackingStart >= 0
+    ? viewController.slice(applyBackingStart, applyBackingEnd >= 0 ? applyBackingEnd : undefined)
+    : '';
+const storedSurfaceIdx = applyBackingBody.indexOf('currentSurfaceColor = surface');
+const storedBandIdx = applyBackingBody.indexOf('currentBandColor = band');
+const applyBandIdx = applyBackingBody.indexOf('applyWindowBandColor()');
+const applySurfaceIdx = applyBackingBody.indexOf('webView?.backgroundColor = surface');
+check(
+  viewController.includes('userInterfaceStyle == .dark') &&
+    viewController.includes('0x11') &&
+    viewController.includes('0xfc') &&
+    viewController.includes('0x18') &&
+    viewController.includes('0xf7') &&
+    viewController.includes('view.window?.backgroundColor = currentBandColor') &&
+    storedSurfaceIdx >= 0 &&
+    storedBandIdx >= 0 &&
+    applyBandIdx > storedBandIdx &&
+    applySurfaceIdx > storedSurfaceIdx &&
+    applyBackingBody.includes('view !== webView') &&
+    applyBackingBody.includes('webView?.isOpaque = false') &&
+    applyBackingBody.includes('webView?.scrollView.backgroundColor = surface') &&
+    applyBackingBody.includes('webView?.underPageBackgroundColor = surface') &&
+    applyBackingBody.includes('setNeedsStatusBarAppearanceUpdate()') &&
+    viewController.includes('override var preferredStatusBarStyle: UIStatusBarStyle') &&
+    /override func viewWillAppear\([^)]*\)\s*\{[^}]*applyWindowBandColor\(\)/u.test(viewController) &&
+    /override func viewDidAppear\([^)]*\)\s*\{[^}]*applyWindowBandColor\(\)/u.test(viewController),
+  'ios WKWebView stores and preserves distinct window band and non-opaque WebView surface backing colors'
+);
+check(
+  viewController.includes('"mixdogTheme"') &&
+    viewController.includes('WKScriptMessageHandler') &&
+    viewController.includes('frameInfo.isMainFrame') &&
+    viewController.includes('MixdogOriginPolicy.isAllowed(origin)') &&
+    viewController.includes('applyThemeBacking') &&
+    viewController.includes('followSystem'),
+  'ios WKWebView synchronizes explicit Mixdog theme backing with origin checks'
+);
+const swiftBridgeForPicker = read('ios/App/App/MixdogNativeBridge.swift');
+const swiftDidCommitStart = swiftBridgeForPicker.indexOf(
+  'func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!)'
+);
+const swiftDidCommitEnd =
+  swiftDidCommitStart >= 0 ? swiftBridgeForPicker.indexOf('\n    func webView(', swiftDidCommitStart + 1) : -1;
+const swiftDidCommitBody =
+  swiftDidCommitStart >= 0
+    ? swiftBridgeForPicker.slice(swiftDidCommitStart, swiftDidCommitEnd >= 0 ? swiftDidCommitEnd : undefined)
+    : '';
+const swiftOpenPickerStart = swiftBridgeForPicker.indexOf('private func openHostPicker()');
+const swiftOpenPickerEnd =
+  swiftOpenPickerStart >= 0 ? swiftBridgeForPicker.indexOf('\n    // MARK:', swiftOpenPickerStart) : -1;
+const swiftOpenPickerBody =
+  swiftOpenPickerStart >= 0
+    ? swiftBridgeForPicker.slice(swiftOpenPickerStart, swiftOpenPickerEnd >= 0 ? swiftOpenPickerEnd : undefined)
+    : '';
+check(
+  viewController.includes('func applyPickerThemeBacking()') &&
+    viewController.includes('pickerBandColor') &&
+    swiftOpenPickerBody.includes('applyPickerThemeBacking()') &&
+    swiftOpenPickerBody.includes('controller.webView?.load') &&
+    swiftOpenPickerBody.indexOf('applyPickerThemeBacking()') <
+      swiftOpenPickerBody.indexOf('controller.webView?.load') &&
+    swiftDidCommitBody.includes('MixdogOriginPolicy.bundled.contains(origin)') &&
+    swiftDidCommitBody.includes('applyPickerThemeBacking()'),
+  'ios resets dark #181818 picker backing when returning to the bundled saved-PC picker'
+);
 const offlineCover = read('android/app/src/main/res/layout/mixdog_reconnect.xml');
 check(
   offlineCover.includes('android:background="@color/mixdogOfflineFrame"') &&

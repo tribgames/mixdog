@@ -89,8 +89,7 @@ final class MixdogReconnect {
   void chooseAnotherPc() {
     state.clear();
     sync();
-    if (activity.getBridge() == null || activity.getBridge().getWebView() == null) return;
-    activity.getBridge().getWebView().loadUrl(activity.getBridge().getLocalUrl() + "/?manage=1");
+    activity.openHostPicker();
   }
 
   /** The recovery's timers, network watch and cover follow whether an episode is running. */
