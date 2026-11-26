@@ -655,10 +655,8 @@ impl AgentImageGen {
                             handed: None,
                             temp: None,
                         };
-                        let timeout = match attempt_deadline {
-                            Some(deadline) => Some(deadline.saturating_duration_since(tokio::time::Instant::now())),
-                            None => existing.then_some(SHARED_OPEN_TIMEOUT),
-                        };
+                        // The deadline bounded the server's start; the open has the whole limit of its own.
+                        let timeout = (attempt_deadline.is_some() || existing).then_some(SHARED_OPEN_TIMEOUT);
                         match AgentSession::open_on_shared_owned(lease, open, wake.clone(), Box::new(|| {}), timeout).await {
                             Ok(owned) => {
                                 result = Ok(owned);

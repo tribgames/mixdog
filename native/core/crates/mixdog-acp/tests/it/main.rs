@@ -8002,6 +8002,23 @@ async fn mid_turn_compaction_rolls_over_to_fresh_session_before_next_tool_round(
     assert_eq!(recorded_sessions.len(), 2, "SESSION_KEY updated for fresh rollover session: {recorded_sessions:?}");
 }
 
+/// The official server retires once the session a mid-turn rollover leaves behind is off it, so the fresh session opens
+/// on a server started for it: that start and open take as long as they take, as a first open's do, and the turn goes on
+/// in the fresh session instead of failing on the bound of an open on a server already running.
+#[tokio::test]
+async fn mid_turn_rollover_opens_on_a_newly_started_shared_server_however_long_its_start_takes() {
+    let (world, tools) = handing_in(World::official(&[("FAKE_AGENT_CONTINUE_TOOL", "read")]));
+    // Every start of a server outlasts this bound.
+    world.agents.set_shared_open_timeout(Duration::ZERO);
+    let surface = Surface::default();
+    let turns = Turns { summary: Some(Ok("ROLLOVER_SUMMARY")), calls: Some(tools.calls(&surface)), auto_compact: true, ..Turns::default() };
+
+    let end = world.ask(&surface, "midcompact 200687 1048576 read shell", turns).await;
+    let text = completed_text(&end);
+    assert!(text.contains("resumed=false") && text.contains("ROLLOVER_SUMMARY"), "the turn goes on in a fresh session on the summary: {text}");
+    assert_eq!(world.logged("start acp"), 2, "the fresh session runs on a newly started server: {:?}", world.log());
+}
+
 /// If `usage_update` crosses the trigger while a Mixdog tool call is already in flight, Mixdog lets the in-flight tool
 /// finish and commit its result row to the transcript, then refuses its MCP answer after `session/cancel` so the old
 /// session cannot start another LLM round, compacts, and continues on a fresh session.

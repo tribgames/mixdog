@@ -720,7 +720,9 @@ async fn serve_with_refusal(
                         drop(held);
                         break TurnEnd::Interrupted;
                     }
-                    opened = agents.open_session(&thread, preset, cwd.clone(), None, rules.clone(), preset.scope == ProcessScope::Shared) => match opened {
+                    // The session left behind answered its cancelled prompt: no server is suspected wedged, and one this
+                    // open starts (the last session left the one before) is not bounded, as no first open is.
+                    opened = agents.open_session(&thread, preset, cwd.clone(), None, rules.clone(), false) => match opened {
                         Ok(opened) => opened,
                         Err(refusal) => {
                             drop(held);

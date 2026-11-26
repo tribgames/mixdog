@@ -1005,10 +1005,9 @@ impl Agents {
                         handed: make_handed(),
                         temp: None,
                     };
-                    let timeout = match attempt_deadline {
-                        Some(deadline) => Some(deadline.saturating_duration_since(tokio::time::Instant::now())),
-                        None => existing.then(|| self.shared_open_timeout()),
-                    };
+                    // The deadline bounded the server's start; the open has the whole limit of its own, so a slow
+                    // start leaves a healthy server's `session/new` its time.
+                    let timeout = (attempt_deadline.is_some() || existing).then(|| self.shared_open_timeout());
                     match AgentSession::open_on_shared_owned(lease, open, wake.clone(), make_on_exit(), timeout).await {
                         Ok(owned) => {
                             result = Ok(owned.into_parts());

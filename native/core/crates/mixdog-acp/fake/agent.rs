@@ -31,7 +31,7 @@ use serde_json::Value;
 use serde_json::json;
 
 /// What a request of the agent's to the client is.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 enum Asked {
     Permission,
     ApprovedThenCompact { used: u64, size: u64 },
@@ -40,6 +40,8 @@ enum Asked {
     ImageGen { mode: ImageGenMode },
     Read,
     AfterLeftover,
+    MidCompactCall { tool: String },
+    RecompactCall,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -593,23 +595,10 @@ impl Agent {
                 self.say(&format!("round1={said1}"));
                 self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
                 self.update(mcp_call("tool_call", "m2", &tool2, "in_progress", &json!({})));
-                let answer2 = mcp_try(
-                    &self.held().servers[0],
-                    &json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": { "name": tool2, "arguments": {} } }),
-                );
-                let refused = match &answer2 {
-                    Err(_) => true,
-                    Ok(resp) => resp.get("error").is_some() || resp["result"]["isError"] == true,
-                };
-                if refused {
-                    log("round2-refused");
-                    answer(&id, json!({ "stopReason": "cancelled" }));
-                } else {
-                    log("self-compact");
-                    self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "m2", "status": "completed" }));
-                    self.say("self-compacted");
-                    self.end(&id);
-                }
+                // The MCP call does not travel behind what was said: the client's answer to a request behind it tells
+                // that the client has read all of it before the call.
+                self.request("fs/read_text_file", json!({ "path": "" }), Asked::MidCompactCall { tool: tool2 }, true);
+                self.session().asked = Some(id);
             }
             // Starts an MCP tool call in flight, emits usage_update while it is running, then checks whether Mixdog
             // refused its answer after letting the tool finish and commit.
@@ -975,7 +964,6 @@ impl Agent {
             }
             // Mid-turn continuation prompt sent by Mixdog on a fresh session after rollover.
             "[mixdog-runtime]" => {
-                let sess_id = self.held().id.clone();
                 let should_recompact = setting("FAKE_AGENT_RECOMPACT").filter(|recompact| {
                     if recompact.split_whitespace().count() == 2 {
                         return true;
@@ -999,23 +987,8 @@ impl Agent {
                         self.update(json!({ "sessionUpdate": "usage_update", "used": second, "size": size }));
                     }
                     self.update(mcp_call("tool_call", "r2", "shell", "in_progress", &json!({})));
-                    let resp = mcp_try(
-                        &self.held().servers[0],
-                        &json!({ "jsonrpc": "2.0", "id": 19, "method": "tools/call", "params": { "name": "shell", "arguments": {} } }),
-                    );
-                    let refused = match &resp {
-                        Err(_) => true,
-                        Ok(resp) => resp.get("error").is_some() || resp["result"]["isError"] == true,
-                    };
-                    if refused {
-                        log("recompact-refused");
-                        answer(&id, json!({ "stopReason": "cancelled" }));
-                    } else {
-                        log("recompact-continued");
-                        self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "r2", "status": "completed" }));
-                        self.say(&format!("session={sess_id} continued-after-guard"));
-                        self.end(&id);
-                    }
+                    self.request("fs/read_text_file", json!({ "path": "" }), Asked::RecompactCall, true);
+                    self.session().asked = Some(id);
                 } else {
                     if let Some(tool) = setting("FAKE_AGENT_CONTINUE_TOOL") {
                         let _ = self.call_tool("c1", &tool, json!({}));
@@ -1365,6 +1338,43 @@ impl Agent {
                 self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "a1", "status": "failed" }));
                 answer(&prompt, json!({ "stopReason": "cancelled" }));
                 return;
+            }
+            Asked::MidCompactCall { tool } => {
+                let resp = mcp_try(
+                    &self.held().servers[0],
+                    &json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": { "name": tool, "arguments": {} } }),
+                );
+                let refused = match &resp {
+                    Err(_) => true,
+                    Ok(resp) => resp.get("error").is_some() || resp["result"]["isError"] == true,
+                };
+                if refused {
+                    log("round2-refused");
+                    answer(&prompt, json!({ "stopReason": "cancelled" }));
+                    return;
+                }
+                log("self-compact");
+                self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "m2", "status": "completed" }));
+                self.say("self-compacted");
+            }
+            Asked::RecompactCall => {
+                let resp = mcp_try(
+                    &self.held().servers[0],
+                    &json!({ "jsonrpc": "2.0", "id": 19, "method": "tools/call", "params": { "name": "shell", "arguments": {} } }),
+                );
+                let refused = match &resp {
+                    Err(_) => true,
+                    Ok(resp) => resp.get("error").is_some() || resp["result"]["isError"] == true,
+                };
+                if refused {
+                    log("recompact-refused");
+                    answer(&prompt, json!({ "stopReason": "cancelled" }));
+                    return;
+                }
+                log("recompact-continued");
+                self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "r2", "status": "completed" }));
+                let session = self.held().id.clone();
+                self.say(&format!("session={session} continued-after-guard"));
             }
             Asked::ImageGen { mode } => {
                 let outcome = &message["result"]["outcome"];
