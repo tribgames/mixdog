@@ -231,6 +231,7 @@ async function openHarness(t) {
 async function upwardFlings({ page, cdp, top }, count, beforeEach = async () => {}) {
   await page.evaluate(() => window.armProbe());
   const marks = [];
+  const settles = [];
   let rest = 0;
   for (let flick = 0; flick < count; flick += 1) {
     await beforeEach();
@@ -246,6 +247,7 @@ async function upwardFlings({ page, cdp, top }, count, beforeEach = async () => 
       previous = current;
     }
     rest = previous;
+    settles.push(await page.evaluate(() => performance.now()));
   }
   const probe = await page.evaluate(() => window.probe);
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
@@ -257,7 +259,8 @@ async function upwardFlings({ page, cdp, top }, count, beforeEach = async () => 
         .filter((step) => step.t >= mark && step.t < (marks[index + 1] ?? Number.POSITIVE_INFINITY))
         .reduce((sum, step) => sum + step.fling, 0)
   );
-  return { probe, motion, travel, rest };
+  const flinging = (step) => marks.some((mark, index) => step.t >= mark && step.t <= settles[index]);
+  return { probe, motion, travel, rest, flinging };
 }
 
 test('on Android an upward touch fling through mis-estimated rows moves the rows on screen only by the fling', async (t) => {
@@ -292,13 +295,14 @@ test('on Android an upward touch fling from the tail runs its course while a rep
     await wait(600);
   };
   const ticksBefore = await page.evaluate(() => window.streamTicks);
-  const { probe, motion, travel } = await upwardFlings(harness, 5, toTail);
+  const { probe, motion, travel, flinging } = await upwardFlings(harness, 5, toTail);
   assert.deepEqual(harness.errors, []);
   // The reply kept streaming through the flings (a 4x-throttled main thread
   // still ran its updates).
   assert.ok((await page.evaluate(() => window.streamTicks)) - ticksBefore > 50, 'the reply streamed during the flings');
-  // The tail-return writes are the test's own; only frames inside a fling count.
-  const backward = motion.filter((step) => step.content < -2 && step.fling < 0);
+  // The tail-return writes are the test's own, and at the followed tail a row above that shrinks clamps the offset
+  // up before the end pin lands the reply's growth: only frames inside a fling count.
+  const backward = motion.filter((step) => flinging(step) && step.content < -2 && step.fling < 0);
   const summary = `${probe.writes} writes over ${motion.length} frames`;
   assert.deepEqual(backward, [], `the rows on screen never move against the fling (${summary})`);
   for (const [index, distance] of travel.entries()) {

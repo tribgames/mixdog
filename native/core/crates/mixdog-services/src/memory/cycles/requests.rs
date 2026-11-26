@@ -201,7 +201,7 @@ pub struct RetryTimers {
     scope: Scope,
 }
 
-/// Resolves once `timer` has run out `delay`.
+/// Resolves once `timer` has run out `delay`. A timer that drops its callback without firing never resolves.
 pub async fn wait(timer: &dyn RetryTimer, delay: Duration) {
     let (tx, rx) = tokio::sync::oneshot::channel();
     timer.arm(
@@ -210,7 +210,9 @@ pub async fn wait(timer: &dyn RetryTimer, delay: Duration) {
             let _ = tx.send(());
         }),
     );
-    let _ = rx.await;
+    if rx.await.is_err() {
+        std::future::pending::<()>().await;
+    }
 }
 
 /// Spawns a task on the work executor (task reports; nothing of the memory database).
@@ -243,6 +245,25 @@ mod tests {
         assert_eq!(resolve_coalesce_max_retries(&serde_json::json!({}), 3.0), 3.0);
         assert_eq!(resolve_coalesce_retry_delay_ms(&serde_json::json!({"coalesce_retry_delay_ms": 1}), 1000.0), 50.0);
         assert_eq!(resolve_coalesce_max_drains(&serde_json::json!({"coalesce_max_drains": null}), 1.0), 0.0);
+    }
+
+    #[tokio::test]
+    async fn wait_stays_pending_when_the_timer_drops_its_callback_without_firing() {
+        struct DropCallback;
+        impl RetryTimer for DropCallback {
+            fn arm(&self, _delay: Duration, _fire: Box<dyn FnOnce() + Send>) {}
+        }
+        struct FireNow;
+        impl RetryTimer for FireNow {
+            fn arm(&self, _delay: Duration, fire: Box<dyn FnOnce() + Send>) {
+                fire();
+            }
+        }
+
+        let dropped = std::pin::pin!(wait(&DropCallback, Duration::from_secs(60)));
+        assert!(futures::FutureExt::now_or_never(dropped).is_none());
+        let fired = std::pin::pin!(wait(&FireNow, Duration::from_secs(60)));
+        assert!(futures::FutureExt::now_or_never(fired).is_some());
     }
 }
 
