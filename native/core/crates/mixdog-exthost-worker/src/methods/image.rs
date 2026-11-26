@@ -27,6 +27,40 @@ pub(super) fn register(registry: &mut Registry) {
     registry.register_blocking("image.validate", validate);
     registry.register_blocking("image.resize", resize);
     registry.register_blocking("image.still", still);
+    registry.register_blocking("image.fit", fit);
+}
+
+/// A tool's image fitted for an agent's history (`mixdog_imaging::tool_image`). `ok` is the image with its sizes and
+/// whether it was recompressed; `error` is `invalid` for bytes the decoder rejects and `too_large` for an image over
+/// `maxRawBytes` at the lowest quality.
+fn fit(mut ctx: CallCtx) -> HandlerResult {
+    not_cancelled(&ctx)?;
+    let bytes = node_base64(base64_param(&ctx.params)?);
+    ctx.params["data"] = Value::Null;
+    let ext = text_or_empty(ctx.params.get("ext"));
+    let Some(max_raw_bytes) = ctx.params.get("maxRawBytes").and_then(Value::as_u64).and_then(|limit| usize::try_from(limit).ok()) else {
+        return Err(invalid_params("maxRawBytes must be a whole number"));
+    };
+    not_cancelled(&ctx)?;
+    match mixdog_imaging::tool_image::fit_tool_image(&bytes, &ext, max_raw_bytes) {
+        Ok(image) => {
+            let dimensions = image.dimensions;
+            let mut answer = json!({
+                "mimeType": image.mime,
+                "recompressed": image.recompressed,
+                "dimensions": {
+                    "originalWidth": dimensions.original_width,
+                    "originalHeight": dimensions.original_height,
+                    "displayWidth": dimensions.display_width,
+                    "displayHeight": dimensions.display_height,
+                },
+            });
+            answer["data"] = Value::String(STANDARD.encode(&image.data));
+            Ok(Outcome::value(json!({ "ok": answer })))
+        }
+        Err(mixdog_imaging::tool_image::ToolImageRefusal::Unreadable) => Ok(Outcome::value(json!({"error": "invalid"}))),
+        Err(mixdog_imaging::tool_image::ToolImageRefusal::TooLarge) => Ok(Outcome::value(json!({"error": "too_large"}))),
+    }
 }
 
 /// JavaScript's `String(value ?? '')`: a missing or null parameter is the empty string, any other value is coerced.

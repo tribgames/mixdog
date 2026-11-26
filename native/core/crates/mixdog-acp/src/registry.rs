@@ -514,7 +514,7 @@ mod tests {
             presets: vec![preset.clone()],
             processes: Arc::new(NoProcesses),
             files: Arc::new(BlockingRename { entered: entered.clone(), release: release.clone(), done: done.clone() }),
-            cpu: mixdog_rt::testing::tokens().cpu_interactive,
+            fit: crate::mcp::in_process_fit(),
             enabled: Arc::new(|| true),
             changed: Arc::new(|| {}),
             probe_cwd: dir.path().to_path_buf(),

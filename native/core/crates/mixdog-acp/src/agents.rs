@@ -261,7 +261,7 @@ pub struct AgentsParts {
     pub processes: Arc<dyn ProcessManager>,
     pub files: Arc<dyn TextFiles>,
     /// The lane the images of a tool's result are fitted on for an agent.
-    pub cpu: mixdog_rt::CpuInteractive,
+    pub fit: Arc<dyn mixdog_core_api::domain::ext::ToolImageFitter>,
     /// The feature's switch, read at every use.
     pub enabled: Arc<dyn Fn() -> bool + Send + Sync>,
     /// Told when a readiness changed (the settings value's change tick).

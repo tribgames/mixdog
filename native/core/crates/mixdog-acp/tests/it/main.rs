@@ -737,7 +737,7 @@ fn agents_of(
         presets: presets.to_vec(),
         processes: processes.clone(),
         files: Arc::new(Files(opened.clone())),
-        cpu: mixdog_rt::testing::tokens().cpu_interactive,
+        fit: mixdog_acp::mcp::in_process_fit(),
         enabled: {
             let enabled = enabled.clone();
             Arc::new(move || enabled.load(Ordering::SeqCst))
@@ -916,7 +916,7 @@ impl World {
             transcript: None,
             output_produced: None,
             mid_turn_compaction: None,
-            cpu: mixdog_rt::testing::tokens().cpu_interactive,
+            fit: mixdog_acp::mcp::in_process_fit(),
         }
     }
 

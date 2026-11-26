@@ -21,6 +21,9 @@ use mixdog_core_api::domain::ext::ExtCall;
 use mixdog_core_api::domain::ext::ExtError;
 use mixdog_core_api::domain::ext::ExtFrame;
 use mixdog_core_api::domain::ext::ExtPool;
+use mixdog_core_api::domain::ext::FittedToolImage;
+use mixdog_core_api::domain::ext::ToolImageFitError;
+use mixdog_core_api::domain::ext::ToolImageFitter;
 use mixdog_core_api::domain::ext::ImageProfile;
 use mixdog_core_api::domain::ext::ImageResizeError;
 use mixdog_core_api::domain::ext::ImageResizer;
@@ -264,6 +267,46 @@ impl ProfiledImageResizer for ExtImageCodec {
 }
 
 #[async_trait::async_trait]
+impl ToolImageFitter for ExtImageCodec {
+    async fn fit(&self, bytes: &[u8], ext: &str, max_raw_bytes: usize) -> Result<FittedToolImage, ToolImageFitError> {
+        if bytes.is_empty() {
+            return Err(ToolImageFitError::Unreadable);
+        }
+        let method = "image.fit";
+        let thread = Self::compact_thread();
+        let host = |failure| ToolImageFitError::Host(host_error(failure));
+        let params = with_image_data(&thread, method, json!({ "ext": ext, "maxRawBytes": max_raw_bytes }), bytes).map_err(host)?;
+        let mut stream = self.pool.call(ExtCall { thread, method: method.to_owned(), params, paths: Vec::new() }).map_err(ToolImageFitError::Host)?;
+        let mut answer = loop {
+            match stream.next().await {
+                Some(ExtFrame::Chunk(_)) => {}
+                Some(ExtFrame::Done(outcome)) => break outcome.map_err(ToolImageFitError::Host)?,
+                None => return Err(ToolImageFitError::Host(ExtError::UnknownWorker)),
+            }
+        };
+        match answer.get("error").and_then(JsonValue::as_str) {
+            Some("invalid") => return Err(ToolImageFitError::Unreadable),
+            Some("too_large") => return Err(ToolImageFitError::TooLarge),
+            Some(_) => return Err(ToolImageFitError::Host(bad_answer(method))),
+            None => {}
+        }
+        let malformed = || ToolImageFitError::Host(bad_answer(method));
+        let ok = answer.get_mut("ok").map(JsonValue::take).ok_or_else(malformed)?;
+        let recompressed = ok.get("recompressed").and_then(JsonValue::as_bool).ok_or_else(malformed)?;
+        let fitted = read_resized(ok).ok_or_else(malformed)?;
+        Ok(FittedToolImage {
+            data: STANDARD.decode(&fitted.data_base64).map_err(|_| malformed())?,
+            mime: fitted.mime,
+            original_w: fitted.original_w,
+            original_h: fitted.original_h,
+            display_w: fitted.display_w,
+            display_h: fitted.display_h,
+            recompressed,
+        })
+    }
+}
+
+#[async_trait::async_trait]
 impl ImageCodec for ExtImageCodec {
     async fn probe(&self, bytes: &[u8]) -> Result<ImageSize, CodecError> {
         let method = "image.probe";
@@ -335,6 +378,34 @@ mod tests {
 
     fn bad_answer_error(method: &str) -> ReadResizeError {
         ReadResizeError::Host(bad_answer(method))
+    }
+
+    #[tokio::test]
+    async fn a_tool_image_fit_is_the_workers_answer_or_its_refusal() {
+        let fitted = json!({ "ok": {
+            "data": "AQID",
+            "mimeType": "image/jpeg",
+            "recompressed": true,
+            "dimensions": { "originalWidth": 4000, "originalHeight": 3000, "displayWidth": 1568, "displayHeight": 1176 },
+        } });
+        assert_eq!(
+            codec(Ok(fitted)).fit(b"x", "png", 1024).await,
+            Ok(FittedToolImage {
+                data: vec![1, 2, 3],
+                mime: "image/jpeg".to_owned(),
+                original_w: 4000,
+                original_h: 3000,
+                display_w: 1568,
+                display_h: 1176,
+                recompressed: true
+            })
+        );
+        assert_eq!(codec(Ok(json!({ "error": "invalid" }))).fit(b"x", "png", 1024).await, Err(ToolImageFitError::Unreadable));
+        assert_eq!(codec(Ok(json!({ "error": "too_large" }))).fit(b"x", "png", 1024).await, Err(ToolImageFitError::TooLarge));
+        assert_eq!(codec(Ok(json!({ "ok": null }))).fit(b"", "png", 1024).await, Err(ToolImageFitError::Unreadable));
+        // A host that cannot answer has not judged the image.
+        assert_eq!(codec(Err(ExtError::Overloaded)).fit(b"x", "png", 1024).await, Err(ToolImageFitError::Host(ExtError::Overloaded)));
+        assert_eq!(codec(Ok(json!({ "ok": { "data": "AQID" } }))).fit(b"x", "png", 1024).await, Err(ToolImageFitError::Host(bad_answer("image.fit"))));
     }
 
     #[tokio::test]

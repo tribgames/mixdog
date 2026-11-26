@@ -2710,7 +2710,7 @@ also (https://en.wikipedia.org/wiki/Actor_model_(computing)).";
             presets: crate::preset::builtin(),
             processes,
             files,
-            cpu: mixdog_rt::testing::tokens().cpu_interactive,
+            fit: crate::mcp::in_process_fit(),
             probe_cwd: cwd.clone(),
             data_dir: cwd.clone(),
             definitions: cwd,

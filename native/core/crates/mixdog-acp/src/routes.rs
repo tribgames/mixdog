@@ -648,7 +648,7 @@ mod tests {
             presets,
             processes,
             files: Arc::new(NoFiles),
-            cpu: mixdog_rt::testing::tokens().cpu_interactive,
+            fit: crate::mcp::in_process_fit(),
             enabled: {
                 let enabled = enabled.clone();
                 Arc::new(move || enabled.load(Ordering::SeqCst))

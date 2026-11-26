@@ -44,6 +44,7 @@ mod tests {
                 "document.libreOfficeStatus",
                 "document.preview",
                 "document.previewPages",
+                "image.fit",
                 "image.jpeg",
                 "image.probe",
                 "image.resize",

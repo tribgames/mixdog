@@ -26,6 +26,7 @@ pub mod policy;
 pub mod resize;
 pub mod still;
 pub mod svg_limits;
+pub mod tool_image;
 pub mod tool_jpeg;
 pub mod validate;
 

@@ -139,6 +139,22 @@ async fn image_jpeg_fits_the_box_and_enlarges_only_when_allowed() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn image_fit_answers_the_fitted_image_or_why_it_is_left_out() {
+    let pool = pool();
+    let png = flat_png(300, 200, [20, 200, 20]);
+    let answer = ask(&pool, "image.fit", json!({"data": b64(&png), "ext": "png", "maxRawBytes": 1_000_000})).await.unwrap();
+    let ok = &answer["ok"];
+    assert_eq!((&ok["dimensions"]["originalWidth"], &ok["dimensions"]["displayWidth"]), (&json!(300), &json!(300)));
+    assert_eq!((&ok["mimeType"], &ok["recompressed"]), (&json!("image/png"), &json!(false)), "one that fits comes back as itself");
+    // Over the agent's ceiling at every quality, and bytes no decoder takes.
+    assert_eq!(ask(&pool, "image.fit", json!({"data": b64(&png), "ext": "png", "maxRawBytes": 8})).await.unwrap(), json!({"error": "too_large"}));
+    assert_eq!(ask(&pool, "image.fit", json!({"data": b64(JUNK), "ext": "png", "maxRawBytes": 1_000_000})).await.unwrap(), json!({"error": "invalid"}));
+    let unbounded = refused(ask(&pool, "image.fit", json!({"data": b64(&png), "ext": "png"})).await);
+    assert_eq!(unbounded, ("invalid_params".to_owned(), "maxRawBytes must be a whole number".to_owned()));
+    pool.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn image_resize_reports_both_sizes_and_nothing_for_an_empty_file() {
     let pool = pool();
     let png = flat_png(300, 200, [20, 200, 20]);

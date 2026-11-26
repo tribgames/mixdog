@@ -163,6 +163,38 @@ pub enum ImageResizeError {
 pub trait ImageResizer: Send + Sync {
     async fn resize(&self, thread: &ThreadId, bytes: &[u8], ext: &str) -> Result<Option<ResizedImage>, ImageResizeError>;
 }
+/// A tool's image fitted for an agent's history.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct FittedToolImage {
+    pub data: Vec<u8>,
+    /// `image/<format>`.
+    pub mime: String,
+    pub original_w: u32,
+    pub original_h: u32,
+    pub display_w: u32,
+    pub display_h: u32,
+    /// Re-encoded at a lower quality than its source.
+    pub recompressed: bool,
+}
+
+/// Why a tool's image is left out of what the agent is given.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum ToolImageFitError {
+    /// Empty, or the decoder rejected the bytes.
+    Unreadable,
+    /// Over the agent's byte ceiling even at the lowest quality.
+    TooLarge,
+    /// The fitter's host failed: the image was not judged.
+    Host(ExtError),
+}
+
+/// Fits a tool's image (format `ext`) to the display box and the history budget inside `max_raw_bytes`, the agent's
+/// own ceiling, outside the core's process.
+#[async_trait::async_trait]
+pub trait ToolImageFitter: Send + Sync {
+    async fn fit(&self, bytes: &[u8], ext: &str, max_raw_bytes: usize) -> Result<FittedToolImage, ToolImageFitError>;
+}
+
 /// The image profile of a provider (`imageProfileForProvider`): the edge and patch limits
 /// `resizeImageBuffer` fits an image into.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

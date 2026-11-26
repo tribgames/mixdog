@@ -549,7 +549,7 @@ fn clone_turn_context(base: &TurnContext, record: Option<HeaderChange>, mid_turn
         transcript: base.transcript.clone(),
         output_produced: base.output_produced.clone(),
         mid_turn_compaction,
-        cpu: base.cpu,
+        fit: base.fit.clone(),
     }
 }
 
@@ -1184,7 +1184,7 @@ pub async fn drive(agents: &Arc<Agents>, preset: &AgentPreset, now_ms: Arc<dyn F
         transcript: transcript.clone(),
         output_produced,
         mid_turn_compaction: None,
-        cpu: agents.parts.cpu,
+        fit: agents.parts.fit.clone(),
     };
     let stop = context.cancel.clone();
     match serve_with_refusal(agents, preset, request, surface, context).await {
@@ -1385,7 +1385,7 @@ pub async fn ask_once<'a>(
             transcript: None,
             output_produced: None,
             mid_turn_compaction: None,
-            cpu: agents.parts.cpu,
+            fit: agents.parts.fit.clone(),
         };
         let end = crate::turn::run(&session, Arc::new(surface.clone()), Ask::Prompt(blocks), context).await;
         account_learned(agents, preset, &end).await;

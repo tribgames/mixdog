@@ -1620,7 +1620,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         presets: b.agent_presets.clone(),
         processes: b.process_manager.clone(),
         files: Arc::new(mixdog_acp::files::ServiceFiles { files: b.files.clone(), lane: b.tokens.interactive_io }),
-        cpu: b.tokens.cpu_interactive,
+        fit: Arc::new(mixdog_exthost::ExtImageCodec::new(b.ext_host.clone())),
         enabled: {
             let (config, env) = (config.clone(), b.env.clone());
             Arc::new(move || mixdog_core_config::tool_modules::builtin_feature_active(&config.agent(), mixdog_acp::FEATURE, &|name| env(name), false))
@@ -4529,6 +4529,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     )))?; // `desktop/link/*`, `desktop/attachment/*`, `desktop/workflowConfig/read`, `desktop/fonts/list`
     builder.register(Arc::new(mixdog_core_domains::domains::desktop_residual_b::DesktopResidualBService::new(
         Arc::new(mixdog_core_session::session::attachments::DesktopAttachmentHost::new(directory.clone(), blobs.clone(), &b.tokens)),
+        Arc::new(mixdog_exthost::ExtImageCodec::new(b.ext_host.clone())),
         &b.tokens,
         b.data_dir.clone(),
     )))?; // `desktop/localLink/open`, `desktop/attachment/write|thumbnail`, `desktop/launchVersion/*`, `desktop/modelBootstrap/read`, `desktop/nativeToolCache/gc`, `desktop/userFile/write`, `desktop/computer/inputAccess/request`

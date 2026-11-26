@@ -38,7 +38,6 @@ use mixdog_protocol::MaybeBlob;
 use mixdog_protocol::ThreadItem;
 use mixdog_protocol::ToolCallId;
 use mixdog_protocol::TurnId;
-use mixdog_rt::CpuInteractive;
 use mixdog_rt::TaskClass;
 use mixdog_store::schema::record::HeaderChange;
 use mixdog_tools::orch::agent::TaskResult;
@@ -147,7 +146,7 @@ pub struct TurnContext {
     /// Live automatic compaction policy for mid-turn `usage_update` readings; `None` when mid-turn compaction is off.
     pub mid_turn_compaction: Option<MidTurnCompaction>,
     /// The lane the images of the turn's tool results are fitted on.
-    pub cpu: CpuInteractive,
+    pub fit: Arc<dyn mixdog_core_api::domain::ext::ToolImageFitter>,
 }
 
 /// Where the pictures an agent shows are kept, and what reads a file it names as one.
@@ -378,15 +377,15 @@ struct Launch {
     release: CancellationToken,
     /// Takes the call's finished result back to the turn loop.
     ended: tokio::sync::mpsc::UnboundedSender<LaunchedResult>,
-    cpu: CpuInteractive,
+    fit: Arc<dyn mixdog_core_api::domain::ext::ToolImageFitter>,
 }
 
-fn image_output_for(session: &AgentSession, cpu: CpuInteractive) -> crate::mcp::ImageOutput {
+fn image_output_for<'a>(session: &AgentSession, fit: &'a dyn mixdog_core_api::domain::ext::ToolImageFitter) -> crate::mcp::ImageOutput<'a> {
     crate::mcp::ImageOutput {
         supports_images: session.images,
         max_raw_bytes: session.preset.quirks.mcp_max_output_bytes,
         max_inline_text_bytes: session.preset.quirks.max_inline_text_bytes,
-        cpu,
+        fit,
     }
 }
 
@@ -396,7 +395,7 @@ impl Launch {
     /// on as a background task, no longer the turn's; for one the session's loss or the turn's stop ended where it was
     /// (an approval it waits on included), that.
     async fn run(self, due: Due) {
-        let Self { ask, id, handover, calls, session, attachments, cwd, stop, release, ended, cpu } = self;
+        let Self { ask, id, handover, calls, session, attachments, cwd, stop, release, ended, fit } = self;
         let call = ToolCall { id: id.clone(), name: ask.name.clone(), arguments: ask.arguments.clone(), native_type: None };
         let held = calls.clone();
         let mut running: Running = Box::pin(async move { held.call_by(call, due.hold).await });
@@ -408,7 +407,7 @@ impl Launch {
             () = until(due.answer) => Err(None),
             () = release.cancelled() => Err(None),
         };
-        let image_output = image_output_for(&session, cpu);
+        let image_output = image_output_for(&session, fit.as_ref());
         let artifacts = calls.artifacts();
         let (row, skill_bodies, answer, handed_off, aborted) = match over {
             Ok(outcome) => {
@@ -428,7 +427,7 @@ impl Launch {
             }
             Err(None) => {
                 calls.let_go(&id).await;
-                let task = keep(&handover, &cwd, &ask.name, (calls, id.clone()), image_output, attachments, artifacts, running);
+                let task = keep(&handover, &cwd, &ask.name, (calls, id.clone()), (image_output, fit.clone()), attachments, artifacts, running);
                 session.keep_call(ask.name.clone(), ask.arguments.clone(), task.clone());
                 let text = crate::mcp::kept(&ask.name, &task);
                 (rows::tool_result(new_item_id(), &id, text.clone(), false, None), Vec::new(), crate::mcp::result_text(text, false), true, false)
@@ -448,11 +447,12 @@ fn keep(
     cwd: &str,
     tool: &str,
     (calls, id): (Arc<HandedCalls>, String),
-    image_output: crate::mcp::ImageOutput,
+    (image_output, fit): (crate::mcp::ImageOutput<'_>, Arc<dyn mixdog_core_api::domain::ext::ToolImageFitter>),
     attachments: Option<Arc<dyn crate::runs::Attachments>>,
     artifacts: Option<Arc<dyn mixdog_agent::offload::ArtifactStore>>,
     running: Running,
 ) -> String {
+    let (supports_images, max_raw_bytes, max_inline_text_bytes) = (image_output.supports_images, image_output.max_raw_bytes, image_output.max_inline_text_bytes);
     let call = mixdog_rt::spawn("acp.kept-call", TaskClass::Work, mixdog_rt::carry_task_locals(running));
     let stop = call.abort_handle();
     let render: Arc<dyn Fn(&Value) -> String + Send + Sync> = Arc::new(|result: &Value| result["content"].as_str().unwrap_or_default().to_owned());
@@ -468,6 +468,7 @@ fn keep(
     let started = handed.tools.tasks().start(job, move |_| async move {
         let ended = call.await;
         calls.released(&id).await;
+        let image_output = crate::mcp::ImageOutput { supports_images, max_raw_bytes, max_inline_text_bytes, fit: fit.as_ref() };
         let fallback = crate::runs::NoAttachments;
         let attachments: &dyn crate::runs::Attachments = attachments.as_deref().unwrap_or(&fallback);
         match ended {
@@ -1436,7 +1437,7 @@ impl Reply<'_> {
         let Some(calls) = self.context.calls.clone() else {
             let outcome = crate::mcp::unrun(&id, "This turn runs no Mixdog tools.");
             let stored = self.commit_result(rows::tool_message(new_item_id(), &outcome.message)).await;
-            let answer = crate::mcp::rendered(&outcome, &ask.name, image_output_for(self.session, self.context.cpu), &crate::runs::NoAttachments, None).await;
+            let answer = crate::mcp::rendered(&outcome, &ask.name, image_output_for(self.session, self.context.fit.as_ref()), &crate::runs::NoAttachments, None).await;
             if stored.is_err() {
                 let _ = ask.answer.send(answer);
                 return stored;
@@ -1454,7 +1455,7 @@ impl Reply<'_> {
             stop: self.stop.clone(),
             release: self.release.clone(),
             ended: self.launched.clone(),
-            cpu: self.context.cpu,
+            fit: self.context.fit.clone(),
         };
         self.running += 1;
         self.mark(CallMark::ToolCall).await;
@@ -2870,7 +2871,7 @@ mod tests {
             transcript: None,
             output_produced: None,
             mid_turn_compaction: None,
-            cpu: mixdog_rt::testing::tokens().cpu_interactive,
+            fit: crate::mcp::in_process_fit(),
         }
     }
 

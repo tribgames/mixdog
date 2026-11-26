@@ -34,6 +34,7 @@ use base64::Engine;
 use futures::future::BoxFuture;
 use futures::future::FutureExt;
 use futures::future::Shared;
+use mixdog_agent::compact::image::ImageCodec;
 use mixdog_app_protocol::common::repository_cwd;
 use mixdog_app_protocol::common::required_text;
 use mixdog_core_api::CoreError;
@@ -467,7 +468,7 @@ pub fn write_attachment_file(temp: &Path, data_url: &Value, name: &Value) -> Res
 
 // Attachment thumbnails (attachment-thumbnail.ts)
 
-const THUMBNAIL_MAX_SIDE: f64 = 320.0;
+const THUMBNAIL_MAX_SIDE: u32 = 320;
 const THUMBNAIL_FALLBACK_MAX_BYTES: usize = 512 * 1024;
 const JPEG_QUALITY: u8 = 82;
 
@@ -494,43 +495,18 @@ fn data_url_of(mime: &str, bytes: &[u8]) -> String {
     format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
-/// A JPEG or PNG picture scaled to fit 320 pixels on its longest side and encoded as a JPEG at quality 82; `None` when it does not
-/// decode (nativeImage scaled both).
-fn downscaled_jpeg(bytes: &[u8], mime: &str) -> Option<Vec<u8>> {
-    let decoded = if mime == "image/png" {
-        let (width, height, rgb) = mixdog_tools::desktop::computer_marks_draw::decode_rgb(bytes, mime).ok()?;
-        image::RgbImage::from_raw(width, height, rgb)?
-    } else {
-        image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg).ok()?.to_rgb8()
-    };
-    let (width, height) = decoded.dimensions();
-    if width == 0 || height == 0 {
-        return None;
-    }
-    let scale = (THUMBNAIL_MAX_SIDE / f64::from(width.max(height))).min(1.0);
-    let rgb = if scale < 1.0 {
-        let side = |length: u32| ((f64::from(length) * scale + 0.5).floor() as u32).max(1);
-        image::imageops::resize(&decoded, side(width), side(height), image::imageops::FilterType::Lanczos3)
-    } else {
-        decoded
-    };
-    let (width, height) = rgb.dimensions();
-    let mut out = Vec::new();
-    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, JPEG_QUALITY).encode(&rgb.into_raw(), width, height, image::ExtendedColorType::Rgb8).ok()?;
-    Some(out)
-}
-
-/// `readAttachmentThumbnail` over stored bytes: a downscaled JPEG when a JPEG or PNG picture decodes, else the original (bounded) which
-/// the phone's renderer downscales before caching, else nothing. GIF and WebP have no decoder in the build.
-pub fn thumbnail_of(bytes: &[u8], fallback_max_bytes: usize) -> Option<String> {
+/// `readAttachmentThumbnail` over stored bytes: a JPEG at quality 82 scaled to fit 320 pixels on its longest side when a JPEG or PNG
+/// picture decodes (decoded by `images`, outside this process), else the original (bounded) which the phone's renderer downscales
+/// before caching, else nothing.
+pub async fn thumbnail_of(images: &dyn ImageCodec, bytes: &[u8], fallback_max_bytes: usize) -> Option<String> {
     if bytes.is_empty() {
         return None;
     }
     let mime = sniff_image_mime(bytes);
-    if let Some(mime @ ("image/jpeg" | "image/png")) = mime
-        && let Some(jpeg) = downscaled_jpeg(bytes, mime)
+    if let Some("image/jpeg" | "image/png") = mime
+        && let Ok(jpeg) = images.jpeg(bytes, THUMBNAIL_MAX_SIDE, THUMBNAIL_MAX_SIDE, false, JPEG_QUALITY).await
     {
-        return Some(data_url_of("image/jpeg", &jpeg));
+        return Some(data_url_of("image/jpeg", &jpeg.bytes));
     }
     let mime = mime?;
     (bytes.len() <= fallback_max_bytes).then(|| data_url_of(mime, bytes))
@@ -1607,6 +1583,7 @@ const METHODS: &[&str] = &[
 
 pub struct DesktopResidualBService {
     attachments: Arc<dyn AttachmentHost>,
+    images: Arc<dyn ImageCodec>,
     durability: DurabilityIo,
     temp: PathBuf,
     data_dir: PathBuf,
@@ -1616,9 +1593,10 @@ pub struct DesktopResidualBService {
 
 impl DesktopResidualBService {
     /// `data_dir` is the profile folder: it holds `mixdog-config.json` and the native tool caches.
-    pub fn new(attachments: Arc<dyn AttachmentHost>, tokens: &LaneTokens, data_dir: PathBuf) -> Self {
+    pub fn new(attachments: Arc<dyn AttachmentHost>, images: Arc<dyn ImageCodec>, tokens: &LaneTokens, data_dir: PathBuf) -> Self {
         Self {
             attachments,
+            images,
             durability: tokens.durability_io,
             temp: std::env::temp_dir(),
             data_dir,
@@ -1703,7 +1681,7 @@ impl DomainService for DesktopResidualBService {
                     return reply(json!({ "dataUrl": null }));
                 };
                 let Some(bytes) = self.attachments.attachment_bytes(attachment_ref).await else { return reply(json!({ "dataUrl": null })) };
-                let url = self.on_lane(&req, move |_| thumbnail_of(&bytes, THUMBNAIL_FALLBACK_MAX_BYTES)).await?;
+                let url = thumbnail_of(self.images.as_ref(), &bytes, THUMBNAIL_FALLBACK_MAX_BYTES).await;
                 reply(json!({ "dataUrl": url }))
             }
             "desktop/launchVersion/record" => {

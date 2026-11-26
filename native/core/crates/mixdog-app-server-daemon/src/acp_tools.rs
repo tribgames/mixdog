@@ -853,7 +853,7 @@ mod tests {
             presets: vec![preset.clone()],
             processes: Arc::new(NeverStarts),
             files: Arc::new(NoFiles),
-            cpu: mixdog_rt::testing::tokens().cpu_interactive,
+            fit: mixdog_acp::mcp::in_process_fit(),
             enabled: {
                 let enabled = enabled.clone();
                 Arc::new(move || enabled.load(Ordering::SeqCst))
@@ -1049,7 +1049,7 @@ mod tests {
             presets: builtin_presets(),
             processes: Arc::new(NeverStarts),
             files: Arc::new(NoFiles),
-            cpu: mixdog_rt::testing::tokens().cpu_interactive,
+            fit: mixdog_acp::mcp::in_process_fit(),
             enabled: Arc::new(|| false),
             changed: Arc::new(|| {}),
             probe_cwd: dir.path().to_path_buf(),
@@ -1496,7 +1496,7 @@ mod tests {
             presets: vec![shipped("antigravity")],
             processes: Arc::new(NeverStarts),
             files: Arc::new(NoFiles),
-            cpu: mixdog_rt::testing::tokens().cpu_interactive,
+            fit: mixdog_acp::mcp::in_process_fit(),
             enabled: Arc::new(move || enabled_flag.load(Ordering::SeqCst)),
             changed: Arc::new(|| {}),
             probe_cwd: dir.path().to_path_buf(),

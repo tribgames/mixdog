@@ -1206,7 +1206,7 @@ mod tests {
             presets: crate::preset::builtin(),
             processes,
             files: Arc::new(DummyFiles),
-            cpu: mixdog_rt::testing::tokens().cpu_interactive,
+            fit: crate::mcp::in_process_fit(),
             probe_cwd: cwd.clone(),
             data_dir: cwd.clone(),
             definitions: cwd,

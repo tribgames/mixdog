@@ -21,6 +21,38 @@ impl AttachmentHost for Host {
     }
 }
 
+/// The codec run in this process: the tests have no image worker.
+struct Local;
+
+#[async_trait]
+impl ImageCodec for Local {
+    async fn probe(&self, bytes: &[u8]) -> Result<mixdog_agent::compact::image::ImageSize, mixdog_agent::compact::image::CodecError> {
+        mixdog_imaging::probe(bytes)
+            .map(|(width, height)| mixdog_agent::compact::image::ImageSize { width, height })
+            .map_err(|_| mixdog_agent::compact::image::CodecError::Invalid)
+    }
+
+    async fn jpeg(
+        &self,
+        bytes: &[u8],
+        width: u32,
+        height: u32,
+        allow_enlargement: bool,
+        quality: u8,
+    ) -> Result<mixdog_agent::compact::image::Encoded, mixdog_agent::compact::image::CodecError> {
+        mixdog_imaging::encode_tool_image_jpeg(bytes, width, height, allow_enlargement, quality)
+            .map(|encoded| mixdog_agent::compact::image::Encoded {
+                bytes: encoded.data,
+                size: mixdog_agent::compact::image::ImageSize { width: encoded.width, height: encoded.height },
+            })
+            .map_err(|_| mixdog_agent::compact::image::CodecError::Invalid)
+    }
+
+    async fn validate(&self, bytes: &[u8], format: &str) -> Result<(), mixdog_agent::compact::image::CodecError> {
+        mixdog_imaging::validate(bytes, format).map_err(|_| mixdog_agent::compact::image::CodecError::Invalid)
+    }
+}
+
 fn jpeg(width: u32, height: u32) -> Vec<u8> {
     let rgb: Vec<u8> = (0..width * height).flat_map(|i| [(i % 251) as u8, (i % 127) as u8, 40]).collect();
     let mut out = Vec::new();
@@ -151,71 +183,47 @@ fn an_attachment_is_written_under_the_temp_folder_by_its_digest() {
     assert!(!other.path().join("mixdog-attachments").exists());
 }
 
-/// A PNG of `width` x `height` gray-ramp RGB pixels in stored (uncompressed) deflate blocks; the reader does not check the chunk CRCs.
+/// A PNG of `width` x `height` gray-ramp RGB pixels.
 fn stored_png(width: u32, height: u32) -> Vec<u8> {
-    let mut raw = Vec::new();
-    for y in 0..height {
-        raw.push(0u8);
-        for x in 0..width {
-            raw.extend_from_slice(&[(x % 256) as u8, (y % 256) as u8, 128]);
-        }
-    }
-    let (mut low, mut high) = (1u32, 0u32);
-    for byte in &raw {
-        low = (low + u32::from(*byte)) % 65521;
-        high = (high + low) % 65521;
-    }
-    let mut zlib = vec![0x78, 0x01];
-    let blocks: Vec<&[u8]> = raw.chunks(60_000).collect();
-    for (index, block) in blocks.iter().enumerate() {
-        zlib.push(u8::from(index + 1 == blocks.len()));
-        zlib.extend_from_slice(&(block.len() as u16).to_le_bytes());
-        zlib.extend_from_slice(&(!(block.len() as u16)).to_le_bytes());
-        zlib.extend_from_slice(block);
-    }
-    zlib.extend_from_slice(&((high << 16) | low).to_be_bytes());
-    let chunk = |kind: &[u8; 4], body: &[u8]| [&(body.len() as u32).to_be_bytes()[..], kind, body, &[0u8; 4]].concat();
-    let mut header = Vec::new();
-    header.extend_from_slice(&width.to_be_bytes());
-    header.extend_from_slice(&height.to_be_bytes());
-    header.extend_from_slice(&[8, 2, 0, 0, 0]);
-    [&[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a][..], &chunk(b"IHDR", &header), &chunk(b"IDAT", &zlib), &chunk(b"IEND", &[])].concat()
+    let data = (0..height).flat_map(|y| (0..width).flat_map(move |x| [(x % 256) as u8, (y % 256) as u8, 128])).collect();
+    let raster = mixdog_imaging::Raster { width, height, has_alpha: false, data };
+    mixdog_imaging::encode::encode_in_format(&raster, mixdog_imaging::Format::Png).unwrap()
 }
 
-#[test]
-fn a_png_picture_is_scaled_like_a_jpeg_one() {
-    let url = thumbnail_of(&stored_png(640, 480), 0).unwrap();
+#[tokio::test]
+async fn a_png_picture_is_scaled_like_a_jpeg_one() {
+    let url = thumbnail_of(&Local, &stored_png(640, 480), 0).await.unwrap();
     let bytes = base64::engine::general_purpose::STANDARD.decode(url.strip_prefix("data:image/jpeg;base64,").unwrap()).unwrap();
     assert_eq!(image::load_from_memory(&bytes).unwrap().to_rgb8().dimensions(), (320, 240));
     let small = base64::engine::general_purpose::STANDARD
-        .decode(thumbnail_of(&stored_png(40, 30), 0).unwrap().strip_prefix("data:image/jpeg;base64,").unwrap())
+        .decode(thumbnail_of(&Local, &stored_png(40, 30), 0).await.unwrap().strip_prefix("data:image/jpeg;base64,").unwrap())
         .unwrap();
     assert_eq!(image::load_from_memory(&small).unwrap().to_rgb8().dimensions(), (40, 30));
 }
 
 // attachment-thumbnail.test.mjs
 
-#[test]
-fn a_picture_is_scaled_to_a_thumbnail_or_handed_over_bounded() {
-    let big = thumbnail_of(&jpeg(640, 480), 1024 * 1024).unwrap();
+#[tokio::test]
+async fn a_picture_is_scaled_to_a_thumbnail_or_handed_over_bounded() {
+    let big = thumbnail_of(&Local, &jpeg(640, 480), 1024 * 1024).await.unwrap();
     let encoded = big.strip_prefix("data:image/jpeg;base64,").unwrap();
     let bytes = base64::engine::general_purpose::STANDARD.decode(encoded).unwrap();
     let (width, height) = image::load_from_memory(&bytes).unwrap().to_rgb8().dimensions();
     assert_eq!((width, height), (320, 240));
     // A small picture keeps its size.
     let small =
-        base64::engine::general_purpose::STANDARD.decode(thumbnail_of(&jpeg(40, 30), 0).unwrap().strip_prefix("data:image/jpeg;base64,").unwrap()).unwrap();
+        base64::engine::general_purpose::STANDARD.decode(thumbnail_of(&Local, &jpeg(40, 30), 0).await.unwrap().strip_prefix("data:image/jpeg;base64,").unwrap()).unwrap();
     assert_eq!(image::load_from_memory(&small).unwrap().to_rgb8().dimensions(), (40, 30));
     // What does not decode is handed over as it is while it fits the bound, else nothing.
     let png = [&[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a][..], b"not really a png"].concat();
-    assert_eq!(thumbnail_of(&png, 1024).unwrap(), data_url_of("image/png", &png));
-    assert_eq!(thumbnail_of(&png, 8), None);
-    assert!(thumbnail_of(b"GIF89a....", 100).unwrap().starts_with("data:image/gif;base64,"));
-    assert!(thumbnail_of(b"RIFF\0\0\0\0WEBPxx", 100).unwrap().starts_with("data:image/webp;base64,"));
-    assert_eq!(thumbnail_of(b"plain text", 100), None);
-    assert_eq!(thumbnail_of(&[], 100), None);
+    assert_eq!(thumbnail_of(&Local, &png, 1024).await.unwrap(), data_url_of("image/png", &png));
+    assert_eq!(thumbnail_of(&Local, &png, 8).await, None);
+    assert!(thumbnail_of(&Local, b"GIF89a....", 100).await.unwrap().starts_with("data:image/gif;base64,"));
+    assert!(thumbnail_of(&Local, b"RIFF\0\0\0\0WEBPxx", 100).await.unwrap().starts_with("data:image/webp;base64,"));
+    assert_eq!(thumbnail_of(&Local, b"plain text", 100).await, None);
+    assert_eq!(thumbnail_of(&Local, &[], 100).await, None);
     // A broken JPEG falls back to the original.
-    assert!(thumbnail_of(&[0xff, 0xd8, 0xff, 0x00, 0x01], 100).unwrap().starts_with("data:image/jpeg;base64,"));
+    assert!(thumbnail_of(&Local, &[0xff, 0xd8, 0xff, 0x00, 0x01], 100).await.unwrap().starts_with("data:image/jpeg;base64,"));
 }
 
 fn hex_of(bytes: &[u8]) -> String {
@@ -563,7 +571,7 @@ fn the_launcher_adopts_the_shell_overrides_and_on_a_mac_the_homebrew_directories
 }
 
 fn service(dir: &Path, attachments: HashMap<String, Vec<u8>>) -> DesktopResidualBService {
-    let mut service = DesktopResidualBService::new(Arc::new(Host(attachments)), &mixdog_rt::testing::tokens(), dir.to_path_buf());
+    let mut service = DesktopResidualBService::new(Arc::new(Host(attachments)), Arc::new(Local), &mixdog_rt::testing::tokens(), dir.to_path_buf());
     service.temp = dir.join("temp");
     service
 }

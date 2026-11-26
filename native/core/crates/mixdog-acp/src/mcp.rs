@@ -36,6 +36,9 @@ use mixdog_agent::offload::ArtifactStore;
 use mixdog_agent::offload::OFFLOAD_PREFIX;
 use mixdog_ai::providers::compat::schema::Rule;
 use mixdog_ai::providers::compat::schema::wire_input_schema;
+use mixdog_core_api::domain::ext::FittedToolImage;
+use mixdog_core_api::domain::ext::ToolImageFitError;
+use mixdog_core_api::domain::ext::ToolImageFitter;
 use mixdog_core_api::domain::provider::BinarySource;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
@@ -44,8 +47,6 @@ use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_api::domain::provider::ToolExclusionReport;
 use mixdog_core_session::session::composer_image::node_base64_decode;
 use mixdog_protocol::ThreadId;
-use mixdog_rt::CpuInteractive;
-use mixdog_rt::LaneToken;
 use mixdog_rt::TaskClass;
 use serde_json::Value;
 use serde_json::json;
@@ -245,16 +246,46 @@ fn image_detail_reduced_note(tool_name: &str) -> String {
 }
 
 /// How a finished Mixdog tool call's text and image parts are shaped for an ACP agent's `tools/call` reply.
-#[derive(Clone, Copy, Debug)]
-pub struct ImageOutput {
+#[derive(Clone, Copy)]
+pub struct ImageOutput<'a> {
     /// The agent advertised `promptCapabilities.image == true`.
     pub supports_images: bool,
     /// Per-image decoded byte ceiling enforced by the agent (e.g. `mcpMaxOutputBytes`), if any.
     pub max_raw_bytes: Option<u64>,
     /// Safe UTF-8 byte ceiling for inline MCP text output before offloading full text to an artifact file.
     pub max_inline_text_bytes: Option<usize>,
-    /// The lane its images are fitted on.
-    pub cpu: CpuInteractive,
+    /// What fits its images, outside this process.
+    pub fit: &'a dyn ToolImageFitter,
+}
+
+/// The fit run in this process, for tests that have no image worker.
+#[cfg(any(test, feature = "test-support"))]
+pub struct InProcessFit;
+
+#[cfg(any(test, feature = "test-support"))]
+#[async_trait]
+impl ToolImageFitter for InProcessFit {
+    async fn fit(&self, bytes: &[u8], ext: &str, max_raw_bytes: usize) -> Result<FittedToolImage, ToolImageFitError> {
+        use mixdog_imaging::tool_image::ToolImageRefusal;
+        match mixdog_imaging::tool_image::fit_tool_image(bytes, ext, max_raw_bytes) {
+            Ok(image) => Ok(FittedToolImage {
+                data: image.data,
+                mime: image.mime,
+                original_w: image.dimensions.original_width,
+                original_h: image.dimensions.original_height,
+                display_w: image.dimensions.display_width,
+                display_h: image.dimensions.display_height,
+                recompressed: image.recompressed,
+            }),
+            Err(ToolImageRefusal::Unreadable) => Err(ToolImageFitError::Unreadable),
+            Err(ToolImageRefusal::TooLarge) => Err(ToolImageFitError::TooLarge),
+        }
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+pub fn in_process_fit() -> Arc<dyn ToolImageFitter> {
+    Arc::new(InProcessFit)
 }
 
 /// A finished call as the `tools/call` result the agent reads: its text (offloaded to an artifact file with its path
@@ -264,7 +295,7 @@ pub struct ImageOutput {
 pub async fn rendered(
     handed: &Handed,
     tool_name: &str,
-    images: ImageOutput,
+    images: ImageOutput<'_>,
     attachments: &dyn crate::runs::Attachments,
     artifacts: Option<&dyn ArtifactStore>,
 ) -> Value {
@@ -328,7 +359,7 @@ fn blocks_text(blocks: &[Value]) -> String {
 pub async fn text_of(
     handed: &Handed,
     tool_name: &str,
-    images: ImageOutput,
+    images: ImageOutput<'_>,
     attachments: &dyn crate::runs::Attachments,
     artifacts: Option<&dyn ArtifactStore>,
 ) -> String {
@@ -340,7 +371,7 @@ pub async fn text_of(
 pub async fn kept_result(
     handed: &Handed,
     tool_name: &str,
-    images: ImageOutput,
+    images: ImageOutput<'_>,
     attachments: &dyn crate::runs::Attachments,
     artifacts: Option<&dyn ArtifactStore>,
 ) -> Value {
@@ -391,12 +422,6 @@ enum RawImage<'a> {
     Url(&'a str),
 }
 
-struct PreparedImage {
-    data: Vec<u8>,
-    mime: String,
-    note: Option<String>,
-}
-
 fn image_note(dims: &mixdog_imaging::Dimensions, recompressed: bool, tool_name: &str) -> Option<String> {
     let dims_changed = dims.original_width != dims.display_width || dims.original_height != dims.display_height;
     let downscaled = dims.display_width < dims.original_width || dims.display_height < dims.original_height;
@@ -409,41 +434,7 @@ fn image_note(dims: &mixdog_imaging::Dimensions, recompressed: bool, tool_name: 
     }
 }
 
-fn prepare_image_sync(bytes: Vec<u8>, mime_hint: Option<String>, max_raw_bytes: usize, tool_name: String) -> Result<PreparedImage, String> {
-    if bytes.is_empty() {
-        return Err(IMAGE_OMITTED_UNREADABLE.to_owned());
-    }
-    let ext = mime_hint.as_deref().and_then(|m| m.split('/').nth(1)).filter(|ext| !ext.is_empty()).unwrap_or("png");
-    let Some(resized) =
-        mixdog_imaging::resize_image_buffer(&bytes, ext, mixdog_imaging::ResizeOptions::default()).map_err(|_| IMAGE_OMITTED_UNREADABLE.to_owned())?
-    else {
-        return Err(IMAGE_OMITTED_UNREADABLE.to_owned());
-    };
-    if resized.branch == mixdog_imaging::Branch::TokenFallback {
-        return Err(image_too_large_note(&tool_name));
-    }
-    // Target Mixdog's native history budget (1568 px display box, <= 256 KiB base64 via the shared q85/70/50 JPEG
-    // ladder) because every byte stays in the agent's history; `max_raw_bytes` (up to 3.75 MiB) is the hard ceiling.
-    let target_b64 = mixdog_imaging::tool_jpeg::TOOL_IMAGE_TARGET_BASE64_SIZE;
-    let fmt = mixdog_imaging::policy::normalize_fmt(resized.mime.split('/').nth(1));
-    let reencodable_still = mixdog_imaging::tool_jpeg::TOOL_IMAGE_SOURCE_FORMATS.contains(&fmt.as_str());
-    let over_history_target = reencodable_still && mixdog_imaging::policy::base64_len(resized.data.len()) > target_b64;
-    if over_history_target || resized.data.len() > max_raw_bytes {
-        let fitted = mixdog_imaging::fit_tool_image_jpeg(&bytes, |len| len <= max_raw_bytes && mixdog_imaging::policy::base64_len(len) <= target_b64)
-            .map_err(|_| IMAGE_OMITTED_UNREADABLE.to_owned())?;
-        if fitted.data.len() <= max_raw_bytes && (fitted.data.len() < resized.data.len() || resized.data.len() > max_raw_bytes) {
-            let note = image_note(&fitted.dimensions, true, &tool_name);
-            return Ok(PreparedImage { data: fitted.data, mime: "image/jpeg".to_owned(), note });
-        }
-    }
-    if resized.data.len() <= max_raw_bytes {
-        let note = image_note(&resized.dimensions, resized.branch == mixdog_imaging::Branch::TokenJpeg, &tool_name);
-        return Ok(PreparedImage { data: resized.data, mime: resized.mime, note });
-    }
-    Err(image_too_large_note(&tool_name))
-}
-
-async fn resolve_image_blocks(raw: RawImage<'_>, tool_name: &str, images: ImageOutput, attachments: &dyn crate::runs::Attachments) -> Vec<Value> {
+async fn resolve_image_blocks(raw: RawImage<'_>, tool_name: &str, images: ImageOutput<'_>, attachments: &dyn crate::runs::Attachments) -> Vec<Value> {
     if !images.supports_images {
         return vec![json!({ "type": "text", "text": IMAGE_OMITTED_UNSUPPORTED })];
     }
@@ -466,21 +457,28 @@ async fn resolve_image_blocks(raw: RawImage<'_>, tool_name: &str, images: ImageO
     let default_max = mixdog_imaging::policy::IMAGE_TARGET_RAW_SIZE as usize;
     let max_raw_bytes =
         images.max_raw_bytes.and_then(|limit| usize::try_from(limit).ok()).filter(|limit| *limit > 0).map_or(default_max, |limit| limit.min(default_max));
-    let tool = tool_name.to_owned();
-    let prepared = match images.cpu.submit(&CancellationToken::new(), move |_| prepare_image_sync(bytes, mime_hint, max_raw_bytes, tool)) {
-        Ok(job) => job.await.unwrap_or_else(|_| Err(IMAGE_OMITTED_UNREADABLE.to_owned())),
-        Err(_) => Err(IMAGE_OMITTED_UNREADABLE.to_owned()),
-    };
-    match prepared {
-        Ok(prepared) => {
-            let mut out = Vec::with_capacity(if prepared.note.is_some() { 2 } else { 1 });
-            if let Some(note) = prepared.note {
+    let ext = mime_hint.as_deref().and_then(|m| m.split('/').nth(1)).filter(|ext| !ext.is_empty()).unwrap_or("png");
+    match images.fit.fit(&bytes, ext, max_raw_bytes).await {
+        Ok(fitted) => {
+            let dimensions = mixdog_imaging::Dimensions {
+                original_width: fitted.original_w,
+                original_height: fitted.original_h,
+                display_width: fitted.display_w,
+                display_height: fitted.display_h,
+            };
+            let mut out = Vec::with_capacity(2);
+            if let Some(note) = image_note(&dimensions, fitted.recompressed, tool_name) {
                 out.push(json!({ "type": "text", "text": note }));
             }
-            out.push(json!({ "type": "image", "mimeType": prepared.mime, "data": STANDARD.encode(&prepared.data) }));
+            out.push(json!({ "type": "image", "mimeType": fitted.mime, "data": STANDARD.encode(&fitted.data) }));
             out
         }
-        Err(note) => vec![json!({ "type": "text", "text": note })],
+        Err(ToolImageFitError::TooLarge) => vec![json!({ "type": "text", "text": image_too_large_note(tool_name) })],
+        Err(ToolImageFitError::Unreadable) => vec![json!({ "type": "text", "text": IMAGE_OMITTED_UNREADABLE })],
+        Err(ToolImageFitError::Host(error)) => {
+            tracing::warn!(?error, "[acp] a tool's image could not be fitted: the image host did not answer");
+            vec![json!({ "type": "text", "text": IMAGE_OMITTED_UNREADABLE })]
+        }
     }
 }
 
@@ -832,7 +830,7 @@ pub(crate) async fn enforce_answer_text_budget(
 async fn content(
     handed: &Handed,
     tool_name: &str,
-    images: ImageOutput,
+    images: ImageOutput<'_>,
     attachments: &dyn crate::runs::Attachments,
     artifacts: Option<&dyn ArtifactStore>,
 ) -> Vec<Value> {
@@ -1281,7 +1279,7 @@ mod tests {
         let out = rendered(
             &handed,
             "computer",
-            ImageOutput { supports_images: true, max_raw_bytes: Some(limit), max_inline_text_bytes: None, cpu: mixdog_rt::testing::tokens().cpu_interactive },
+            ImageOutput { supports_images: true, max_raw_bytes: Some(limit), max_inline_text_bytes: None, fit: &InProcessFit },
             &attachments,
             None,
         )
@@ -1315,7 +1313,7 @@ mod tests {
         let browser = rendered(
             &handed,
             "browser",
-            ImageOutput { supports_images: true, max_raw_bytes: None, max_inline_text_bytes: None, cpu: mixdog_rt::testing::tokens().cpu_interactive },
+            ImageOutput { supports_images: true, max_raw_bytes: None, max_inline_text_bytes: None, fit: &InProcessFit },
             &attachments,
             None,
         )
@@ -1333,7 +1331,7 @@ mod tests {
         let read_out = rendered(
             &handed,
             "read",
-            ImageOutput { supports_images: true, max_raw_bytes: None, max_inline_text_bytes: None, cpu: mixdog_rt::testing::tokens().cpu_interactive },
+            ImageOutput { supports_images: true, max_raw_bytes: None, max_inline_text_bytes: None, fit: &InProcessFit },
             &attachments,
             None,
         )
@@ -1367,7 +1365,7 @@ mod tests {
                 supports_images: true,
                 max_raw_bytes: Some(tight_limit),
                 max_inline_text_bytes: None,
-                cpu: mixdog_rt::testing::tokens().cpu_interactive,
+                fit: &InProcessFit,
             },
             &attachments,
             None,
@@ -1389,7 +1387,7 @@ mod tests {
         let impossible = rendered(
             &handed,
             "computer",
-            ImageOutput { supports_images: true, max_raw_bytes: Some(2_000), max_inline_text_bytes: None, cpu: mixdog_rt::testing::tokens().cpu_interactive },
+            ImageOutput { supports_images: true, max_raw_bytes: Some(2_000), max_inline_text_bytes: None, fit: &InProcessFit },
             &attachments,
             None,
         )
@@ -1426,7 +1424,7 @@ mod tests {
         let out = rendered(
             &handed,
             "read",
-            ImageOutput { supports_images: true, max_raw_bytes: Some(100_000), max_inline_text_bytes: None, cpu: mixdog_rt::testing::tokens().cpu_interactive },
+            ImageOutput { supports_images: true, max_raw_bytes: Some(100_000), max_inline_text_bytes: None, fit: &InProcessFit },
             &attachments,
             None,
         )
@@ -1470,7 +1468,7 @@ mod tests {
                 supports_images: true,
                 max_raw_bytes: Some(mixdog_imaging::policy::IMAGE_TARGET_RAW_SIZE),
                 max_inline_text_bytes: None,
-                cpu: mixdog_rt::testing::tokens().cpu_interactive,
+                fit: &InProcessFit,
             },
             &attachments,
             None,
@@ -1499,7 +1497,7 @@ mod tests {
 
         let limit = mixdog_imaging::policy::IMAGE_TARGET_RAW_SIZE;
         let output =
-            ImageOutput { supports_images: false, max_raw_bytes: Some(limit), max_inline_text_bytes: None, cpu: mixdog_rt::testing::tokens().cpu_interactive };
+            ImageOutput { supports_images: false, max_raw_bytes: Some(limit), max_inline_text_bytes: None, fit: &InProcessFit };
         let out = rendered(&handed, "read", output, &attachments, None).await;
         let blocks = out["content"].as_array().expect("content array");
         assert!(blocks.iter().all(|b| b["type"] == "text"), "no image blocks for text-only agent: {blocks:?}");
@@ -1575,7 +1573,7 @@ mod tests {
                 supports_images: true,
                 max_raw_bytes: Some(mixdog_imaging::policy::IMAGE_TARGET_RAW_SIZE),
                 max_inline_text_bytes: Some(limit),
-                cpu: mixdog_rt::testing::tokens().cpu_interactive,
+                fit: &InProcessFit,
             },
             &crate::runs::NoAttachments,
             Some(&store),
@@ -1602,7 +1600,7 @@ mod tests {
                 supports_images: true,
                 max_raw_bytes: Some(mixdog_imaging::policy::IMAGE_TARGET_RAW_SIZE),
                 max_inline_text_bytes: Some(limit),
-                cpu: mixdog_rt::testing::tokens().cpu_interactive,
+                fit: &InProcessFit,
             },
             &crate::runs::NoAttachments,
             Some(&store),
@@ -1619,7 +1617,7 @@ mod tests {
         let parts: Vec<ContentPart> = (0..40).map(|i| ContentPart::Text(format!("block-{i:02}: {}", "x".repeat(1_490)), None)).collect();
         let handed = handed_parts(parts);
         let output =
-            ImageOutput { supports_images: true, max_raw_bytes: None, max_inline_text_bytes: Some(limit), cpu: mixdog_rt::testing::tokens().cpu_interactive };
+            ImageOutput { supports_images: true, max_raw_bytes: None, max_inline_text_bytes: Some(limit), fit: &InProcessFit };
 
         // With a working store, small blocks consolidate into one saved artifact file with a clear page-read pointer.
         let store = MemoryArtifactStore(Mutex::default());

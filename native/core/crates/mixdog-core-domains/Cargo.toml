@@ -15,7 +15,6 @@ async-trait = { workspace = true }
 base64 = { workspace = true }
 chrono = { workspace = true, features = ["clock"] }
 futures = { workspace = true, features = ["alloc", "async-await", "std"] }
-image = { workspace = true }
 mixdog-agent = { workspace = true }
 mixdog-ai = { workspace = true }
 mixdog-app-protocol = { workspace = true }
@@ -67,6 +66,7 @@ windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Network
 mixdog-testkit = { workspace = true }
 mixdog-core-domains = { path = ".", features = ["count-work"] }
 bytes = { workspace = true }
+image = { workspace = true }
 tempfile = { workspace = true }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
