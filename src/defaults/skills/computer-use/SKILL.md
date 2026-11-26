@@ -59,9 +59,7 @@ wins.
   messages (clicks, scrolling, value/text input). Check the returned effect;
   message delivery alone is not success. Both modes show cursor and input
   feedback, which is not proof of success. Background uses a target-bound
-  virtual pointer and leaves the user's physical pointer alone; its feedback
-  must not float above unrelated foreground windows. Foreground decorates the
-  real pointer. A background
+  virtual pointer and leaves the user's physical pointer alone. A background
   action may queue behind foreground work to protect focus; waiting never
   switches its mode. On Chromium and Electron targets it can briefly bring the
   target forward; one guarded attempt puts the user's window back unless the
@@ -128,8 +126,6 @@ wins.
   again: say once in chat what is blocked. With nobody present (agent,
   schedule or webhook run), report "needs user" and stop; no card nobody
   answers.
-- Foreground input keeps the target ready for follow-up. Session-end focus
-  restoration must not override intervening user input.
 - Mixdog settles and re-observes after every `act`; delivery alone does not
   verify the goal. `ok:false` can mean input completed but observation failed:
   recover the observation, not the completed input. Use returned evidence
@@ -137,8 +133,7 @@ wins.
 - Window pixels come only from a window-owned capture, never a sampled region
   of the shared desktop. If unavailable (`pixel_unavailable`), coordinate input
   fails closed: use fresh semantic refs or report it; no screen-grab substitute.
-- Host-configured action/window authorization is checked again at dispatch and
-  in the native worker. An expired grant is a refusal, not a retry hint.
+- An expired host authorization grant is a refusal, not a retry hint.
 - Queue and transport budgets refuse excess work before dispatch where
   possible. An oversized or lost response after dispatch remains uncertain:
   never repeat the mutation without inspecting fresh state.
@@ -164,8 +159,7 @@ wins.
   task, which reports the stop as a failure. The user's Resume on the overlay
   continues a pause; an unverified-recovery pause may also resume after the
   host's quiet interval (renewed input resets it); explicit pauses, stops and
-  uncertain cleanup never auto-resume. Worker termination and input cleanup
-  must finish before resuming.
+  uncertain cleanup never auto-resume.
 - While paused, only `list`, `diagnose` and `wait_for_user` work. Chat text
   alone does not clear the host. After `resumed`, capture fresh state; after
   `timeout` or `cancelled`, no input is authorized. Never replay the

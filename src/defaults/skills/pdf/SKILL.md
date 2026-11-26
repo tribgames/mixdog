@@ -28,7 +28,7 @@ A PDF is a fixed rendering to read faithfully or a document to produce: a new do
 
 ## Create
 
-**Step 1 — design for the content and reader**: choose the structure, type, palette, and density for the intended use. Existing files, templates, and brand requirements take precedence. `${MIXDOG_SKILL_DIR}/../pptx/references/concepts.md` is optional inspiration, not a required selection; `concept:` is optional free text. Neither a prescribed motif nor a fixed colour, whitespace, or layout ratio is required.
+**Step 1 — design for the content and reader**: choose the structure, type, palette, and density for the intended use. Existing files, templates, and brand requirements take precedence. `${MIXDOG_SKILL_DIR}/../pptx/references/concepts.md` holds optional examples; `concept:` is optional free text.
 
 **Default — HTML for a new document**: write the layout in HTML/CSS and print with `office action:'author' path:<file.pdf> script:<html>`; read `references/html.md` first. The browser handles grid, flex, inline SVG, and Hangul line breaks. Choose the page model from the content (`references/html.md` §1), not a style catalogue:
 

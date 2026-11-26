@@ -61,13 +61,10 @@ Tests run on the user's working machine. These hold in every mode.
 
 1. Run the covering file(s) only. Result: the selected count matches the files
    you meant.
-2. On failure read the full log before editing; do not rerun to see if it
-   passes.
-3. Run a broader lane once after the last edit only if the change touches a
+2. Run a broader lane once after the last edit only if the change touches a
    shared contract or an integration point; otherwise stop at the covering
    file. Reuse an earlier pass only when no later edit touched the code it
    checks.
-4. After two evidence-backed fix attempts, report what was tried and the log.
 
 ## Resources
 
