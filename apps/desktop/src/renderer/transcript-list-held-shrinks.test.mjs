@@ -234,13 +234,109 @@ test('a provisional estimate is not a slot to hold: the first parsed height belo
   // First observation while pending: the learned 600px estimate stands in.
   virtualizer.resizeItem(1, 272);
   assert.equal(core.itemSizeCache.get('reply'), 600, 'the pending row keeps its learned estimate');
-  // Parsed: the settle frame lands the first real box, far below the estimate.
+  // Parsed: the settle lands on commit (MutationObserver microtask or rAF fallback), far below the estimate.
   reply.parse(100);
+  await Promise.resolve();
   for (const frame of frames.splice(0)) frame();
   assert.equal(core.itemSizeCache.get('reply'), 100, 'the parsed height lands; the estimate is not held');
   // A later dip below that real measurement IS a held streaming reflow.
   virtualizer.resizeItem(1, 90);
   assert.equal(core.itemSizeCache.get('reply'), 100);
+});
+
+test('a held shrink kept alive past 350ms by a pending parse stops polling timers and settles via MutationObserver', async (t) => {
+  const { root, document } = installTestDom(t, { rootId: 'root' });
+  const { useVirtualizerResizePatch } = await import('./transcript-list-resize-patch.ts');
+  const { HELD_SHRINK_WINDOW_MS } = await import('./transcript-list-held-shrinks.ts');
+
+  // Unit check: nextExpiryMs returns null once expired if held solely by a pending marker.
+  let clock = 1_000;
+  const unitHeld = createHeldRowShrinks(() => clock);
+  const unitReply = pendingReplyElement(document);
+  const unitHost = virtualHost(unitHeld, [{ key: 'reply', size: 600, element: unitReply.element }]);
+  assert.equal(unitHeld.hold(unitHost, 'reply', 420), true);
+  assert.equal(unitHeld.nextExpiryMs(unitHost), HELD_SHRINK_WINDOW_MS);
+  clock += HELD_SHRINK_WINDOW_MS + 50;
+  assert.equal(unitHeld.nextExpiryMs(unitHost), null, 'expired hold with pending marker needs no poll timer');
+  unitReply.parse(420);
+  assert.equal(unitHeld.nextExpiryMs(unitHost), 0, 'once pending marker clears, expiry is immediate');
+
+  // Integration check with useVirtualizerResizePatch: no 16ms polling loop after 350ms expires.
+  let now = 10_000;
+  t.mock.method(Date, 'now', () => now);
+  const timers = [];
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  globalThis.setTimeout = (cb, delay) => {
+    const entry = { cb, delay, cleared: false };
+    timers.push(entry);
+    return entry;
+  };
+  globalThis.clearTimeout = (entry) => {
+    if (entry) entry.cleared = true;
+  };
+  t.after(() => {
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+  });
+
+  const reply = pendingReplyElement(document);
+  const keys = ['prompt', 'reply'];
+  const core = {
+    options: { anchorTo: 'end', followOnAppend: false, count: 2, getItemKey: (index) => keys[index] },
+    elementsCache: new Map([['reply', reply.element]]),
+    itemSizeCache: new Map([['prompt', 66]]),
+    get measurementsCache() {
+      let start = 0;
+      return keys.map((key, index) => {
+        const size = this.itemSizeCache.get(key) ?? 60;
+        const item = { key, index, start, end: start + size, size, lane: 0 };
+        start += size;
+        return item;
+      });
+    },
+    indexFromElement: (element) => (element === reply.element ? 1 : -1),
+    resizeItem: (index, size) => void core.itemSizeCache.set(keys[index], size),
+  };
+  function Harness() {
+    useVirtualizerResizePatch({
+      virtualizer: core,
+      viewport: { current: null },
+      hasScrollGestureRef: useRef(() => false),
+      visibleTop: () => 0,
+      maxScrollTop: () => 0,
+      endPin: { request() {}, now() {} },
+      resizePinned: useRef([]),
+      resizePinFrame: useRef(0),
+      pendingResizes: useRef(new Map()),
+      baseResizeItem: useRef(null),
+      applyingDeferred: useRef(false),
+      scheduleResizeFlush() {},
+      pendingAnchor: useRef(null),
+      anchorHold: useRef(null),
+      readingAnchorHeld: () => false,
+      queueAnchorRestore() {},
+    });
+    return null;
+  }
+  await act(async () => root.render(React.createElement(Harness)));
+  // Establish real measured slot, then shrink while streaming + pending.
+  core.resizeItem(1, 600);
+  assert.equal(core.itemSizeCache.get('reply'), 600);
+  core.resizeItem(1, 420);
+  assert.equal(core.itemSizeCache.get('reply'), 600, 'shrink is held');
+  assert.equal(timers.length, 1, 'one timer scheduled for the 350ms window');
+
+  // Fire the 350ms timer while pending marker is still present.
+  now += HELD_SHRINK_WINDOW_MS + 10;
+  timers[0].cb();
+  assert.equal(core.itemSizeCache.get('reply'), 600, 'still held while pending parse marker remains');
+  assert.equal(timers.length, 1, 'no 16ms polling timer loop scheduled while pending parse remains');
+
+  // Removing the pending marker triggers MutationObserver and lands the held shrink.
+  reply.parse(420);
+  await Promise.resolve();
+  assert.equal(core.itemSizeCache.get('reply'), 420, 'held shrink settles as soon as pending marker leaves DOM');
 });
 
 test('a followed pending row that outgrows its estimate takes its box in the same frame', async (t) => {
@@ -255,6 +351,7 @@ test('a followed pending row that outgrows its estimate takes its box in the sam
     options: { anchorTo, followOnAppend: false, count: 2, getItemKey: (index) => keys[index] },
     elementsCache: new Map([['reply', reply.element]]),
     itemSizeCache: new Map([['prompt', 66]]),
+    indexFromElement: (element) => (element === reply.element ? 1 : -1),
     resizeItem(index, size) {
       this.itemSizeCache.set(keys[index], size);
     },
@@ -282,16 +379,18 @@ test('a followed pending row that outgrows its estimate takes its box in the sam
   // A smaller fallback never shrinks a followed slot below its estimate.
   followed.resizeItem(1, 90);
   assert.equal(followed.itemSizeCache.get('reply'), 120);
-  assert.equal(frames.length > 0, true, 'the parse still settles the real box');
+  reply.parse(180);
+  await Promise.resolve();
+  for (const frame of frames.splice(0)) frame();
+  assert.equal(followed.itemSizeCache.get('reply'), 180, 'the parse still settles the real box');
 });
 
-test("a followed settled row's pending box lands as it is; only a reader's row keeps its estimate", async (t) => {
+test('a bottom-anchored settled row with pending markdown holds its estimate instead of collapsing to 0px, then settles once parsed', async (t) => {
   const { root, document, window } = installTestDom(t, { rootId: 'root' });
-  window.requestAnimationFrame = () => 1;
+  const frames = [];
+  window.requestAnimationFrame = (cb) => frames.push(cb);
   window.cancelAnimationFrame = () => {};
   const { useProvisionalRowResize } = await import('./transcript-list-provisional-resize.ts');
-  // A finished reply mounted while its markdown parses (opening a chat): no
-  // streaming message, the fallback already at the parsed height.
   const reply = pendingReplyElement(document);
   reply.element.querySelector('.message').classList.remove('streaming');
   const keys = ['prompt', 'reply'];
@@ -299,30 +398,50 @@ test("a followed settled row's pending box lands as it is; only a reader's row k
     options: { anchorTo, followOnAppend: false, count: 2, getItemKey: (index) => keys[index] },
     elementsCache: new Map([['reply', reply.element]]),
     itemSizeCache: new Map([['prompt', 66]]),
+    indexFromElement: (element) => (element === reply.element ? 1 : -1),
     resizeItem(index, size) {
       this.itemSizeCache.set(keys[index], size);
     },
   });
   const followed = core('end');
   const reading = core('start');
-  function Harness({ virtualizer }) {
+  const coldFallback = core('end');
+  function Harness({ virtualizer, fallback }) {
     const virtualizerRef = useRef(virtualizer);
-    // A shape median learned from a taller reply of the same shape.
     const heldEstimates = useRef(new Map([['reply', 119]]));
-    const fallbackEstimates = useRef(new Set());
+    const fallbackEstimates = useRef(new Set(fallback ? ['reply'] : []));
     useProvisionalRowResize({ virtualizer, virtualizerRef, heldEstimates, fallbackEstimates });
     return null;
   }
-  for (const virtualizer of [followed, reading]) {
+  for (const [virtualizer, fallback, key] of [
+    [followed, false, 'end-learned'],
+    [reading, false, 'start-learned'],
+    [coldFallback, true, 'end-fallback'],
+  ]) {
     virtualizer.resizeItem = virtualizer.resizeItem.bind(virtualizer);
-    await act(async () =>
-      root.render(React.createElement(Harness, { virtualizer, key: virtualizer.options.anchorTo }))
-    );
+    await act(async () => root.render(React.createElement(Harness, { virtualizer, fallback, key })));
   }
-  followed.resizeItem(1, 79);
-  reading.resizeItem(1, 79);
-  assert.equal(followed.itemSizeCache.get('reply'), 79, 'the pinned tail never paints the row at its estimate');
-  assert.equal(reading.itemSizeCache.get('reply'), 119, 'a row above a reader keeps its estimate until parsed');
+  // An unparsed markdown body (<span hidden data-transcript-pending />) measures 0px before parsing finishes.
+  followed.resizeItem(1, 0);
+  reading.resizeItem(1, 0);
+  coldFallback.resizeItem(1, 0);
+  assert.equal(
+    followed.itemSizeCache.get('reply'),
+    119,
+    'bottom-anchored settled row holds its estimate while pending'
+  );
+  assert.equal(reading.itemSizeCache.get('reply'), 119, 'reading row keeps its estimate while pending');
+  assert.equal(
+    coldFallback.itemSizeCache.get('reply'),
+    119,
+    'cold-start fallback estimate also holds instead of collapsing to 0px'
+  );
+  // Once markdown parsing finishes, the settle pass lands the real parsed height.
+  reply.parse(184);
+  await Promise.resolve();
+  for (const frame of frames.splice(0)) frame();
+  assert.equal(followed.itemSizeCache.get('reply'), 184, 'settled height lands once pending marker clears');
+  assert.equal(coldFallback.itemSizeCache.get('reply'), 184, 'cold fallback settles to parsed height');
 });
 
 function fakeVirtualizer(log) {
@@ -378,4 +497,73 @@ test("the reader's release and the measurement snapshot land held sizes without 
   await act(async () => root.render(null));
   assert.deepEqual(log, ['settle:true', 'flush', 'snapshot'], 'held sizes land before the snapshot');
   assert.equal(readTranscriptVirtualSnapshot('held-session')?.measurements[0].size, 540);
+});
+
+test('held shrinks expire after the bounded reparse window when markdown is not reparsing', () => {
+  let now = 1_000;
+  const held = createHeldRowShrinks(() => now);
+  const element = {
+    isConnected: true,
+    pending: false,
+    querySelector(selector) {
+      if (selector === '.message.streaming') return {};
+      if (selector === '[data-transcript-pending]') return this.pending ? {} : null;
+      return null;
+    },
+    querySelectorAll(selector) {
+      if (selector === '[data-transcript-pending]') return this.pending ? [{ closest: () => null }] : [];
+      return [];
+    },
+  };
+  const host = virtualHost(held, [{ key: 'reply', size: 600, element }]);
+  const landed = [];
+  const resize = (index, size) => landed.push([index, size]);
+  assert.equal(held.hold(host, 'reply', 540), true);
+  assert.ok(held.nextExpiryMs() !== null && held.nextExpiryMs() <= 350, 'schedules bounded expiry');
+  // While body is actively reparsing, even past the window it stays held.
+  element.pending = true;
+  now += 500;
+  held.settle(host, resize);
+  assert.deepEqual(landed, [], 'active markdown reparse keeps holding');
+  // Once reparse finishes and window has elapsed, held shrink settles immediately.
+  element.pending = false;
+  held.settle(host, resize);
+  assert.deepEqual(landed, [[0, 540]], 'expired hold settles without waiting for stream end');
+});
+
+test('provisional row settles on DOM commit via MutationObserver without rAF polling', async (t) => {
+  const { root, document, window } = installTestDom(t, {
+    rootId: 'root',
+    expose: ['Node', 'Element', 'HTMLElement', 'MutationObserver'],
+  });
+  let rafCalls = 0;
+  window.requestAnimationFrame = () => {
+    rafCalls += 1;
+    return rafCalls;
+  };
+  window.cancelAnimationFrame = () => {};
+  const { useProvisionalRowResize } = await import('./transcript-list-provisional-resize.ts');
+  const reply = pendingReplyElement(document);
+  const keys = ['prompt', 'reply'];
+  const core = {
+    options: { anchorTo: 'end', followOnAppend: false, count: 2, getItemKey: (index) => keys[index] },
+    elementsCache: new Map([['reply', reply.element]]),
+    itemSizeCache: new Map([['prompt', 66]]),
+    indexFromElement: (element) => (element === reply.element ? 1 : -1),
+    resizeItem: (index, size) => void core.itemSizeCache.set(keys[index], size),
+  };
+  function Harness() {
+    const virtualizerRef = useRef(core);
+    const heldEstimates = useRef(new Map([['reply', 140]]));
+    const fallbackEstimates = useRef(new Set());
+    useProvisionalRowResize({ virtualizer: core, virtualizerRef, heldEstimates, fallbackEstimates });
+    return null;
+  }
+  await act(async () => root.render(React.createElement(Harness)));
+  core.resizeItem(1, 0);
+  assert.equal(core.itemSizeCache.get('reply'), 140);
+  assert.equal(rafCalls, 0, 'does not poll requestAnimationFrame when MutationObserver is available');
+  reply.parse(188);
+  await Promise.resolve();
+  assert.equal(core.itemSizeCache.get('reply'), 188, 'settles immediately on DOM mutation commit');
 });

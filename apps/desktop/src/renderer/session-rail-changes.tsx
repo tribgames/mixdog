@@ -16,10 +16,9 @@ import { RailSection } from './session-rail-parts';
 import type { TurnReviewSegmentView } from './TurnReview';
 import type { TurnReviewFileEntry } from './turn-review-model';
 
-/** Most changed first; files without line counts keep their order after them. */
+/** Deterministic path order so mid-turn line-count updates never reshuffle rows. */
 export function railChangedFiles(files: ReadonlyMap<string, TurnReviewFileEntry>): [string, TurnReviewFileEntry][] {
-  const weight = ([, entry]: [string, TurnReviewFileEntry]) => (entry.additions || 0) + (entry.deletions || 0);
-  return [...files.entries()].sort((a, b) => weight(b) - weight(a));
+  return [...files.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 const folderWidth = textWidths();

@@ -13,12 +13,16 @@ interface PendingMarkdownRequest {
   reject(error: Error): void;
 }
 
+const DEFAULT_IDLE_TIMEOUT_MS = 0;
+
 /** Owns only worker lifetime and delivery; cache/fallback policy stays in the
- * client. The parser stays resident. */
+ * client. Spawns lazily on first parse and stays warm during active use;
+ * callers reclaim it via `terminateIdle()` or an explicit `idleTimeoutMs`. */
 export class MarkdownWorkerHost {
   private worker: Worker | null = null;
   private failure: Error | null = null;
   private sequence = 0;
+  private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly pending = new Map<number, PendingMarkdownRequest>();
 
   constructor(
@@ -28,7 +32,8 @@ export class MarkdownWorkerHost {
         type: 'module',
         name: 'mixdog-markdown-parser',
       });
-    }
+    },
+    private readonly idleTimeoutMs: number = DEFAULT_IDLE_TIMEOUT_MS
   ) {}
 
   /** False once the worker failed; nothing should be sent speculatively then. */
@@ -36,7 +41,13 @@ export class MarkdownWorkerHost {
     return this.failure === null;
   }
 
+  /** True while a worker instance is currently alive. */
+  get active(): boolean {
+    return this.worker !== null;
+  }
+
   parse(text: string): Promise<MarkdownAstRoot> {
+    this.clearIdleTimer();
     return new Promise((resolve, reject) => {
       const worker = this.getWorker();
       const id = ++this.sequence;
@@ -45,14 +56,45 @@ export class MarkdownWorkerHost {
         worker.postMessage({ id, text });
       } catch (error) {
         this.pending.delete(id);
+        this.armIdleTimer();
         reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
   }
 
+  /** Terminates the worker when no parse is in flight without marking it failed. */
+  terminateIdle(): boolean {
+    if (!this.worker || this.pending.size > 0) return false;
+    this.clearIdleTimer();
+    const worker = this.worker;
+    this.worker = null;
+    worker.terminate();
+    return true;
+  }
+
+  private clearIdleTimer(): void {
+    if (this.idleTimer !== null) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
+  }
+
+  private armIdleTimer(): void {
+    this.clearIdleTimer();
+    if (!this.worker || this.pending.size > 0 || this.idleTimeoutMs <= 0) return;
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = null;
+      this.terminateIdle();
+    }, this.idleTimeoutMs);
+    if (typeof this.idleTimer === 'object' && this.idleTimer !== null && 'unref' in this.idleTimer) {
+      (this.idleTimer as { unref(): void }).unref();
+    }
+  }
+
   private fail(worker: Worker, error: Error): void {
     // Events already queued by a failed worker are ignored after it retires.
     if (this.worker !== worker) return;
+    this.clearIdleTimer();
     this.failure = error;
     this.worker = null;
     worker.terminate();
@@ -63,7 +105,14 @@ export class MarkdownWorkerHost {
   private getWorker(): Worker {
     if (this.worker) return this.worker;
     if (this.failure) throw this.failure;
-    const worker = this.createWorker();
+    let worker: Worker;
+    try {
+      worker = this.createWorker();
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error(String(error));
+      this.failure = failure;
+      throw failure;
+    }
     this.worker = worker;
     worker.addEventListener('message', (event: MessageEvent<MarkdownWorkerResponse>) => {
       if (this.worker !== worker) return;
@@ -71,6 +120,7 @@ export class MarkdownWorkerHost {
       const request = this.pending.get(id);
       if (!request) return;
       this.pending.delete(id);
+      if (this.pending.size === 0) this.armIdleTimer();
       if (event.data.error || !event.data.root) {
         request.reject(new Error(event.data.error || 'Markdown Worker returned no AST'));
       } else {

@@ -39,6 +39,8 @@ interface AgentPoolStore {
   /** Cancelled identities survive here, so a later pool snapshot cannot
    *  republish a stopped agent as working. */
   cancellations: DesktopAgentCancellationLedger;
+  /** Each listed row's latest turn and plan (withoutEndedRunPlans). */
+  runs: Map<string, AgentRun>;
   listeners: Set<() => void>;
   getSnapshot(): DesktopAgentPoolRow[] | null;
   getView(): DesktopAgentPoolRow[] | null;
@@ -60,6 +62,7 @@ function createAgentPoolStore(host?: DesktopApi): AgentPoolStore {
     revision: 0,
     started: false,
     cancellations: createDesktopCancellationLedger(),
+    runs: new Map(),
     listeners: new Set(),
     getSnapshot: () => store.rows,
     getView: () => store.view,
@@ -162,11 +165,48 @@ function keepRunOrigin(previous: DesktopAgentPoolRow[] | null, next: DesktopAgen
   });
 }
 
+interface AgentRun {
+  settled: boolean;
+  todo: DesktopAgentPoolRow['todo'];
+  /** The plan the last settled run ended with, while the run after it has written none. */
+  ended: DesktopAgentPoolRow['todo'];
+}
+
+const SETTLED_RUN_STATES: ReadonlySet<DesktopAgentActivityState> = new Set(['idle', 'done', 'failed', 'cancelled']);
+
+/** A restarted agent's row carries the plan its settled run left until the new
+ *  run writes its own: that plan is not the work in hand, and is not shown. */
+function withoutEndedRunPlans(runs: Map<string, AgentRun>, rows: DesktopAgentPoolRow[]): DesktopAgentPoolRow[] {
+  const listed = new Set<string>();
+  const shown = rows.map((row) => {
+    const key = `${row.sessionId}\0${desktopAgentIdentity(row)}`;
+    listed.add(key);
+    const settled = SETTLED_RUN_STATES.has(desktopAgentActivityState(row));
+    const run = runs.get(key);
+    if (!run) {
+      runs.set(key, { settled, todo: row.todo, ended: null });
+      return row;
+    }
+    if (run.settled && hasPendingDesktopAgentWork(row)) run.ended = run.todo ?? null;
+    if (hasPendingDesktopAgentWork(row) || settled) run.settled = settled;
+    if (run.ended && row.todo && samePoolValue(row.todo, run.ended)) return { ...row, todo: null };
+    run.ended = null;
+    run.todo = row.todo;
+    return row;
+  });
+  for (const key of runs.keys()) if (!listed.has(key)) runs.delete(key);
+  return shown;
+}
+
 function publishAgentPool(store: AgentPoolStore, rows: DesktopAgentPoolRow[]): void {
   // Every snapshot passes the cancellation ledger: the daemon still reports a
   // cancelled session as running until its turn unwinds, and a snapshot that
   // shows it running again after the cancel is a stale report, not new work.
-  const next = shareRows(store.rows, keepRunOrigin(store.rows, store.cancellations.apply(rows)), samePoolValue);
+  const next = shareRows(
+    store.rows,
+    withoutEndedRunPlans(store.runs, keepRunOrigin(store.rows, store.cancellations.apply(rows))),
+    samePoolValue
+  );
   if (next === store.rows) return;
   store.rows = next;
   store.view = shareRows(store.view, next, sameShownRow);
@@ -638,8 +678,80 @@ export interface IslandAgentRow {
   node: AgentActivityNode;
   state: DesktopAgentActivityState;
   waitingForTasks: boolean;
-  /** Idle, done or cancelled: listed after the active work. */
+  /** Idle, done or cancelled. */
   finished: boolean;
+}
+
+/** What a session's agent keeps through its restarts (a follow-up, or a new session on its tag): when it was first
+ *  listed, and its last known route, which a snapshot between turns can leave out. */
+interface AgentPlace {
+  /** Its first start stamp; Infinity while none is known. */
+  at: number;
+  /** First-seen order, breaking ties when siblings share a stamp or have none. */
+  seq: number;
+  kind: string;
+  provider: string;
+  model: string;
+}
+
+// Scoped per desktop host so live renderer sessions keep places across pool updates while isolated hosts stay independent.
+const HOST_AGENT_PLACES = new WeakMap<object, Map<string, AgentPlace>>();
+const FALLBACK_AGENT_PLACES = new Map<string, AgentPlace>();
+let nextAgentPlaceSeq = 0;
+
+function agentPlacesMap(): Map<string, AgentPlace> {
+  const host = globalThis.window?.mixdogDesktop;
+  if (!host || typeof host !== 'object') return FALLBACK_AGENT_PLACES;
+  let places = HOST_AGENT_PLACES.get(host);
+  if (!places) {
+    places = new Map();
+    HOST_AGENT_PLACES.set(host, places);
+  }
+  return places;
+}
+
+/** Releases remembered island places owned by or keyed to a deleted session. */
+export function releaseAgentPlaces(sessionId: string): void {
+  const clean = String(sessionId || '').trim();
+  if (!clean) return;
+  const places = agentPlacesMap();
+  const prefix = `${clean}\0`;
+  const suffix = `\0${clean}`;
+  for (const key of [...places.keys()]) {
+    if (key.startsWith(prefix) || key.endsWith(suffix)) places.delete(key);
+  }
+}
+
+/** The place of `agent` among the agents of `ownerSessionId`, by its tag. */
+export function agentPlace(ownerSessionId: string, agent: DesktopAgentPoolRow): AgentPlace {
+  const places = agentPlacesMap();
+  const key = `${ownerSessionId}\0${desktopAgentIdentity(agent) || poolSessionId(agent)}`;
+  const kind = agentRoleLabel(agent.agent || agent.tag);
+  let place = places.get(key);
+  if (!place) {
+    place = { at: Number.POSITIVE_INFINITY, seq: ++nextAgentPlaceSeq, kind, provider: '', model: '' };
+    places.set(key, place);
+  }
+  const stamp = timeMs(agent.createdAt) || timeMs(agent.startedAt);
+  if (stamp && stamp < place.at) place.at = stamp;
+  // A closed row still sitting in the pool may seed an empty route, never overwrite a live replacement's.
+  if (agent.released === true) {
+    if (place.kind === kind && !place.provider && !place.model && (agent.provider || agent.model)) {
+      place.provider = String(agent.provider || '');
+      place.model = String(agent.model || '');
+    }
+  } else {
+    if (place.kind !== kind) {
+      place.kind = kind;
+      place.provider = '';
+      place.model = '';
+    }
+    if (agent.provider || agent.model) {
+      place.provider = String(agent.provider || '');
+      place.model = String(agent.model || '');
+    }
+  }
+  return place;
 }
 
 const ISLAND_AGENT_STATES: ReadonlySet<DesktopAgentActivityState> = new Set([
@@ -664,8 +776,9 @@ const NO_ISLAND_ROWS: IslandAgentRow[] = [];
 /** The agents the composer island lists for one session: its group in the
  *  Agents window (same grouping, nesting and depth-first order) minus the
  *  session's own Lead row, finished agents included but agents the Lead
- *  closed (`released`) left out. Each top-level subtree
- *  stays whole; subtrees with active work come first, finished ones after.
+ *  closed (`released`) left out. Each top-level subtree stays whole, and
+ *  siblings stand in the order they were first listed (agentPlace): work
+ *  starting, ending or restarting moves no row.
  *  Built once per pool list and session: every surface of the session shares it. */
 export function islandAgentRows(
   pool: readonly DesktopAgentPoolRow[] | null | undefined,
@@ -690,8 +803,17 @@ function buildIslandAgentRows(pool: readonly DesktopAgentPoolRow[], ownerSession
     (candidate) => candidate.ownerId === ownerSessionId
   );
   if (!group) return NO_ISLAND_ROWS;
+  const placed = (nodes: readonly AgentActivityNode[]) => {
+    for (const node of nodes) agentPlace(ownerSessionId, node.agent);
+    return [...nodes].sort((a, b) => {
+      const left = agentPlace(ownerSessionId, a.agent);
+      const right = agentPlace(ownerSessionId, b.agent);
+      if (left.at !== right.at) return left.at - right.at;
+      return left.seq - right.seq;
+    });
+  };
   const walk = (nodes: readonly AgentActivityNode[]): IslandAgentRow[] =>
-    nodes.flatMap((node) => {
+    placed(nodes).flatMap((node) => {
       const waitingForTasks = descendantsHavePendingWork(node);
       const state = desktopAgentActivityState(node.agent, { waitingForTasks });
       // The session's own Lead row and agents the Lead closed are not listed;
@@ -701,10 +823,7 @@ function buildIslandAgentRows(pool: readonly DesktopAgentPoolRow[], ownerSession
       return [...(unlisted ? [] : [row]), ...walk(node.children)];
     });
   // The Lead's children are the units under a Lead row; otherwise the top rows.
-  const units = group.nodes.flatMap((node) => (node.sessionId === ownerSessionId ? node.children : [node]));
-  const blocks = units.map((unit) => walk([unit]));
-  const active = (block: IslandAgentRow[]) => block.some((row) => !row.finished);
-  return [...blocks.filter(active), ...blocks.filter((block) => !active(block))].flat();
+  return walk(group.nodes.flatMap((node) => (node.sessionId === ownerSessionId ? node.children : [node])));
 }
 
 /** Depth-first render order: a parent is immediately followed by its subtree. */

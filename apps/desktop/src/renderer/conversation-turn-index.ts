@@ -51,6 +51,8 @@ class TurnRows implements TurnIndexEntry {
   /** The turn's rows other than its live band. */
   readonly rows: number[] = [];
   readonly liveRows: number[] = [];
+  readonly closedRows: number[] = [];
+  readonly pendingSteerRows: number[] = [];
   /** The latest time recorded up to each of its timed rows. */
   readonly timedRows: number[] = [];
   readonly times: number[] = [];
@@ -75,19 +77,24 @@ class TurnRows implements TurnIndexEntry {
     return this.times.at(-1) ?? 0;
   }
   get changes(): TurnChangesRef | undefined {
-    return this.changeRefs[0];
+    return this.changeRefs.at(-1);
   }
   get lastRow(): number {
     return this.rows.at(-1) ?? -1;
   }
+  get closed(): boolean {
+    return this.closedRows.length > 0;
+  }
   get running(): boolean {
-    return this.liveRows.length > 0;
+    return this.liveRows.length > 0 || this.pendingSteerRows.length > 0;
   }
   toolItems(): readonly TranscriptItem[] {
-    return (this.flat ??= this.groups.flat());
+    if (!this.flat) this.flat = this.groups.flat();
+    return this.flat;
   }
   visualized(): readonly string[] {
-    return (this.shown ??= this.targetsOf(this.toolItems()));
+    if (!this.shown) this.shown = this.targetsOf(this.toolItems());
+    return this.shown;
   }
   time(row: number, at: number): void {
     this.timedRows.push(row);
@@ -109,6 +116,8 @@ class TurnRows implements TurnIndexEntry {
     };
     drop(this.rows);
     drop(this.liveRows);
+    drop(this.closedRows);
+    drop(this.pendingSteerRows);
     drop(this.timedRows, this.times);
     drop(this.replyRows, this.replies);
     drop(this.changeRows, this.changeRefs);
@@ -117,7 +126,7 @@ class TurnRows implements TurnIndexEntry {
       this.shown = undefined;
     }
     drop(this.groupRows, this.groups);
-    return this.rows.length + this.liveRows.length > 0;
+    return this.rows.length + this.liveRows.length + this.pendingSteerRows.length > 0;
   }
 }
 
@@ -125,12 +134,51 @@ class TurnRows implements TurnIndexEntry {
 interface CarriedIndex {
   rows: readonly TranscriptRowModel[];
   turns: Map<string, TurnRows>;
+  keyFirstRow: Map<string, number>;
+  /** Each checkpoint's turn, so a completion wake closing the same checkpoint joins the same turn loop. */
+  turnsByCheckpoint: Map<string, TurnRows>;
+  checkpoints: string[];
+  checkpointRows: number[];
   /** What the rows surfaced, in order, with the row each came from. */
   surfaced: string[];
   surfacedRows: number[];
   surfacedSet: Set<string>;
   /** The list a turn's `surfacedBefore` was last made of. */
   snapshot: string[];
+}
+
+function explicitRowCheckpointId(row: TranscriptRowModel): string {
+  if (row._tag === 'AssistantPart') {
+    if (row.turnChanges?.checkpointId) return row.turnChanges.checkpointId;
+    if (typeof row.completion?.checkpointId === 'string' && row.completion.checkpointId) {
+      return row.completion.checkpointId;
+    }
+    if (row.item.kind === 'turndone' && typeof row.item.checkpointId === 'string' && row.item.checkpointId) {
+      return row.item.checkpointId;
+    }
+    return '';
+  }
+  if (row._tag === 'Error') {
+    if (row.turnChanges?.checkpointId) return row.turnChanges.checkpointId;
+    return typeof row.item?.checkpointId === 'string' ? row.item.checkpointId : '';
+  }
+  if (row._tag === 'UserMessage' && !row.item.steered && !row.item.steer) {
+    return typeof row.item.checkpointId === 'string' ? row.item.checkpointId : '';
+  }
+  return '';
+}
+
+function turnCheckpointId(rows: readonly TranscriptRowModel[], start: number, turnKey: string): string {
+  let promptFallback = '';
+  for (let scan = start; scan < rows.length && (rows[scan] as TranscriptRowModel).turnKey === turnKey; scan += 1) {
+    const row = rows[scan] as TranscriptRowModel;
+    const explicit = explicitRowCheckpointId(row);
+    if (explicit) return explicit;
+    if (!promptFallback && row._tag === 'UserMessage' && !row.item.steered && !row.item.steer && row.item.id != null) {
+      promptFallback = String(row.item.id);
+    }
+  }
+  return promptFallback;
 }
 
 /** The per-turn index of a `rows` array. A list carried on from the one indexed before (list-carry.ts `noteCarried`) is
@@ -158,27 +206,111 @@ export function createTurnIndexer(targetsOf: (items: readonly TranscriptItem[]) 
   /** Takes back what the rows from `from` on gave, then reads `rows` from there. */
   function carry(index: CarriedIndex, rows: readonly TranscriptRowModel[], from: number): void {
     const held = index.rows;
+    if (from > 0) {
+      const boundaryRow = rows[from - 1] as TranscriptRowModel;
+      const boundaryKey = boundaryRow.turnKey;
+      const firstRow = index.keyFirstRow.get(boundaryKey);
+      if (firstRow !== undefined && firstRow < from) {
+        const boundaryTurn = index.turns.get(boundaryKey);
+        let needsRewind = boundaryRow._tag === 'TurnGap' && rows[from]?.turnKey === boundaryKey;
+        if (!needsRewind && rows[from]?.turnKey === boundaryKey) {
+          for (
+            let scan = from;
+            scan < rows.length && (rows[scan] as TranscriptRowModel).turnKey === boundaryKey;
+            scan += 1
+          ) {
+            const row = rows[scan] as TranscriptRowModel;
+            const cp = explicitRowCheckpointId(row);
+            if (cp && index.turnsByCheckpoint.get(cp) !== boundaryTurn) {
+              needsRewind = true;
+              break;
+            }
+            if (row._tag === 'UserMessage' && !row.item.steered && !row.item.steer && row.item.id != null) {
+              needsRewind = true;
+              break;
+            }
+          }
+        }
+        if (!needsRewind && held[from]?.turnKey === boundaryKey) {
+          for (
+            let scan = from;
+            scan < held.length && (held[scan] as TranscriptRowModel).turnKey === boundaryKey;
+            scan += 1
+          ) {
+            const row = held[scan] as TranscriptRowModel;
+            if (
+              explicitRowCheckpointId(row) ||
+              (row._tag === 'UserMessage' && !row.item.steered && !row.item.steer && row.item.id != null)
+            ) {
+              needsRewind = true;
+              break;
+            }
+          }
+        }
+        if (needsRewind) from = firstRow;
+      }
+    }
     for (let at = from; at < held.length; at += 1) {
       const turnKey = (held[at] as TranscriptRowModel).turnKey;
       const turn = index.turns.get(turnKey);
-      if (turn && !turn.keepBefore(from)) index.turns.delete(turnKey);
+      if (turn && !turn.keepBefore(from)) {
+        index.turns.delete(turnKey);
+        index.keyFirstRow.delete(turnKey);
+      } else if ((index.keyFirstRow.get(turnKey) ?? -1) >= from) {
+        index.turns.delete(turnKey);
+        index.keyFirstRow.delete(turnKey);
+      }
+    }
+    while (index.checkpointRows.length > 0 && (index.checkpointRows.at(-1) as number) >= from) {
+      index.checkpointRows.pop();
+      index.turnsByCheckpoint.delete(index.checkpoints.pop() as string);
     }
     while (index.surfaced.length > 0 && (index.surfacedRows.at(-1) as number) >= from) {
       index.surfacedRows.pop();
       index.surfacedSet.delete(index.surfaced.pop() as string);
     }
+    const registerCheckpoint = (row: number, cp: string, turn: TurnRows) => {
+      if (!cp || index.turnsByCheckpoint.has(cp)) return;
+      index.turnsByCheckpoint.set(cp, turn);
+      index.checkpoints.push(cp);
+      index.checkpointRows.push(row);
+    };
     // A list of another time: only one as long as what is surfaced now, made since, is still current.
     if (index.snapshot.length > index.surfaced.length) index.snapshot = [];
     for (let at = from; at < rows.length; at += 1) {
       const row = rows[at] as TranscriptRowModel;
       let turn = index.turns.get(row.turnKey);
       if (!turn) {
-        if (index.snapshot.length !== index.surfaced.length) index.snapshot = index.surfaced.slice();
-        turn = new TurnRows(index.snapshot, targetsOf);
+        const leadRow = row._tag === 'TurnGap' && rows[at + 1]?.turnKey === row.turnKey ? rows[at + 1] : row;
+        const steerContinuation =
+          leadRow?._tag === 'UserMessage' && (leadRow.item.steered === true || Boolean(leadRow.item.steer));
+        const prevTurn = at > 0 ? index.turns.get((rows[at - 1] as TranscriptRowModel).turnKey) : undefined;
+        const checkpointId = steerContinuation ? '' : turnCheckpointId(rows, at, row.turnKey);
+        const checkpointTurn = checkpointId ? index.turnsByCheckpoint.get(checkpointId) : undefined;
+        if (steerContinuation && prevTurn && !prevTurn.closed) {
+          turn = prevTurn;
+        } else if (checkpointTurn) {
+          turn = checkpointTurn;
+        } else {
+          if (index.snapshot.length !== index.surfaced.length) index.snapshot = index.surfaced.slice();
+          turn = new TurnRows(index.snapshot, targetsOf);
+          registerCheckpoint(at, checkpointId, turn);
+        }
         index.turns.set(row.turnKey, turn);
+        index.keyFirstRow.set(row.turnKey, at);
       }
+      registerCheckpoint(at, explicitRowCheckpointId(row), turn);
       if (row._tag === 'Thinking' || (row._tag === 'AssistantPart' && row.live)) turn.liveRows.push(at);
-      if (row._tag !== 'Thinking') turn.rows.push(at);
+      if (row._tag === 'UserMessage' && row.item.steer) turn.pendingSteerRows.push(at);
+      if (row._tag !== 'Thinking' && row._tag !== 'TurnGap') turn.rows.push(at);
+      if (
+        row._tag === 'Error' ||
+        (row._tag === 'AssistantPart' &&
+          !row.live &&
+          (Boolean(row.completion) || Boolean(row.turnChanges) || row.item.kind === 'turndone'))
+      ) {
+        turn.closedRows.push(at);
+      }
       if (row._tag === 'ToolActivity') {
         const group = groupOf(row.items);
         for (const target of group.targets) surface(index, at, target);
@@ -215,7 +347,18 @@ export function createTurnIndexer(targetsOf: (items: readonly TranscriptItem[]) 
     } else {
       // No list it was made from, or one whose index has been carried on past it (a render of rows older than the newest
       // indexed): these rows are indexed from nothing, apart from the index that moved on.
-      index = { rows: [], turns: new Map(), surfaced: [], surfacedRows: [], surfacedSet: new Set(), snapshot: [] };
+      index = {
+        rows: [],
+        turns: new Map(),
+        keyFirstRow: new Map(),
+        turnsByCheckpoint: new Map(),
+        checkpoints: [],
+        checkpointRows: [],
+        surfaced: [],
+        surfacedRows: [],
+        surfacedSet: new Set(),
+        snapshot: [],
+      };
       carry(index, rows, 0);
     }
     indexes.set(rows, index);

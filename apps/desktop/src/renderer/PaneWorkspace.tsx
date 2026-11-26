@@ -19,6 +19,7 @@ import {
   parksConversationBehindSelection,
   usePaneConversationOwners,
   usePaneSurfaceHandoffs,
+  useRetirePaneSurfaceHandoffs,
 } from './pane-surface-model';
 import {
   usePaneDropPreview,
@@ -278,14 +279,14 @@ export function PaneWorkspace({
     : paneActiveSessionIds(workspace.leaves, workspace.focusedLeafId);
   const singlePaneMode = useSinglePaneMode(workspace.layout);
   const petSessionIds = useDesktopPetSessionIds();
-  const { currentPaneSurfaces, paneSurfaceHandoffs } = usePaneSurfaceHandoffs(workspace.leaves);
-  // The phone keeps one conversation per pane and its own entry; the desktop hands over between conversations.
+  const { currentPaneSurfaces, paneSurfaceHandoffs, retireHandoffs } = usePaneSurfaceHandoffs(workspace.leaves);
   const { conversationLeaves, releaseGateFor, presentOwner, keepOwner } = usePaneConversationOwners(
     workspace,
     paneSurfaceHandoffs,
     RETAINED_CONVERSATIONS,
-    !mobileSurface
+    true
   );
+  useRetirePaneSurfaceHandoffs(paneSurfaceHandoffs, conversationLeaves, retireHandoffs);
   // Every conversation kept mounted keeps its session followed: the one shown, the one a pane is switching to, and the
   // RETAINED_CONVERSATIONS shown before them. Their windows and row sizes stay current, so a return to one is presented
   // in the frame of the switch; a session kept by none is let go by the core and read again around its reader's place.
@@ -330,8 +331,11 @@ export function PaneWorkspace({
         .getElementById(paneConversationSlotId(entry.leaf.id))
         ?.querySelector<HTMLElement>(`:scope > .persistent-pane-surface[data-owner="${entry.owner}"]`);
       if (!host) continue;
-      host.toggleAttribute('data-preparing', entry.preparing === true);
-      host.inert = entry.retained || entry.outgoing === true;
+      const preparing = entry.preparing === true;
+      host.toggleAttribute('data-preparing', preparing);
+      host.inert = entry.retained || entry.outgoing === true || preparing;
+      if (entry.retained || preparing) host.setAttribute('aria-hidden', 'true');
+      else host.removeAttribute('aria-hidden');
     }
     for (const owner of [...presentations.current.keys()]) if (!owners.has(owner)) presentations.current.delete(owner);
   });
@@ -359,7 +363,7 @@ export function PaneWorkspace({
   if (renderConversation) {
     conversationPortals = conversationLeaves.map((entry) => {
       const { leaf, active, handoff, parked, retained, warm, owner } = entry;
-      const shown = !handoff && !parked && !retained && !entry.outgoing;
+      const shown = !handoff && !parked && !retained && !entry.outgoing && !entry.preparing;
       const focused = leaf.id === focusedLeafId;
       const focusPane = (): void => {
         workspace.focusLeaf(leaf.id);

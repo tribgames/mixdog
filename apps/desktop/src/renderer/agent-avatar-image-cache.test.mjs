@@ -6,6 +6,8 @@ import {
   forgetAgentAvatarImages,
   forgetHomeSessionAvatarImages,
 } from './agent-avatar-image-cache.ts';
+import { _runIdleReclaimForTest } from './idle-reclaim.ts';
+import { enforceRendererCacheBudget, totalBudgetedChars } from './renderer-cache-budget.ts';
 
 test('an agent keeps only its current avatar images and none once deleted', async () => {
   let loads = 0;
@@ -29,4 +31,34 @@ test("an agent's home session deleted for good releases that agent's images only
   forgetHomeSessionAvatarImages('sess_plain');
   assert.equal(await cachedAgentAvatarImages('bot.one', 'f', () => Promise.resolve('reloaded')), 'reloaded');
   assert.equal(await cachedAgentAvatarImages('other', 'f', () => Promise.resolve('reloaded')), 'other');
+});
+
+test('avatar image cache counts in the shared budget, drops rejected loads, and clears on trim or idle reclaim', async () => {
+  const payload = { idle: `data:image/png;base64,${'A'.repeat(100_000)}` };
+  const before = totalBudgetedChars();
+  await cachedAgentAvatarImages('bot-budget', 'f1', () => Promise.resolve(payload));
+  await Promise.resolve();
+  assert.ok(totalBudgetedChars() - before >= 100_000, 'resolved avatar images are accounted in the shared budget');
+
+  enforceRendererCacheBudget(0);
+  assert.equal(
+    await cachedAgentAvatarImages('bot-budget', 'f1', () => Promise.resolve('reloaded-after-trim')),
+    'reloaded-after-trim',
+    'budget trim evicts cached avatar images'
+  );
+
+  _runIdleReclaimForTest();
+  assert.equal(
+    await cachedAgentAvatarImages('bot-budget', 'f1', () => Promise.resolve('reloaded-after-idle')),
+    'reloaded-after-idle',
+    'idle reclaim clears cached avatar images'
+  );
+
+  await assert.rejects(cachedAgentAvatarImages('bot-fail', 'f1', () => Promise.reject(new Error('nope'))));
+  await Promise.resolve();
+  assert.equal(
+    await cachedAgentAvatarImages('bot-fail', 'f1', () => Promise.resolve('recovered')),
+    'recovered',
+    'rejected loads are not retained in cache'
+  );
 });

@@ -248,17 +248,8 @@ export function useSessionRailFolds(sessionId: string) {
     [update]
   );
   const setGroups = useCallback(
-    (groups: Record<string, boolean>, existing?: { prefix: string; keys: readonly string[] }) =>
-      update((current) => {
-        const kept = existing
-          ? Object.fromEntries(
-              Object.entries(current.groups).filter(
-                ([key]) => !key.startsWith(existing.prefix) || existing.keys.includes(key)
-              )
-            )
-          : current.groups;
-        return { ...current, groups: { ...kept, ...groups } };
-      }),
+    (groups: Record<string, boolean>) =>
+      update((current) => ({ ...current, groups: { ...current.groups, ...groups } })),
     [update]
   );
   return {

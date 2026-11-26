@@ -126,16 +126,19 @@ function installContextDom(context) {
   const previous = {
     window: globalThis.window,
     document: globalThis.document,
+    HTMLElement: globalThis.HTMLElement,
     act: globalThis.IS_REACT_ACT_ENVIRONMENT,
   };
   globalThis.window = dom.window;
   globalThis.document = dom.window.document;
+  globalThis.HTMLElement = dom.window.HTMLElement;
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   const root = createRoot(document.getElementById('root'));
   context.after(async () => {
     await act(() => root.unmount());
     globalThis.window = previous.window;
     globalThis.document = previous.document;
+    globalThis.HTMLElement = previous.HTMLElement;
     globalThis.IS_REACT_ACT_ENVIRONMENT = previous.act;
     dom.window.close();
   });
@@ -330,4 +333,179 @@ test('role groups stay closed until their heads are clicked and name the tool re
   await click('.context-entry-group-head');
   assert.equal(document.querySelectorAll(ENTRY_BUTTON).length, 1);
   assert.equal(document.querySelector('.context-inspector-toggle'), null);
+});
+
+test('external agent self-compaction (negative hostInspectionGap) reconciles ContextInspector to reported usage without overflow', async (context) => {
+  const root = installContextDom(context);
+  const inspection = {
+    revision: 'acp-compact',
+    estimatedTokens: 1_500_000,
+    categories: [
+      { key: 'system', label: 'System prompt', tokens: 20_000, count: 1 },
+      { key: 'tools', label: 'System tools', tokens: 20_000, count: 2 },
+      { key: 'mcp', label: 'MCP tools', tokens: 10_000, count: 1 },
+      { key: 'messages', label: 'Messages', tokens: 1_450_000, count: 2 },
+    ],
+    entries: [
+      { id: 'sys:0', category: 'system', label: 'Prompt', tokens: 20_000, kind: 'instruction' },
+      { id: 'tool:read', category: 'tools', group: 'active', label: 'read', tokens: 15_000, kind: 'tool' },
+      {
+        id: 'overhead:0',
+        category: 'tools',
+        group: 'overhead',
+        label: 'Request framing',
+        tokens: 5_000,
+        kind: 'overhead',
+      },
+      { id: 'mcp:0', category: 'mcp', group: 'active', label: 'mcp.list', tokens: 10_000, kind: 'tool' },
+      {
+        id: 'message:0',
+        category: 'messages',
+        group: 'user',
+        label: 'User 1',
+        tokens: 450_000,
+        kind: 'message',
+        role: 'user',
+        ordinal: 1,
+      },
+      {
+        id: 'message:1',
+        category: 'messages',
+        group: 'assistant',
+        label: 'Assistant 1',
+        tokens: 1_000_000,
+        kind: 'message',
+        role: 'assistant',
+        ordinal: 1,
+      },
+    ],
+  };
+  const status = {
+    sessionId: 'acp-compacted',
+    contextWindow: 1_000_000,
+    measurement: { source: 'last_api_request', tokens: 210_000 },
+    messages: { semantic: { system: { tokens: 20_000 }, chat: { tokens: 1_450_000 } } },
+    request: {
+      toolSchemaBreakdown: { code: { tokens: 15_000 }, mcp: { tokens: 10_000 } },
+      requestOverheadTokens: 5_000,
+    },
+    inspection,
+  };
+  await act(() =>
+    root.render(
+      React.createElement(ContextBody, { status, snapshot: { provider: 'acp-codex' }, request: async () => ({}) })
+    )
+  );
+  // Header shows 21% usage; inspector must match 21% used / 79% free with zero overflow.
+  assert.match(document.querySelector('.context-usage-heading').textContent, /210k \/ 1\.0m · 21%/);
+  assert.equal(document.querySelector('[data-context-key="system"] strong').textContent, '≈20,000');
+  assert.equal(
+    document.querySelector('[data-context-key="tools"] strong').textContent,
+    '≈15,000',
+    'provider HTTP overhead entry is omitted on external agent sessions'
+  );
+  assert.equal(
+    document.querySelector('[data-context-key="tools"] small').textContent,
+    t('{{count}} items', { count: 1 })
+  );
+  assert.equal(document.querySelector('[data-context-key="mcp"] strong').textContent, '≈10,000');
+  assert.equal(document.querySelector('[data-context-key="messages"] strong').textContent, '≈165,000');
+  assert.equal(document.querySelector('[data-context-key="free"] strong').textContent, '≈790,000');
+  assert.equal(document.querySelector('[data-context-key="free"] em').textContent, '79%');
+  const map = document.querySelector('.context-block-map');
+  assert.doesNotMatch(map.getAttribute('aria-label'), /Estimated content exceeds the context window\./);
+  assert.ok(map.querySelectorAll('i[data-context-key="free"]').length >= 90, 'block map shows ~79% free cells');
+  assert.equal(document.querySelector('[data-context-key="host"]'), null, 'no host row when estimate exceeded used');
+  // Opening Tools confirms the overhead entry was stripped.
+  await click('button[data-context-key="tools"]');
+  assert.doesNotMatch(document.querySelector('.context-entry-list').textContent, /Request framing/);
+});
+
+test('external agent host (Other) remainder row is a non-clickable summary without 0 items', async (context) => {
+  const root = installContextDom(context);
+  const status = {
+    sessionId: 'acp-host-gap',
+    contextWindow: 1000,
+    measurement: { source: 'last_api_request', tokens: 900 },
+    messages: { semantic: { system: { tokens: 100 } } },
+    inspection: {
+      revision: 'host-gap',
+      estimatedTokens: 100,
+      categories: [{ key: 'system', label: 'System prompt', tokens: 100, count: 1 }],
+      entries: [{ id: 'sys:0', category: 'system', label: 'Rules', tokens: 100, kind: 'instruction' }],
+    },
+  };
+  await act(() =>
+    root.render(
+      React.createElement(ContextBody, { status, snapshot: { provider: 'acp-antigravity' }, request: async () => ({}) })
+    )
+  );
+  const hostRow = document.querySelector('.context-mix-row[data-context-key="host"]');
+  assert.ok(hostRow, 'host remainder row renders');
+  assert.equal(hostRow.tagName.toLowerCase(), 'div', 'host row is a non-interactive div, not a button');
+  assert.equal(document.querySelector('button.context-mix-row[data-context-key="host"]'), null);
+  assert.doesNotMatch(hostRow.textContent, /0 items/);
+  assert.equal(hostRow.querySelector('strong').textContent, '≈800');
+  assert.equal(document.querySelector('[data-context-key="free"] strong').textContent, '≈100');
+  // Clicking a host cell in the block map does not open an empty "No entries." detail view.
+  const hostCell = document.querySelector('.context-block-map i[data-context-key="host"]');
+  assert.ok(hostCell);
+  await act(async () => hostCell.click());
+  assert.ok(document.querySelector('.context-inspector-detail .context-detail-empty'));
+  assert.equal(document.querySelector('.context-entry-section'), null);
+
+  const { readFileSync } = await import('node:fs');
+  const css = readFileSync(new URL('./desktop/24-context-dock.css', import.meta.url), 'utf8');
+  assert.match(
+    css,
+    /\.context-block-map i\[data-context-key="free"\],\s*\.context-block-map i\[data-context-key="host"\]\s*\{\s*cursor:\s*default;/,
+    'non-clickable host cells show default cursor in the block map'
+  );
+});
+
+test('reconcileAgentInspection subtracts entry.estimatedTokens from category.estimatedTokens when stripping calibrated overhead', async (context) => {
+  const root = installContextDom(context);
+  const status = {
+    sessionId: 'acp-calibrated-overhead',
+    contextWindow: 1000,
+    measurement: { source: 'last_api_request', tokens: 300 },
+    inspection: {
+      revision: 'cal',
+      estimatedTokens: 180,
+      calibration: { source: 'provider', measuredTokens: 180, ratio: 0.75, coveredMessages: 1, estimatedTokens: 240 },
+      categories: [{ key: 'tools', label: 'System tools', tokens: 180, estimatedTokens: 240, count: 2 }],
+      entries: [
+        {
+          id: 'tool:read',
+          category: 'tools',
+          group: 'active',
+          label: 'read',
+          tokens: 150,
+          estimatedTokens: 200,
+          kind: 'tool',
+        },
+        {
+          id: 'overhead:0',
+          category: 'tools',
+          group: 'overhead',
+          label: 'Request framing',
+          tokens: 30,
+          estimatedTokens: 40,
+          kind: 'overhead',
+        },
+      ],
+    },
+  };
+  await act(() =>
+    root.render(
+      React.createElement(ContextBody, { status, snapshot: { provider: 'acp-codex' }, request: async () => ({}) })
+    )
+  );
+  const toolsStrong = document.querySelector('[data-context-key="tools"] strong');
+  assert.equal(toolsStrong.textContent, '≈150');
+  assert.equal(
+    toolsStrong.title,
+    t('Raw estimate: ≈{{tokens}}', { tokens: '200' }),
+    'raw category estimatedTokens subtracted overhead estimatedTokens (40), not calibrated tokens (30)'
+  );
 });

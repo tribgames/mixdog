@@ -504,17 +504,13 @@ export function ContextSection({
   const estimate = usage.used === null && mix ? mix.held : null;
   const used = usage.used ?? estimate;
   const percent = usage.percent ?? (estimate === null ? null : (estimate / usage.limit) * 100);
-  // Largest first: the kind filling the window leads, and the bar's segments stand in the rows' order.
-  const held = mix ? [...mix.categories].sort((a, b) => b.tokens - a.tokens) : [];
+  const held = mix ? mix.categories : [];
   const segments = held.filter((category) => category.tokens > 0);
-  // MCP tools keep their row with nothing loaded: whether they cost anything is what the row is read for. A reading with
-  // no estimates to divide it has no rows: the head and the bar say what is known.
+  // Keep every canonical row mounted once estimates exist so token ticks never
+  // churn the row count or reorder rows.
   const parts =
     mix && (mix.categorized > 0 || mix.held === 0)
-      ? [
-          ...held.filter((category) => category.tokens > 0 || category.key === 'mcp'),
-          { key: 'free', label: t('Free space'), tokens: mix.free },
-        ]
+      ? [...held, { key: 'free', label: t('Free space'), tokens: mix.free }]
       : [];
   const share = (tokens: number) => (mix && mix.windowTokens > 0 ? (tokens / mix.windowTokens) * 100 : 0);
   return (
@@ -536,17 +532,17 @@ export function ContextSection({
       onToggle={onToggle}
       foot={
         <>
-          {usage.compactApplies && (
-            <button
-              type="button"
-              className="composer-island-button"
-              disabled={usage.compactBusy}
-              onClick={() => void usage.compact()}
-            >
-              <FoldVertical size={14} aria-hidden="true" />
-              <span>{t('Compact')}</span>
-            </button>
-          )}
+          <button
+            type="button"
+            className="composer-island-button"
+            disabled={!usage.compactApplies || usage.compactBusy}
+            onClick={() => {
+              if (usage.compactApplies && !usage.compactBusy) void usage.compact();
+            }}
+          >
+            <FoldVertical size={14} aria-hidden="true" />
+            <span>{t('Compact')}</span>
+          </button>
           <span className="session-rail-ft-end">
             <button type="button" className="composer-island-button" onClick={onViewDetails}>
               <ListTree size={14} aria-hidden="true" />

@@ -21,7 +21,14 @@ export function PaneDockDiffColumn({
       style={{ '--pane-dock-diff-width': `${width}px` } as CSSProperties}
     >
       {/* biome-ignore lint/a11y/useSemanticElements: a draggable resize handle, not a thematic break; <hr> brings its own border and margins. */}
-      <div className="pane-dock-diff-resize" role="separator" aria-orientation="vertical" {...resizeProps} />
+      <div
+        className="pane-dock-diff-resize"
+        role="separator"
+        aria-orientation="vertical"
+        aria-valuenow={Math.round(width)}
+        tabIndex={0}
+        {...resizeProps}
+      />
       <div className="pane-dock-diff-body">
         <div className="workbench-side-surface-slot" data-surface-active={showing ? 'true' : 'false'}>
           {children}

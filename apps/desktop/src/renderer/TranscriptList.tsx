@@ -312,7 +312,7 @@ const noSelectionHold = () => {};
 
 /** How a row sits against its neighbours: whether it paints, and the gaps and
  *  bands the stylesheet keys off (12-transcript.css). */
-function rowSteps(
+export function rowSteps(
   row: TranscriptRowModel,
   index: number,
   rows: readonly TranscriptRowModel[],
@@ -365,7 +365,11 @@ function rowSteps(
   // row it stands under has not ended its turn.
   const opened = next?._tag === 'TurnGap' ? rows[rowNodes.paintedBelow(nextIndex)] : undefined;
   const sentMeanwhile = opened?._tag === 'UserMessage' && Boolean(opened.item.steer);
-  const turnEnd = !blank && !part(row._tag) && (!next || (next._tag === 'TurnGap' && !sentMeanwhile));
+  const turnEnd =
+    !blank &&
+    !part(row._tag) &&
+    !(row._tag === 'UserMessage' && row.item.pending === true) &&
+    (!next || (next._tag === 'TurnGap' && !sentMeanwhile));
   // A turn's changed-files card closes its stack: a row after it in the same
   // turn takes the turn gap, never the 8px part step (12-transcript.css).
   const afterChanges =

@@ -426,6 +426,15 @@ const LiveActivityIcon = memo(function LiveActivityIcon({ gradientId }: { gradie
   );
 });
 
+/** Forward state-machine transitions land immediately without dwell delay. */
+function isHardPhaseTransition(from: string, to: string): boolean {
+  if (from === 'requesting') return to === 'thinking' || to === 'tool-use' || to === 'responding';
+  if (from === 'thinking') return to === 'tool-use' || to === 'responding';
+  if (from === 'tool-use') return to === 'responding';
+  if (from === 'responding') return to === 'tool-use';
+  return false;
+}
+
 /** Lands a pending phase switch once the painted phase has stood long enough;
  *  returns the wait in ms left before it may land (0 when none is pending). */
 function settlePhase(
@@ -433,9 +442,10 @@ function settlePhase(
   nowMs: number
 ): number {
   if (known.target === known.shown) return 0;
-  const wait = known.shown
-    ? Math.max(PHASE_SWITCH_DELAY_MS - (nowMs - known.targetSince), PHASE_MIN_DWELL_MS - (nowMs - known.shownAt))
-    : 0;
+  const wait =
+    known.shown && !isHardPhaseTransition(known.shown, known.target)
+      ? Math.max(PHASE_SWITCH_DELAY_MS - (nowMs - known.targetSince), PHASE_MIN_DWELL_MS - (nowMs - known.shownAt))
+      : 0;
   if (wait > 0) return wait;
   known.shown = known.target;
   known.shownAt = nowMs;
@@ -659,7 +669,16 @@ export function LiveActivity({
   // re-renders the band once a second while the turn's clock runs.
   useClock(Boolean(startedAt) && !clockPaused);
   const quiet = useLaneSpinnerQuiet(liveSessionId, asRecord(activity)?.quiet);
-  if (!shownPhase && !activity && !optimisticActivity && !snapshot.thinking && !startedAt) {
+  const activeTurn = Boolean(
+    snapshot.busy ||
+      snapshot.commandBusy ||
+      shownPhase ||
+      activity ||
+      optimisticActivity ||
+      snapshot.thinking ||
+      startedAt
+  );
+  if (!activeTurn) {
     anchorRef.current = 0;
     return null;
   }
@@ -670,10 +689,11 @@ export function LiveActivity({
   // The divider says it from here on: the band shows the phase that follows, without the painted one's dwell.
   if (mode === 'compacting' && compacted) mode = phase && phase !== 'compacting' ? phase : fallbackMode;
   if (stopping) mode = 'stopping';
-  if (mode === 'resuming') {
+  if (mode === 'resuming' && !snapshot.busy && !shownPhase) {
     anchorRef.current = 0;
     return null;
   }
+  if (mode === 'resuming') mode = fallbackMode;
   if (!anchorRef.current || (startedAt > 0 && Math.abs(startedAt - anchorRef.current) > 5_000)) {
     anchorRef.current = startedAt || nowMs;
   }
@@ -714,10 +734,12 @@ export function LiveActivity({
         {quietParts ? <QuietCue parts={quietParts} sessionId={liveSessionId} className="live-activity-quiet" /> : null}
       </div>
       {reasoning && (
-        <details className="thinking-disclosure">
-          <summary>{t('View reasoning')}</summary>
-          <pre data-scrollable>{reasoning}</pre>
-        </details>
+        <div className="live-activity-reasoning" data-slot="live-activity-reasoning">
+          <details className="thinking-disclosure">
+            <summary>{t('View reasoning')}</summary>
+            <pre data-scrollable>{reasoning}</pre>
+          </details>
+        </div>
       )}
     </div>
   );

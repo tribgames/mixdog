@@ -49,6 +49,17 @@ test('expired usage shows 0% until verification, then dashes when still unknown'
   );
   assert.deepEqual(
     usageResetPresentation({
+      percent: 100,
+      resetAt: 1_000,
+      refreshedAt: 1_001,
+      verificationFailed: false,
+      verifying: true,
+      now: 1_001,
+    }),
+    { percent: 0, resetTextOverride: '—' }
+  );
+  assert.deepEqual(
+    usageResetPresentation({
       percent: 97,
       resetAt: 1_000,
       refreshedAt: 900,
@@ -59,8 +70,9 @@ test('expired usage shows 0% until verification, then dashes when still unknown'
   );
 });
 
-test('reset verification selects the earliest unconfirmed reset', () => {
-  assert.equal(nextUsageResetVerificationAt([3_000, 1_000, 2_000], 900, new Set()), 1_000);
-  assert.equal(nextUsageResetVerificationAt([3_000, 1_000, 2_000], 1_500, new Set()), 2_000);
-  assert.equal(nextUsageResetVerificationAt([3_000, 2_000], 1_500, new Set([2_000])), 3_000);
+test('reset verification selects the earliest strictly future reset timestamp', () => {
+  assert.equal(nextUsageResetVerificationAt([3_000, 1_000, 2_000], 900), 1_000);
+  assert.equal(nextUsageResetVerificationAt([3_000, 1_000, 2_000], 1_500), 2_000);
+  assert.equal(nextUsageResetVerificationAt([3_000, 2_000], 2_000), 3_000);
+  assert.equal(nextUsageResetVerificationAt([1_000, 2_000], 2_000), null);
 });

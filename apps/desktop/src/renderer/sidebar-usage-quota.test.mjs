@@ -5,7 +5,13 @@ import { createRoot } from 'react-dom/client';
 import { press } from './test-support/pointer-press.mjs';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { SidebarUsage, usagePinEntries } from './SidebarUsage.tsx';
-import { applyAccountUsageWindows, publishUsageDashboard } from './usage-dashboard-store.ts';
+import {
+  applyAccountUsageWindows,
+  publishUsageDashboard,
+  refreshUsageDashboardAfterAuth,
+  USAGE_RESET_FOLLOWUP_DELAYS_MS as RESET_FOLLOWUPS,
+  USAGE_RESET_SETTLE_DELAY_MS as RESET_SETTLE,
+} from './usage-dashboard-store.ts';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -286,5 +292,186 @@ test('Antigravity meters keep reset presentation and never invent a weekly perce
   assert.deepEqual(meterRows(), [
     ['5H', '—', '—'],
     ['7D', '—', 'Resets in 3d 2h'],
+  ]);
+});
+
+function installManualClock(win, initialNow) {
+  let now = initialNow;
+  let nextId = 1;
+  const timers = new Map();
+  const realDateNow = Date.now;
+  Date.now = () => now;
+  win.setTimeout = (fn, delay = 0) => {
+    const id = nextId++;
+    timers.set(id, { fn, at: now + Math.max(0, Number(delay) || 0) });
+    return id;
+  };
+  win.clearTimeout = (id) => {
+    timers.delete(id);
+  };
+  const settle = async () => {
+    for (let i = 0; i < 6; i += 1) await Promise.resolve();
+  };
+  return {
+    get now() {
+      return now;
+    },
+    async advance(ms) {
+      const target = now + ms;
+      while (true) {
+        let next = null;
+        for (const [id, entry] of timers) {
+          if (entry.at <= target && (!next || entry.at < next.entry.at)) next = { id, entry };
+        }
+        if (!next) break;
+        timers.delete(next.id);
+        now = next.entry.at;
+        await act(async () => {
+          next.entry.fn();
+          await settle();
+        });
+      }
+      now = target;
+      await act(async () => {
+        await settle();
+      });
+    },
+    restore() {
+      timers.clear();
+      Date.now = realDateNow;
+    },
+  };
+}
+
+function providerMeterRows(providerKey) {
+  return [...document.querySelectorAll(`[data-usage-provider="${providerKey}"] .sidebar-usage-meter`)].map((row) => [
+    row.querySelector('small').textContent,
+    row.querySelector('b').textContent,
+    row.querySelector('em').textContent,
+  ]);
+}
+
+test('SidebarUsage isolates aligned reset failure from another providers reauth verification', async (t) => {
+  const { dom } = installTestDom(null, {
+    html: '<!doctype html><html><body><main></main></body></html>',
+    jsdom: { url: 'https://mixdog.test/' },
+    expose: ['HTMLElement'],
+    actEnvironment: false,
+  });
+  globalThis.ResizeObserver = class {
+    observe() {}
+    disconnect() {}
+  };
+  const clock = installManualClock(dom.window, NOW);
+  const root = createRoot(document.querySelector('main'));
+  t.after(async () => {
+    await act(async () => root.unmount());
+    clock.restore();
+    dom.window.close();
+  });
+
+  const sharedReset = NOW + 10_000;
+  const staleBoth = () => ({
+    rows: [
+      {
+        id: 'openai-oauth',
+        group: 'oauth',
+        authenticated: true,
+        windows: [{ label: '5H', usedPct: 100, resetAt: sharedReset }],
+      },
+      {
+        id: 'anthropic-oauth',
+        group: 'oauth',
+        authenticated: true,
+        windows: [{ label: '5H', usedPct: 100, resetAt: sharedReset }],
+      },
+    ],
+  });
+  publishUsageDashboard(staleBoth());
+  const api = {
+    async readCapabilities() {
+      return [{ ok: true, value: staleBoth() }];
+    },
+    async invokeCapability() {
+      return { value: { selectedId: 'a', auto: true, accounts: [] } };
+    },
+  };
+
+  await act(async () => root.render(React.createElement(SidebarUsage, { api })));
+  await clock.advance(10_000 + RESET_SETTLE);
+  for (const delay of RESET_FOLLOWUPS) {
+    await clock.advance(delay);
+  }
+  assert.deepEqual(providerMeterRows('codex'), [['5H', '—', '—']]);
+  assert.deepEqual(providerMeterRows('claude'), [['5H', '—', '—']]);
+
+  await act(async () => {
+    await refreshUsageDashboardAfterAuth(api, ['anthropic-oauth']);
+  });
+  assert.deepEqual(providerMeterRows('claude'), [['5H', '0%', '—']]);
+  assert.deepEqual(providerMeterRows('codex'), [['5H', '—', '—']]);
+});
+
+test('SidebarUsage arms the reset clock tick for a future window while an elapsed window is verifying', async (t) => {
+  const { dom } = installTestDom(null, {
+    html: '<!doctype html><html><body><main></main></body></html>',
+    jsdom: { url: 'https://mixdog.test/' },
+    expose: ['HTMLElement'],
+    actEnvironment: false,
+  });
+  globalThis.ResizeObserver = class {
+    observe() {}
+    disconnect() {}
+  };
+  const clock = installManualClock(dom.window, NOW);
+  const root = createRoot(document.querySelector('main'));
+  t.after(async () => {
+    await act(async () => root.unmount());
+    clock.restore();
+    dom.window.close();
+  });
+
+  const reset5h = NOW + 10_000;
+  const reset7d = NOW + 15_000;
+  const staleFrame = () => ({
+    rows: [
+      {
+        id: 'openai-oauth',
+        group: 'oauth',
+        authenticated: true,
+        windows: [
+          { label: '5H', usedPct: 100, resetAt: reset5h },
+          { label: '7D', usedPct: 80, resetAt: reset7d },
+        ],
+      },
+    ],
+  });
+  publishUsageDashboard(staleFrame());
+  let reads = 0;
+  const api = {
+    async readCapabilities() {
+      reads += 1;
+      return [{ ok: true, value: staleFrame() }];
+    },
+    async invokeCapability() {
+      return { value: { selectedId: 'a', auto: true, accounts: [] } };
+    },
+  };
+
+  await act(async () => root.render(React.createElement(SidebarUsage, { api })));
+  // t=12s: 5H settle runs and echoes elapsed 5H, putting 5H in verifying while 7D is still future (+3s away).
+  await clock.advance(10_000 + RESET_SETTLE);
+  assert.equal(reads, 1);
+  assert.deepEqual(providerMeterRows('codex'), [
+    ['5H', '0%', '—'],
+    ['7D', '80%', 'Resets in 1m'],
+  ]);
+
+  // t=15.025s: before any follow-up refresh fires (t=17s), the sidebar clock tick must flip 7D to assumed-reset.
+  await clock.advance(3_025);
+  assert.equal(reads, 1);
+  assert.deepEqual(providerMeterRows('codex'), [
+    ['5H', '0%', '—'],
+    ['7D', '0%', '—'],
   ]);
 });

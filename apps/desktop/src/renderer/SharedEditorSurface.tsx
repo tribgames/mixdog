@@ -1,8 +1,19 @@
-import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
+import { useLayoutEffect, useRef, type RefObject } from 'react';
 import { monaco } from './monaco-setup';
+import { ensureMonacoLanguage } from './monaco-language-loader';
+import { stopMonacoLanguageWorkers, wakeMonacoLanguageWorkers } from './monaco-worker-lifecycle';
+import { releaseUnattachedPeekPreviewModels } from './editor-graph-context';
 import { EditorSurfacePool } from './editor-surface-pool';
 
-const surfaces = new EditorSurfacePool();
+const surfaces = new EditorSurfacePool({
+  onActive: wakeMonacoLanguageWorkers,
+  onEmpty: () => {
+    // Release cached peek models before stopping language workers so no live
+    // CSS/JSON peek model can trigger DiagnosticsAdapter validation and respawn.
+    releaseUnattachedPeekPreviewModels();
+    stopMonacoLanguageWorkers();
+  },
+});
 const modelOwners = new WeakMap<monaco.editor.ITextModel, Set<object>>();
 
 export default function SharedEditorSurface({
@@ -49,6 +60,7 @@ export default function SharedEditorSurface({
       }
       owners.add(owner.current);
     }
+    void ensureMonacoLanguage(latest.current.defaultLanguage ?? modelRef.current?.getLanguageId()).catch(() => {});
     const surface = surfaces.acquire(
       surfaceKey,
       owner.current,
@@ -82,7 +94,9 @@ export default function SharedEditorSurface({
     editorRef.current?.updateOptions(options);
   }, [active, options, theme]);
 
-  useEffect(
+  // Dispose the owned model in layout cleanup so it is gone before the release
+  // microtask stops language workers (passive useEffect runs too late).
+  useLayoutEffect(
     () => () => {
       const model = modelRef.current;
       if (!model) return;
@@ -91,6 +105,9 @@ export default function SharedEditorSurface({
       if (!owners?.size) {
         modelOwners.delete(model);
         model.dispose();
+        // A hidden tab closing while no editor surface is mounted may have been
+        // holding the last CSS/SCSS/LESS model that deferred stopping its worker.
+        if (surfaces.isEmpty) stopMonacoLanguageWorkers();
       }
       modelRef.current = null;
     },

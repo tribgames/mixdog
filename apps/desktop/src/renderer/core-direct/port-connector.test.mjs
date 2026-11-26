@@ -86,7 +86,7 @@ test('take_timeout_rejects', async () => {
 });
 
 test('stale_generation_dropped', async () => {
-  const { connector, deliver, sink } = setup(30);
+  const { connector, deliver, sink } = setup(10_000);
   const fresh = fakePort();
   const stale = fakePort();
   deliver(fresh, { generation: 5 });
@@ -97,8 +97,8 @@ test('stale_generation_dropped', async () => {
   deliver(older, { generation: 5, slot: 'pc' });
   deliver(fakePort(), { generation: 6, slot: 'pc' });
   assert.equal(older.closed, true);
-  // the bridge hands out generation 1, which was never delivered
-  await assert.rejects(connector.open({ id: 'local' }, sink), /did not arrive/);
+  // the bridge hands out generation 1 after generation 5 already arrived: rejects immediately as superseded
+  await assert.rejects(connector.open({ id: 'local' }, sink), /superseded by generation 5/);
 });
 
 test('pc target asks for the pc slot', async () => {
@@ -274,4 +274,48 @@ test('a parked open resumes when main reports the failure gone, and asks main ag
   deliver(port, { generation: 1 });
   const writer = await opening;
   assert.ok(writer);
+});
+
+test('a newer generation immediately rejects stale waiting promises for the same slot without waiting for timeout', async () => {
+  const { connector, deliver, sink } = setup(10_000);
+  const stalePrimary = connector.open({ id: 'local' }, sink);
+  const freshPrimary = connector.open({ id: 'local' }, sink);
+  const otherSlot = connector.open({ id: 'pc' }, sink);
+  await tick();
+
+  const primaryPort = fakePort();
+  deliver(primaryPort, { generation: 2, slot: 'primary' });
+
+  await assert.rejects(stalePrimary, /superseded by generation 2/);
+  const primaryWriter = await freshPrimary;
+  assert.ok(primaryWriter);
+
+  const pcPort = fakePort();
+  deliver(pcPort, { generation: 3, slot: 'pc' });
+  const pcWriter = await otherSlot;
+  assert.ok(pcWriter);
+});
+
+test('a stale bridge.open reply arriving after a newer port already landed rejects immediately without waiting for timeout', async () => {
+  const { connector, bridge, deliver, sink } = setup(10_000);
+  let resolveOld;
+  const oldReply = new Promise((resolve) => {
+    resolveOld = resolve;
+  });
+  let calls = 0;
+  bridge.open = async () => {
+    calls += 1;
+    if (calls === 1) return oldReply;
+    return { generation: 2 };
+  };
+
+  const staleOpen = connector.open({ id: 'local' }, sink);
+  const freshOpen = connector.open({ id: 'local' }, sink);
+  await tick();
+
+  deliver(fakePort(), { generation: 2, slot: 'primary' });
+  assert.ok(await freshOpen);
+
+  resolveOld({ generation: 1 });
+  await assert.rejects(staleOpen, /superseded by generation 2/);
 });

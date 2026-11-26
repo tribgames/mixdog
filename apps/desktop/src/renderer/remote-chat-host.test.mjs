@@ -7,6 +7,8 @@ import { routeService } from '../main/protocol/service-route.ts';
 import { scopeClient } from '../../../mobile/src/phone-send-scope.ts';
 import { createChatApi, foldTranscript } from './remote-protocol-chat.ts';
 import { createChatHostApi } from './remote-chat-host.ts';
+import { _runIdleReclaimForTest } from './idle-reclaim.ts';
+import { enforceRendererCacheBudget, totalBudgetedChars } from './renderer-cache-budget.ts';
 import {
   historyPages,
   phoneSession as S,
@@ -343,4 +345,64 @@ test('the desktop history page keeps a tool output whole; the phone page caps it
   const phone = await api.readTranscriptHistory(S, { before: 'anchor', limit: 2 });
   assert.ok(outputOf(desktop).includes(output.trimEnd().replaceAll('\n', '\\n')));
   assert.ok(!outputOf(phone).includes(output.trimEnd().replaceAll('\n', '\\n')));
+});
+
+test('heldHistory counts in the shared cache budget, releases on trim/reclaim/delete, and recovers evicted items from core', async () => {
+  const bigOutput = 'H'.repeat(120_000);
+  const rawItem = {
+    type: 'toolCall',
+    id: 'hist-big',
+    name: 'bash',
+    input: { command: 'cat big' },
+    output: bigOutput,
+    meta: { status: 'completed', at: 1 },
+  };
+  const wire = {
+    data: [rawItem],
+    hasOlder: false,
+    hasNewer: false,
+  };
+  const { api, sent } = adapter({
+    replies: {
+      'thread/items/list': wire,
+      'thread/items/read': { items: [rawItem] },
+      'thread/delete': {},
+    },
+    state: { items: [] },
+  });
+  enforceRendererCacheBudget(0);
+  const before = totalBudgetedChars();
+  await api.readTranscriptHistory(S, { before: 'anchor', limit: 2 });
+  assert.ok(totalBudgetedChars() - before >= 120_000, 'heldHistory rows are accounted in the shared cache budget');
+  assert.equal((await api.readTranscriptItem(S, 'hist-big')).result, bigOutput);
+  assert.equal(
+    sent.filter((entry) => entry.method === 'thread/items/read').length,
+    0,
+    'cached heldHistory serves full output locally without a core round-trip'
+  );
+
+  enforceRendererCacheBudget(0);
+  assert.equal(totalBudgetedChars(), before, 'budget trim evicts heldHistory rows');
+  assert.equal(
+    (await api.readTranscriptItem(S, 'hist-big')).result,
+    bigOutput,
+    'readTranscriptItem recovers evicted history rows via thread/items/read'
+  );
+  assert.equal(sent.filter((entry) => entry.method === 'thread/items/read').length, 1);
+
+  await api.readTranscriptHistory(S, { before: 'anchor', limit: 2 });
+  assert.ok(totalBudgetedChars() - before >= 120_000);
+  _runIdleReclaimForTest();
+  assert.equal(totalBudgetedChars(), before, 'idle reclaim clears heldHistory');
+  assert.equal(
+    (await api.readTranscriptItem(S, 'hist-big')).result,
+    bigOutput,
+    'readTranscriptItem recovers idle-reclaimed history rows via thread/items/read'
+  );
+  assert.equal(sent.filter((entry) => entry.method === 'thread/items/read').length, 2);
+
+  await api.readTranscriptHistory(S, { before: 'anchor', limit: 2 });
+  assert.ok(totalBudgetedChars() - before >= 120_000);
+  await api.deleteSession(S);
+  assert.equal(totalBudgetedChars(), before, 'deleting the session forgets its heldHistory');
 });

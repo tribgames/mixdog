@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { DesktopAgentPoolRow } from '../shared/contract';
 
+import { releaseApprovalSessionState } from './ApprovalCard';
 import { noteBrowserRemoteViewer } from './browser-remote-drive';
 import { releaseSessionDiff } from './session-diff-cache';
 import { releaseFullToolOutputs } from './tool-full-output';
@@ -11,12 +13,16 @@ import { releaseUiOpenSeen } from './app-shell-ui-open-request';
 import { releaseTurnChangesEpoch } from './turn-changes-model';
 import { releaseTurnReviewRequests } from './turn-review-prefetch';
 import { releaseBranchMenuHeights } from './branch-menu';
+import { agentPoolStore, releaseAgentPlaces, startAgentPool } from './agent-activity-model';
+import { releaseTranscriptRowLifecycle } from './use-conversation-rows';
 import { useSessionBrowserSurfaces } from './session-browser-surfaces';
 import type { useSessionLane } from './session-lane-store';
 import {
+  recordAgentSessionPanelIdentities,
   restoredSessionSurfaces,
   SESSION_DOCK_SURFACES_KEY,
   storableSessionSurfaces,
+  supersededAgentSessionPanels,
   agentSessionPanelsShown,
   withAgentSessionPanel,
   withAgentSessionPanelHost,
@@ -24,6 +30,7 @@ import {
   withSessionPanelView,
   withSessionSideSurface,
   withSessionSurfaceSource,
+  type AgentSessionPanelIdentity,
   type AgentSessionPanelTarget,
   type SessionSidePanelView,
   type SessionSideSurface,
@@ -120,16 +127,65 @@ export function useSessionPaneSurfaces(tabSessionIds: readonly string[] = []) {
   );
   const agentSessionPanelsRef = useRef(agentSessionPanels);
   agentSessionPanelsRef.current = agentSessionPanels;
-  const heldAgentLanes = useRef(new Map<string, HeldAgentLane>()).current;
-  useEffect(() => {
-    const kept = new Set([...agentSessionPanels.values()].map((target) => target.sessionId));
-    for (const sessionId of heldAgentLanes.keys()) if (!kept.has(sessionId)) heldAgentLanes.delete(sessionId);
-  }, [agentSessionPanels, heldAgentLanes]);
   // Decided in render from the current tabs: a sub-agent that becomes a tab
   // leaves its panel in the commit that adds the tab, never mounted twice.
   const tabSessionKey = tabSessionIds.join('\u0000');
   // biome-ignore lint/correctness/useExhaustiveDependencies: the joined ids (tabSessionKey) are the identity of the tab list
   const tabSessions = useMemo(() => new Set(tabSessionIds), [tabSessionKey]);
+  const tabSessionsRef = useRef(tabSessions);
+  tabSessionsRef.current = tabSessions;
+  const heldAgentLanes = useRef(new Map<string, HeldAgentLane>()).current;
+  const agentPanelIdentities = useRef(new Map<string, AgentSessionPanelIdentity>()).current;
+  const lastReconciled = useRef<{
+    view: readonly DesktopAgentPoolRow[] | null;
+    panels: ReadonlyMap<string, AgentSessionPanelTarget> | null;
+    tabs: ReadonlySet<string> | null;
+  }>({ view: null, panels: null, tabs: null });
+  const reconcileAgentSessionPanels = useCallback(
+    (view: readonly DesktopAgentPoolRow[] | null, tabs: ReadonlySet<string> = tabSessionsRef.current) => {
+      const current = agentSessionPanelsRef.current;
+      if (!view || current.size === 0) return;
+      if (
+        lastReconciled.current.view === view &&
+        lastReconciled.current.panels === current &&
+        lastReconciled.current.tabs === tabs
+      ) {
+        return;
+      }
+      lastReconciled.current = { view, panels: current, tabs };
+      recordAgentSessionPanelIdentities(agentPanelIdentities, current, view);
+      const identitiesSnapshot = new Map(agentPanelIdentities);
+      const next = supersededAgentSessionPanels(current, view, identitiesSnapshot, tabs);
+      if (next === current) return;
+      recordAgentSessionPanelIdentities(agentPanelIdentities, next, view);
+      const nextIdentitiesSnapshot = new Map(agentPanelIdentities);
+      setAgentSessionPanels((latest) => supersededAgentSessionPanels(latest, view, nextIdentitiesSnapshot, tabs));
+    },
+    [agentPanelIdentities]
+  );
+  // Follow a closed sub-agent target to its respawned session on the same
+  // `(parentSessionId || ownerSessionId, tag)` while an `agent-session` panel
+  // is open, gated on pool view changes so progress-only ticks are no-ops.
+  const hasAgentSessionPanels = agentSessionPanels.size > 0;
+  useEffect(() => {
+    if (!hasAgentSessionPanels) return undefined;
+    const poolStore = agentPoolStore(window.mixdogDesktop);
+    startAgentPool(poolStore);
+    const reconcile = () => reconcileAgentSessionPanels(poolStore.getView());
+    reconcile();
+    return poolStore.subscribe(reconcile);
+  }, [hasAgentSessionPanels, reconcileAgentSessionPanels]);
+  useEffect(() => {
+    const kept = new Set([...agentSessionPanels.values()].map((target) => target.sessionId));
+    for (const sessionId of heldAgentLanes.keys()) if (!kept.has(sessionId)) heldAgentLanes.delete(sessionId);
+    for (const sessionId of agentPanelIdentities.keys())
+      if (!kept.has(sessionId)) agentPanelIdentities.delete(sessionId);
+    if (agentSessionPanels.size === 0) {
+      lastReconciled.current = { view: null, panels: null, tabs: null };
+      return;
+    }
+    reconcileAgentSessionPanels(agentPoolStore(window.mixdogDesktop).getView(), tabSessions);
+  }, [agentSessionPanels, tabSessions, heldAgentLanes, agentPanelIdentities, reconcileAgentSessionPanels]);
   const shownAgentSessionPanels = useMemo(
     () => agentSessionPanelsShown(agentSessionPanels, tabSessions),
     [agentSessionPanels, tabSessions]
@@ -259,6 +315,12 @@ export function useSessionPaneSurfaces(tabSessionIds: readonly string[] = []) {
   );
   const showAgentSessionPanel = useCallback(
     (hostSessionId: string, target: AgentSessionPanelTarget) => {
+      const alreadyShown = [...agentSessionPanelsRef.current.values()].some(
+        (shown) => shown.sessionId === target.sessionId
+      );
+      if (!alreadyShown) agentPanelIdentities.delete(target.sessionId);
+      const view = agentPoolStore(window.mixdogDesktop).getView();
+      if (view) recordAgentSessionPanelIdentities(agentPanelIdentities, new Map([[hostSessionId, target]]), view);
       const formerHosts = [...agentSessionPanelsRef.current].flatMap(([host, shown]) =>
         host !== hostSessionId && shown.sessionId === target.sessionId ? [host] : []
       );
@@ -266,7 +328,7 @@ export function useSessionPaneSurfaces(tabSessionIds: readonly string[] = []) {
       for (const host of formerHosts) setSessionPanelView(host, null, { agent: true });
       setSessionPanelView(hostSessionId, 'agent-session', { agent: true, front: true });
     },
-    [setSessionPanelView]
+    [agentPanelIdentities, setSessionPanelView]
   );
   // The state behind the render-time rule above: a panel whose sub-agent
   // became a tab closes for good.
@@ -335,6 +397,7 @@ export function useSessionPaneSurfaces(tabSessionIds: readonly string[] = []) {
       setPanelViewFront(sessionId, false);
       releaseSessionDiff(sessionId);
       releaseFullToolOutputs(sessionId);
+      releaseApprovalSessionState(sessionId);
       releaseSessionSkillCatalog(sessionId);
       releaseVisualizeSession(sessionId);
       releaseComposerSkill(sessionId);
@@ -343,6 +406,8 @@ export function useSessionPaneSurfaces(tabSessionIds: readonly string[] = []) {
       releaseTurnChangesEpoch(sessionId);
       releaseTurnReviewRequests(sessionId);
       releaseBranchMenuHeights(sessionId);
+      releaseAgentPlaces(sessionId);
+      releaseTranscriptRowLifecycle(sessionId);
       browserSurfaces.release(sessionId);
       terminalSurfaces.release(sessionId);
     },

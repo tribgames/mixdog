@@ -823,22 +823,28 @@ html[data-mixdog-mobile-tabs]
 }
 /* Level 2: the calls are one list card — a hairline frame with a divider
    between rows — instead of rows hanging off a rail.
-   Each row reads "verb target" in the UI face with nothing else on it: no
-   per-row icon, no dot separator, no file-type glyph. */
-.tool-activity[data-surface="desktop"] .tool-activity-content {
-  gap: 0;
-  margin: 8px 0 2px;
-  padding: 0;
+   The frame lives on the animating outer reveal box so top/bottom borders and
+   corners travel smoothly with the 0fr↔1fr track instead of being clipped. */
+.tool-activity[data-surface="desktop"] > .tool-activity-reveal {
+  margin: 0;
   overflow: hidden;
   border-radius: var(--mx-radius-lg);
-  /* A real card: its own surface and a full 1px frame. On the bare sheet with
-     a 0.5px 10% hairline the list had no edge at all on a 1x display, and
-     grey text on the grey sheet washed out. */
   background: transparent;
-  /* A real border, outside its children, as the usage table card draws it:
-     an inset ring paints under the rows, so an opaque sticky file line cut
-     the frame's sides away. */
-  border: var(--mx-hairline) solid var(--mx-border-muted);
+  border: var(--mx-hairline) solid transparent;
+  box-shadow: none;
+}
+.tool-activity[data-surface="desktop"] > .tool-activity-reveal[data-expanded="true"] {
+  margin: 8px 0 2px;
+  border-color: var(--mx-border-muted);
+}
+.tool-activity[data-surface="desktop"] .tool-activity-content {
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   box-shadow: none;
 }
 .tool-activity-details > .tool-activity-item + .tool-activity-item {
@@ -848,18 +854,17 @@ html[data-mixdog-mobile-tabs]
   min-width: 0;
 }
 .tool-header.tool-activity-item-header {
+  position: relative;
+  width: 100%;
   min-height: 34px;
   gap: 6px;
   padding: 0 6px 0 10px;
+  border-radius: 0;
   color: var(--mx-text-muted);
+  background: var(--mx-card-header-surface);
   /* Elapsed readouts and counts change every frame while a tool runs;
      proportional figures made the whole row twitch. */
   font-variant-numeric: tabular-nums;
-}
-/* The row is a container; the disclosure button is stretched over it and the
-   row's content (including the file link button) paints above it. */
-.tool-header.tool-activity-item-header {
-  position: relative;
 }
 .tool-header.tool-activity-item-header[data-disclosure="false"] {
   cursor: default;
@@ -989,7 +994,7 @@ html[data-mixdog-mobile-tabs]
   font-family: var(--mx-font-sans);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
-  line-height: var(--mx-line-meta);
+  line-height: var(--mx-line-ui);
   white-space: nowrap;
 }
 /* A failure's reason (an error's first line) is the one part that gives way:
@@ -1126,7 +1131,8 @@ html[data-mixdog-mobile-tabs]
    blocks below take that 10px themselves. */
 .tool-activity-item-body-inner {
   min-width: 0;
-  padding: 2px 0 10px;
+  padding: 8px 0 10px;
+  border-top: var(--mx-hairline) solid var(--mx-border);
 }
 .tool-activity-item-body-inner .tool-activity-item-section:not(.tool-panel, .tool-activity-terminal),
 .tool-activity-item-body-inner .tool-panel[data-bare="true"] > .tool-panel-body {
@@ -1186,7 +1192,11 @@ html[data-mixdog-mobile-tabs]
 .tool-activity-reveal {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows var(--mx-motion-slow) var(--mx-ease-emphasized);
+  transition:
+    grid-template-rows var(--mx-motion-slow) var(--mx-ease-emphasized),
+    margin-top var(--mx-motion-slow) var(--mx-ease-emphasized),
+    margin-bottom var(--mx-motion-slow) var(--mx-ease-emphasized),
+    border-color var(--mx-motion-slow) var(--mx-ease-emphasized);
 }
 .tool-activity-reveal[data-expanded="true"] {
   grid-template-rows: 1fr;
@@ -1228,20 +1238,15 @@ html[data-mixdog-mobile-tabs]
    task status and id — instead of the nine-line key/value header the model
    receives. */
 .tool-activity-item-meta {
-  /* Rides in the open row's header band after the title; the title keeps
-     priority and the facts give way with an ellipsis. */
-  flex: 0 1 auto;
   min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  margin: 0 0 8px;
+  padding: 0 10px;
   color: var(--mx-text-faint);
   /* A status line in words ("실행 중 · job_…"), not code: the mono face
      spread Korean labels apart. */
   font-family: var(--mx-font-sans);
   font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
+  line-height: var(--mx-line-ui);
   overflow-wrap: anywhere;
 }
 /* ONE surface for every expanded tool body:
@@ -1256,27 +1261,6 @@ html[data-mixdog-mobile-tabs]
   border-radius: var(--mx-radius-md);
   background: transparent;
   box-shadow: none;
-}
-/* Three layers per call, as a table reads: (1) the row line is a header band
-   on the shared card header surface (--mx-card-header-surface), the card's
-   full width; an open row adds the hairline that rules it off from its body;
-   (2) the command (or a call's prompt) is an outlined box with no fill;
-   (3) output and diffs sit plain on the card. */
-.tool-activity-item {
-  --tool-item-band: 34px;
-  background:
-    linear-gradient(var(--mx-card-header-surface), var(--mx-card-header-surface)) 0 0 / 100% var(--tool-item-band)
-    no-repeat;
-}
-.tool-activity-item[data-open="true"][data-expanded="true"] {
-  background:
-    linear-gradient(var(--mx-border), var(--mx-border)) 0 calc(var(--tool-item-band) - var(--mx-hairline)) / 100%
-    var(--mx-hairline) no-repeat,
-    linear-gradient(var(--mx-card-header-surface), var(--mx-card-header-surface)) 0 0 / 100% var(--tool-item-band)
-    no-repeat;
-}
-.tool-activity-item[data-open="true"] .tool-activity-item-body-inner {
-  padding-top: 8px;
 }
 /* Caption row: the full path of the file (the row above shows only its name)
    or the section label, with the copy control parked at its right end. A
@@ -1775,6 +1759,7 @@ html[data-mixdog-mobile-tabs]
 .tool-activity-markdown {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-code);
+  text-rendering: auto;
 }
 .tool-activity-markdown > :first-child {
   margin-top: 0;
@@ -1839,8 +1824,8 @@ html[data-mixdog-mobile-tabs]
   width: fit-content;
   max-width: 100%;
 }
-.tool-header:hover:not(:disabled),
-.tool-header:focus-visible {
+.tool-header:not(.tool-activity-item-header):hover:not(:disabled),
+.tool-header:not(.tool-activity-item-header):focus-visible {
   background: transparent;
 }
 .tool-header:focus-visible {
@@ -1861,7 +1846,6 @@ html[data-mixdog-mobile-tabs]
   place-items: center;
   line-height: 0;
   color: var(--mx-icon-muted);
-  transform: translateY(-1px);
 }
 .tool-icon > svg {
   width: 14px;
@@ -1938,7 +1922,7 @@ html[data-mixdog-mobile-tabs]
   color: var(--mx-text-faint);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
-  line-height: calc(12px * var(--mx-content-scale, 1));
+  line-height: var(--mx-line-ui);
 }
 .tool-chevron {
   width: 20px;
@@ -1950,13 +1934,13 @@ html[data-mixdog-mobile-tabs]
   border-radius: var(--mx-radius-sm);
 }
 .tool-chevron svg {
-  transition: transform var(--mx-motion-chrome);
+  transition: transform var(--mx-motion-slow) var(--mx-ease-emphasized);
 }
-/* A collapsed row keeps its chevron hidden until the row is hovered or focused
-   (Orca reference): a dozen stacked cards printed a permanent column of arrows
-   down the right edge, and none of them said anything. Opacity — never display
-   or width — so the 20px slot stays reserved and no title reflows on hover.
-   An open row keeps its rotated chevron visible as the way back. */
+/* A collapsed row keeps its chevron hidden until the row is hovered or focused:
+   a dozen stacked cards printed a permanent column of arrows down the right edge,
+   and none of them said anything. Opacity — never display or width — so the
+   20px slot stays reserved and no title reflows on hover. An open row keeps its
+   rotated chevron visible as the way back. */
 .tool-chevron {
   opacity: 0;
   transition: opacity var(--mx-motion-chrome);
@@ -1975,7 +1959,8 @@ html[data-mixdog-mobile-tabs]
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .tool-chevron {
+  .tool-chevron,
+  .tool-chevron svg {
     transition: none;
   }
 }

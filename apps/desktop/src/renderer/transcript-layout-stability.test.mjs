@@ -10,7 +10,12 @@ import { leadReviewCheckpointIdCache, leadReviewFilesCache, rememberAgentReviews
 import { turnReviewScope } from './turn-review-scope.ts';
 import { preloadMarkdownBody } from './markdown-body-loader';
 import { parseStreamingMarkdownAst } from './markdown-worker-client';
-import { useTranscriptRows } from './use-conversation-rows';
+import {
+  _transcriptLifecycleStatsForTest,
+  releaseTranscriptRowLifecycle,
+  useTranscriptRows,
+} from './use-conversation-rows';
+import { rememberTranscriptRowNamespace } from './transcript-virtual-cache';
 import { turnOf } from './conversation-turn-index';
 
 function mount(t) {
@@ -577,4 +582,413 @@ test('inline image markers preserve user text and attachment chips', async (t) =
     [...document.querySelectorAll('.message-attachments > .attachment-card')].map((chip) => chip.textContent),
     ['uploaded.png']
   );
+});
+
+test('intermediate turndone followed by a tool without attemptId stays suppressed while active and on cancellation, but never hides an already-idle end', async (t) => {
+  const { root } = mount(t);
+  const prompt = { kind: 'user', id: 'u1', text: 'Work', checkpointId: 'cp1' };
+  const reply1 = { kind: 'assistant', id: 'a1', text: 'Step 1.', attemptId: 'att1' };
+  const end1 = {
+    kind: 'turndone',
+    id: 'd1',
+    status: 'done',
+    verb: 'Completed',
+    elapsedMs: 1_000,
+    attemptId: 'att1',
+    checkpointId: 'cp1',
+  };
+  const toolNoAttempt = { kind: 'tool', id: 't1', name: 'shell', args: {}, result: 'ok' };
+  const cancelledEnd = {
+    kind: 'turndone',
+    id: 'd2',
+    status: 'cancelled',
+    attemptId: 'att1',
+    checkpointId: 'cp1',
+  };
+  let rows = [];
+  let state = { pastLastEnd: false, trailingCheckpointShown: false };
+  function Rows(props) {
+    const out = useTranscriptRows({
+      identity: props.identity ?? 'tool-cont',
+      sessionKey: props.identity ?? 'tool-cont',
+      settledItems: props.items,
+      settledRowItems: props.items,
+      failedTurnKeys: [],
+      precomputedTurnKeys: null,
+      pendingItems: [],
+      liveItem: null,
+      busy: props.busy,
+      commandBusy: false,
+      commandActivityVisible: false,
+      optimisticActivityStartedAt: 0,
+    });
+    rows = out.transcriptRows;
+    state = { pastLastEnd: out.pastLastEnd, trailingCheckpointShown: out.trailingCheckpointShown };
+    return null;
+  }
+  const render = (props) => act(async () => root.render(React.createElement(Rows, props)));
+
+  // Active turn watched while running emits an intermediate turndone and then a tool call without attemptId:
+  // d1 is suppressed so no premature completion footer or card attaches to a1.
+  await render({ items: [prompt, reply1], busy: true });
+  await render({ items: [prompt, reply1, end1, toolNoAttempt], busy: true });
+  const a1Row = rows.find((row) => row._tag === 'AssistantPart');
+  assert.equal(a1Row?.completion, undefined, 'intermediate end is suppressed during tool continuation');
+  assert.equal(a1Row?.turnChanges, undefined, 'no premature turn-changes card on a1');
+
+  // If that turn is later cancelled with the same attemptId, d1 remains suppressed even when idle.
+  await render({ items: [prompt, reply1, end1, toolNoAttempt, cancelledEnd], busy: false });
+  const a1AfterCancel = rows.find((row) => row._tag === 'AssistantPart');
+  assert.equal(a1AfterCancel?.completion, undefined, 'd1 stays suppressed after same-attempt cancelled turndone');
+
+  // Contrast 1: if a turn actually stood idle at d1, a later promptless wake tool must NOT hide d1.
+  await render({ identity: 'idle-wake', items: [prompt, reply1, end1], busy: false });
+  assert.ok(rows.find((row) => row._tag === 'AssistantPart')?.completion, 'idle turn shows its completion');
+  await render({ identity: 'idle-wake', items: [prompt, reply1, end1, toolNoAttempt], busy: true });
+  assert.ok(
+    rows.find((row) => row._tag === 'AssistantPart')?.completion,
+    'already-idle turn keeps its completion when a later wake runs a tool'
+  );
+  assert.equal(state.pastLastEnd, true, 'idle-then-wake keeps pastLastEnd true so d1 card stays shown');
+
+  // Contrast 2: mounting or switching back to a session during a promptless wake without an internal user item
+  // (`[u1, a1, d1, toolNoAttempt]`, `busy: true`) must NOT suppress the already-settled d1 card while busy.
+  await render({ identity: 'mount-wake', items: [prompt, reply1, end1, toolNoAttempt], busy: true });
+  const mountedA1 = rows.find((row) => row._tag === 'AssistantPart');
+  assert.ok(mountedA1?.completion, 'mounting mid-wake keeps settled d1 completion');
+  assert.equal(mountedA1?.turnChanges?.checkpointId, 'cp1', 'mounting mid-wake keeps settled d1 card ref');
+  assert.deepEqual(
+    state,
+    { pastLastEnd: true, trailingCheckpointShown: true },
+    'mounting mid-wake marks pastLastEnd true so d1 card is not held while busy'
+  );
+
+  // Switching back through an empty hydrating frame before the snapshot arrives behaves identically.
+  await render({ identity: 'switch-wake', items: [], busy: false });
+  await render({ identity: 'switch-wake', items: [prompt, reply1, end1, toolNoAttempt], busy: true });
+  const switchedA1 = rows.find((row) => row._tag === 'AssistantPart');
+  assert.ok(switchedA1?.completion, 'switching back mid-wake keeps settled d1 completion');
+  assert.equal(switchedA1?.turnChanges?.checkpointId, 'cp1', 'switching back mid-wake keeps settled d1 card ref');
+  assert.deepEqual(
+    state,
+    { pastLastEnd: true, trailingCheckpointShown: true },
+    'switching back mid-wake marks pastLastEnd true so d1 card is not held while busy'
+  );
+});
+
+test('continuous hidden-wake loop keeps pastLastEnd and trailingCheckpointShown false until the session actually idles', async (t) => {
+  const { root } = mount(t);
+  const prompt = { kind: 'user', id: 'u1', text: 'Run task', checkpointId: 'cp-1' };
+  const a1 = { kind: 'assistant', id: 'a1', text: 'Spawning check.' };
+  const d1 = { kind: 'turndone', id: 'd1', status: 'done', verb: 'Completed', checkpointId: 'cp-1' };
+  const wake = { kind: 'user', id: 'u-wake', text: 'task done', internal: true };
+  const t2 = { kind: 'tool', id: 't2', name: 'read', args: {}, result: 'ok' };
+  const a2 = { kind: 'assistant', id: 'a2', text: 'All finished.' };
+  const d2 = { kind: 'turndone', id: 'd2', status: 'done', verb: 'Completed', checkpointId: 'cp-1' };
+
+  let state = { pastLastEnd: false, trailingCheckpointShown: false };
+  function Rows(props) {
+    const out = useTranscriptRows({
+      identity: props.identity,
+      sessionKey: props.identity,
+      settledItems: props.items,
+      settledRowItems: props.items,
+      failedTurnKeys: [],
+      precomputedTurnKeys: null,
+      pendingItems: [],
+      liveItem: null,
+      busy: props.busy,
+      commandBusy: false,
+      commandActivityVisible: false,
+      optimisticActivityStartedAt: 0,
+    });
+    state = { pastLastEnd: out.pastLastEnd, trailingCheckpointShown: out.trailingCheckpointShown };
+    return null;
+  }
+  const render = (props) => act(async () => root.render(React.createElement(Rows, props)));
+
+  // Continuous loop (never idle between d1 and wake -> d2):
+  await render({ identity: 'loop-1', items: [prompt, a1, d1], busy: true });
+  assert.deepEqual(state, { pastLastEnd: false, trailingCheckpointShown: false });
+
+  await render({ identity: 'loop-1', items: [prompt, a1, d1, wake, t2], busy: true });
+  assert.deepEqual(
+    state,
+    { pastLastEnd: false, trailingCheckpointShown: false },
+    'hidden continuation keeps pastLastEnd false so trailing cards stay held'
+  );
+
+  await render({ identity: 'loop-1', items: [prompt, a1, d1, wake, t2, a2, d2], busy: true });
+  assert.deepEqual(
+    state,
+    { pastLastEnd: false, trailingCheckpointShown: false },
+    'reclosed d2 while still busy stays held because cp-1 never stood idle'
+  );
+
+  await render({ identity: 'loop-1', items: [prompt, a1, d1, wake, t2, a2, d2], busy: false });
+  assert.deepEqual(state, { pastLastEnd: false, trailingCheckpointShown: true });
+
+  // Contrast: if d1 DID stand idle before the wake started, its card stays visible through the wake.
+  await render({ identity: 'loop-2', items: [prompt, a1, d1], busy: false });
+  assert.deepEqual(state, { pastLastEnd: false, trailingCheckpointShown: true });
+
+  await render({ identity: 'loop-2', items: [prompt, a1, d1, wake, t2], busy: true });
+  assert.deepEqual(state, { pastLastEnd: true, trailingCheckpointShown: true });
+
+  await render({ identity: 'loop-2', items: [prompt, a1, d1, wake, t2, a2, d2], busy: true });
+  assert.deepEqual(state, { pastLastEnd: false, trailingCheckpointShown: true });
+});
+
+test('useTranscriptRows stays pure under StrictMode and preserves lifecycle across tab-switch remounts', async (t) => {
+  const { root } = mount(t);
+  const prompt = { kind: 'user', id: 'u1', text: 'Run loop', checkpointId: 'cp-strict' };
+  const a1 = { kind: 'assistant', id: 'a1', text: 'Step 1.' };
+  const d1 = { kind: 'turndone', id: 'd1', status: 'done', verb: 'Completed', checkpointId: 'cp-strict', at: 1_000 };
+  const toolNoAttempt = { kind: 'tool', id: 't2', name: 'shell', args: {}, result: 'ok' };
+
+  let rows = [];
+  let state = { turnPastEnd: false, pastLastEnd: false, trailingCheckpointShown: false };
+  function Rows(props) {
+    const out = useTranscriptRows({
+      identity: props.identity,
+      sessionKey: props.identity,
+      settledItems: props.items,
+      settledRowItems: props.items,
+      failedTurnKeys: [],
+      precomputedTurnKeys: null,
+      pendingItems: [],
+      liveItem: props.liveItem ?? null,
+      busy: props.busy,
+      commandBusy: false,
+      commandActivityVisible: false,
+      commandActivityStartedAt: props.commandActivityStartedAt ?? 0,
+      optimisticActivityStartedAt: 0,
+    });
+    rows = out.transcriptRows;
+    state = {
+      turnPastEnd: out.turnPastEnd,
+      pastLastEnd: out.pastLastEnd,
+      trailingCheckpointShown: out.trailingCheckpointShown,
+    };
+    return null;
+  }
+  const render = (props) =>
+    act(async () => root.render(React.createElement(React.StrictMode, null, React.createElement(Rows, props))));
+
+  // 1) Continuous loop survives StrictMode double-render AND unmount/remount through an empty hydrating frame.
+  await render({ identity: 'strict-loop-remount', items: [prompt, a1, d1], busy: true });
+  assert.deepEqual(state, { turnPastEnd: false, pastLastEnd: false, trailingCheckpointShown: false });
+
+  await act(async () => root.render(null));
+  await render({ identity: 'strict-loop-remount', items: [], busy: false });
+  await render({ identity: 'strict-loop-remount', items: [prompt, a1, d1, toolNoAttempt], busy: true });
+  assert.equal(
+    rows.find((row) => row._tag === 'AssistantPart')?.completion,
+    undefined,
+    'remounting mid-loop still suppresses passed active end d1'
+  );
+  assert.equal(state.pastLastEnd, false);
+
+  // 2) Idle-then-wake survives unmount/remount while busy at [prompt, a1, d1].
+  await render({ identity: 'strict-wake-remount', items: [prompt, a1, d1], busy: false });
+  assert.equal(state.trailingCheckpointShown, true);
+  await act(async () => root.render(null));
+  await render({ identity: 'strict-wake-remount', items: [prompt, a1, d1], busy: true });
+  assert.equal(state.turnPastEnd, true, 'remounting during promptless wake remembers idleEnd');
+  assert.equal(state.pastLastEnd, true);
+
+  // 3) Activity timestamp strictly newer than active end d1 clears activeEnds before passedEnds runs on the same frame.
+  await render({ identity: 'strict-timed-pass', items: [prompt, a1, d1], busy: true, commandActivityStartedAt: 900 });
+  assert.equal(state.turnPastEnd, false);
+  await render({
+    identity: 'strict-timed-pass',
+    items: [prompt, a1, d1, toolNoAttempt],
+    busy: true,
+    commandActivityStartedAt: 1_500,
+  });
+  assert.ok(
+    rows.find((row) => row._tag === 'AssistantPart')?.completion,
+    'newer activity clears activeEnds before passedEnds so settled d1 stays visible'
+  );
+  assert.equal(state.pastLastEnd, true);
+});
+
+test('releaseTranscriptRowLifecycle cleans up lifecycles keyed by draft-promoted identities', async (t) => {
+  const { root } = mount(t);
+  const prompt = { kind: 'user', id: 'u1', text: 'Draft prompt', checkpointId: 'cp-draft' };
+  const a1 = { kind: 'assistant', id: 'a1', text: 'Done.' };
+  const d1 = { kind: 'turndone', id: 'd1', status: 'done', verb: 'Completed', checkpointId: 'cp-draft', at: 1_000 };
+
+  let state = { turnPastEnd: false, pastLastEnd: false, trailingCheckpointShown: false };
+  function Rows(props) {
+    const out = useTranscriptRows({
+      identity: props.identity,
+      sessionKey: props.sessionKey,
+      settledItems: props.items,
+      settledRowItems: props.items,
+      failedTurnKeys: [],
+      precomputedTurnKeys: null,
+      pendingItems: [],
+      liveItem: null,
+      busy: props.busy,
+      commandBusy: false,
+      commandActivityVisible: false,
+      optimisticActivityStartedAt: 0,
+    });
+    state = {
+      turnPastEnd: out.turnPastEnd,
+      pastLastEnd: out.pastLastEnd,
+      trailingCheckpointShown: out.trailingCheckpointShown,
+    };
+    return null;
+  }
+  const render = (props) => act(async () => root.render(React.createElement(Rows, props)));
+
+  // 1) Promoted draft whose namespace is tracked in transcript-virtual-cache.
+  rememberTranscriptRowNamespace('sess-promoted-1', 'draft-release-1');
+  await render({ identity: 'draft-release-1', sessionKey: 'sess-promoted-1', items: [prompt, a1, d1], busy: false });
+  assert.equal(state.trailingCheckpointShown, true);
+  await act(async () => root.render(null));
+
+  releaseTranscriptRowLifecycle('sess-promoted-1');
+  await render({ identity: 'draft-release-1', sessionKey: 'sess-promoted-1', items: [prompt, a1, d1], busy: true });
+  assert.deepEqual(
+    state,
+    { turnPastEnd: false, pastLastEnd: false, trailingCheckpointShown: false },
+    'releasing the promoted sessionId clears the draft-keyed lifecycle'
+  );
+
+  // 2) Even after >16 other promotions evict the virtual-cache namespace entry, release still clears the lifecycle.
+  rememberTranscriptRowNamespace('sess-promoted-2', 'draft-release-2');
+  await render({ identity: 'draft-release-2', sessionKey: 'sess-promoted-2', items: [prompt, a1, d1], busy: false });
+  assert.equal(state.trailingCheckpointShown, true);
+  for (let i = 0; i < 20; i += 1) {
+    rememberTranscriptRowNamespace(`sess-evict-${i}`, `draft-evict-${i}`);
+  }
+  await act(async () => root.render(null));
+
+  releaseTranscriptRowLifecycle('sess-promoted-2');
+  await render({ identity: 'draft-release-2', sessionKey: 'sess-promoted-2', items: [prompt, a1, d1], busy: true });
+  assert.deepEqual(
+    state,
+    { turnPastEnd: false, pastLastEnd: false, trailingCheckpointShown: false },
+    'releasing by sessionId clears the mapped draft lifecycle even after virtual-cache namespace eviction'
+  );
+});
+
+test('a standalone tool-ending completion settles the turn without a trailing Thinking row while busy', async (t) => {
+  const { root } = mount(t);
+  const items = [
+    { kind: 'user', id: 'u1', text: 'Run edit', checkpointId: 'cp-1' },
+    { kind: 'assistant', id: 'a1', text: 'Editing now.' },
+    { kind: 'tool', id: 't1', name: 'edit', args: {}, result: 'ok' },
+    { kind: 'turndone', id: 'd1', status: 'complete', verb: 'Completed', checkpointId: 'cp-1', at: 1_000 },
+  ];
+  let rows = [];
+  function Rows() {
+    rows = useTranscriptRows({
+      identity: 'tool-end-settled',
+      sessionKey: 'tool-end-settled',
+      settledItems: items,
+      settledRowItems: items,
+      failedTurnKeys: [],
+      precomputedTurnKeys: null,
+      pendingItems: [],
+      liveItem: null,
+      busy: true,
+      commandBusy: false,
+      commandActivityVisible: false,
+      optimisticActivityStartedAt: 0,
+    }).transcriptRows;
+    return null;
+  }
+  await act(async () => root.render(React.createElement(Rows)));
+  assert.deepEqual(
+    rows.map((row) => row._tag),
+    ['UserMessage', 'AssistantPart', 'ToolActivity', 'AssistantPart'],
+    'standalone tool-ending completion suppresses trailing Thinking while busy'
+  );
+  assert.equal(rows.at(-1)?.item?.id, 'd1');
+});
+
+test('a promptless wake after an idle tool-ending turn shows Thinking before new spinner or rows arrive', async (t) => {
+  const { root } = mount(t);
+  const items = [
+    { kind: 'user', id: 'u1', text: 'Run edit', checkpointId: 'cp-1' },
+    { kind: 'assistant', id: 'a1', text: 'Editing now.' },
+    { kind: 'tool', id: 't1', name: 'edit', args: {}, result: 'ok' },
+    { kind: 'turndone', id: 'd1', status: 'complete', verb: 'Completed', checkpointId: 'cp-1', at: 1_000 },
+  ];
+  let out = { transcriptRows: [], turnPastEnd: false };
+  function Rows({ busy }) {
+    out = useTranscriptRows({
+      identity: 'tool-end-wake',
+      sessionKey: 'tool-end-wake',
+      settledItems: items,
+      settledRowItems: items,
+      failedTurnKeys: [],
+      precomputedTurnKeys: null,
+      pendingItems: [],
+      liveItem: null,
+      busy,
+      commandBusy: false,
+      commandActivityVisible: false,
+      optimisticActivityStartedAt: 0,
+    });
+    return null;
+  }
+
+  // Prior tool-ending turn stands idle first.
+  await act(async () => root.render(React.createElement(Rows, { busy: false })));
+  assert.deepEqual(
+    out.transcriptRows.map((row) => row._tag),
+    ['UserMessage', 'AssistantPart', 'ToolActivity', 'AssistantPart']
+  );
+
+  // Promptless wake starts: busy flips true before spinner/tool/reply arrives.
+  await act(async () => root.render(React.createElement(Rows, { busy: true })));
+  assert.equal(out.turnPastEnd, true, 'wake is past the idle tool-ending completion');
+  assert.deepEqual(
+    out.transcriptRows.map((row) => row._tag),
+    ['UserMessage', 'AssistantPart', 'ToolActivity', 'AssistantPart', 'TurnGap', 'Thinking'],
+    'new promptless wake shows TurnGap and Thinking after prior standalone completion'
+  );
+});
+
+test('per-session lifecycle metadata prunes prior turns so knownEnds and shownCheckpoints stay bounded', async (t) => {
+  const { root } = mount(t);
+  const identity = 'bounded-lifecycle';
+  t.after(() => releaseTranscriptRowLifecycle(identity));
+
+  function Rows({ items, busy }) {
+    useTranscriptRows({
+      identity,
+      sessionKey: identity,
+      settledItems: items,
+      settledRowItems: items,
+      failedTurnKeys: [],
+      precomputedTurnKeys: null,
+      pendingItems: [],
+      liveItem: null,
+      busy,
+      commandBusy: false,
+      commandActivityVisible: false,
+      optimisticActivityStartedAt: 0,
+    });
+    return null;
+  }
+
+  let items = [];
+  for (let i = 1; i <= 30; i += 1) {
+    const prompt = { kind: 'user', id: `u${i}`, text: `Turn ${i}`, checkpointId: `cp-${i}` };
+    const reply = { kind: 'assistant', id: `a${i}`, text: `Reply ${i}` };
+    const done = { kind: 'turndone', id: `d${i}`, status: 'complete', checkpointId: `cp-${i}` };
+    items = [...items, prompt, reply, done];
+    await act(async () => root.render(React.createElement(Rows, { items, busy: true })));
+    await act(async () => root.render(React.createElement(Rows, { items, busy: false })));
+  }
+  const stats = _transcriptLifecycleStatsForTest(identity);
+  assert.equal(stats.knownEnds, 1, 'knownEnds retains only the current turn window');
+  assert.equal(stats.activeEnds, 0, 'activeEnds clears once idle');
+  assert.equal(stats.shownCheckpoints, 1, 'shownCheckpoints retains only the current turn checkpoint');
 });

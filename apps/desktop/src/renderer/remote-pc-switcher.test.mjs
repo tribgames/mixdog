@@ -57,14 +57,95 @@ test('with no saved PC listed the menu opens on its actions, with no orphan sepa
   assert.ok([...menu.querySelectorAll('[role="menuitem"]')].every((item) => item.classList.contains('mx-menu-item')));
 });
 
-test('phone: the brand dot is green when connected and grey when the PC is offline', async (t) => {
+test('phone: the brand dot is green when connected, pulses while reconnecting, and is grey when the PC is offline', async (t) => {
   const { root, document, window } = installTestDom(t, { rootId: 'root' });
+  const { clearRemoteConnectionState, setRemoteConnectionState } = await import('./remote-connection-state.ts');
+  t.after(() => clearRemoteConnectionState());
   installBridge(window, [{ id: 'a', name: 'Home PC', online: true, lastConnectedAt: 1, current: true }], []);
   await act(async () => root.render(React.createElement(RemotePcBrandDot)));
-  assert.ok(document.querySelector('.workspace-tab-home-dot:not(.off)'));
+  assert.ok(document.querySelector('.workspace-tab-home-dot:not(.off):not(.is-reconnecting)'));
+  await act(async () => setRemoteConnectionState('reconnecting'));
+  assert.ok(document.querySelector('.workspace-tab-home-dot.off.is-reconnecting'));
+  await act(async () => setRemoteConnectionState('connected'));
+  assert.ok(document.querySelector('.workspace-tab-home-dot:not(.off):not(.is-reconnecting)'));
+  await act(async () => clearRemoteConnectionState());
   installBridge(window, [{ id: 'a', name: 'Home PC', online: false, lastConnectedAt: 1, current: true }], []);
   await act(async () => root.render(React.createElement(RemotePcBrandDot, { key: 'again' })));
-  assert.ok(document.querySelector('.workspace-tab-home-dot.off'));
+  assert.ok(document.querySelector('.workspace-tab-home-dot.off:not(.is-reconnecting)'));
+});
+
+test('phone: a relay-confirmed offline close keeps the brand dot steady grey while redialing', async (t) => {
+  const { root, document, window } = installTestDom(t, { rootId: 'root' });
+  const {
+    REMOTE_DESKTOP_OFFLINE_CLOSE,
+    clearRemoteConnectionState,
+    forgetRemoteDesktopOffline,
+    reportRemoteConnectionIssue,
+    setRemoteConnectionState,
+  } = await import('./remote-connection-state.ts');
+  t.after(() => clearRemoteConnectionState());
+  installBridge(window, [{ id: 'a', name: 'Home PC', online: true, lastConnectedAt: 1, current: true }], []);
+  await act(async () => root.render(React.createElement(RemotePcBrandDot)));
+  assert.ok(document.querySelector('.workspace-tab-home-dot:not(.off):not(.is-reconnecting)'));
+  await act(async () => {
+    reportRemoteConnectionIssue('websocket-closed', undefined, REMOTE_DESKTOP_OFFLINE_CLOSE);
+    setRemoteConnectionState('reconnecting');
+  });
+  assert.ok(document.querySelector('.workspace-tab-home-dot.off:not(.is-reconnecting):not(.warn)'));
+  await act(async () => setRemoteConnectionState('connecting'));
+  assert.ok(document.querySelector('.workspace-tab-home-dot.off:not(.is-reconnecting):not(.warn)'));
+  await act(async () => forgetRemoteDesktopOffline());
+  assert.ok(document.querySelector('.workspace-tab-home-dot.off.is-reconnecting'));
+  await act(async () => reportRemoteConnectionIssue('websocket-closed', undefined, REMOTE_DESKTOP_OFFLINE_CLOSE));
+  assert.ok(document.querySelector('.workspace-tab-home-dot.off:not(.is-reconnecting)'));
+  await act(async () => setRemoteConnectionState('connected'));
+  assert.ok(document.querySelector('.workspace-tab-home-dot:not(.off):not(.is-reconnecting)'));
+});
+
+test('phone: socket recovery clears stale initial offline presence so the dot turns green and pulses on genuine disconnect', async (t) => {
+  const { root, document, window } = installTestDom(t, { rootId: 'root' });
+  const {
+    REMOTE_DESKTOP_OFFLINE_CLOSE,
+    clearRemoteConnectionState,
+    reportRemoteConnectionIssue,
+    setRemoteConnectionState,
+  } = await import('./remote-connection-state.ts');
+  t.after(() => clearRemoteConnectionState());
+  installBridge(window, [{ id: 'a', name: 'Home PC', online: false, lastConnectedAt: 1, current: true }], []);
+  await act(async () => {
+    setRemoteConnectionState('connecting');
+    root.render(React.createElement(RemotePcBrandDot));
+  });
+  assert.ok(document.querySelector('.workspace-tab-home-dot.off:not(.is-reconnecting)'));
+  await act(async () => setRemoteConnectionState('connected'));
+  assert.ok(document.querySelector('.workspace-tab-home-dot:not(.off):not(.is-reconnecting)'));
+  await act(async () => setRemoteConnectionState('reconnecting'));
+  assert.ok(document.querySelector('.workspace-tab-home-dot.off.is-reconnecting'));
+  await act(async () => reportRemoteConnectionIssue('websocket-closed', undefined, REMOTE_DESKTOP_OFFLINE_CLOSE));
+  assert.ok(document.querySelector('.workspace-tab-home-dot.off:not(.is-reconnecting)'));
+  await act(async () => setRemoteConnectionState('connected'));
+  assert.ok(document.querySelector('.workspace-tab-home-dot:not(.off):not(.is-reconnecting)'));
+
+  // An in-flight offline presence fetch started before connect cannot overwrite recovery either.
+  let resolveSlowFetch;
+  const slowFetch = new Promise((resolve) => {
+    resolveSlowFetch = resolve;
+  });
+  await act(async () => clearRemoteConnectionState());
+  installBridge(window, [], []);
+  window.mixdogRemoteWindowSwitcher.listHosts = () => slowFetch;
+  await act(async () => {
+    setRemoteConnectionState('connecting');
+    root.render(React.createElement(RemotePcBrandDot, { key: 'inflight' }));
+  });
+  await act(async () => setRemoteConnectionState('connected'));
+  await act(async () => {
+    resolveSlowFetch([{ id: 'a', name: 'Home PC', online: false, lastConnectedAt: 1, current: true }]);
+    await slowFetch;
+  });
+  assert.ok(document.querySelector('.workspace-tab-home-dot:not(.off):not(.is-reconnecting)'));
+  await act(async () => setRemoteConnectionState('reconnecting'));
+  assert.ok(document.querySelector('.workspace-tab-home-dot.off.is-reconnecting'));
 });
 
 test('phone: the drawer PC card shows name and state; with several PCs it opens the PC list', async (t) => {

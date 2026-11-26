@@ -21,10 +21,33 @@ export type TouchScrollDeviation = {
   /** A finger lands while the native offset rests at 0 with history held
    *  above it: lands the hold, so the drag that follows can reach it. */
   landForTouch(): void;
+  /** Lands any active hold immediately (e.g. on an explicit disclosure click). */
+  landNow(): boolean;
   /** A native write that lands a logical target directly supersedes the hold. */
   drop(): void;
   cancel(): void;
 };
+
+const DISCLOSURE_CLICK_SELECTOR =
+  '.tool-activity-header, .tool-activity-item-header[data-disclosure="true"], .tool-card > .tool-header, .tool-activity-preview-more, [aria-expanded]';
+
+function quantizeToDevicePixel(value: number): number {
+  const dpr =
+    typeof window !== 'undefined' && Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
+      ? window.devicePixelRatio
+      : 1;
+  return Math.round(value * dpr) / dpr;
+}
+
+function isDisclosureClickTarget(target: EventTarget | null): boolean {
+  if (!target || typeof target !== 'object') return false;
+  const candidate = target as {
+    closest?: (selector: string) => unknown;
+    parentElement?: { closest?: (selector: string) => unknown } | null;
+  };
+  const element = typeof candidate.closest === 'function' ? candidate : candidate.parentElement;
+  return Boolean(element && typeof element.closest === 'function' && element.closest(DISCLOSURE_CLICK_SELECTOR));
+}
 
 /** The logical offset is at the real top: a hold must not stand. Native 0
  *  with history held above it is not: the momentum is still on it. */
@@ -59,10 +82,11 @@ export function createTouchScrollDeviation({
   const paint = () => {
     const space = getSpacer();
     if (!space) return;
-    space.style.transform = amount ? `translateY(${-amount}px)` : '';
+    const painted = amount ? quantizeToDevicePixel(amount) : 0;
+    space.style.transform = painted ? `translateY(${-painted}px)` : '';
     // A transform leaves the in-flow extent unchanged; the negative margin
     // keeps the native end on the lifted rows' end.
-    space.style.marginBottom = amount > 0 ? `${-amount}px` : '';
+    space.style.marginBottom = painted > 0 ? `${-painted}px` : '';
   };
   /** False (nothing written) while the viewport is overscrolled. */
   const land = (): boolean => {
@@ -120,6 +144,15 @@ export function createTouchScrollDeviation({
       const element = getViewport();
       if (element && element.scrollTop <= TOP_EDGE_PX) land();
     },
+    landNow() {
+      if (!amount) return true;
+      const landed = land();
+      if (landed && frame) {
+        window.cancelAnimationFrame(frame);
+        frame = 0;
+      }
+      return landed;
+    },
     drop() {
       if (!amount) return;
       amount = 0;
@@ -164,12 +197,23 @@ export function useTouchScrollDeviation({
   useEffect(() => () => deviation.cancel(), [deviation]);
   // On the viewport itself, so the landing precedes the follow hook's
   // touchstart (delegated from the root), which reads the offset it starts at.
+  // Explicit disclosure clicks also land any active deviation before the
+  // card toggles and starts its height transition.
   useEffect(() => {
     const element = viewport.current;
     if (!element) return undefined;
     const landForTouch = () => deviation.landForTouch();
+    const landForDisclosureClick = (event: MouseEvent) => {
+      if (deviation.amount() !== 0 && isDisclosureClickTarget(event.target)) {
+        deviation.landNow();
+      }
+    };
     element.addEventListener('touchstart', landForTouch, { passive: true });
-    return () => element.removeEventListener('touchstart', landForTouch);
+    element.addEventListener('click', landForDisclosureClick, { capture: true });
+    return () => {
+      element.removeEventListener('touchstart', landForTouch);
+      element.removeEventListener('click', landForDisclosureClick, { capture: true });
+    };
   }, [viewport, deviation]);
   return deviation;
 }

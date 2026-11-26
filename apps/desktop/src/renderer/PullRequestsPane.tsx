@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom';
 import type { DesktopPullRequestEntry } from '../shared/contract';
 import { promptAction } from './app-confirm';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import { ProgressSpinner } from './ProgressSpinner';
 import { OpenSelect } from './OpenSelect';
 import { PullRequestCreateForm } from './PullRequestCreateForm';
@@ -102,6 +103,10 @@ export function PullRequestsPane({
     setBusy,
     loadList,
     onCreated: (created) => onOpenPullRequest?.(projectPath, created, 'overview', false),
+  });
+  useMobileBack(create.open, () => {
+    if (busy === 'create') return false;
+    create.cancel();
   });
 
   const refreshAll = useCallback(() => {

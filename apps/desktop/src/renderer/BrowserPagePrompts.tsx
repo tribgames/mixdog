@@ -3,6 +3,7 @@ import { useState, type ReactNode } from 'react';
 import { BROWSER_PERMISSION_MAX_SITES } from '../shared/browser-permission-policy';
 import type { DesktopBrowserPageAction, DesktopBrowserPageFrame } from '../shared/contract';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 
 function focusOnArrival(node: HTMLElement | null) {
   node?.focus({ preventScroll: true });
@@ -12,9 +13,11 @@ function focusOnArrival(node: HTMLElement | null) {
 export function BrowserPagePrompts({
   frame,
   control,
+  active = true,
 }: {
   frame: Pick<DesktopBrowserPageFrame, 'url' | 'dialog' | 'fileChooser'>;
   control(action: DesktopBrowserPageAction): Promise<unknown>;
+  active?: boolean;
 }) {
   const [text, setText] = useState(frame.dialog?.defaultPrompt ?? '');
   // An untouched default is accepted as the page's own (possibly longer) value.
@@ -37,7 +40,6 @@ export function BrowserPagePrompts({
   };
   const dialog = frame.dialog;
   const chooser = frame.fileChooser;
-  if (!dialog && !chooser) return null;
   // Cards the browser words itself: a leave confirmation carries no page
   // text, a dialog on another session's page is not this view's to show or
   // answer, and a dialog dismissed unseen is a notice to acknowledge.
@@ -79,11 +81,18 @@ export function BrowserPagePrompts({
   const deny = () => {
     if (dialog) void answer({ type: 'answer-dialog', requestId: dialog.id, accept: false, ...rememberField });
   };
-  const dismiss = () => {
-    if (dialog) {
-      if (!waiting) void answer({ type: 'answer-dialog', requestId: dialog.id, accept: !cancellable });
-    } else if (chooser) void answer({ type: 'choose-files', requestId: chooser.id, cancel: true });
+  const dismiss = (): false => {
+    if (!busy && !waiting) {
+      if (dialog) {
+        void answer({ type: 'answer-dialog', requestId: dialog.id, accept: !cancellable });
+      } else if (chooser) {
+        void answer({ type: 'choose-files', requestId: chooser.id, cancel: true });
+      }
+    }
+    return false;
   };
+  useMobileBack(active && Boolean(dialog || chooser), dismiss, 'modal');
+  if (!dialog && !chooser) return null;
   let body: ReactNode = dialog?.message;
   if (leaving) body = t('Changes you made may not be saved.');
   else if (waiting) body = t('This page is waiting for a dialog open on another page.');

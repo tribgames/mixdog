@@ -395,17 +395,19 @@ export function SessionTerminalTabs({
         }
       />
       <div className="session-terminal-tab-panels">
-        {state.tabs.map((tab) => (
-          <div key={tab.id} className="session-terminal-tab-panel" hidden={tab.id !== state.activeId}>
-            <SessionTerminalPane
-              cwd={tab.cwd || cwd}
-              terminalId={tab.id}
-              shell={tab.shell}
-              active={active && tab.id === state.activeId}
-              attachOnly={attachOnly}
-            />
-          </div>
-        ))}
+        {state.tabs
+          .filter((tab) => tab.id === state.activeId)
+          .map((tab) => (
+            <div key={tab.id} className="session-terminal-tab-panel">
+              <SessionTerminalPane
+                cwd={tab.cwd || cwd}
+                terminalId={tab.id}
+                shell={tab.shell}
+                active={active}
+                attachOnly={attachOnly}
+              />
+            </div>
+          ))}
       </div>
     </div>
   );

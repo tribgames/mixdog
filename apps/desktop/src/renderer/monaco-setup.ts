@@ -3,127 +3,92 @@
 // Monaco keeps editing and tokenization only.
 import { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
-import * as batDef from 'monaco-editor/esm/vs/basic-languages/bat/bat.js';
-import * as clojureDef from 'monaco-editor/esm/vs/basic-languages/clojure/clojure.js';
-import * as coffeeDef from 'monaco-editor/esm/vs/basic-languages/coffee/coffee.js';
-import * as cppDef from 'monaco-editor/esm/vs/basic-languages/cpp/cpp.js';
-import * as csharpDef from 'monaco-editor/esm/vs/basic-languages/csharp/csharp.js';
-import * as cssDef from 'monaco-editor/esm/vs/basic-languages/css/css.js';
-import * as dartDef from 'monaco-editor/esm/vs/basic-languages/dart/dart.js';
-import * as dockerfileDef from 'monaco-editor/esm/vs/basic-languages/dockerfile/dockerfile.js';
-import * as fsharpDef from 'monaco-editor/esm/vs/basic-languages/fsharp/fsharp.js';
-import * as goDef from 'monaco-editor/esm/vs/basic-languages/go/go.js';
-import * as handlebarsDef from 'monaco-editor/esm/vs/basic-languages/handlebars/handlebars.js';
-import * as htmlDef from 'monaco-editor/esm/vs/basic-languages/html/html.js';
-import * as iniDef from 'monaco-editor/esm/vs/basic-languages/ini/ini.js';
-import * as javaDef from 'monaco-editor/esm/vs/basic-languages/java/java.js';
-import * as javascriptDef from 'monaco-editor/esm/vs/basic-languages/javascript/javascript.js';
-import * as juliaDef from 'monaco-editor/esm/vs/basic-languages/julia/julia.js';
-import * as lessDef from 'monaco-editor/esm/vs/basic-languages/less/less.js';
-import * as luaDef from 'monaco-editor/esm/vs/basic-languages/lua/lua.js';
-import * as markdownDef from 'monaco-editor/esm/vs/basic-languages/markdown/markdown.js';
-import * as objectiveCDef from 'monaco-editor/esm/vs/basic-languages/objective-c/objective-c.js';
-import * as perlDef from 'monaco-editor/esm/vs/basic-languages/perl/perl.js';
-import * as phpDef from 'monaco-editor/esm/vs/basic-languages/php/php.js';
-import * as powershellDef from 'monaco-editor/esm/vs/basic-languages/powershell/powershell.js';
-import * as pugDef from 'monaco-editor/esm/vs/basic-languages/pug/pug.js';
-import * as pythonDef from 'monaco-editor/esm/vs/basic-languages/python/python.js';
-import * as rDef from 'monaco-editor/esm/vs/basic-languages/r/r.js';
-import * as razorDef from 'monaco-editor/esm/vs/basic-languages/razor/razor.js';
-import * as restructuredtextDef from 'monaco-editor/esm/vs/basic-languages/restructuredtext/restructuredtext.js';
-import * as rubyDef from 'monaco-editor/esm/vs/basic-languages/ruby/ruby.js';
-import * as rustDef from 'monaco-editor/esm/vs/basic-languages/rust/rust.js';
-import * as scssDef from 'monaco-editor/esm/vs/basic-languages/scss/scss.js';
-import * as shellDef from 'monaco-editor/esm/vs/basic-languages/shell/shell.js';
-import * as sqlDef from 'monaco-editor/esm/vs/basic-languages/sql/sql.js';
-import * as swiftDef from 'monaco-editor/esm/vs/basic-languages/swift/swift.js';
-import * as typescriptDef from 'monaco-editor/esm/vs/basic-languages/typescript/typescript.js';
-import * as vbDef from 'monaco-editor/esm/vs/basic-languages/vb/vb.js';
-import * as xmlDef from 'monaco-editor/esm/vs/basic-languages/xml/xml.js';
-import * as yamlDef from 'monaco-editor/esm/vs/basic-languages/yaml/yaml.js';
-import { MONACO_EAGER_MONARCH_LANGUAGES } from './monaco-eager-languages';
+// @ts-expect-error Monaco internal service accessor used to stop the idle editor worker when no surface is mounted.
+import { IEditorWorkerService } from 'monaco-editor/esm/vs/editor/common/services/editorWorker.js';
+// @ts-expect-error Monaco internal standalone service registry.
+import { StandaloneServices } from 'monaco-editor/esm/vs/editor/standalone/browser/standaloneServices.js';
 import { LOG_LANGUAGE_CONFIGURATION, LOG_MONARCH_LANGUAGE } from './monaco-log-language';
+import {
+  createMonacoLanguageLoader,
+  ensureMonacoLanguage,
+  installMonacoLanguageLoader,
+} from './monaco-language-loader';
+import {
+  createMonacoWorkerLifecycle,
+  installMonacoWorkerLifecycle,
+  stopMonacoLanguageWorkers,
+  wakeMonacoLanguageWorkers,
+  type MonacoLanguageServiceDefaultsLike,
+  type MonacoLanguageServiceLabel,
+} from './monaco-worker-lifecycle';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker.js?worker';
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker.js?worker';
 import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker.js?worker';
 import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker.js?worker';
 
+function languageServiceDefaults(label: MonacoLanguageServiceLabel): MonacoLanguageServiceDefaultsLike | undefined {
+  switch (label) {
+    case 'json':
+      return monaco.json?.jsonDefaults as unknown as MonacoLanguageServiceDefaultsLike | undefined;
+    case 'css':
+      return monaco.css?.cssDefaults as unknown as MonacoLanguageServiceDefaultsLike | undefined;
+    case 'scss':
+      return monaco.css?.scssDefaults as unknown as MonacoLanguageServiceDefaultsLike | undefined;
+    case 'less':
+      return monaco.css?.lessDefaults as unknown as MonacoLanguageServiceDefaultsLike | undefined;
+    case 'html':
+      return monaco.html?.htmlDefaults as unknown as MonacoLanguageServiceDefaultsLike | undefined;
+    case 'handlebars':
+      return monaco.html?.handlebarDefaults as unknown as MonacoLanguageServiceDefaultsLike | undefined;
+    case 'razor':
+      return monaco.html?.razorDefaults as unknown as MonacoLanguageServiceDefaultsLike | undefined;
+  }
+}
+
+function stopMonacoEditorWorker(): void {
+  try {
+    const service = StandaloneServices.get(IEditorWorkerService) as {
+      _workerManager?: { _editorWorkerClient?: { dispose(): void } | null };
+    };
+    const manager = service?._workerManager;
+    if (manager?._editorWorkerClient) {
+      manager._editorWorkerClient.dispose();
+      manager._editorWorkerClient = null;
+    }
+  } catch {
+    /* service not initialized */
+  }
+}
+
+function hasLiveMonacoModelsForLabel(label: MonacoLanguageServiceLabel): boolean {
+  return monaco.editor.getModels().some((model) => !model.isDisposed() && model.getLanguageId() === label);
+}
+
+const workerLifecycle = createMonacoWorkerLifecycle({
+  factories: {
+    editor: () => new editorWorker(),
+    json: () => new jsonWorker(),
+    css: () => new cssWorker(),
+    html: () => new htmlWorker(),
+  },
+  getLanguageDefaults: languageServiceDefaults,
+  stopEditorWorker: stopMonacoEditorWorker,
+  hasLiveModels: hasLiveMonacoModelsForLabel,
+});
+installMonacoWorkerLifecycle(workerLifecycle);
+
 self.MonacoEnvironment = {
   getWorker(_workerId: string, label: string) {
-    switch (label) {
-      case 'json':
-        return new jsonWorker();
-      case 'css':
-      case 'scss':
-      case 'less':
-        return new cssWorker();
-      case 'html':
-      case 'handlebars':
-      case 'razor':
-        return new htmlWorker();
-      default:
-        return new editorWorker();
-    }
+    return workerLifecycle.createWorker(label);
   },
 };
 
 loader.config({ monaco });
 
-// monaco basic-languages loads each Monarch tokenizer through a lazy import(); a model created before it resolves paints untokenized.
-const BASIC_LANGUAGE_DEFINITIONS: Readonly<
-  Record<
-    string,
-    {
-      conf: monaco.languages.LanguageConfiguration;
-      language: monaco.languages.IMonarchLanguage;
-    }
-  >
-> = {
-  bat: batDef,
-  clojure: clojureDef,
-  coffee: coffeeDef,
-  cpp: cppDef,
-  csharp: csharpDef,
-  css: cssDef,
-  dart: dartDef,
-  dockerfile: dockerfileDef,
-  fsharp: fsharpDef,
-  go: goDef,
-  handlebars: handlebarsDef,
-  html: htmlDef,
-  ini: iniDef,
-  java: javaDef,
-  javascript: javascriptDef,
-  julia: juliaDef,
-  less: lessDef,
-  lua: luaDef,
-  markdown: markdownDef,
-  'objective-c': objectiveCDef,
-  perl: perlDef,
-  php: phpDef,
-  powershell: powershellDef,
-  pug: pugDef,
-  python: pythonDef,
-  r: rDef,
-  razor: razorDef,
-  restructuredtext: restructuredtextDef,
-  ruby: rubyDef,
-  rust: rustDef,
-  scss: scssDef,
-  shell: shellDef,
-  sql: sqlDef,
-  swift: swiftDef,
-  typescript: typescriptDef,
-  vb: vbDef,
-  xml: xmlDef,
-  yaml: yamlDef,
-};
-for (const [languageId, moduleDir] of Object.entries(MONACO_EAGER_MONARCH_LANGUAGES)) {
-  const definition = BASIC_LANGUAGE_DEFINITIONS[moduleDir];
-  if (!definition) continue;
-  monaco.languages.setMonarchTokensProvider(languageId, definition.language);
-  monaco.languages.setLanguageConfiguration(languageId, definition.conf);
-}
+const languageLoader = createMonacoLanguageLoader({
+  register: monaco.languages,
+});
+installMonacoLanguageLoader(languageLoader);
 if (!monaco.languages.getLanguages().some((language) => language.id === 'log')) {
   monaco.languages.register({
     id: 'log',
@@ -133,6 +98,8 @@ if (!monaco.languages.getLanguages().some((language) => language.id === 'log')) 
 }
 monaco.languages.setMonarchTokensProvider('log', LOG_MONARCH_LANGUAGE);
 monaco.languages.setLanguageConfiguration('log', LOG_LANGUAGE_CONFIGURATION);
+
+export { ensureMonacoLanguage, stopMonacoLanguageWorkers, wakeMonacoLanguageWorkers };
 
 // Monaco's stock vs/vs-dark canvases are cool white/near-black. Match the
 // renderer's workspace sheet while inheriting the familiar syntax rules.

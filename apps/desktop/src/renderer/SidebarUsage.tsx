@@ -13,6 +13,9 @@ import {
   holdUsageDashboardCadence,
   refreshUsageDashboard,
   subscribeUsageDashboard,
+  usageResetRowAccount,
+  usageResetRowProvider,
+  usageResetWindowKeys,
   type UsageApi,
   type UsageRecord,
 } from './usage-dashboard-store';
@@ -272,10 +275,8 @@ export function SidebarUsage({
     .flatMap((row) => quotaWindows(row))
     .map((window) => timestamp(window.resetAt))
     .filter((value): value is number => value !== null);
-  const failedResetAts = useUsageResetVerification({
-    api,
+  const { failedWindowKeys, verifyingWindowKeys } = useUsageResetVerification({
     resetAts,
-    refreshedAt: snapshot.refreshedAt,
   });
   const awaitingFirstUsage = !rowsPresent && (snapshot.status === 'idle' || snapshot.status === 'loading');
   const accountPools = useUsageAccountPools(
@@ -327,15 +328,22 @@ export function SidebarUsage({
   };
 
   // The quota windows of one provider row or one of its accounts.
-  const renderMeters = (windows: UsageRecord[], provider: string, account = '') =>
-    windows.map((window, index) => {
+  const renderMeters = (windows: UsageRecord[], provider: string, account = '', resetRow?: UsageRecord) => {
+    const windowKeys = usageResetWindowKeys(
+      windows,
+      resetRow ? usageResetRowProvider(resetRow, provider) : provider,
+      resetRow ? usageResetRowAccount(resetRow) : account
+    );
+    return windows.map((window, index) => {
       const percent = usedPercent(window);
       const resetAt = timestamp(window.resetAt);
+      const windowKey = windowKeys[index];
       const resetPresentation = usageResetPresentation({
         percent,
         resetAt,
         refreshedAt: snapshot.refreshedAt,
-        verificationFailed: resetAt !== null && failedResetAts.has(resetAt),
+        verificationFailed: resetAt !== null && failedWindowKeys.has(windowKey),
+        verifying: resetAt !== null && verifyingWindowKeys.has(windowKey),
       });
       const effectivePercent = resetPresentation.percent;
       const displayedPercent = displayUsagePercent(effectivePercent);
@@ -356,6 +364,7 @@ export function SidebarUsage({
         </span>
       );
     });
+  };
 
   const reset = useCodexResetCredit(api, dashboard, sidebarOpen);
   const clearReset = reset.clear;
@@ -491,7 +500,12 @@ export function SidebarUsage({
                             {limitText && <small className="sidebar-usage-account-limit">{limitText}</small>}
                           </span>
                           <span className="sidebar-usage-meters">
-                            {renderMeters(account.windows, subscription.provider, account.id)}
+                            {renderMeters(
+                              account.windows,
+                              subscription.provider,
+                              account.id,
+                              account.id === pool?.selectedId ? row : undefined
+                            )}
                             {account.windows.length === 0 && (
                               <span className="sidebar-usage-meter sidebar-usage-meter-empty">
                                 <small>{t('No usage limits to show')}</small>
@@ -503,7 +517,7 @@ export function SidebarUsage({
                     })
                   ) : (
                     <span className="sidebar-usage-meters">
-                      {renderMeters(windows, subscription.provider)}
+                      {renderMeters(windows, subscription.provider, '', row)}
                       {windows.length === 0 && (
                         <span className="sidebar-usage-meter sidebar-usage-meter-empty">
                           <small>{checking ? t('Loading usage…') : t('No usage limits to show')}</small>

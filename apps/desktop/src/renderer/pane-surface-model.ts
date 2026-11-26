@@ -41,7 +41,7 @@ export type PaneSurfaceSnapshot = {
   leaf: PaneLeaf;
 };
 
-function paneSurfaceKey(leaf: PaneLeaf): string {
+export function paneSurfaceKey(leaf: PaneLeaf): string {
   const active = paneActiveSelection(leaf);
   if (!active) return 'empty';
   if (isConversationSelection(active)) return 'conversation';
@@ -60,7 +60,7 @@ export function parksConversationBehindSelection(selection: WorkspaceSelection |
   return selection?.kind === 'file' || usesPersistentUtilityPortal(selection);
 }
 
-function usesPersistentUtilityPortal(selection: WorkspaceSelection | null): boolean {
+export function usesPersistentUtilityPortal(selection: WorkspaceSelection | null): boolean {
   return (
     selection?.kind === 'studio' ||
     selection?.kind === 'terminal' ||
@@ -70,7 +70,7 @@ function usesPersistentUtilityPortal(selection: WorkspaceSelection | null): bool
   );
 }
 
-function retainSurfaceForOneFrame(previousLeaf: PaneLeaf, currentLeaf: PaneLeaf): boolean {
+export function retainSurfaceForOneFrame(previousLeaf: PaneLeaf, currentLeaf: PaneLeaf): boolean {
   const previous = paneActiveSelection(previousLeaf);
   // Only an open tab may bridge a switch. A closed tab must leave in this commit.
   if (!previous || !currentLeaf.tabs.some((tab) => navigationKey(tab) === navigationKey(previous))) return false;
@@ -81,11 +81,61 @@ function retainSurfaceForOneFrame(previousLeaf: PaneLeaf, currentLeaf: PaneLeaf)
   return isConversationSelection(previous) || parksConversationBehindSelection(previous);
 }
 
+type UtilityHandoffMap = ReadonlyMap<string, string>;
+
+const workspaceUtilityHandoffs = new Map<symbol, Map<string, string>>();
+const utilityHandoffListeners = new Set<() => void>();
+let activeUtilityHandoffsSnapshot: UtilityHandoffMap = new Map();
+
+function utilityHandoffMapsEqual(a: UtilityHandoffMap, b: UtilityHandoffMap): boolean {
+  if (a.size !== b.size) return false;
+  for (const [leafId, surfaceKey] of a) {
+    if (b.get(leafId) !== surfaceKey) return false;
+  }
+  return true;
+}
+
+function rebuildUtilityHandoffs(): void {
+  const next = new Map<string, string>();
+  for (const entries of workspaceUtilityHandoffs.values()) {
+    for (const [leafId, surfaceKey] of entries) next.set(leafId, surfaceKey);
+  }
+  if (utilityHandoffMapsEqual(activeUtilityHandoffsSnapshot, next)) return;
+  activeUtilityHandoffsSnapshot = next;
+  for (const listener of [...utilityHandoffListeners]) listener();
+}
+
+function setWorkspaceUtilityHandoffs(owner: symbol, entries: Map<string, string>): void {
+  workspaceUtilityHandoffs.set(owner, entries);
+  rebuildUtilityHandoffs();
+}
+
+function deleteWorkspaceUtilityHandoffs(owner: symbol): void {
+  if (!workspaceUtilityHandoffs.delete(owner)) return;
+  rebuildUtilityHandoffs();
+}
+
+export function subscribeUtilitySurfaceHandoffs(listener: () => void): () => void {
+  utilityHandoffListeners.add(listener);
+  return () => utilityHandoffListeners.delete(listener);
+}
+
+export function currentUtilitySurfaceHandoffs(): UtilityHandoffMap {
+  return activeUtilityHandoffsSnapshot;
+}
+
+export function hasActivePaneHandoffWorkspace(): boolean {
+  return workspaceUtilityHandoffs.size > 0;
+}
+
 /**
  * Tracks each leaf's previous surface so an outgoing selection can paint for
  * exactly one more frame (inert, above the incoming conversation).
  */
 export function usePaneSurfaceHandoffs(leaves: readonly PaneLeaf[]) {
+  const workspaceOwnerRef = useRef<symbol | null>(null);
+  if (!workspaceOwnerRef.current) workspaceOwnerRef.current = Symbol('pane-surface-handoffs');
+  const workspaceOwner = workspaceOwnerRef.current;
   const previousPaneSurfaces = useRef(new Map<string, PaneSurfaceSnapshot>());
   const paneSurfaceHandoffs = useRef(new Map<string, PaneSurfaceSnapshot>());
   const [, setSurfaceHandoffRevision] = useState(0);
@@ -106,12 +156,41 @@ export function usePaneSurfaceHandoffs(leaves: readonly PaneLeaf[]) {
     if (!liveLeafIds.has(leafId)) paneSurfaceHandoffs.current.delete(leafId);
   }
   previousPaneSurfaces.current = currentPaneSurfaces;
-  const paneSurfaceHandoffKey = [...paneSurfaceHandoffs.current]
-    .map(([leafId, surface]) => `${leafId}\0${surface.key}`)
-    .join('\x01');
+  const utilityHandoffs = new Map<string, string>();
+  for (const [leafId, snapshot] of paneSurfaceHandoffs.current) {
+    const current = currentPaneSurfaces.get(leafId);
+    const active = paneActiveSelection(snapshot.leaf);
+    if (current && snapshot.key !== current.key && active && usesPersistentUtilityPortal(active)) {
+      utilityHandoffs.set(leafId, navigationKey(active));
+    }
+  }
+  const utilityHandoffsKey = [...utilityHandoffs].map(([leafId, key]) => `${leafId}\0${key}`).join('\x01');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: utilityHandoffsKey is the content signature of utilityHandoffs
   useLayoutEffect(() => {
-    if (!paneSurfaceHandoffKey) return undefined;
-    const retiring = new Map(paneSurfaceHandoffs.current);
+    setWorkspaceUtilityHandoffs(workspaceOwner, utilityHandoffs);
+  }, [workspaceOwner, utilityHandoffsKey]);
+  useLayoutEffect(() => () => deleteWorkspaceUtilityHandoffs(workspaceOwner), [workspaceOwner]);
+  const retireHandoffs = () => setSurfaceHandoffRevision((value) => value + 1);
+  return { currentPaneSurfaces, paneSurfaceHandoffs, retireHandoffs };
+}
+
+/** Retires each pane's outgoing surface handoff on the next animation frame once
+ *  any preparing incoming conversation in that pane is ready to paint behind it. */
+export function useRetirePaneSurfaceHandoffs(
+  paneSurfaceHandoffs: { current: Map<string, PaneSurfaceSnapshot> },
+  conversationLeaves: readonly ConversationSurface[],
+  retireHandoffs: () => void
+): void {
+  const preparingLeafIds = new Set(conversationLeaves.filter((entry) => entry.preparing).map((entry) => entry.leaf.id));
+  const retiringEntries = [...paneSurfaceHandoffs.current].filter(
+    ([leafId, surface]) =>
+      !(preparingLeafIds.has(leafId) && !isConversationSelection(paneActiveSelection(surface.leaf)))
+  );
+  const retiringKey = retiringEntries.map(([leafId, surface]) => `${leafId}\0${surface.key}`).join('\x01');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: retiringKey is the content signature of retiringEntries
+  useLayoutEffect(() => {
+    if (!retiringKey) return undefined;
+    const retiring = new Map(retiringEntries);
     const frame = window.requestAnimationFrame(() => {
       let changed = false;
       for (const [leafId, surface] of retiring) {
@@ -119,11 +198,10 @@ export function usePaneSurfaceHandoffs(leaves: readonly PaneLeaf[]) {
         paneSurfaceHandoffs.current.delete(leafId);
         changed = true;
       }
-      if (changed) setSurfaceHandoffRevision((value) => value + 1);
+      if (changed) retireHandoffs();
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [paneSurfaceHandoffKey]);
-  return { currentPaneSurfaces, paneSurfaceHandoffs };
+  }, [retiringKey]);
 }
 
 /** A session tab shown in a pane, newest first in the recency list. */
@@ -352,9 +430,19 @@ export function usePaneConversationOwners(
     handsOver ? (owner) => keptOwners.current.has(owner) : undefined
   );
   const preparingNow = new Set<string>();
-  const leafIds = new Set(workspace.leaves.map((leaf) => leaf.id));
-  for (const leafId of [...presented.current.keys()]) if (!leafIds.has(leafId)) presented.current.delete(leafId);
+  const activeConversationLeafIds = new Set(
+    workspace.leaves.filter((leaf) => isConversationSelection(paneActiveSelection(leaf))).map((leaf) => leaf.id)
+  );
+  for (const leafId of [...presented.current.keys()]) {
+    if (!activeConversationLeafIds.has(leafId)) presented.current.delete(leafId);
+  }
   for (const entry of conversationLeaves.filter((candidate) => !candidate.retained && !candidate.handoff)) {
+    // A parked conversation sits behind a non-conversation tab and must never
+    // be recorded as presented or promoted back to visible for a later switch.
+    if (entry.parked) continue;
+    const surfaceHandoff = paneSurfaceHandoffs.current.get(entry.leaf.id);
+    const hasNonConversationHandoff =
+      surfaceHandoff !== undefined && !isConversationSelection(paneActiveSelection(surfaceHandoff.leaf));
     const shown = presented.current.get(entry.leaf.id);
     const mounted = shown !== undefined && conversationOwners.current.some((owner) => owner.key === shown.owner);
     // The owner the pane showed went with its tab to another pane and draws there: this pane has nothing to keep on
@@ -362,8 +450,8 @@ export function usePaneConversationOwners(
     const moved =
       shown !== undefined &&
       conversationLeaves.some((candidate) => candidate.owner === shown.owner && candidate.leaf.id !== entry.leaf.id);
-    // A parked conversation is behind another surface: there is nothing to hand over on screen.
-    if (!handsOver || !shown || !mounted || moved || shown.owner === entry.owner || entry.parked) {
+    const hasOutgoingConversation = shown !== undefined && mounted && !moved;
+    if (!handsOver || shown?.owner === entry.owner || (!hasOutgoingConversation && !hasNonConversationHandoff)) {
       presented.current.set(entry.leaf.id, { owner: entry.owner, surface: entry });
       continue;
     }
@@ -372,6 +460,9 @@ export function usePaneConversationOwners(
     if (!preparingOwners.current.has(entry.owner)) {
       visits.current.set(entry.owner, (visits.current.get(entry.owner) ?? 0) + 1);
     }
+    // When an open file or utility surface covers the pane during handover,
+    // keep any previously parked conversation retained instead of painting it underneath.
+    if (hasNonConversationHandoff || !hasOutgoingConversation) continue;
     const outgoing = conversationLeaves.find((candidate) => candidate.owner === shown.owner);
     if (outgoing) {
       outgoing.retained = false;

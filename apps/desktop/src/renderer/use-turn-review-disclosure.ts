@@ -1,5 +1,6 @@
 import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from 'react';
 import { useComposerIslandTab } from './composer-island-state';
+import { useMobileBack } from './mobile-back';
 import { useSurfaceActive } from './surface-activity';
 
 /** The review bar's open/closed state (local, or the island's `files` tab),
@@ -33,15 +34,16 @@ export function useTurnReviewDisclosure(islandTab: boolean) {
   // Off screen (retained or parked conversation), presses and Escape belong
   // to the shown conversation: the bar keeps its state and listens again on return.
   const surfaceActive = useSurfaceActive();
+  const collapse = () => {
+    setExpanded(false);
+    setOpenFile('');
+    setConfirmFile('');
+    setRevertError('');
+  };
+  useMobileBack(expanded, collapse);
   // biome-ignore lint/correctness/useExhaustiveDependencies: setExpanded is a new closure each render; the listeners only need to rebind when the bar opens, closes or changes kind.
   useEffect(() => {
     if (!expanded || !surfaceActive) return undefined;
-    const collapse = () => {
-      setExpanded(false);
-      setOpenFile('');
-      setConfirmFile('');
-      setRevertError('');
-    };
     const closeOnOutsidePointer = (event: Event) => {
       const element = barElement.current;
       const target = event.target as Node | null;

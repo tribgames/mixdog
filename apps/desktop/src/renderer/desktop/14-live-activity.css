@@ -12,11 +12,18 @@
   position: relative;
   display: flex;
   flex-direction: column;
+  height: 24px;
+  min-height: 24px;
+}
+.live-activity {
+  position: relative;
+  height: 24px;
   min-height: 24px;
 }
 .live-activity-status {
   width: max-content;
   max-width: 100%;
+  height: 24px;
   min-height: 24px;
   display: flex;
   /* One row in any column: the quiet cue clips its own text with an ellipsis
@@ -30,8 +37,21 @@
      text. */
   color: var(--mx-text-muted);
 }
+.live-activity-reasoning {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  padding-top: 4px;
+}
+.live-activity-reasoning .thinking-disclosure pre {
+  padding: 6px 8px;
+  border-radius: var(--mx-radius-sm);
+  background: var(--mx-workspace-sheet);
+}
 /* Only ongoing work has an entrance: completed statuses remain static.
-   The 4px slide belongs to work that STARTS on screen, never to a band
+   The fade belongs to work that STARTS on screen, never to a band
    restored by re-entering the session. */
 .live-activity-status[data-animate="true"] {
   animation: transcript-milestone-enter 260ms var(--mx-ease-emphasized);
@@ -504,12 +524,17 @@ html[data-pet-over-transcript] .live-activity-tokens {
 .compaction-divider > span,
 .compaction-divider > small {
   white-space: nowrap;
-}
-.compaction-divider > small {
   min-width: 0;
-  max-width: min(52%, 440px);
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.compaction-divider > span {
+  flex: 0 1 auto;
+}
+.compaction-divider > small {
+  /* Yield secondary detail before truncating the primary label. */
+  flex: 0 100000 auto;
+  max-width: min(52%, 440px);
   /* The readout matches every other gauge in the thread: 12px muted. It was
      still tinted with the accent this row no longer uses. */
   color: var(--mx-text-muted);
@@ -519,11 +544,9 @@ html[data-pet-over-transcript] .live-activity-tokens {
 @keyframes transcript-milestone-enter {
   from {
     opacity: 0;
-    transform: translateY(4px) scale(0.985);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
   }
 }
 /* Ongoing activity remains readable without its entrance or looping glyphs. */

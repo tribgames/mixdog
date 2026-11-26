@@ -135,3 +135,16 @@ test("a row's X closes that output's tab", async (t) => {
   await click(rowByName('Two').querySelector('.session-outputs-close'));
   assert.deepEqual(commands, [{ sessionId: 'close', tabId: 't2', action: 'close' }]);
 });
+
+test('outputs close button overlays the state slot via opacity/visibility without display:none toggling', async () => {
+  const { readFileSync } = await import('node:fs');
+  const css = readFileSync(new URL('./session-rail-outputs.css', import.meta.url), 'utf8');
+  assert.match(css, /\.session-outputs-state\s*\{[^}]*min-width:\s*20px;/);
+  assert.match(css, /\.session-outputs-close\s*\{[^}]*position:\s*absolute;/);
+  assert.match(css, /\.session-outputs-close\s*\{[^}]*pointer-events:\s*none;/);
+  assert.match(
+    css,
+    /\.session-outputs-row:is\(:hover,\s*:has\(:focus-visible\)\)\s*\.session-outputs-state\s*\{[^}]*visibility:\s*hidden;/
+  );
+  assert.doesNotMatch(css, /display:\s*none;/, 'hover/focus never toggles display:none on outputs state or close');
+});

@@ -1,7 +1,8 @@
 import type { MarkdownAstRoot } from './markdown-ast';
 import { registerIdleReclaim } from './idle-reclaim';
-import { RendererLruCache } from './renderer-lru-cache';
+import { containsMarkdownMath } from './markdown-math-detect';
 import { MarkdownWorkerHost } from './markdown-worker-host';
+import { RendererLruCache } from './renderer-lru-cache';
 import {
   markdownAstCacheChars,
   MARKDOWN_AST_CACHE_MAX_CHARACTERS as AST_CACHE_MAX_CHARACTERS,
@@ -18,9 +19,10 @@ const astCache = new RendererLruCache<string, MarkdownAstRoot>({
 });
 const workerHost = new MarkdownWorkerHost();
 let rendererParserPromise: Promise<typeof import('./markdown-ast')> | null = null;
+let rendererParserModule: typeof import('./markdown-ast') | null = null;
 let rendererLoadWasSpeculative = false;
 // Different panes/blocks often request the same text before its AST arrives.
-// Share that work, including fallback parsing, and release it after settlement.
+// Share that work and release it after settlement.
 const inFlight = new Map<string, Promise<MarkdownAstRoot>>();
 
 export function readCachedStreamingMarkdownAst(text: string): MarkdownAstRoot | null {
@@ -32,12 +34,66 @@ function rememberStreamingMarkdownAst(text: string, root: MarkdownAstRoot): void
   astCache.set(text, root);
 }
 
-// Parsed markdown is pure derived state: an idle drop costs one reparse the
-// next time that exact text scrolls back into view. The parser itself stays
-// resident, so that reparse never waits for a worker bootstrap.
+export const HIDDEN_WORKER_RECLAIM_MS = 5 * 60_000;
+let hiddenReclaimTimer: ReturnType<typeof setTimeout> | null = null;
+const observedDocuments = new WeakSet<Document>();
+
+function clearHiddenWorkerReclaim(): void {
+  if (hiddenReclaimTimer !== null) {
+    clearTimeout(hiddenReclaimTimer);
+    hiddenReclaimTimer = null;
+  }
+}
+
+function scheduleHiddenWorkerReclaim(): void {
+  clearHiddenWorkerReclaim();
+  if (
+    inFlight.size > 0 ||
+    !workerHost.active ||
+    typeof document === 'undefined' ||
+    document.visibilityState !== 'hidden'
+  ) {
+    return;
+  }
+  hiddenReclaimTimer = setTimeout(() => {
+    hiddenReclaimTimer = null;
+    if (inFlight.size === 0 && typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      workerHost.terminateIdle();
+    }
+  }, HIDDEN_WORKER_RECLAIM_MS);
+  if (typeof hiddenReclaimTimer === 'object' && hiddenReclaimTimer !== null && 'unref' in hiddenReclaimTimer) {
+    (hiddenReclaimTimer as { unref(): void }).unref();
+  }
+}
+
+function ensureVisibilityListener(): void {
+  if (typeof document === 'undefined' || observedDocuments.has(document)) return;
+  observedDocuments.add(document);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') scheduleHiddenWorkerReclaim();
+    else clearHiddenWorkerReclaim();
+  });
+}
+ensureVisibilityListener();
+
+// Parsed markdown is pure derived state: an explicit idle/memory-pressure
+// reclaim drops cached ASTs and terminates the idle worker.
 registerIdleReclaim(() => {
+  clearHiddenWorkerReclaim();
+  prefetchQueue = [];
   astCache.clear();
+  workerHost.terminateIdle();
 });
+
+export function isMarkdownWorkerActive(): boolean {
+  return workerHost.active;
+}
+
+export function terminateIdleMarkdownWorker(): boolean {
+  const terminated = workerHost.terminateIdle();
+  if (terminated) clearHiddenWorkerReclaim();
+  return terminated;
+}
 
 let rendererParser: ((text: string) => MarkdownAstRoot) | null = null;
 const rendererParserListeners = new Set<() => void>();
@@ -54,8 +110,8 @@ function publishParserLoad(state: ParserLoad): void {
 }
 
 function loadRendererParser(speculative = false): Promise<typeof import('./markdown-ast')> {
-  // A real fallback can retry a failed warmup. Repeated preloads and failed
-  // foreground imports must not start an import loop.
+  // A real foreground request can retry a failed warmup. Repeated preloads and
+  // failed foreground imports must not start an import loop.
   if (!speculative && rendererLoadWasSpeculative && typeof parserLoad === 'object') {
     rendererParserPromise = null;
   }
@@ -63,6 +119,7 @@ function loadRendererParser(speculative = false): Promise<typeof import('./markd
     rendererLoadWasSpeculative = speculative;
     rendererParserPromise = import('./markdown-ast').then(
       (module) => {
+        rendererParserModule = module;
         rendererParser = module.parseMarkdownToHast;
         publishParserLoad('ready');
         return module;
@@ -84,11 +141,11 @@ export function subscribeSyncMarkdownParser(listener: () => void): () => void {
 }
 
 function parseMarkdownOnRenderer(text: string): Promise<MarkdownAstRoot> {
-  return loadRendererParser().then(({ parseMarkdownToHast }) => parseMarkdownToHast(text));
+  return loadRendererParser().then((module) => module.parseMarkdownToHastAsync(text));
 }
 
-/** Live markdown parses its small tail on the main thread once the parser is
- *  loaded; a worker round trip per frame would gate what the reader sees. */
+/** Loads the single resident Markdown parser on the main thread so settled
+ *  first-paint blocks and live streaming tails parse without an async hop. */
 export function preloadSyncMarkdownParser(): Promise<void> {
   return loadRendererParser(true).then(
     () => undefined,
@@ -100,9 +157,25 @@ export function syncMarkdownParser(): ((text: string) => MarkdownAstRoot) | null
   return rendererParser;
 }
 
+export { containsMarkdownMath };
+
+/** True when `text` can parse synchronously without skipping unloaded math plugins. */
+export function canSyncParseMarkdown(text: string): boolean {
+  if (!rendererParser) return false;
+  if (!containsMarkdownMath(text)) return true;
+  return rendererParserModule?.isMarkdownMathLoaded() === true;
+}
+
+/** Loads KaTeX/remark-math on demand when a live stream begins emitting math. */
+export function preloadMarkdownMath(): Promise<void> {
+  return loadRendererParser(true)
+    .then((module) => module.loadMarkdownMathSupport())
+    .catch(() => undefined);
+}
+
 /** Largest text, counted in UTF-16 code units (`String.length`, not bytes and
  *  not code points), that parses on the main thread in the commit that shows
- *  it. Longer text stays on the worker.
+ *  it. Longer text parses asynchronously after the commit paints.
  *
  *  Chosen from `scripts/markdown-sync-parse-bench.mjs` (lists, a table and a
  *  highlighted code block per ~1.1k units, dense on purpose): parsing costs
@@ -110,10 +183,13 @@ export function syncMarkdownParser(): ((text: string) => MarkdownAstRoot) | null
  *  while 8192 take ~10 ms (p95 15-20 ms), already most of a 16.7 ms frame. */
 export const SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS = 4096;
 
-/** A main-thread parse slower than this hands longer text back to the worker. */
+/** A main-thread parse slower than this hands longer text to the async queue. */
 export const SYNC_MARKDOWN_PARSE_BUDGET_MS = 8;
 
-const SETTLED_PARSE_FRAME_UTF16_UNITS = SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS;
+/** Frame allowance for synchronous settled-reply parsing on session open: lets
+ *  multiple visible tail replies parse in the first commit while keeping each
+ *  individual reply capped at SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS. */
+export const SETTLED_PARSE_FRAME_UTF16_UNITS = 3 * SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS;
 let settledParseSpent = 0;
 let settledParseResetQueued = false;
 
@@ -130,12 +206,13 @@ function renewSettledParseAllowanceNextFrame(): void {
 }
 
 /** A settled block's AST: the cached tree, or a main-thread parse within this
- *  frame's allowance. Null means "ask the worker". */
+ *  frame's allowance. Null means "parse asynchronously". */
 export function parseSettledMarkdownAstNow(text: string, maxUtf16Units: number): MarkdownAstRoot | null {
   const value = String(text ?? '');
   const cached = readCachedStreamingMarkdownAst(value);
   if (cached) return cached;
   if (!rendererParser || !value || value.length > maxUtf16Units) return null;
+  if (!canSyncParseMarkdown(value)) return null;
   if (settledParseSpent + value.length > SETTLED_PARSE_FRAME_UTF16_UNITS) return null;
   settledParseSpent += value.length;
   renewSettledParseAllowanceNextFrame();
@@ -153,7 +230,7 @@ function plainMarkdownAst(text: string): MarkdownAstRoot {
 }
 
 let parsersFail = false;
-/** Test seam: the worker and the page's parser both fail, as when neither script can be loaded. */
+/** Test seam: the parser fails, as when the script chunk cannot be loaded. */
 export function _failMarkdownParsersForTest(fail: boolean): void {
   parsersFail = fail;
 }
@@ -172,19 +249,26 @@ export function parseStreamingMarkdownAst(text: string, remember = true): Promis
       return root;
     });
   }
-  const parser = (parse: () => Promise<MarkdownAstRoot>) =>
-    parsersFail ? Promise.reject<MarkdownAstRoot>(new Error('no parser')) : parse();
-  const request = parser(() => workerHost.parse(value))
-    .catch(() => parser(() => parseMarkdownOnRenderer(value)))
+  const parse = (): Promise<MarkdownAstRoot> => {
+    if (parsersFail) return Promise.reject<MarkdownAstRoot>(new Error('no parser'));
+    if (workerHost.available) {
+      ensureVisibilityListener();
+      clearHiddenWorkerReclaim();
+      return workerHost.parse(value).catch(() => parseMarkdownOnRenderer(value));
+    }
+    return parseMarkdownOnRenderer(value);
+  };
+  const request = parse()
     .then((root) => {
       if (remember) rememberStreamingMarkdownAst(value, root);
       return root;
     })
-    // Neither the worker nor the page's own parser could be had: the parse ends all the same, as the text itself.
+    // The parser could not be loaded: the parse ends all the same, as the text itself.
     // It is not remembered, so a later mount asks again.
     .catch(() => plainMarkdownAst(value))
     .finally(() => {
       inFlight.delete(value);
+      if (inFlight.size === 0) scheduleHiddenWorkerReclaim();
     });
   inFlight.set(value, request);
   return request;
@@ -194,30 +278,46 @@ export function parseLiveMarkdownAst(text: string): Promise<MarkdownAstRoot> {
   return parseStreamingMarkdownAst(text, false);
 }
 
-/** Speculative worker parses in flight at once; the newest range replaces
- *  whatever has not been sent yet, so a fast fling never queues stale rows
- *  ahead of the ones the reader is about to see. */
-const PREFETCH_CONCURRENCY = 2;
+const PREFETCH_CONCURRENCY = 1;
 let prefetchQueue: string[] = [];
+let prefetchScheduled = false;
 let prefetchRunning = 0;
 
-function pumpMarkdownPrefetch(): void {
-  while (prefetchRunning < PREFETCH_CONCURRENCY && prefetchQueue.length > 0 && workerHost.available) {
-    const text = prefetchQueue.shift() as string;
-    if (astCache.peek(text) || inFlight.has(text)) continue;
-    prefetchRunning += 1;
-    void parseStreamingMarkdownAst(text)
-      .catch(() => undefined)
-      .finally(() => {
-        prefetchRunning -= 1;
-        pumpMarkdownPrefetch();
-      });
+function schedulePrefetchTurn(run: (deadline?: IdleDeadline) => void): void {
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback((deadline) => run(deadline), { timeout: 100 });
+  } else {
+    setTimeout(() => run(), 0);
   }
 }
 
-/** Settled text about to scroll into view parses on the worker, so its row
- *  mounts from the cache instead of parsing on the main thread in the commit
- *  that shows it. Nearest text first. */
+function pumpMarkdownPrefetch(): void {
+  if (prefetchScheduled || prefetchRunning >= PREFETCH_CONCURRENCY || prefetchQueue.length === 0) return;
+  if (!workerHost.available && typeof parserLoad === 'object') return;
+  prefetchScheduled = true;
+  schedulePrefetchTurn((deadline) => {
+    prefetchScheduled = false;
+    if (deadline && deadline.timeRemaining() <= 0 && !deadline.didTimeout) {
+      pumpMarkdownPrefetch();
+      return;
+    }
+    while (prefetchRunning < PREFETCH_CONCURRENCY && prefetchQueue.length > 0) {
+      const text = prefetchQueue.shift() as string;
+      if (astCache.peek(text) || inFlight.has(text)) continue;
+      prefetchRunning += 1;
+      void parseStreamingMarkdownAst(text)
+        .catch(() => undefined)
+        .finally(() => {
+          prefetchRunning = Math.max(0, prefetchRunning - 1);
+          pumpMarkdownPrefetch();
+        });
+      return;
+    }
+  });
+}
+
+/** Settled text about to scroll into view parses across idle turns so its row
+ *  mounts from the cache instead of parsing in the commit that shows it. */
 export function prefetchMarkdownAsts(texts: readonly string[]): void {
   prefetchQueue = texts.filter(
     (text) => text.length > 0 && text.length <= AST_CACHE_MAX_ENTRY_CHARACTERS && !astCache.peek(text)

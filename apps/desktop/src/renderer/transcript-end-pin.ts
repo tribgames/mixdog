@@ -53,6 +53,8 @@ export function createTranscriptEndPin({
   let queued = false;
   let generation = 0;
   let idleFrame = 0;
+  let lastTarget: number | null = null;
+  const AT_BOTTOM_EPSILON = 2;
   const write = () => {
     queued = false;
     const element = getViewport();
@@ -61,9 +63,11 @@ export function createTranscriptEndPin({
     // Follow may have been released after the request but before this
     // write, even without a continuing native gesture.
     if (instance.options.anchorTo !== 'end' && !instance.options.followOnAppend) return;
-    // A height change during a downward wheel/touch must survive the
-    // gesture. Dropping it left the tail detached until another mutation.
-    if (hasReaderGesture()) {
+    // Defer only while the reader is actively gesturing away from the bottom;
+    // passive pointer or at-bottom wheel activity must not stall end-pinning.
+    const previousTarget = getMaxScrollTop();
+    const referenceBottom = lastTarget === null ? previousTarget : Math.min(lastTarget, previousTarget);
+    if (hasReaderGesture() && element.scrollTop < referenceBottom - AT_BOTTOM_EPSILON) {
       if (!idleFrame && instance.targetWindow) {
         const requestedGeneration = generation;
         idleFrame = instance.targetWindow.requestAnimationFrame(() => {
@@ -78,6 +82,7 @@ export function createTranscriptEndPin({
     // Reading scrollHeight right after that write forced a synchronous
     // layout of the whole list; the virtual geometry already knows it.
     const target = getMaxScrollTop();
+    lastTarget = target;
     const core = dropCoreCompensation(instance);
     // Chromium clamps scrollTop before delivering its scroll event when a replacement shrinks the spacer,
     // so the cached offset can still equal the target: read the actual offset after committing the spacer.
@@ -117,6 +122,7 @@ export function createTranscriptEndPin({
     cancel() {
       generation += 1;
       queued = false;
+      lastTarget = null;
       if (idleFrame) getVirtualizer().targetWindow?.cancelAnimationFrame(idleFrame);
       idleFrame = 0;
     },

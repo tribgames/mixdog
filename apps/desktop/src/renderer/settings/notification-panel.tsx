@@ -14,6 +14,7 @@ import {
 } from '../../shared/contract';
 import { ErrorNotice } from '../ErrorNotice';
 import { t } from '../i18n';
+import { useMobileBack } from '../mobile-back';
 import { isSshConnectionWindow } from '../desktop-connection';
 import { OpenSelect } from '../OpenSelect';
 import { isRemoteHostRenderer } from '../remote-ui-projection';
@@ -92,6 +93,7 @@ function DevicePicker({
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  useMobileBack(open, () => setOpen(false));
   useEffect(() => {
     if (!open) return undefined;
     const close = (event: Event) => {
@@ -280,10 +282,7 @@ function TestNotificationRow({ api, deviceId }: { api: NotificationsApi; deviceI
   };
   return (
     <>
-      <Row
-        title={t('Send test notification')}
-        description={t('Send a test notification with current settings.')}
-      >
+      <Row title={t('Send test notification')} description={t('Send a test notification with current settings.')}>
         <ActionButton disabled={busy || !api.sendTestNotification} onClick={send}>
           {t('Send')}
         </ActionButton>
@@ -362,10 +361,7 @@ function DeviceSettings({
           onChange={(automaticRuns) => save({ automaticRuns })}
         />
       </Group>
-      <Group
-        title={t('Quiet hours')}
-        description={t('Mutes notifications on this device; missed items stay unread.')}
-      >
+      <Group title={t('Quiet hours')} description={t('Mutes notifications on this device; missed items stay unread.')}>
         <ToggleRow
           title={t('Use quiet hours')}
           checked={quiet.enabled}

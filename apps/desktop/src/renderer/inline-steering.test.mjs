@@ -289,12 +289,8 @@ test('a queued send stays one bubble through its drain and gets the band with it
   const ended = [...running, { kind: 'turndone', id: 'd0' }];
   await pane.show({ settledItems: ended, queued: [entry] });
   assert.equal(pane.bubble('sub-1')?.key, key);
-  // The drain's first state: the entry has left the queue, its row has not
-  // arrived and the session is idle. The pane's own submit still shows it.
-  await pane.show({ settledItems: ended });
-  assert.equal(pane.bubble('sub-1')?.key, key, 'the bubble stands through the drain');
   assert.equal(pane.banded(), false, 'an idle session states no running turn');
-  // The row with its turn's start, in one state.
+  // The drain publishes dequeue, durable row, and turn start in one state.
   await pane.show({ settledItems: [...ended, sentRow], busy: true });
   assert.equal(pane.bubble('sub-1')?.key, key, 'the durable row lands where the bubble stood');
   assert.equal(pane.bubble('sub-1').item.pending, undefined);
@@ -333,7 +329,7 @@ test('a message the running turn took in stops waiting with the row that carries
   assert.deepEqual(waiting(), []);
 });
 
-test("a queued message keeps its bubble when it leaves the queue and another device's row lands, until its own row", async (t) => {
+test("a queued message keeps its bubble when another device's row lands, until its own row", async (t) => {
   const running = [prompt, { kind: 'assistant', id: 'a0', text: 'Working on it' }];
   const pane = await mountSendPane(t, { queuedAtSubmit: true });
   await pane.show({ settledItems: running, busy: true });
@@ -345,21 +341,18 @@ test("a queued message keeps its bubble when it leaves the queue and another dev
     pane.host.reply(true);
     await sending;
   });
-  await pane.show({
-    settledItems: running,
-    busy: true,
-    queued: [{ id: 'sub-1', displayText: 'next step', submittedAt: 5 }],
-  });
-  const key = pane.bubble('sub-1')?.key;
-  assert.ok(key, 'the queued bubble shows');
-  // The queue empties and a user row lands: the other device's, sent into the same thread.
+  // Another device's row lands before this pane's entry appears in the queue.
   const other = { kind: 'user', id: 'pc-1', text: 'sent on the PC', steered: true };
   await pane.show({ settledItems: [...running, other], busy: true });
   assert.ok(pane.bubble('sub-1')?.item.pending, "the other device's row does not take the bubble away");
-  // Its turn ends, and another begins, without this pane's row.
+  // Published in the queue; the other device's turn ends while this pane's entry still waits.
+  const entry = { id: 'sub-1', displayText: 'next step', submittedAt: 5 };
+  await pane.show({ settledItems: [...running, other], busy: true, queued: [entry] });
+  const key = pane.bubble('sub-1')?.key;
+  assert.ok(key, 'the queued bubble shows');
   const ended = [...running, other, { kind: 'assistant', id: 'a1', text: 'Ok.' }, { kind: 'turndone', id: 'd1' }];
-  await pane.show({ settledItems: ended });
-  assert.ok(pane.bubble('sub-1')?.item.pending, 'nor does the end of the turn');
+  await pane.show({ settledItems: ended, queued: [entry] });
+  assert.ok(pane.bubble('sub-1')?.item.pending, 'nor does the end of the turn while still queued');
   await pane.show({ settledItems: [...ended, sentRow], busy: true });
   assert.equal(pane.bubble('sub-1').item.pending, undefined, 'its own row stands in the bubble');
   assert.equal(
@@ -524,7 +517,11 @@ function renderStatus(root, item, actions) {
   return act(async () =>
     root.render(
       actions
-        ? React.createElement(SteerContext.Provider, { value: { actions, draft: { current: null }, canSendNow: true } }, status)
+        ? React.createElement(
+            SteerContext.Provider,
+            { value: { actions, draft: { current: null }, canSendNow: true } },
+            status
+          )
         : status
     )
   );
@@ -869,7 +866,10 @@ function mountShownSteer(t, { host = () => null, takeover = acceptedTakeover, an
       turnId: 'turn-a',
       sessionId,
       // The pane's invocation handler announces a failure and answers nothing (conversation-support.tsx).
-      invokeResult: (action) => Promise.resolve().then(action).catch(() => undefined),
+      invokeResult: (action) =>
+        Promise.resolve()
+          .then(action)
+          .catch(() => undefined),
       applySnapshot() {},
       submit: async () => true,
       answerQuestion: { current: answer },
@@ -889,7 +889,13 @@ function mountShownSteer(t, { host = () => null, takeover = acceptedTakeover, an
 const NO_PROMPTS = [];
 const NO_ROWS = [];
 /** A queue entry as the core publishes it (protocol-client `queueOf`). */
-const queueEntry = (id, priority = 'next') => ({ id, text: `message ${id}`, displayText: `message ${id}`, mode: 'prompt', priority });
+const queueEntry = (id, priority = 'next') => ({
+  id,
+  text: `message ${id}`,
+  displayText: `message ${id}`,
+  mode: 'prompt',
+  priority,
+});
 /** The session's rows as the live store hands them on: each list noted as carried from the one before
  *  (session-lane-store.ts), so what is derived from them is the same object, grown in place. */
 function carriedRows(prior, ...added) {

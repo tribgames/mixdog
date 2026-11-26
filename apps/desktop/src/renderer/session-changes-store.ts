@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import type { DesktopGitFile } from '../shared/contract';
 import { SESSION_CHANGES_SOURCE_KEY, type Snapshot, type TranscriptItem } from './desktop-types';
 import { createGitRefreshScheduler, watchGitRefreshEvidence } from './git-refresh-scheduler';
 import { t } from './i18n';
+import { registerIdleReclaim } from './idle-reclaim';
 import { carriedSum, placedHash, textHash } from './list-carry';
 import { RendererLruCache } from './renderer-lru-cache';
 import {
   fetchOmittedSessionDiffFilePatch,
   fetchSessionDiff,
+  peekSessionDiff,
   sessionDiffBinding,
   sessionDiffRevision,
 } from './session-diff-cache';
@@ -28,6 +30,7 @@ import {
   type SessionDiffRow,
 } from './session-diff-model';
 import { defaultSessionLaneStore, useSessionLane, useSessionLaneRevision } from './session-lane-store';
+import { useSurfaceActive } from './surface-activity';
 import {
   decodeTurnReviewCapabilityValue,
   resolveSessionRows,
@@ -41,7 +44,12 @@ import type { TurnReviewFile } from './turn-review-cache';
 import { useTurnChangesEpoch } from './turn-changes-model';
 import { rowListIndex } from './session-diff-row-index';
 import { useSessionDiffRefresh } from './use-session-diff-refresh';
-import { readCachedDockGitState, requestDockGitState, retainDockGitState } from './utility-dock-git-state';
+import {
+  readCachedDockGitState,
+  requestDockGitState,
+  retainDockGitState,
+  useDockGitReady,
+} from './utility-dock-git-state';
 
 // ── Source preference ────────────────────────────────────────────────────
 // One global choice shared by the composer chip and every Changes pane.
@@ -188,7 +196,10 @@ const NO_REPOSITORY: ChangesRead = {
 };
 const EMPTY_ROWS: readonly SessionDiffRow[] = [];
 
-const entries = new Map<string, ChangesEntry>();
+const ENTRIES_CACHE_MAX_ENTRIES = 64;
+const ENTRIES_CACHE_MAX_CHARS = 16 * 1024 * 1024;
+const CWD_ROOTS_MAX_ENTRIES = 128;
+
 const requests = new Map<string, Promise<boolean>>();
 const entryListeners = new Set<() => void>();
 const scopedEntryReaders = new Map<string, number>();
@@ -198,16 +209,76 @@ const cwdRoots = new Map<string, string>();
 /** Per session: the cwd its latest session-source read was started for. */
 const sessionReadCwds = new Map<string, string>();
 
+function setCwdRoot(cwd: string, root: string): void {
+  if (!cwd || !root) return;
+  cwdRoots.delete(cwd);
+  cwdRoots.set(cwd, root);
+  if (cwdRoots.size > CWD_ROOTS_MAX_ENTRIES) {
+    const oldest = cwdRoots.keys().next().value;
+    if (oldest !== undefined) cwdRoots.delete(oldest);
+  }
+}
+
 function changesKey({ cwd, source, sessionId }: ChangesTarget): string {
   if (sessionScopedSource(source)) return `${source}\0${sessionId}\0${cwd}`;
   return `${cwdRoots.get(cwd) || cwd}\0${source}`;
 }
 
+function isEntryPinned(key: string): boolean {
+  if (scopedEntryReaders.has(key)) return true;
+  for (const { target } of views.values()) {
+    if (!sessionScopedSource(target.source)) {
+      if (changesKey(target) === key || `${target.cwd}\0${target.source}` === key) return true;
+    }
+  }
+  return false;
+}
+
+function pruneEvictedTurnPatches(): void {
+  for (const turnKey of turnPatches.keys()) {
+    const cut = turnKey.lastIndexOf('\0');
+    const baseKey = cut > 0 ? turnKey.slice(0, cut) : turnKey;
+    if (!entries.peek(baseKey)) turnPatches.delete(turnKey);
+  }
+}
+
+function measureChangesEntry(entry: ChangesEntry, key: string): number {
+  let chars = key.length + entry.root.length + entry.base.length + 256;
+  for (const row of entry.rows) {
+    chars += row.path.length + row.oldPath.length + inlineBytes(row) + 96;
+  }
+  return Math.min(ENTRIES_CACHE_MAX_CHARS, chars);
+}
+
+const entries = new RendererLruCache<string, ChangesEntry>({
+  name: 'session-changes-entries',
+  maxEntries: ENTRIES_CACHE_MAX_ENTRIES,
+  maxChars: ENTRIES_CACHE_MAX_CHARS,
+  measure: measureChangesEntry,
+  isPinned: isEntryPinned,
+  onTrim: () => {
+    pruneEvictedTurnPatches();
+    for (const listener of [...entryListeners]) listener();
+  },
+});
+
 const staleKeys = new Set<string>();
+const sessionDiffSettledListeners = new Set<() => void>();
+const sessionDiffFailed = new Set<string>();
+
+function subscribeSessionDiffSettled(listener: () => void) {
+  sessionDiffSettledListeners.add(listener);
+  return () => {
+    sessionDiffSettledListeners.delete(listener);
+  };
+}
+
+function notifySessionDiffSettled(): void {
+  for (const listener of [...sessionDiffSettledListeners]) listener();
+}
 
 function readEntry(target: ChangesTarget): ChangesEntry | undefined {
-  const key = changesKey(target);
-  return staleKeys.has(key) ? undefined : entries.get(key);
+  return entries.peek(changesKey(target));
 }
 
 function subscribeEntries(listener: () => void) {
@@ -223,10 +294,45 @@ function publish(key: string, entry: ChangesEntry): void {
   for (const listener of [...entryListeners]) listener();
 }
 
-/** Session and last-turn entries own parsed patch text while a view needs it. */
+/** Purges all session-scoped cached Changes entries when a session is closed. */
+export function purgeSessionChanges(sessionId: string): void {
+  if (!sessionId) return;
+  const prefixes = [`session\0${sessionId}\0`, `last-turn\0${sessionId}\0`];
+  const matches = (key: string) => prefixes.some((prefix) => key.startsWith(prefix));
+  const beforeEntries = entries.size;
+  const beforePatches = patches.size;
+  for (const prefix of prefixes) {
+    entries.deletePrefix(prefix);
+    patches.deletePrefix(prefix);
+  }
+  for (const key of [...requests.keys()]) if (matches(key)) requests.delete(key);
+  for (const key of [...staleKeys]) if (matches(key)) staleKeys.delete(key);
+  for (const key of [...lastTurnAdoptions.keys()]) {
+    if (!matches(key)) continue;
+    const validation = lastTurnAdoptions.get(key);
+    if (validation) delete validation.pending;
+    lastTurnAdoptions.delete(key);
+  }
+  lastTurnBarOwners.delete(sessionId);
+  sessionReadCwds.delete(sessionId);
+  const hadFailedDiff = sessionDiffFailed.delete(sessionId);
+  for (const turnKey of [...turnPatches.keys()]) if (matches(turnKey)) turnPatches.delete(turnKey);
+  if (patches.size !== beforePatches) {
+    patchVersion += 1;
+    for (const listener of [...patchListeners]) listener();
+  }
+  if (entries.size !== beforeEntries) {
+    for (const listener of [...entryListeners]) listener();
+  }
+  if (hadFailedDiff) notifySessionDiffSettled();
+}
+
+/** Pins a session or last-turn entry while a view reads it; transient cleanups
+ *  unpin it in the bounded LRU without purging the cached snapshot. */
 function retainScopedEntry(target: ChangesTarget, switchedWorkspace: boolean): () => void {
   const key = changesKey(target);
   const readers = scopedEntryReaders.get(key) ?? 0;
+  entries.get(key);
   if (target.source === 'last-turn' && readers === 0) {
     const owner = lastTurnBarOwners.get(target.sessionId);
     // A turn-review bar reply only names the session. Give the newly opened
@@ -245,20 +351,10 @@ function retainScopedEntry(target: ChangesTarget, switchedWorkspace: boolean): (
       return;
     }
     scopedEntryReaders.delete(key);
-    entries.delete(key);
-    requests.delete(key);
-    staleKeys.delete(key);
     const validation = lastTurnAdoptions.get(key);
     if (validation) delete validation.pending;
     lastTurnAdoptions.delete(key);
     if (lastTurnBarOwners.get(target.sessionId) === key) lastTurnBarOwners.delete(target.sessionId);
-    if (target.source === 'session' && sessionReadCwds.get(target.sessionId) === target.cwd) {
-      sessionReadCwds.delete(target.sessionId);
-    }
-    for (const turnKey of turnPatches.keys()) {
-      if (turnKey.startsWith(`${key}\0`)) turnPatches.delete(turnKey);
-    }
-    for (const listener of [...entryListeners]) listener();
   };
 }
 
@@ -429,9 +525,15 @@ function keepRows(previous: readonly SessionDiffRow[] | undefined, next: readonl
 }
 
 function adopt(target: ChangesTarget, read: ChangesRead, mode: LoadMode): void {
-  if (read.root && !sessionScopedSource(target.source)) cwdRoots.set(target.cwd, read.root);
+  const rawKey = sessionScopedSource(target.source) ? '' : `${target.cwd}\0${target.source}`;
+  if (read.root && !sessionScopedSource(target.source)) setCwdRoot(target.cwd, read.root);
   const key = changesKey(target);
-  const previous = entries.get(key);
+  if (rawKey && rawKey !== key) {
+    entries.delete(rawKey);
+    staleKeys.delete(rawKey);
+    patches.deletePrefix(`${rawKey}\0`);
+  }
+  const previous = entries.peek(key);
   const wasStale = staleKeys.delete(key);
   const rows = keepRows(previous?.rows, read.rows);
   const changed =
@@ -468,7 +570,7 @@ function adopt(target: ChangesTarget, read: ChangesRead, mode: LoadMode): void {
 
 function markLoading(target: ChangesTarget): void {
   const key = changesKey(target);
-  const previous = entries.get(key);
+  const previous = entries.peek(key);
   if (!previous || previous.loading) return;
   const next = { ...previous, loading: true };
   publish(key, next);
@@ -505,8 +607,8 @@ function loadChanges(target: ChangesTarget, mode: LoadMode): Promise<boolean> {
     (reason: unknown) => {
       if (superseded()) return false;
       if (validation) delete validation.pending;
-      // A failed read of a switched cwd must not bring back the old cwd's rows.
-      const previous = staleKeys.delete(key) ? undefined : entries.get(key);
+      staleKeys.delete(key);
+      const previous = entries.peek(key);
       publish(key, {
         ...(previous ?? { ...NO_REPOSITORY, repository: null, generation: 0, patchEpoch: 0, evidenceEpoch: 0 }),
         loading: false,
@@ -533,11 +635,11 @@ function reloadChanges(target: ChangesTarget): Promise<boolean> {
 const watches = new Map<string, { count: number; stop(): void }>();
 const views = new Map<string, { count: number; target: ChangesTarget; releaseDock: () => void }>();
 
-/** A mounted view of a source's changes, whether or not it is watching:
- *  the last one leaving takes the entry, the cwd's resolved root, its patches
- *  and the dock's Git snapshot with it. */
+/** Pins a mounted view's cached entry in the bounded LRU; transient cleanups
+ *  (such as `<Activity mode="hidden">`) unpin it without deleting it. */
 function retainChangesView(target: ChangesTarget): () => void {
   const id = `${target.cwd}\0${target.source}`;
+  entries.get(changesKey(target));
   let view = views.get(id);
   if (!view) {
     view = { count: 0, target, releaseDock: retainDockGitState(target.cwd) };
@@ -553,26 +655,7 @@ function retainChangesView(target: ChangesTarget): () => void {
     if (held.count > 0) return;
     views.delete(id);
     held.releaseDock();
-    if (!sessionScopedSource(target.source)) releaseGitEntry(target);
   };
-}
-
-function releaseGitEntry(target: ChangesTarget): void {
-  const key = changesKey(target);
-  let keyShared = false;
-  let cwdShared = false;
-  for (const { target: other } of views.values()) {
-    if (other.cwd === target.cwd) cwdShared = true;
-    if (changesKey(other) === key) keyShared = true;
-  }
-  if (!keyShared) {
-    entries.delete(key);
-    requests.delete(key);
-    staleKeys.delete(key);
-    patches.deletePrefix(`${key}\0`);
-    for (const listener of [...entryListeners]) listener();
-  }
-  if (!cwdShared) cwdRoots.delete(target.cwd);
 }
 /** Ref-counted Git evidence watch per (cwd, source): the chip and the pane
  *  share one scheduler, which also performs the first read. */
@@ -626,7 +709,7 @@ export function adoptLastTurnReview(
   // answer (including an unchanged or failed read) cannot validate it.
   const validation = lastTurnAdoptions.get(key);
   if (!scopedEntryReaders.has(key) || !validation || ticket < validation.ticket) return;
-  if (!staleKeys.has(key) && entries.get(key)?.repository !== true) return;
+  if (!staleKeys.has(key) && entries.peek(key)?.repository !== true) return;
   return lastTurnRows(decoded).then((rows) => {
     if (
       lastTurnBarOwners.get(sessionId) !== key ||
@@ -641,7 +724,7 @@ export function adoptLastTurnReview(
       validation.pending = { ticket, rows, diffTooLarge };
       return;
     }
-    const previous = entries.get(key);
+    const previous = entries.peek(key);
     if (previous?.repository !== true) return;
     validation.ticket = ticket;
     const read = { ...previous, rows: keepRows(previous.rows, rows), diffTooLarge };
@@ -666,6 +749,36 @@ const PATCH_CACHE_MAX_ENTRIES = 4096;
 const PATCH_READ_CONCURRENCY = 4;
 /** Landed patches are announced together, at most once per this window. */
 const PATCH_NOTIFY_MS = 100;
+const activePatchKeys = new Map<string, number>();
+
+function retainActivePatchKeys(keys: readonly string[]): () => void {
+  for (const cacheKey of keys) {
+    activePatchKeys.set(cacheKey, (activePatchKeys.get(cacheKey) ?? 0) + 1);
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    for (const cacheKey of keys) {
+      const count = (activePatchKeys.get(cacheKey) ?? 1) - 1;
+      if (count > 0) activePatchKeys.set(cacheKey, count);
+      else activePatchKeys.delete(cacheKey);
+    }
+  };
+}
+
+let patchEvictionEpoch = 0;
+
+function notifyPatchEviction(immediate: boolean): void {
+  patchEvictionEpoch += 1;
+  if (immediate) {
+    patchVersion += 1;
+    for (const listener of [...patchListeners]) listener();
+  } else {
+    notifyPatches();
+  }
+}
+
 const patches = new RendererLruCache<
   string,
   { stamp: string; seq: number; bytes: number; failed?: boolean; hadPatch?: boolean } & SessionDiffFilePatch
@@ -674,6 +787,8 @@ const patches = new RendererLruCache<
   maxEntries: PATCH_CACHE_MAX_ENTRIES,
   maxChars: PATCH_CACHE_MAX_CHARS,
   measure: (value, key) => value.patch.length + key.length,
+  isPinned: (cacheKey) => (activePatchKeys.get(cacheKey) ?? 0) > 0,
+  onTrim: () => notifyPatchEviction(false),
 });
 const patchRequests = new Set<string>();
 let patchSeq = 0;
@@ -685,6 +800,15 @@ const turnPatches = new Map<string, Promise<ParsedSessionDiff>>();
 const patchListeners = new Set<() => void>();
 let patchVersion = 0;
 let patchNotifyTimer: ReturnType<typeof setTimeout> | 0 = 0;
+
+registerIdleReclaim(() => {
+  const hadTurn = turnPatches.size > 0;
+  if (!patches.size && !hadTurn) return;
+  const before = patches.size;
+  turnPatches.clear();
+  patches.trim(0);
+  if (hadTurn || patches.size !== before) notifyPatchEviction(true);
+});
 
 function subscribePatches(listener: () => void) {
   patchListeners.add(listener);
@@ -746,7 +870,7 @@ function readFilePatch(
         turn = readTurnReview(target.sessionId, false, false).then((decoded) =>
           parseSessionDiff({ patch: decoded?.leadPatch ?? '' })
         );
-        if (entries.get(key)?.generation === entry.generation) {
+        if (entries.peek(key)?.generation === entry.generation) {
           turnPatches.clear();
           turnPatches.set(turnKey, turn);
         }
@@ -1083,7 +1207,7 @@ export function prefetchSessionChanges(
       requestGitPatches(target, key, entry, wantedRows);
     };
     const held = readEntry(target);
-    if (held && !held.error) warm();
+    if (held && !held.error && !staleKeys.has(changesKey(target))) warm();
     else void loadChanges(target, 'warm').then(warm);
   }
 }
@@ -1108,10 +1232,12 @@ export function useSessionChangePatches({
   /** The one file a capped set reads and draws. */
   selectedId: string;
 }): { withPatch(row: SessionDiffRow): SessionDiffRow; capped: boolean } {
+  const surfaceActive = useSurfaceActive();
   const source = useSessionChangesSource();
   const target = useMemo(() => ({ cwd: String(cwd || ''), source, sessionId }), [cwd, source, sessionId]);
   const entry = useSyncExternalStore(subscribeEntries, () => (target.cwd ? readEntry(target) : undefined));
   const version = useSyncExternalStore(subscribePatches, () => patchVersion);
+  const evictionEpoch = useSyncExternalStore(subscribePatches, () => patchEvictionEpoch);
   const git = entry?.repository === true;
   // Without a repository the rows are the runtime's session diff.
   const sessionDiff = !git && (!target.cwd || entry?.repository === false) && Boolean(sessionId);
@@ -1131,8 +1257,17 @@ export function useSessionChangePatches({
     () => wantedRows.map((row) => `${rowKey(row)}\0${stampOf(row)}`).join('\0\0'),
     [wantedRows, entry, generation, kind]
   );
-  // biome-ignore lint/correctness/useExhaustiveDependencies: wantedKey (rows and stamps) with generation names the reads
+  // biome-ignore lint/correctness/useExhaustiveDependencies: wantedRows and kind determine the active cache keys
+  const activeKeys = useMemo(() => wantedRows.map((row) => rowKey(row)), [wantedRows, kind]);
+  const activeKeysToken = activeKeys.join('\0\0');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: activeKeysToken tracks the exact key set
   useEffect(() => {
+    if (!surfaceActive || activeKeys.length === 0) return;
+    return retainActivePatchKeys(activeKeys);
+  }, [surfaceActive, activeKeysToken]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: wantedKey (rows and stamps) with generation, selectedId, evictionEpoch and surfaceActive names the reads
+  useEffect(() => {
+    if (!surfaceActive) return;
     if (git && entry) {
       requestGitPatches(target, key, entry, wantedRows);
       return;
@@ -1141,7 +1276,7 @@ export function useSessionChangePatches({
     for (const row of wantedRows) {
       requestPatch(rowKey(row), stampOf(row), () => fetchOmittedSessionDiffFilePatch(sessionId, row, generation));
     }
-  }, [wantedKey, generation, git, sessionDiff]);
+  }, [wantedKey, generation, git, sessionDiff, selectedId, evictionEpoch, surfaceActive]);
   const memo = useRef(new WeakMap<SessionDiffRow, { held: object | null; row: SessionDiffRow }>());
   // biome-ignore lint/correctness/useExhaustiveDependencies: version is the trigger; the patch cache is read at call time
   const withPatch = useCallback(
@@ -1298,6 +1433,15 @@ export function useSessionChanges({
   const changeRevision = useMemo(() => `${fileChangeKey(laneItemsForKey)}:${busy ? 1 : 0}`, [laneItemsForKey, busy]);
   const fallback = !gitOnly && !git;
   const diff = useSessionDiffRefresh({ sessionId: fallback ? session : '', active, revision: changeRevision });
+  const diffOutcome = fallback && session ? (diff.result ? 'ok' : diff.error ? 'err' : '') : '';
+  // Notify parent rail hydration checks when a non-Git workspace's fallback
+  // session diff finishes loading so `useSessionChangesSettled` exits settling.
+  useLayoutEffect(() => {
+    if (!diffOutcome || !session) return;
+    if (diffOutcome === 'ok') sessionDiffFailed.delete(session);
+    else sessionDiffFailed.add(session);
+    notifySessionDiffSettled();
+  }, [diffOutcome, session]);
   const lastScopedTarget = useRef<ChangesTarget | null>(null);
   useEffect(() => {
     if (!active || !project || !session || !sessionScopedSource(source)) return;
@@ -1308,7 +1452,7 @@ export function useSessionChanges({
   useEffect(() => {
     if (!active || !project) return;
     return retainChangesView(target);
-  }, [active, project, source, target]);
+  }, [active, project, target]);
   useEffect(() => {
     if (!active || !watchable) return;
     return retainChangesWatch(target);
@@ -1376,6 +1520,38 @@ export function useSessionChanges({
     turnReviewKey: `${mutations}:${latestCheckpoint}`,
     busy,
   };
+}
+
+/** Whether the initial Changes/Git hydration for `(cwd, sessionId)` has settled
+ *  (without starting watches or IPCs). */
+export function useSessionChangesSettled(cwd: string, sessionId: string, enabled: boolean): boolean {
+  const source = useSessionChangesSource();
+  const project = String(cwd || '');
+  const session = String(sessionId || '');
+  const entry = useSyncExternalStore(
+    subscribeEntries,
+    () => (enabled && project ? readEntry({ cwd: project, source, sessionId: session }) : undefined),
+    () => undefined
+  );
+  const needsSessionDiff = enabled && Boolean(project) && Boolean(session) && entry?.repository === false;
+  const sessionDiffReady = useSyncExternalStore(
+    subscribeSessionDiffSettled,
+    () => (!needsSessionDiff ? true : peekSessionDiff(session) !== null || sessionDiffFailed.has(session)),
+    () => !needsSessionDiff
+  );
+  const needsDockStatus =
+    enabled &&
+    Boolean(project) &&
+    entry?.repository === true &&
+    entry.rows.length === 0 &&
+    entry.untrackedOmitted === 0;
+  const dockReady = useDockGitReady(needsDockStatus ? project : '');
+  if (!enabled || !project) return true;
+  if (sessionScopedSource(source) && !session) return true;
+  if (!entry) return false;
+  if (entry.repository === false) return sessionDiffReady;
+  if (needsDockStatus) return dockReady;
+  return true;
 }
 
 /** The checkpoint the newest turn opened or closed ('' before any turn). */

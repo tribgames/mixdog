@@ -99,6 +99,32 @@ test('a following timeline re-measures every mounted row in one pass and pins it
   assert.deepEqual(list.calls, []);
 });
 
+test('width sync runs synchronously in the same frame before per-row ResizeObservers can race it', (t) => {
+  const list = timeline(t, { anchorTo: 'start', scrollOffset: 250, sizes: [100, 200, 300] });
+  list.resize(420, [160, 260, 300]);
+
+  // Simulate Frame N: viewport width sync runs immediately during layout/ResizeObserver pass,
+  // before per-row ResizeObservers inspect itemSizeCache.
+  list.sync();
+  assert.deepEqual(
+    list.calls.filter((call) => call.kind === 'resize'),
+    [
+      { kind: 'resize', index: 0, size: 160, suppressed: true },
+      { kind: 'resize', index: 1, size: 260, suppressed: true },
+    ],
+    'all row resizes run synchronously with suppressAdjustment enabled'
+  );
+  assert.equal(list.calls.at(-1)?.kind, 'anchor', 'reading anchor restores in the same frame');
+  assert.equal(list.instance.itemSizeCache.get('row-0'), 160, 'itemSizeCache already updated for per-row observers');
+  assert.equal(list.instance.itemSizeCache.get('row-1'), 260);
+  assert.equal(list.suppressAdjustment.current, false);
+
+  // Repeat calls at the same width in the same frame (e.g. window resize + observer) are no-ops.
+  list.calls.length = 0;
+  list.sync();
+  assert.deepEqual(list.calls, []);
+});
+
 test('a reader away from the end keeps the row they read at its offset', (t) => {
   // Reading at 250: row 1 (start 100) is the first row on screen, 150px above the top.
   const list = timeline(t, { anchorTo: 'start', scrollOffset: 250, sizes: [100, 200, 300] });

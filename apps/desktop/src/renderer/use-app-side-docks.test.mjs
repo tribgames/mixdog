@@ -6,6 +6,7 @@ import { JSDOM } from 'jsdom';
 import { useAppSideDocks } from './use-app-side-docks.ts';
 import { useSessionPaneSurfaces } from './use-session-pane-surfaces.ts';
 import { useAppMobileBack } from './app-shell-mobile-back.ts';
+import { __resetMobileBackForTest } from './mobile-back.ts';
 import { useSideViewSelection } from './app-shell-side-views.ts';
 import { sideFileKey, sideFileTabDirtyKey } from './side-file-tabs.ts';
 import { paneDockEntryForSession } from './session-side-surface-policy.ts';
@@ -101,6 +102,7 @@ function installWatchers() {
   dom.window.CloseWatcher = class {
     onclose = null;
     destroyed = false;
+    closed = false;
     constructor() {
       watchers.push(this);
     }
@@ -109,10 +111,17 @@ function installWatchers() {
     }
   };
   Object.defineProperty(dom.window.navigator, 'userActivation', { configurable: true, value: activation });
+  const live = () => watchers.filter((watcher) => !watcher.destroyed && !watcher.closed);
   return {
     watchers,
     activation,
-    live: () => watchers.filter((watcher) => !watcher.destroyed),
+    live,
+    pressBack() {
+      const current = live().at(-1);
+      assert.ok(current, 'expected an active CloseWatcher');
+      current.closed = true;
+      current.onclose?.();
+    },
     uninstall() {
       delete dom.window.CloseWatcher;
       delete dom.window.navigator.userActivation;
@@ -122,9 +131,14 @@ function installWatchers() {
 
 const LEAVES = [leaf('L1', 's1')];
 
-// Each test starts from an empty dock store: a pane entry an earlier test left
-// stored open would be restored on mount (a reload brings a terminal back).
-test.beforeEach(() => dom.window.localStorage.clear());
+// Each test starts from an empty dock store and clean history state: a pane
+// entry an earlier test left stored open would be restored on mount, and a
+// disarmed sentinel left on history.state would be reused in place.
+test.beforeEach(() => {
+  dom.window.localStorage.clear();
+  dom.window.history.replaceState(null, '');
+  __resetMobileBackForTest();
+});
 
 /** Hardware back on the history path, then let React settle the close. */
 async function back() {
@@ -223,13 +237,7 @@ test('reload: a terminal comes back by the session that opened it, never by the 
     const stored = JSON.parse(dom.window.localStorage.getItem('mixdog.desktop.session-dock-surfaces.v1'));
     assert.deepEqual(stored, { s1: { surface: 'terminal' } });
   } finally {
-    const echo = new Promise((resolve) =>
-      dom.window.addEventListener('popstate', () => setTimeout(resolve, 0), { once: true })
-    );
     await act(async () => phone.sideDocks.closePaneRightRegion('L2'));
-    await act(async () => {
-      await echo;
-    });
     await phone.unmount();
     dom.window.localStorage.clear();
   }
@@ -252,13 +260,7 @@ test('upgrade: with only the old pane-keyed store, open terminals migrate to the
     const stored = JSON.parse(dom.window.localStorage.getItem('mixdog.desktop.session-dock-surfaces.v1'));
     assert.deepEqual(stored, { s1: { surface: 'terminal' } }, 'the session-keyed store takes over');
   } finally {
-    const echo = new Promise((resolve) =>
-      dom.window.addEventListener('popstate', () => setTimeout(resolve, 0), { once: true })
-    );
     await act(async () => phone.sideDocks.closePaneRightRegion('L1'));
-    await act(async () => {
-      await echo;
-    });
     await phone.unmount();
     dom.window.localStorage.clear();
   }
@@ -279,20 +281,7 @@ test('a remembered view another session kind owns is neither stored nor shown', 
     const view = phone.sideDocks.paneSideDocks.entryFor('L1').view;
     assert.notEqual(view, 'routines', 'the dock opens on a view this tab has');
   } finally {
-    // Folded again like every other test here: the mobile-back hook keeps
-    // module-level history bookkeeping that an unmount with an open dock leaves behind.
-    // A UI-side close pops the dock's history sentinel; wait for that popstate
-    // echo, or the next test opens its dock while the echo is still pending
-    // and gets a sentinel instead of a CloseWatcher.
-    // The sentinel is popped by the layer's effect cleanup, which runs when
-    // the closing act settles, so listen before it and wait after it.
-    const echo = new Promise((resolve) =>
-      dom.window.addEventListener('popstate', () => setTimeout(resolve, 0), { once: true })
-    );
     await act(async () => phone.sideDocks.closePaneRightRegion('L1'));
-    await act(async () => {
-      await echo;
-    });
     await phone.unmount();
     dom.window.localStorage.clear();
   }
@@ -315,17 +304,19 @@ test('CloseWatcher path: a user-opened dock closes through its watcher', async (
   }
 });
 
-test('CloseWatcher path: an agent-opened visualize dock (no activation) falls back to a sentinel', async () => {
-  const { watchers, activation, uninstall } = installWatchers();
+test('CloseWatcher path: an agent-opened visualize dock (no activation) uses the single free CloseWatcher', async () => {
+  const { live, activation, pressBack, uninstall } = installWatchers();
   const phone = await mountPhone({ leaves: LEAVES, focusedLeafId: 'L1' });
   try {
+    const state = dom.window.history.state;
     activation.isActive = false;
     await act(async () => phone.sessionSurfaces.setSessionPanelView('s1', 'visualize'));
-    assert.equal(watchers.length, 0, 'no CloseWatcher without activation');
-    assert.equal(dom.window.history.state?.mixdogBack, 1);
+    assert.equal(live().length, 1, 'single free CloseWatcher works without transient activation');
+    assert.equal(dom.window.history.state, state, 'CloseWatcher path never touches history');
 
-    await back();
+    await act(async () => pressBack());
     assert.equal(phone.displayedOpen(), false);
+    assert.equal(live().length, 0);
   } finally {
     await phone.unmount();
     uninstall();
@@ -725,18 +716,20 @@ test('unsaved file tabs follow their tab to another pane and are never released'
 });
 
 test('CloseWatcher path: dock + menu close one layer per back', async () => {
-  const { live, uninstall } = installWatchers();
+  const { live, pressBack, uninstall } = installWatchers();
   const phone = await mountPhone({ leaves: LEAVES, focusedLeafId: 'L1' });
   try {
     await act(async () => phone.sessionSurfaces.setSessionSideSurface('s1', 'terminal'));
     await act(async () => phone.setMenuOpen(true));
-    assert.equal(live().length, 2);
+    assert.equal(live().length, 1);
 
-    await act(async () => live()[1].onclose());
+    await act(async () => pressBack());
     assert.equal(phone.sideDocks.focusedPaneDockOpen, true);
+    assert.equal(live().length, 1);
 
-    await act(async () => live()[0].onclose());
+    await act(async () => pressBack());
     assert.equal(phone.displayedOpen(), false);
+    assert.equal(live().length, 0);
   } finally {
     await phone.unmount();
     uninstall();

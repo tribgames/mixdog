@@ -39,6 +39,7 @@ import { tweakOps } from '../shared/visualize-tweaks';
 import { showDesktopToast } from './desktop-toasts';
 import { t } from './i18n';
 import { loadImage } from './load-image';
+import { useMobileBack } from './mobile-back';
 import { takeVisualizeElementPin, useVisualizeElementPinPending } from './visualize-elements-store';
 import { openVisualizePageLink } from './visualize-store';
 import { useVisualizeCommentCardPlace, VisualizeCommentCard } from './visualize-comment-card';
@@ -635,12 +636,14 @@ export function VisualizeCommentLayer({
   pane,
   index,
   comment,
+  active = true,
 }: {
   sessionId: string;
   tab: VisualizeTabView;
   pane: VisualizePaneView;
   index: number;
   comment: boolean;
+  active?: boolean;
 }) {
   const spec = visualizeCommentKind(pane.kind);
   const picks = spec?.select.includes('element') ?? false;
@@ -803,7 +806,7 @@ export function VisualizeCommentLayer({
   );
 
   const confirmBar = paged ? (
-    <VisualizeChoiceConfirm proposalKey={visualizeProposalKey(sessionId, tab.id, index)} />
+    <VisualizeChoiceConfirm proposalKey={visualizeProposalKey(sessionId, tab.id, index)} active={active} />
   ) : null;
   // The page draws anchored regions itself (they follow its scroll and reflow).
   const drawnRegions = paged ? regions.filter(({ target }) => !target.anchor) : regions;
@@ -1080,6 +1083,7 @@ export function VisualizeCommentLayer({
               remove={remove}
               close={close}
               retarget={retarget}
+              active={active}
             />
           </>
         )}
@@ -1094,7 +1098,7 @@ export function VisualizeCommentLayer({
 /** A pane's confirm bar for a choice made without a gesture main could see.
  *  Only a trusted click or key press on its own button queues the choice;
  *  Cancel, a replacement or the timeout put the page's marks back. */
-function VisualizeChoiceConfirm({ proposalKey }: { proposalKey: string }) {
+function VisualizeChoiceConfirm({ proposalKey, active = true }: { proposalKey: string; active?: boolean }) {
   const proposal = useVisualizeChoiceProposal(proposalKey);
   useEffect(() => {
     if (!proposal) return;
@@ -1103,6 +1107,10 @@ function VisualizeChoiceConfirm({ proposalKey }: { proposalKey: string }) {
     }, VISUALIZE_PROPOSAL_TTL_MS);
     return () => clearTimeout(timer);
   }, [proposal, proposalKey]);
+  const cancel = () => {
+    if (proposal && takeVisualizeChoiceProposal(proposalKey, proposal.id)) proposal.reset();
+  };
+  useMobileBack(active && Boolean(proposal), cancel, 'modal');
   if (!proposal) return null;
   const label = proposal.choice.label || proposal.choice.choice;
   const confirm = (event: MouseEvent<HTMLButtonElement>) => {
@@ -1110,9 +1118,6 @@ function VisualizeChoiceConfirm({ proposalKey }: { proposalKey: string }) {
     if (!event.nativeEvent.isTrusted) return;
     if (!takeVisualizeChoiceProposal(proposalKey, proposal.id)) return;
     if (!setVisualizeChoice(proposal.sessionId, proposal.choice, true)) proposal.reset();
-  };
-  const cancel = () => {
-    if (takeVisualizeChoiceProposal(proposalKey, proposal.id)) proposal.reset();
   };
   return (
     // biome-ignore lint/a11y/useSemanticElements: a floating confirm bar, not a form fieldset

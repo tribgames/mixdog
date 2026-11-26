@@ -187,7 +187,8 @@ function useSidebarHubWiring(
   const { closeSidebarForNavigation, onboardingOpen, setOnboardingOpen } = nav;
   const { taskLifecycle, runningAutomationNames, updateDialogOpen, updaterState, closeDesktopUpdate } = lifecycle;
   const { openSession, renameProject, removeProject } = commands;
-  const { openStudioTab, focusStudioTab, pendingUnsavedClose, cancelPendingTabClose } = tabWorkflow;
+  const { openStudioTab, focusStudioTab, navigateTab, closeTab, pendingUnsavedClose, cancelPendingTabClose } =
+    tabWorkflow;
 
   return useAppSidebarHub({
     ...shellPanels,
@@ -210,6 +211,10 @@ function useSidebarHubWiring(
     paneLeavesRef,
     paneLeaves: paneWorkspace.leaves,
     focusedLeafId: paneWorkspace.focusedLeafId,
+    focusedPaneSelection: shell.focusedPaneSelection,
+    activatePaneTab: paneWorkspace.activateTab,
+    navigateTab,
+    closeTab,
     onboardingOpen,
     setOnboardingOpen,
     quickAccessMode,

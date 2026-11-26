@@ -1,5 +1,7 @@
+import { registerIdleReclaim } from './idle-reclaim';
 import { loadImage } from './load-image';
 import { isRemoteContentSurface } from './remote-conversation-privacy';
+import { enforceRendererCacheBudget, registerBudgetedCache } from './renderer-cache-budget';
 
 const PREVIEW_MAX_SIDE = 320;
 export const PREVIEW_MAX_BYTES = 40 * 1024;
@@ -149,23 +151,79 @@ export function previewKey(session: string, line: string): string {
   return `${session}|${line.trim()}`;
 }
 
+let imagePreviewHotSequence = 0;
+
 export function createImagePreviewStore(backend: PreviewBackend, maxBytes = PREVIEW_STORE_MAX_BYTES) {
+  const name = `image-preview-hot-${++imagePreviewHotSequence}`;
   const hot = new Map<string, string>();
+  let hotChars = 0;
   let clock = 0;
   const tick = () => {
     clock = Math.max(Date.now(), clock + 1);
     return clock;
   };
   const hotSession = new Map<string, string>();
-  const forget = (key: string) => {
-    hot.delete(key);
-    hotSession.delete(key);
+  let unregisterBudget: (() => void) | null = null;
+  let unregisterReclaim: (() => void) | null = null;
+
+  const unregisterIfEmpty = () => {
+    if (hot.size) return;
+    unregisterBudget?.();
+    unregisterBudget = null;
+    unregisterReclaim?.();
+    unregisterReclaim = null;
   };
+
+  const forget = (key: string) => {
+    const existing = hot.get(key);
+    if (existing !== undefined) {
+      hotChars -= existing.length + key.length;
+      hot.delete(key);
+    }
+    hotSession.delete(key);
+    unregisterIfEmpty();
+  };
+
+  const clearHot = () => {
+    if (!hot.size) return;
+    hot.clear();
+    hotSession.clear();
+    hotChars = 0;
+    unregisterIfEmpty();
+  };
+
+  const trimHot = (target: number) => {
+    while (hotChars > target && hot.size > 0) {
+      forget(hot.keys().next().value as string);
+    }
+  };
+
+  const ensureRegistered = () => {
+    if (!unregisterBudget) {
+      unregisterBudget = registerBudgetedCache({
+        name,
+        chars: () => hotChars,
+        trim: trimHot,
+      });
+    }
+    if (!unregisterReclaim) {
+      unregisterReclaim = registerIdleReclaim(clearHot);
+    }
+  };
+
   const remember = (key: string, dataUrl: string, session?: string) => {
-    hot.delete(key);
+    const preservedSession = session ?? hotSession.get(key);
+    const existing = hot.get(key);
+    if (existing !== undefined) {
+      hotChars -= existing.length + key.length;
+      hot.delete(key);
+    }
     hot.set(key, dataUrl);
-    if (session !== undefined) hotSession.set(key, session);
+    hotChars += dataUrl.length + key.length;
+    if (preservedSession !== undefined) hotSession.set(key, preservedSession);
     while (hot.size > HOT_LIMIT) forget(hot.keys().next().value as string);
+    ensureRegistered();
+    enforceRendererCacheBudget();
   };
   return {
     /** Synchronous read of what this window already loaded or stored. */

@@ -13,10 +13,22 @@ export class RendererLruCache<K, V> {
       maxEntries: number;
       maxChars: number;
       measure(value: V, key: K): number;
+      isPinned?(key: K): boolean;
+      onTrim?(): void;
       register?: boolean;
     }
   ) {
     if (options.register !== false) this.register();
+  }
+
+  private pinnedChars(): number {
+    const isPinned = this.options.isPinned;
+    if (!isPinned) return 0;
+    let total = 0;
+    for (const [key, entry] of this.entries) {
+      if (isPinned(key)) total += entry.chars;
+    }
+    return total;
   }
 
   register(): void {
@@ -24,6 +36,7 @@ export class RendererLruCache<K, V> {
     this.unregister = registerBudgetedCache({
       name: this.options.name,
       chars: () => this.retained,
+      ...(this.options.isPinned ? { pinned: () => this.pinnedChars() } : {}),
       trim: (target) => this.trim(target),
     });
     enforceRendererCacheBudget();
@@ -50,13 +63,14 @@ export class RendererLruCache<K, V> {
   }
 
   set(key: K, value: V): void {
+    const prevChars = this.entries.get(key)?.chars ?? 0;
     this.delete(key);
     const chars = this.options.measure(value, key);
     if (!Number.isFinite(chars) || chars < 0 || chars > this.options.maxChars) return;
     this.entries.set(key, { value, chars });
     this.retained += chars;
     this.trim(this.options.maxChars);
-    if (this.unregister) enforceRendererCacheBudget();
+    if (this.unregister && chars > prevChars) enforceRendererCacheBudget();
   }
 
   delete(key: K): void {
@@ -71,11 +85,15 @@ export class RendererLruCache<K, V> {
   }
 
   trim(target: number): void {
-    while (this.entries.size > this.options.maxEntries || this.retained > target) {
-      const oldest = this.entries.keys().next();
-      if (oldest.done) break;
-      this.delete(oldest.value);
+    const isPinned = this.options.isPinned;
+    let evicted = false;
+    for (const key of [...this.entries.keys()]) {
+      if (this.entries.size <= this.options.maxEntries && this.retained <= target) break;
+      if (isPinned?.(key)) continue;
+      this.delete(key);
+      evicted = true;
     }
+    if (evicted) this.options.onTrim?.();
   }
 
   clear(): void {

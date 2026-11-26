@@ -2,14 +2,19 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
+import { _runIdleReclaimForTest } from './idle-reclaim.ts';
+import { enforceRendererCacheBudget, totalBudgetedChars } from './renderer-cache-budget.ts';
+import { SurfaceActiveContext } from './surface-activity.ts';
 import {
   adoptLastTurnReview,
   completionDigest,
   nextLastTurnRequest,
+  purgeSessionChanges,
   readSessionChangesSource,
   setSessionChangesSource,
   useSessionChangePatches,
   useSessionChanges,
+  useSessionChangesSettled,
   useSessionChangesSource,
 } from './session-changes-store.ts';
 import { defaultSessionLaneStore } from './session-lane-store.ts';
@@ -651,7 +656,7 @@ test('Changes and standalone share the displayed omitted-file read even when its
   assert.equal(drawn[0]?.parts[0]?.patch, patch);
 });
 
-test('session Changes releases parsed rows after the last reader and ignores a late refresh', async (t) => {
+test('session Changes retains cached rows across transient unmount and purges on session close', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
   const cwd = 'C:/scoped-readers';
   const sessionId = 'scoped-readers';
@@ -685,12 +690,22 @@ test('session Changes releases parsed rows after the last reader and ignores a l
     pending = states.b.refresh();
   });
   await render(false, false);
-  assert.deepEqual(states.b.rows, []);
+  // Transient hide/unmount keeps the cached entry in LRU for instant paint on re-show.
+  assert.equal(states.b.rows.length, 1);
   await act(async () => {
     late.resolve(result('late'));
-    assert.equal(await pending, false);
+    assert.equal(await pending, true);
   });
-  assert.deepEqual(states.b.rows, [], 'a settled read must not repopulate the closed list');
+  // Explicit session close purges the cached session entry.
+  await act(async () => purgeSessionChanges(sessionId));
+  const initialReady = [];
+  function AfterPurge() {
+    const state = useSessionChanges({ cwd, sessionId, active: false });
+    initialReady.push(state.ready);
+    return null;
+  }
+  await act(async () => view.root.render(h(AfterPurge)));
+  assert.equal(initialReady[0], false, 'session close purge clears the cached entry');
 });
 
 test('the chip and the pane share one single-flight read per (root, source)', async (t) => {
@@ -729,7 +744,7 @@ test('the chip and the pane share one single-flight read per (root, source)', as
   assert.equal(states.chip.loading, false);
 });
 
-test('a cwd switch never renders the counts cached before the move, only the new read', async (t) => {
+test('a cwd switch keeps stale-while-revalidate rows visible while revalidating in place', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
   let projectFiles = [reviewFile('old.ts', 7, 3)];
   let gate = null;
@@ -758,15 +773,22 @@ test('a cwd switch never renders the counts cached before the move, only the new
     states.a.rows.map((row) => row.path),
     ['wt.ts']
   );
-  // The merge returns the session to the project folder, whose files changed
-  // meanwhile: the folder's earlier counts must not flash before its new read.
+  // Returning to the project folder keeps its cached snapshot visible while revalidating in place.
   projectFiles = [];
   gate = Promise.withResolvers();
   await render('C:/merge/project');
-  assert.deepEqual(states.a.rows, [], 'no stale rows while the new read runs');
-  assert.equal(states.a.summary.files.size, 0);
+  assert.deepEqual(
+    states.a.rows.map((row) => row.path),
+    ['old.ts'],
+    'cached rows stay visible while the revalidation read runs'
+  );
+  assert.equal(states.a.ready, true);
   await view.settle(200);
-  assert.deepEqual(states.a.rows, []);
+  assert.deepEqual(
+    states.a.rows.map((row) => row.path),
+    ['old.ts'],
+    'cached rows remain visible until the background revalidation settles'
+  );
   gate.resolve();
   await view.settle(200);
   assert.deepEqual(states.a.rows, []);
@@ -1621,7 +1643,7 @@ test('the completion digest tells two calls that traded places apart, next to ea
   assert.equal(completionDigest(base.slice()), completionDigest(base));
 });
 
-test('the last view of a repository releases its Changes entry; a later view reads it afresh', async (t) => {
+test('the last view of a repository retains its Changes entry in LRU so remount paints immediately and revalidates in place', async (t) => {
   const { view, states, calls } = await readSource(t, 'uncommitted');
   assert.equal(states.a.ready, true);
   await act(async () => view.root.render(null));
@@ -1634,16 +1656,16 @@ test('the last view of a repository releases its Changes entry; a later view rea
     return null;
   }
   await act(async () => view.root.render(h(Remount)));
-  assert.equal(firstRender[0], false, 'nothing of the unmounted view was kept');
+  assert.equal(firstRender[0], true, 'cached snapshot paints immediately on remount');
   await view.settle();
   assert.equal(states.a.ready, true);
-  assert.equal(calls.length, 2, 'the entry was read again');
+  assert.equal(calls.length, 2, 'the entry revalidated in place');
   await act(async () => view.root.render(null));
 });
 
-test('the dock Git snapshot goes with its last viewer', async (t) => {
+test('the dock Git snapshot stays cached in bounded LRU across transient unmounts and clears on purge or eviction', async (t) => {
   const view = mount(t, { gitStatus: async () => switchStatus });
-  const { readCachedDockGitState, requestDockGitState, retainDockGitState } = await import(
+  const { purgeDockGitState, readCachedDockGitState, requestDockGitState, retainDockGitState } = await import(
     './utility-dock-git-state.ts'
   );
   const first = retainDockGitState('C:/dock-release');
@@ -1653,6 +1675,304 @@ test('the dock Git snapshot goes with its last viewer', async (t) => {
   first();
   assert.equal(readCachedDockGitState('C:/dock-release').ready, true, 'another view still shows it');
   second();
-  assert.equal(readCachedDockGitState('C:/dock-release').ready, false);
+  assert.equal(readCachedDockGitState('C:/dock-release').ready, true, 'retained in bounded LRU after transient hide');
+  purgeDockGitState('C:/dock-release');
+  assert.equal(readCachedDockGitState('C:/dock-release').ready, false, 'explicit purge removes the cached snapshot');
+  // Bounded LRU evicts oldest unpinned entries beyond maxEntries (64) while keeping pinned entries.
+  const pinned = retainDockGitState('C:/dock-lru-pinned');
+  await requestDockGitState('C:/dock-lru-pinned');
+  await requestDockGitState('C:/dock-lru-old');
+  for (let i = 0; i < 70; i += 1) await requestDockGitState(`C:/dock-lru-${i}`);
+  assert.equal(readCachedDockGitState('C:/dock-lru-pinned').ready, true, 'pinned viewer stays resident');
+  assert.equal(readCachedDockGitState('C:/dock-lru-old').ready, false, 'oldest unpinned entry was evicted by LRU');
+  pinned();
   assert.ok(view);
+});
+
+test('session-changes-patch stays pinned while active, releases when hidden on reclaim, and refetches on re-show with the same selectedId', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const bigPatch = `@@ -1 +1 @@\n+${'P'.repeat(60_000)}\n`;
+  let diffReads = 0;
+  const view = mount(t, {
+    gitStatus: async () => ({ repository: true, root: 'C:/patch-reclaim', files: [] }),
+    gitReview: async () => ({
+      repository: true,
+      root: 'C:/patch-reclaim',
+      base: 'HEAD',
+      files: [{ path: 'a.ts', status: 'M', additions: 1, deletions: 0, untracked: false, revision: 'r1' }],
+    }),
+    gitReviewDiff: async () => {
+      diffReads += 1;
+      return bigPatch;
+    },
+  });
+  let state = null;
+  let patched = null;
+  function Probe({ selectedId }) {
+    state = useSessionChanges({ cwd: 'C:/patch-reclaim', sessionId: 's-patch', active: true });
+    const { withPatch } = useSessionChangePatches({
+      cwd: 'C:/patch-reclaim',
+      sessionId: 's-patch',
+      rows: state.rows,
+      selectedId,
+    });
+    patched = state.rows[0] ? withPatch(state.rows[0]) : null;
+    return null;
+  }
+  const render = (surfaceActive, selectedId = 'a.ts') =>
+    act(async () =>
+      view.root.render(h(SurfaceActiveContext.Provider, { value: surfaceActive }, h(Probe, { selectedId })))
+    );
+  setSessionChangesSource('uncommitted');
+  _runIdleReclaimForTest();
+  enforceRendererCacheBudget(0);
+  const before = totalBudgetedChars();
+  await render(true);
+  await view.settle(150);
+  assert.equal(diffReads, 1);
+  assert.ok(patched?.parts?.length > 0);
+  assert.ok(totalBudgetedChars() - before >= 60_000, 'patch text is held in the shared budget');
+
+  // Active mounted pane's patch stays pinned through budget pressure and idle reclaim.
+  enforceRendererCacheBudget(0);
+  _runIdleReclaimForTest();
+  assert.ok(totalBudgetedChars() - before >= 60_000, 'active mounted patch stays pinned');
+  assert.equal(patched?.patchPending, undefined);
+
+  // Hiding the retained pane unpins its patch so idle reclaim drops it.
+  await render(false);
+  _runIdleReclaimForTest();
+  assert.ok(totalBudgetedChars() - before < 60_000, 'idle reclaim clears hidden pane patches');
+
+  // Returning to the pane with the SAME selectedId re-fetches immediately instead of staying on "Loading diff…".
+  await render(true);
+  await view.settle(150);
+  assert.equal(diffReads, 2, 're-showing with the same selectedId re-fetches the reclaimed patch');
+  assert.ok(patched?.parts?.length > 0);
+  assert.equal(patched?.patchPending, undefined);
+  await act(async () => view.root.render(null));
+});
+
+test('in-flight non-session read settling during transient unmount stays cached for remount and updates if the repo root moves', async (t) => {
+  const deferred = Promise.withResolvers();
+  let reviewCalls = 0;
+  const view = mount(t, {
+    gitStatus: async () => ({ repository: true, root: 'C:/repo-root', files: [] }),
+    gitReview: async () => {
+      reviewCalls += 1;
+      if (reviewCalls === 1) return deferred.promise;
+      return {
+        repository: true,
+        root: 'C:/repo-root',
+        base: 'HEAD',
+        files: [{ path: 'x.ts', status: 'M', additions: 1, deletions: 0, untracked: false, revision: 'r1' }],
+      };
+    },
+  });
+  let seen = null;
+  function Probe({ cwd }) {
+    seen = useSessionChanges({ cwd, sessionId: 's-unmount', active: true });
+    return null;
+  }
+  // 1. In-flight read settling while hidden stays in LRU so remount paints immediately and revalidates in place.
+  setSessionChangesSource('uncommitted');
+  await act(async () => view.root.render(h(Probe, { cwd: 'C:/repo-root/sub-a' })));
+  assert.equal(reviewCalls, 1);
+  await act(async () => view.root.render(null));
+  deferred.resolve({
+    repository: true,
+    root: 'C:/repo-root',
+    base: 'HEAD',
+    files: [{ path: 'stale.ts', status: 'M', additions: 1, deletions: 0, untracked: false, revision: 'r0' }],
+  });
+  await view.settle();
+  const initialReady = [];
+  function ProbeCheck({ cwd }) {
+    const state = useSessionChanges({ cwd, sessionId: 's-unmount', active: true });
+    initialReady.push(state.ready);
+    seen = state;
+    return null;
+  }
+  await act(async () => view.root.render(h(ProbeCheck, { cwd: 'C:/repo-root/sub-a' })));
+  assert.equal(initialReady[0], true, 'settled read is cached for instant paint on remount');
+  await view.settle();
+  assert.equal(seen.ready, true);
+  assert.deepEqual(
+    seen.rows.map((r) => r.path),
+    ['x.ts'],
+    'remount revalidated in place'
+  );
+
+  // 2. When the same subdirectory later resolves to a new repository root, revalidation updates to the new root.
+  setSessionChangesSource('session');
+  await view.settle();
+  await act(async () => view.root.render(null));
+  await view.settle();
+
+  setSessionChangesSource('uncommitted');
+  let rootChecked = '';
+  view.window.mixdogDesktop = {
+    gitStatus: async () => ({ repository: true, root: 'C:/repo-root-new', files: [] }),
+    gitReview: async () => ({
+      repository: true,
+      root: 'C:/repo-root-new',
+      base: 'HEAD',
+      files: [{ path: 'fresh.ts', status: 'A', additions: 1, deletions: 0, untracked: false, revision: 'r2' }],
+    }),
+  };
+  function ProbeFresh() {
+    const state = useSessionChanges({ cwd: 'C:/repo-root/sub-a', sessionId: 's-unmount-2', active: true });
+    rootChecked = state.rows.map((r) => r.path).join(',');
+    return null;
+  }
+  await act(async () => view.root.render(h(ProbeFresh)));
+  await view.settle();
+  assert.equal(rootChecked, 'fresh.ts');
+  await act(async () => view.root.render(null));
+});
+
+test('useSessionChangesSettled exits settling in a parent when a child resolves a non-Git session diff', async (t) => {
+  const cwd = 'C:/non-git-settle';
+  const sessionId = 's-non-git-settle';
+  const diffGate = Promise.withResolvers();
+  let diffCalls = 0;
+  const view = mount(t, {
+    gitStatus: async () => ({ repository: false, root: '', files: [] }),
+    gitReview: async () => ({ repository: false, root: '', base: 'HEAD', files: [] }),
+    invokeCapability: async ({ capability }) => {
+      if (capability !== 'getSessionReviewDiff') return { value: null };
+      diffCalls += 1;
+      return diffGate.promise;
+    },
+  });
+  setSessionChangesSource('uncommitted');
+  const settledHistory = [];
+  function Child() {
+    useSessionChanges({ cwd, sessionId, active: true });
+    return null;
+  }
+  function Parent() {
+    const settled = useSessionChangesSettled(cwd, sessionId, true);
+    settledHistory.push(settled);
+    return h(Child);
+  }
+  await act(async () => view.root.render(h(Parent)));
+  await view.settle();
+  assert.equal(diffCalls, 1, 'child started the non-Git session diff read');
+  assert.equal(settledHistory.at(-1), false, 'parent stays settling until non-Git session diff resolves');
+  await act(async () => {
+    diffGate.resolve({
+      value: { supported: true, files: [sessionFile('notes.md')], patch: sessionPatch('notes.md', 'hi') },
+    });
+  });
+  await view.settle();
+  assert.equal(settledHistory.at(-1), true, 'parent re-renders and exits settling once non-Git session diff lands');
+  await act(async () => view.root.render(null));
+});
+
+test('dockGitCache clamps measure for large status payloads (>16,384 files) and removeProject purges its entry', async (t) => {
+  const projectPath = 'C:/huge-repo-dock-git';
+  let statusCalls = 0;
+  const bigFiles = Array.from({ length: 17_000 }, (_, index) => ({
+    path: `src/file-${index}.ts`,
+    status: 'M',
+  }));
+  const view = mount(t, {
+    gitStatus: async () => {
+      statusCalls += 1;
+      return { repository: true, root: projectPath, files: bigFiles };
+    },
+    removeProject: async () => {},
+  });
+  const { prewarmUtilityDockGitState, readCachedDockGitState, requestDockGitState, useDockGitReady } = await import(
+    './utility-dock-git-state.ts'
+  );
+  const { createProjectActions } = await import('./app-project-actions.ts');
+  let dockReady = false;
+  function ReadyProbe() {
+    dockReady = useDockGitReady(projectPath);
+    return null;
+  }
+  await act(async () => view.root.render(h(ReadyProbe)));
+  assert.equal(dockReady, false);
+  await act(async () => {
+    await requestDockGitState(projectPath);
+  });
+  assert.equal(statusCalls, 1);
+  assert.equal(readCachedDockGitState(projectPath).ready, true, 'large status payload is retained in dockGitCache');
+  assert.equal(dockReady, true, 'useDockGitReady flips true for large status payload');
+  await act(async () => {
+    await prewarmUtilityDockGitState(projectPath);
+  });
+  assert.equal(statusCalls, 1, 'prewarm reuses cached large payload instead of re-fetching');
+
+  const actions = createProjectActions({
+    projects: [],
+    invoke: async (fn) => {
+      await fn();
+    },
+    applySnapshot: () => {},
+    activateSelection: () => {},
+    synchronizeActualHost: async () => {},
+    closeSidebarForNavigation: () => {},
+    refreshProjects: async () => [],
+    refreshSessionsBestEffort: () => {},
+    beginNavigation: () => {},
+  });
+  await act(async () => {
+    await actions.removeProject(projectPath);
+  });
+  assert.equal(readCachedDockGitState(projectPath).ready, false, 'removeProject purges the cached dock Git state');
+  assert.equal(dockReady, false, 'useDockGitReady updates after removeProject purge');
+  await act(async () => view.root.render(null));
+});
+
+test('purgeSessionChanges notifies patch listeners when session-diff patches are removed', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const cwd = 'C:/purge-patch-notify';
+  const sessionId = 's-purge-patch';
+  const view = mount(t, {
+    gitStatus: async () => ({ repository: false, root: '', files: [] }),
+    gitReview: async () => ({ repository: false, root: '', base: 'HEAD', files: [] }),
+    invokeCapability: async ({ capability }) => {
+      if (capability === 'getSessionReviewDiff') {
+        return {
+          value: {
+            supported: true,
+            files: [{ ...sessionFile('big.ts'), patchOmitted: true, reason: 'too_large' }],
+            patch: '',
+          },
+        };
+      }
+      if (capability === 'getSessionReviewFilePatch') {
+        return { value: { patch: sessionPatch('big.ts', 'hello'), tooLarge: false } };
+      }
+      return { value: null };
+    },
+  });
+  setSessionChangesSource('uncommitted');
+  let patchedRow = null;
+  let renders = 0;
+  function PatchProbe() {
+    renders += 1;
+    const state = useSessionChanges({ cwd, sessionId, active: true });
+    const { withPatch } = useSessionChangePatches({
+      cwd,
+      sessionId,
+      diff: state.diff,
+      rows: state.rows,
+      selectedId: state.rows[0]?.id ?? 'big.ts',
+    });
+    patchedRow = state.rows[0] ? withPatch(state.rows[0]) : null;
+    return null;
+  }
+  await act(async () => view.root.render(h(SurfaceActiveContext.Provider, { value: true }, h(PatchProbe))));
+  await view.settle(200);
+  await view.settle(200);
+  await view.settle(200);
+  assert.ok(patchedRow?.parts?.length > 0, 'omitted session-diff patch landed in patches cache');
+  const rendersBeforePurge = renders;
+  await act(async () => purgeSessionChanges(sessionId));
+  assert.ok(renders > rendersBeforePurge, 'purgeSessionChanges bumped patchVersion and notified patchListeners');
+  await act(async () => view.root.render(null));
 });

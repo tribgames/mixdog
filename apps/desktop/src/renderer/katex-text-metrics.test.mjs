@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import builtIn from 'katex/src/fontMetricsData.js';
-import { parseMarkdownToHast } from './markdown-ast';
+import { loadMarkdownMathSupport, parseMarkdownToHast } from './markdown-ast';
 import { setGlyphMeasurer } from './katex-text-metrics';
+
+await loadMarkdownMathSupport();
 
 const [PAREN_DEPTH, PAREN_HEIGHT, , , PAREN_WIDTH] = builtIn['Main-Regular'][40];
 const [BOLD_PAREN_DEPTH, BOLD_PAREN_HEIGHT, , , BOLD_PAREN_WIDTH] = builtIn['Main-Bold'][40];

@@ -30,12 +30,15 @@ export function useConversationLinkSurfaces(
     turnChangesSessionId,
     turnChangesBusy,
     turnChangesRunning,
+    trailingCheckpointShown,
     runningTurnKey = '',
   }: {
     /** Empty where no changed-files card may mount (drafts, read-only views). */
     turnChangesSessionId: string;
     turnChangesBusy: boolean;
     turnChangesRunning: boolean;
+    /** Whether the trailing card's checkpoint already stood while the session was idle. */
+    trailingCheckpointShown?: boolean;
     /** The turn key of the running turn (its settled prompt's), while it runs. */
     runningTurnKey?: string;
   }
@@ -60,10 +63,19 @@ export function useConversationLinkSurfaces(
       sessionId: turnChangesSessionId,
       busy: turnChangesBusy,
       turnRunning: turnChangesRunning,
+      trailingCheckpointShown,
       onOpenSessionDiff: hasSessionDiffRoute ? stableOpenSessionDiff : undefined,
       onOpenFile: openFile,
     };
-  }, [turnChangesSessionId, turnChangesBusy, turnChangesRunning, hasSessionDiffRoute, stableOpenSessionDiff, openFile]);
+  }, [
+    turnChangesSessionId,
+    turnChangesBusy,
+    turnChangesRunning,
+    trailingCheckpointShown,
+    hasSessionDiffRoute,
+    stableOpenSessionDiff,
+    openFile,
+  ]);
   // The turn seen running here: its own end may open its previews
   // (turn-preview-model.ts).
   useEffect(() => {

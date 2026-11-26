@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { installTestDom } from './test-dom.mjs';
-import { TurnChangesContext } from '../TurnChangesCard.tsx';
+import { TurnChangesContext, TurnRowsContext } from '../TurnChangesCard.tsx';
 import { resetTurnChangesCache } from '../turn-changes-model.ts';
 import { resetTurnPreviews, runningTurnKeyOf } from '../turn-preview-model.ts';
 import { trailingTurnRuns, useConversationLinkSurfaces } from '../use-conversation-link-surfaces.ts';
@@ -64,7 +64,7 @@ export async function mountTranscriptPane(t) {
     questionCard = null,
     failedTurnKeys = [],
   }) {
-    const { transcriptRows, settledTurnKeys, turnPastEnd, pastLastEnd } = useTranscriptRows({
+    const { transcriptRows, settledTurnKeys, turnPastEnd, pastLastEnd, trailingCheckpointShown } = useTranscriptRows({
       identity: 's1',
       sessionKey: 's1',
       settledItems: items,
@@ -86,6 +86,7 @@ export async function mountTranscriptPane(t) {
         turnChangesSessionId: 's1',
         turnChangesBusy: busy,
         turnChangesRunning: trailingTurnRuns(busy, 0, pastLastEnd),
+        trailingCheckpointShown,
         runningTurnKey: trailingTurnRuns(busy, 0, turnPastEnd)
           ? runningTurnKeyOf(items, settledTurnKeys, settledTurnKeys.at(-1) ?? '')
           : '',
@@ -105,11 +106,16 @@ export async function mountTranscriptPane(t) {
       agentMode: false,
     });
     view.rows = transcriptRows;
+    const rowsOf = () => view.rows;
     return h(
       TurnChangesContext.Provider,
       { value: links.turnChangesSurface },
-      transcriptRows.map((row, index) =>
-        h('div', { key: row.key, 'data-row-key': row.key }, renderTranscriptRow(row, index, transcriptRows))
+      h(
+        TurnRowsContext.Provider,
+        { value: rowsOf },
+        transcriptRows.map((row, index) =>
+          h('div', { key: row.key, 'data-row-key': row.key }, renderTranscriptRow(row, index, transcriptRows))
+        )
       )
     );
   }

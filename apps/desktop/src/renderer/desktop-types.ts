@@ -159,6 +159,10 @@ export type Snapshot = RecordValue & {
   transcriptHistory?: 'held' | 'older';
   transcriptWindowStart?: string;
   transcriptGeneration?: number;
+  /** Monotonic authoritative sync revision (fresh `thread/snapshot` or reconnect replay completion). */
+  snapshotRevision?: number;
+  /** Intermediate phone reconnect replay frame before `replayComplete`: not yet authoritative. */
+  replayPending?: true;
   /** A provisional stored tail, not a live lane or a completed recovery. */
   transcriptPreview?: true;
   /** The host is restoring this session's subscription and has not finished: the state shown is the one held before. Read

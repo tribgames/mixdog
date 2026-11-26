@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  recordAgentSessionPanelIdentities,
   sessionSideDockEntryForSession,
+  supersededAgentSessionPanels,
   withSessionDiff,
   withSessionPanelView,
   withSessionSideSurface,
@@ -164,4 +166,100 @@ test('the visualize view rides its own session like the Session Diff list', () =
   const other = sessionSideDockEntryForSession(showing, 'beta', null, null, null);
   assert.equal(other.open, false);
   assert.equal(other.surface, '');
+});
+
+test('supersededAgentSessionPanels scopes by parentSessionId (falling back to ownerSessionId), skips claimed tabs, and pins already-superseded historical rows', () => {
+  const grandOld = {
+    tag: 'check',
+    agent: 'reviewer',
+    sessionId: 'grand-a-1',
+    ownerSessionId: 'lead-1',
+    parentSessionId: 'worker-a',
+    createdAt: 1_000,
+    released: true,
+  };
+  const siblingGrand = {
+    tag: 'check',
+    agent: 'reviewer',
+    sessionId: 'grand-b-1',
+    ownerSessionId: 'lead-1',
+    parentSessionId: 'worker-b',
+    createdAt: 2_000,
+  };
+  const grandRespawn = {
+    tag: 'check',
+    agent: 'reviewer',
+    sessionId: 'grand-a-2',
+    ownerSessionId: 'lead-1',
+    parentSessionId: 'worker-a',
+    title: 'Recheck',
+    createdAt: 3_000,
+  };
+  const panels = new Map([['lead-1', { sessionId: 'grand-a-1', title: 'check' }]]);
+  const identities = new Map();
+  // Observed while active before close.
+  recordAgentSessionPanelIdentities(identities, panels, [{ ...grandOld, released: false }]);
+  // Sibling sub-agent under the same Lead sharing the tag must not hijack.
+  assert.strictEqual(supersededAgentSessionPanels(panels, [grandOld, siblingGrand], identities), panels);
+  // A respawn already open in a tab is claimed and must not retarget (and close) the side panel.
+  assert.strictEqual(
+    supersededAgentSessionPanels(panels, [grandOld, siblingGrand, grandRespawn], identities, new Set(['grand-a-2'])),
+    panels
+  );
+  // Once unclaimed, the same parent's respawn supersedes the closed grand-agent.
+  const followed = supersededAgentSessionPanels(panels, [grandOld, siblingGrand, grandRespawn], identities);
+  assert.deepEqual(followed.get('lead-1'), { sessionId: 'grand-a-2', title: 'Recheck · check' });
+
+  // Explicitly observing an already-released row when its respawn already exists pins it to history.
+  const historicalIdentities = new Map();
+  recordAgentSessionPanelIdentities(historicalIdentities, panels, [grandOld, grandRespawn]);
+  assert.equal(historicalIdentities.get('grand-a-1')?.pinned, true);
+  assert.strictEqual(
+    supersededAgentSessionPanels(panels, [grandOld, grandRespawn], historicalIdentities),
+    panels,
+    'stays on explicitly opened historical row'
+  );
+});
+
+test('supersededAgentSessionPanels preserves remembered.at when released oldRow has no timestamp', () => {
+  const newerClosed = {
+    tag: 'check',
+    agent: 'reviewer',
+    sessionId: 'sess-new-closed',
+    ownerSessionId: 'lead-1',
+    parentSessionId: 'worker-a',
+    createdAt: 2_000,
+    released: false,
+  };
+  const olderLive = {
+    tag: 'check',
+    agent: 'reviewer',
+    sessionId: 'sess-older-live',
+    ownerSessionId: 'lead-1',
+    parentSessionId: 'worker-a',
+    createdAt: 1_000,
+    released: false,
+  };
+  const panels = new Map([['lead-1', { sessionId: 'sess-new-closed', title: 'check' }]]);
+  const identities = new Map();
+  recordAgentSessionPanelIdentities(identities, panels, [newerClosed]);
+
+  // Released snapshot omits createdAt/startedAt (`at: 0`): must NOT shadow remembered.at (2_000) and jump backwards.
+  const stamplessReleased = { ...newerClosed, createdAt: undefined, startedAt: undefined, released: true };
+  assert.strictEqual(
+    supersededAgentSessionPanels(panels, [stamplessReleased, olderLive], identities),
+    panels,
+    'stampless released oldRow must not let an older live session supersede a newer one'
+  );
+
+  // A genuinely newer live session still supersedes using the preserved remembered.at.
+  const newestLive = {
+    ...newerClosed,
+    sessionId: 'sess-newest-live',
+    title: 'Fresh',
+    createdAt: 3_000,
+    released: false,
+  };
+  const followed = supersededAgentSessionPanels(panels, [stamplessReleased, olderLive, newestLive], identities);
+  assert.deepEqual(followed.get('lead-1'), { sessionId: 'sess-newest-live', title: 'Fresh · check' });
 });

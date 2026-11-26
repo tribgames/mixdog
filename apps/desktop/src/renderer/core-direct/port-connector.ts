@@ -140,7 +140,7 @@ export function createPortConnector(
   timeoutMs: number = PORT_TAKE_TIMEOUT_MS
 ): Connector {
   const held = new Map<string, PortLike>();
-  const waiting = new Map<string, (port: PortLike) => void>();
+  const waiting = new Map<string, { resolve: (port: PortLike) => void; reject: (error: Error) => void }>();
   const newest = new Map<PortSlot, number>();
   const key = (slot: PortSlot, generation: number) => `${slot}:${generation}`;
 
@@ -163,17 +163,30 @@ export function createPortConnector(
         held.delete(k);
       }
     }
+    for (const [k, stale] of waiting) {
+      if (k.startsWith(`${slot}:`)) {
+        const gen = Number(k.slice(slot.length + 1));
+        if (gen < data.generation) {
+          waiting.delete(k);
+          stale.reject(new Error(`core port generation ${gen} was superseded by generation ${data.generation}`));
+        }
+      }
+    }
     const k = key(slot, data.generation);
     const waiter = waiting.get(k);
     if (waiter) {
       waiting.delete(k);
-      waiter(port);
+      waiter.resolve(port);
     } else {
       held.set(k, port);
     }
   });
 
   function take(slot: PortSlot, generation: number): Promise<PortLike> {
+    const latest = newest.get(slot);
+    if (latest !== undefined && generation < latest) {
+      return Promise.reject(new Error(`core port generation ${generation} was superseded by generation ${latest}`));
+    }
     const k = key(slot, generation);
     const ready = held.get(k);
     if (ready) {
@@ -185,9 +198,15 @@ export function createPortConnector(
         waiting.delete(k);
         reject(new Error(`core port generation ${generation} did not arrive within ${timeoutMs} ms`));
       }, timeoutMs);
-      waiting.set(k, (port) => {
-        clearTimeout(timer);
-        resolve(port);
+      waiting.set(k, {
+        resolve: (port) => {
+          clearTimeout(timer);
+          resolve(port);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
       });
     });
   }

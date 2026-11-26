@@ -70,3 +70,48 @@ test('a reset drops the output not yet sent and delivers the screen at once, cou
   assert.equal(delivered[2].data, 'cdef');
   buffer.dispose();
 });
+
+test('stale generation acknowledgements after release or reset are ignored and do not resume replacement producers', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const delivered = [];
+  const flow = [];
+  const buffer = new TerminalDataBufferer(
+    (event, gen) => delivered.push({ event, gen }),
+    5,
+    8,
+    {
+      pause: (id) => flow.push(['pause', id]),
+      resume: (id) => flow.push(['resume', id]),
+    },
+    1
+  );
+
+  // Old shell delivers 6 chars under gen1 (not yet acknowledged).
+  buffer.push({ id: 'term', data: 'old123' });
+  t.mock.timers.tick(5);
+  assert.equal(delivered.length, 1);
+  const oldGen = delivered[0].gen;
+
+  // Replacement shell releases old state and pushes 10 chars (> high watermark 8) under gen2.
+  buffer.release('term');
+  buffer.push({ id: 'term', data: '0123456789' });
+  t.mock.timers.tick(5);
+  assert.deepEqual(flow, [['pause', 'term']]);
+  const newGen = delivered[1].gen;
+  assert.notEqual(newGen, oldGen);
+
+  // Stale ack from oldGen must be ignored and must not flush remainder or resume.
+  buffer.acknowledge('term', 6, oldGen);
+  assert.equal(delivered.length, 2);
+  assert.deepEqual(flow, [['pause', 'term']]);
+
+  // Valid acks under newGen flush remainder and resume producer.
+  buffer.acknowledge('term', 8, newGen);
+  assert.equal(delivered[2].event.data, '89');
+  buffer.acknowledge('term', 2, newGen);
+  assert.deepEqual(flow, [
+    ['pause', 'term'],
+    ['resume', 'term'],
+  ]);
+  buffer.dispose();
+});

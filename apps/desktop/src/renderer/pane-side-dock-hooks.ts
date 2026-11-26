@@ -1,6 +1,7 @@
 // Effect hooks of the per-pane right dock (PaneSideDock): cell measuring,
 // expanded sheet geometry and the surface close request. Each takes only the values it reads.
 import {
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type RefObject,
   useCallback,
@@ -11,8 +12,9 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { flushSync } from 'react-dom';
+import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
 import { PANE_DOCK_CLOSE_EVENT } from './pane-dock-chrome';
+import { paneOverlayRoom } from './pane-side-dock-model';
 import {
   getSessionPanelShown,
   getSidePanelPosition,
@@ -188,25 +190,63 @@ export function useDiffColumnResize({
   maxWidth: number;
   commitWidth: (width: number) => void;
 }) {
-  const diffResizeStart = useRef<{ x: number; width: number; pref: number } | null>(null);
+  const diffResizeStart = useRef<{
+    x: number;
+    width: number;
+    pref: number;
+    previewMax: number;
+    container: HTMLElement | null;
+  } | null>(null);
   const diffDragPending = useRef<number | null>(null);
+  const previewFrameKey = useRef({});
   const diffResizeGesture = useResizeGesture((commit) => {
+    cancelLayoutFrame(previewFrameKey.current);
     const start = diffResizeStart.current;
     if (!start) return;
     diffResizeStart.current = null;
     const pending = diffDragPending.current;
     diffDragPending.current = null;
+    // Always restore the React-controlled width before committing or cancelling:
+    // if resolveDockLayout clamps diffWidth to the same value, React skips
+    // writing the unchanged style prop, so leaving an imperative preview value
+    // on the DOM would keep it permanently out of sync.
+    const currentWidth = getDiffWidth();
+    const restoredWidth = currentWidth > 0 ? currentWidth : start.width;
+    start.container?.style.setProperty('--pane-dock-diff-width', `${restoredWidth}px`);
     // Only a width the gesture changed is written: one that never left its
     // starting width, or came back to it, puts back the preference.
     if (pending === null) return;
-    if (commit && pending !== start.width) commitWidth(pending);
-    else setDiffPref(start.pref);
+    if (commit && pending !== start.width) {
+      setDiffPref(pending);
+      commitWidth(pending);
+    } else {
+      setDiffPref(start.pref);
+    }
   });
   return {
     onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return;
+      const container =
+        event.currentTarget.closest<HTMLElement>('.pane-dock-diff-column') ?? event.currentTarget.parentElement;
+      const startWidth = getDiffWidth();
+      let previewMax = maxWidth;
+      const dock = container?.closest<HTMLElement>('.pane-side-dock') ?? null;
+      if (dock) {
+        const expanded = dock.dataset.expanded === 'true';
+        const bottom = dock.dataset.placement === 'bottom';
+        const dockWidth = dock.clientWidth;
+        const cellWidth = dock.parentElement?.clientWidth ?? 0;
+        const siblingWidth = dockWidth > startWidth ? dockWidth - startWidth : minWidth;
+        if (expanded && dockWidth > 0) {
+          previewMax = Math.max(minWidth, Math.min(maxWidth, dockWidth - minWidth));
+        } else if (cellWidth > 0) {
+          const overlayRoom = paneOverlayRoom(cellWidth);
+          const avail = bottom ? cellWidth - 2 : overlayRoom < minWidth * 2 ? cellWidth : overlayRoom;
+          previewMax = Math.max(minWidth, Math.min(maxWidth, Math.round(avail - siblingWidth)));
+        }
+      }
       diffResizeGesture.begin(event);
-      diffResizeStart.current = { x: event.clientX, width: getDiffWidth(), pref: diffPref };
+      diffResizeStart.current = { x: event.clientX, width: startWidth, pref: diffPref, previewMax, container };
       diffDragPending.current = null;
     },
     onPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -216,16 +256,31 @@ export function useDiffColumnResize({
       // Movement that leaves the width where it started (straight along the edge) is no resize yet.
       if (diffDragPending.current === null && next === start.width) return;
       diffDragPending.current = next;
+      scheduleLayoutFrame(previewFrameKey.current, () => {
+        const width = diffDragPending.current;
+        if (width === null) return;
+        const clamped = Math.max(minWidth, Math.min(start.previewMax, width));
+        start.container?.style.setProperty('--pane-dock-diff-width', `${clamped}px`);
+      });
+    },
+    onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      event.preventDefault();
+      const step = event.shiftKey ? 48 : 24;
+      const delta = event.key === 'ArrowLeft' ? step : -step;
+      const current = getDiffWidth();
+      const next = Math.max(minWidth, Math.min(maxWidth, Math.round(current + delta)));
+      if (next === current) return;
       setDiffPref(next);
+      commitWidth(next);
     },
     ...diffResizeGesture.handlers,
   };
 }
 
-/** The dock measures its own pane cell while open. The first measure and a
- *  resize both commit before paint (the layout effect, and flushSync in the
- *  observer): a new pane's first frame and a window drag's frame already
- *  have the dock's width, overlay, diff stacking and session panel. */
+/** The dock measures its own pane cell while open. The first measure runs in
+ *  the layout effect before first paint; subsequent ResizeObserver updates
+ *  coalesce onto an animation frame without forcing synchronous React flushes. */
 export function useDockCellWidth(hostRef: RefObject<HTMLDivElement | null>, openNow: boolean): number {
   const [cellWidth, setCellWidth] = useState(0);
   useLayoutEffect(() => {
@@ -235,9 +290,36 @@ export function useDockCellWidth(hostRef: RefObject<HTMLDivElement | null>, open
     const measure = () => setCellWidth((current) => (current === cell.clientWidth ? current : cell.clientWidth));
     measure();
     if (typeof ResizeObserver === 'undefined') return undefined;
-    const observer = new ResizeObserver(() => flushSync(measure));
+    let frame: number | null = null;
+    const raf =
+      typeof window.requestAnimationFrame === 'function'
+        ? window.requestAnimationFrame.bind(window)
+        : typeof globalThis.requestAnimationFrame === 'function'
+          ? globalThis.requestAnimationFrame
+          : null;
+    const cancelRaf =
+      typeof window.cancelAnimationFrame === 'function'
+        ? window.cancelAnimationFrame.bind(window)
+        : typeof globalThis.cancelAnimationFrame === 'function'
+          ? globalThis.cancelAnimationFrame
+          : null;
+    const scheduleMeasure = () => {
+      if (!raf) {
+        measure();
+        return;
+      }
+      if (frame !== null) return;
+      frame = raf(() => {
+        frame = null;
+        measure();
+      });
+    };
+    const observer = new ResizeObserver(scheduleMeasure);
     observer.observe(cell);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (frame !== null && cancelRaf) cancelRaf(frame);
+    };
   }, [hostRef, openNow]);
   return cellWidth;
 }
@@ -416,7 +498,31 @@ export function useDockRoomHeight(hostRef: RefObject<HTMLDivElement | null>, act
       const next = paneDockRoom(host);
       setRoom((current) => (current === next ? current : next));
     };
-    const resizes = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => flushSync(measure));
+    let frame: number | null = null;
+    const raf =
+      typeof window.requestAnimationFrame === 'function'
+        ? window.requestAnimationFrame.bind(window)
+        : typeof globalThis.requestAnimationFrame === 'function'
+          ? globalThis.requestAnimationFrame
+          : null;
+    const cancelRaf =
+      typeof window.cancelAnimationFrame === 'function'
+        ? window.cancelAnimationFrame.bind(window)
+        : typeof globalThis.cancelAnimationFrame === 'function'
+          ? globalThis.cancelAnimationFrame
+          : null;
+    const scheduleMeasure = () => {
+      if (!raf) {
+        measure();
+        return;
+      }
+      if (frame !== null) return;
+      frame = raf(() => {
+        frame = null;
+        measure();
+      });
+    };
+    const resizes = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleMeasure);
     const observeRows = () => {
       if (!resizes) return;
       resizes.disconnect();
@@ -436,6 +542,7 @@ export function useDockRoomHeight(hostRef: RefObject<HTMLDivElement | null>, act
     return () => {
       rows?.disconnect();
       resizes?.disconnect();
+      if (frame !== null && cancelRaf) cancelRaf(frame);
     };
   }, [hostRef, active]);
   return room;

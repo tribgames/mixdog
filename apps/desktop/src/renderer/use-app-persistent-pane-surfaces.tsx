@@ -1,6 +1,24 @@
-import { lazy, Suspense, useRef, type MutableRefObject, type ReactNode } from 'react';
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type MutableRefObject,
+  type ReactNode,
+} from 'react';
 import type { NavigationSelection, WorkspaceSelection } from './navigation';
 import { paneActiveSelection, type PaneLeaf } from './pane-layout';
+import {
+  currentUtilitySurfaceHandoffs,
+  hasActivePaneHandoffWorkspace,
+  paneSurfaceKey,
+  retainSurfaceForOneFrame,
+  subscribeUtilitySurfaceHandoffs,
+  usesPersistentUtilityPortal,
+} from './pane-surface-model';
 import type { usePaneWorkspace } from './pane-workspace-state';
 import type { useWorkbenchWorkspace } from './workbench-workspace';
 import { t } from './i18n';
@@ -64,6 +82,56 @@ interface EditorNavigationLocation {
   rel: string;
   line: number;
   accessToken?: string;
+}
+
+export function resolveOutgoingUtilityHandoffKey(
+  leaf: PaneLeaf,
+  previousLeaf: PaneLeaf | undefined,
+  publishedKey: string | undefined,
+  hasHandoffHost: boolean
+): string | null {
+  const currentActive = paneActiveSelection(leaf);
+  const currentKey = currentActive ? navigationKey(currentActive) : '';
+  if (usesPersistentUtilityPortal(currentActive)) return null;
+  if (hasHandoffHost && previousLeaf) {
+    const previousActive = paneActiveSelection(previousLeaf);
+    if (
+      previousActive &&
+      usesPersistentUtilityPortal(previousActive) &&
+      navigationKey(previousActive) !== currentKey &&
+      retainSurfaceForOneFrame(previousLeaf, leaf)
+    ) {
+      return navigationKey(previousActive);
+    }
+  }
+  if (
+    publishedKey &&
+    publishedKey !== currentKey &&
+    (!previousLeaf || paneSurfaceKey(previousLeaf) === paneSurfaceKey(leaf)) &&
+    leaf.tabs.some((tab) => navigationKey(tab) === publishedKey)
+  ) {
+    return publishedKey;
+  }
+  return null;
+}
+
+/** Keeps a child mounted for one committed pass with `active=false` before
+ *  unmounting so active-dependent effect cleanups (such as phone PTY
+ *  size-owner release in TerminalPane) run while the view map still holds it. */
+export function DeferredDeactivationGate({
+  active,
+  children,
+}: {
+  active: boolean;
+  children: (active: boolean) => ReactNode;
+}) {
+  const [rendered, setRendered] = useState(active);
+  if (active && !rendered) setRendered(true);
+  useEffect(() => {
+    if (!active && rendered) setRendered(false);
+  }, [active, rendered]);
+  if (!active && !rendered) return null;
+  return <>{children(active)}</>;
 }
 
 export function useAppPersistentPaneSurfaces({
@@ -220,6 +288,17 @@ export function useAppPersistentPaneSurfaces({
         );
       });
   };
+  const publishedUtilityHandoffs = useSyncExternalStore(
+    subscribeUtilitySurfaceHandoffs,
+    currentUtilitySurfaceHandoffs,
+    currentUtilitySurfaceHandoffs
+  );
+  const committedLeaves = useRef(new Map<string, PaneLeaf>());
+  useLayoutEffect(() => {
+    const next = new Map<string, PaneLeaf>();
+    for (const leaf of paneWorkspace.leaves) next.set(leaf.id, leaf);
+    committedLeaves.current = next;
+  });
   const utilitySurfaceDescriptors = new Map<
     string,
     {
@@ -227,28 +306,45 @@ export function useAppPersistentPaneSurfaces({
       leafId: string;
       focused: boolean;
       active: boolean;
+      selectionActive: boolean;
       selection: UtilitySelection;
     }
   >();
   for (const leaf of paneWorkspace.leaves) {
     const active = paneActiveSelection(leaf);
+    const handoffKey = paneWorkspace.restorePending
+      ? null
+      : resolveOutgoingUtilityHandoffKey(
+          leaf,
+          committedLeaves.current.get(leaf.id),
+          publishedUtilityHandoffs.get(leaf.id),
+          hasActivePaneHandoffWorkspace()
+        );
     for (const selection of leaf.tabs) {
       if (!isUtilitySelection(selection)) continue;
       const key = navigationKey(selection);
       const selectionActive = Boolean(active && navigationKey(active) === key);
+      const handoffActive = !selectionActive && handoffKey === key;
+      const utilityActive = selectionActive || handoffActive;
       // Idempotent render-time latch: by the time the user leaves this tab,
       // many committed renders have already recorded the activation.
       if (selectionActive) activatedUtilitySurfaceKeys.current.add(key);
-      else if (!activatedUtilitySurfaceKeys.current.has(key)) continue;
+      else if (!handoffActive && !activatedUtilitySurfaceKeys.current.has(key)) continue;
       const descriptor = {
         key,
         leafId: leaf.id,
-        focused: leaf.id === paneWorkspace.focusedLeafId,
-        active: selectionActive,
+        focused: selectionActive && leaf.id === paneWorkspace.focusedLeafId,
+        active: utilityActive,
+        selectionActive,
         selection,
       };
       const previous = utilitySurfaceDescriptors.get(key);
-      if (!previous || (descriptor.active && !previous.active) || (descriptor.active && descriptor.focused)) {
+      if (
+        !previous ||
+        (descriptor.selectionActive && !previous.selectionActive) ||
+        (descriptor.active && !previous.active) ||
+        (descriptor.selectionActive && descriptor.focused)
+      ) {
         utilitySurfaceDescriptors.set(key, descriptor);
       }
     }
@@ -273,7 +369,15 @@ export function useAppPersistentPaneSurfaces({
       );
     } else if (utilitySelection.kind === 'terminal') {
       surface = (
-        <ReadyTerminalPane cwd={utilitySelection.cwd || null} terminalId={utilitySelection.id} active={utilityActive} />
+        <DeferredDeactivationGate active={utilityActive}>
+          {(terminalActive) => (
+            <ReadyTerminalPane
+              cwd={utilitySelection.cwd || null}
+              terminalId={utilitySelection.id}
+              active={terminalActive}
+            />
+          )}
+        </DeferredDeactivationGate>
       );
     } else if (utilitySelection.kind === 'browser') {
       surface = (

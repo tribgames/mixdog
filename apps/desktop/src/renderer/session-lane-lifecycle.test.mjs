@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setImmediate } from 'node:timers/promises';
-import { enforceRendererCacheBudget, totalBudgetedChars } from './renderer-cache-budget.ts';
+import { enforceRendererCacheBudget, registerBudgetedCache, totalBudgetedChars } from './renderer-cache-budget.ts';
 import { RendererLruCache } from './renderer-lru-cache.ts';
 import { createSessionLaneStore } from './session-lane-store.ts';
 import { createTranscriptSnapshotDecorator } from './snapshot-transcript-decoration.ts';
@@ -237,5 +237,115 @@ test('repeated pane open/grow/close cycles release snapshots, subscriptions and 
     refs.every((ref) => !ref.deref()),
     'a live store must not pin closed oversized snapshots'
   );
+  store.clear();
+});
+
+test('high-frequency activeTools, agentWorkers, agentJobs, and shellJobs updates coalesce while user-blocking changes notify urgently', async () => {
+  const store = createSessionLaneStore({ decorator });
+  let notifications = 0;
+  const off = store.subscribe('coalesce', () => {
+    notifications += 1;
+  });
+  const push = (patch) =>
+    store.apply({
+      sessionId: 'coalesce',
+      frameSource: 'live',
+      snapshot: { sessionId: 'coalesce', items: [], busy: true, ...patch },
+    });
+  // Initial snapshot is urgent.
+  push({});
+  assert.equal(notifications, 1);
+
+  // Burst of high-frequency activity updates coalesces onto scheduleLayoutFrame.
+  push({ activeTools: { shell: { count: 1, startedAt: 1 } } });
+  push({ activeTools: { shell: { count: 2, startedAt: 2 }, agent: { count: 1, startedAt: 2 } } });
+  push({ agentWorkers: [{ id: 'w1', stage: 'running', status: 'running' }] });
+  push({ agentJobs: [{ task_id: 'j1', stage: 'running', status: 'running' }] });
+  push({ shellJobs: { count: 3, jobs: [{ taskId: 'sh1' }] } });
+  assert.equal(notifications, 1, 'activity updates do not flush synchronously');
+
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(notifications, 2, 'coalesced burst delivers one layout-frame notification');
+
+  // User-blocking changes (toolApproval, queued, busy) notify synchronously.
+  push({ toolApproval: { id: 'ap-1', tool: 'shell' } });
+  assert.equal(notifications, 3, 'toolApproval notifies immediately');
+  push({ toolApproval: { id: 'ap-1', tool: 'shell' }, queued: [{ id: 'q1' }] });
+  assert.equal(notifications, 4, 'queued change notifies immediately');
+  push({ toolApproval: null, queued: [{ id: 'q1' }], busy: false });
+  assert.equal(notifications, 5, 'busy change notifies immediately');
+
+  off();
+  store.clear();
+});
+
+test('budget enforcement is deferred to an idle callback (with timer fallback) and cancelled cleanly on clear/stop', async (t) => {
+  const originalRequestIdle = Object.getOwnPropertyDescriptor(globalThis, 'requestIdleCallback');
+  const originalCancelIdle = Object.getOwnPropertyDescriptor(globalThis, 'cancelIdleCallback');
+  const idleQueue = new Map();
+  let nextId = 1;
+  const cancelled = [];
+  Object.defineProperty(globalThis, 'requestIdleCallback', {
+    configurable: true,
+    value: (callback) => {
+      const id = nextId++;
+      idleQueue.set(id, callback);
+      return id;
+    },
+  });
+  Object.defineProperty(globalThis, 'cancelIdleCallback', {
+    configurable: true,
+    value: (id) => {
+      cancelled.push(id);
+      idleQueue.delete(id);
+    },
+  });
+  t.after(() => {
+    if (originalRequestIdle) Object.defineProperty(globalThis, 'requestIdleCallback', originalRequestIdle);
+    else delete globalThis.requestIdleCallback;
+    if (originalCancelIdle) Object.defineProperty(globalThis, 'cancelIdleCallback', originalCancelIdle);
+    else delete globalThis.cancelIdleCallback;
+  });
+
+  let fakeChars = 25 * 1024 * 1024;
+  let trims = 0;
+  const unregister = registerBudgetedCache({
+    name: 'deferred-budget-probe',
+    chars: () => fakeChars,
+    trim(target) {
+      trims += 1;
+      fakeChars = Math.min(fakeChars, target);
+    },
+  });
+  t.after(unregister);
+
+  const store = createSessionLaneStore({ decorator, budget: true });
+  update(store, 's1', 'hello');
+  update(store, 's2', 'world');
+  assert.equal(idleQueue.size, 1, 'multiple frames coalesce into one idle budget enforcement');
+  assert.equal(trims, 0, 'budget enforcement does not run synchronously on apply');
+
+  const [[id, runIdle]] = [...idleQueue.entries()];
+  idleQueue.delete(id);
+  runIdle();
+  assert.equal(trims, 1, 'deferred idle callback enforces the renderer cache budget');
+
+  // Pending idle callback is cancelled cleanly on clear().
+  fakeChars = 25 * 1024 * 1024;
+  update(store, 's3', 'again');
+  assert.equal(idleQueue.size, 1);
+  const [pendingId] = [...idleQueue.keys()];
+  store.clear();
+  assert.equal(idleQueue.size, 0);
+  assert.ok(cancelled.includes(pendingId), 'clear cancels pending idle budget callback');
+
+  // Without requestIdleCallback, a short timer fallback runs deferred enforcement.
+  delete globalThis.requestIdleCallback;
+  delete globalThis.cancelIdleCallback;
+  fakeChars = 25 * 1024 * 1024;
+  update(store, 's4', 'fallback');
+  assert.equal(trims, 1, 'timer fallback does not run synchronously on apply');
+  await new Promise((resolve) => setTimeout(resolve, 70));
+  assert.equal(trims, 2, 'timer fallback enforces budget shortly after apply');
   store.clear();
 });

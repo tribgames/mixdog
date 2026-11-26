@@ -17,7 +17,11 @@ import { openSshHost } from './settings/ssh-hosts';
 import { relativeWhen } from './settings/relative-when';
 import { useRemoteAccessSettings } from './settings/remote-access-settings';
 import { useRemoteHostName } from './remote-host-access';
-import { currentRemoteConnectionState, subscribeRemoteConnectionState } from './remote-connection-state';
+import {
+  currentRemoteConnectionState,
+  isRemoteDesktopOffline,
+  subscribeRemoteConnectionState,
+} from './remote-connection-state';
 import { useRemoteConnectionLine } from './RemoteConnectionBanner';
 import { isRemoteBrowserRenderer } from './remote-ui-projection';
 import { desktopConnection } from './desktop-connection';
@@ -52,7 +56,8 @@ function useReloadedList<T>(
   enabled: boolean,
   reloadOn: unknown,
   read: () => Promise<T[]> | T[] | undefined,
-  subscribe: (reload: () => void) => (() => void) | undefined
+  subscribe: (reload: () => void) => (() => void) | undefined,
+  onReload?: () => (() => void) | undefined
 ): T[] {
   const [list, setList] = useState<T[]>([]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: the list reloads when the menu opens, not on bridge identity.
@@ -60,8 +65,13 @@ function useReloadedList<T>(
     if (!enabled) return undefined;
     let live = true;
     const load = () => {
+      const done = onReload?.();
       void Promise.resolve(read())
-        .then((next) => live && next && setList(next))
+        .then((next) => {
+          if (!live || !next) return;
+          setList(next);
+          done?.();
+        })
         .catch(() => undefined);
     };
     load();
@@ -78,24 +88,58 @@ function useRemotePcs(reloadOn: unknown = false) {
   const windowInfo = remoteWindowInfo();
   const bridge = remoteWindowSwitcher();
   const remote = remotePcSurface();
-  const pcs = useReloadedList<SwitcherPc>(
-    remote,
-    reloadOn,
-    () => (bridge ? bridge.listHosts() : loadWebSwitcherPcs()),
-    (load) => window.mixdogDesktop?.subscribeHostListsChanged?.(load)
-  );
   const connectionState = useSyncExternalStore(
     subscribeRemoteConnectionState,
     currentRemoteConnectionState,
     () => null
   );
+  const desktopOffline = useSyncExternalStore(subscribeRemoteConnectionState, isRemoteDesktopOffline, () => false);
+  const socketConnected = connectionState === 'connected';
+  // A live connected socket is authoritative proof that the current PC is online;
+  // it supersedes earlier presence reads until a fresh read runs while disconnected.
+  const [verifiedOnline, setVerifiedOnline] = useState(socketConnected);
+  const connectedEpoch = useRef(0);
+  useEffect(() => {
+    if (!socketConnected) return;
+    connectedEpoch.current += 1;
+    setVerifiedOnline(true);
+  }, [socketConnected]);
+  const pcs = useReloadedList<SwitcherPc>(
+    remote,
+    reloadOn,
+    () => (bridge ? bridge.listHosts() : loadWebSwitcherPcs()),
+    (load) => window.mixdogDesktop?.subscribeHostListsChanged?.(load),
+    () => {
+      const startedConnected = currentRemoteConnectionState() === 'connected';
+      const startedEpoch = connectedEpoch.current;
+      return () => {
+        if (
+          !startedConnected &&
+          connectedEpoch.current === startedEpoch &&
+          currentRemoteConnectionState() !== 'connected'
+        ) {
+          setVerifiedOnline(false);
+        }
+      };
+    }
+  );
+  const currentOnlineVerified = socketConnected || verifiedOnline;
 
   const announcedName = useRemoteHostName();
   // The saved-PC entry may have no name (the relay no longer serves it): fall
   // back to the name the connected PC announced in its handshake.
-  const named = pcs.map((pc) => (pc.current && !pc.name && announcedName ? { ...pc, name: announcedName } : pc));
+  const named = pcs.map((pc) => {
+    if (!pc.current) return pc;
+    const name = !pc.name && announcedName ? announcedName : pc.name;
+    let online = pc.online;
+    if (desktopOffline) online = false;
+    else if (currentOnlineVerified) online = true;
+    return name === pc.name && online === pc.online ? pc : { ...pc, name, online };
+  });
   const current = named.find((pc) => pc.current);
-  const connected = current?.online !== false && connectionState !== 'connecting' && connectionState !== 'reconnecting';
+  const offline = current?.online === false || desktopOffline;
+  const reconnecting = !offline && (connectionState === 'connecting' || connectionState === 'reconnecting');
+  const connected = !offline && !reconnecting;
   const connectAnother = (): void => {
     const native = nativeAppInfo();
     if (bridge) void bridge.manageConnections();
@@ -113,33 +157,45 @@ function useRemotePcs(reloadOn: unknown = false) {
     others: named.filter((pc) => !pc.current),
     name: windowInfo?.hostName || current?.name || announcedName || t('PC'),
     connected,
+    offline,
+    reconnecting,
     connectAnother,
     switchTo,
   };
 }
 
-/** Connection dot: green while the link to the PC is alive, grey otherwise, amber once the connection line says it failed. */
+/** Connection dot: green while the link to the PC is alive, pulsing grey while reconnecting, grey when offline, amber once the connection line says it failed. */
 function PcDot({
   connected,
+  reconnecting = false,
   failed = false,
   className = 'remote-pc-dot',
 }: {
   connected: boolean;
+  reconnecting?: boolean;
   failed?: boolean;
   className?: string;
 }) {
   let state = '';
   if (failed) state = ' warn';
+  else if (reconnecting) state = ' off is-reconnecting';
   else if (!connected) state = ' off';
   return <i className={`${className}${state}`} aria-hidden="true" />;
 }
 
 /** Small dot on the phone brand button (bottom-right) — a remote surface only. */
 export function RemotePcBrandDot() {
-  const { remote, connected } = useRemotePcs();
+  const { remote, connected, offline, reconnecting } = useRemotePcs();
   const { phase } = useRemoteConnectionLine();
   if (!remote) return null;
-  return <PcDot connected={connected} failed={phase === 'failed'} className="workspace-tab-home-dot" />;
+  return (
+    <PcDot
+      connected={connected}
+      reconnecting={!offline && (reconnecting || phase === 'connecting')}
+      failed={phase === 'failed'}
+      className="workspace-tab-home-dot"
+    />
+  );
 }
 
 /** "● <PC name>" label: settings group header and page badge. */

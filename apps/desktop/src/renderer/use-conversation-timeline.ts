@@ -97,7 +97,7 @@ export function useConversationTimeline({
   const { following, hasScrollGesture, resume: resumeFollow, arm: armFollow } = follow;
   // The state's own turn keys are the live rows': a history window, or rows read above the live ones, makes its own.
   const ownTurnKeys = settledItems === liveSettledItems ? snapshot.transcriptTurnKeys : undefined;
-  const { settledTurnKeys, transcriptRows, turnPastEnd, pastLastEnd } = useTranscriptRows({
+  const { settledTurnKeys, transcriptRows, turnPastEnd, pastLastEnd, trailingCheckpointShown } = useTranscriptRows({
     identity,
     sessionKey,
     settledItems,
@@ -182,7 +182,7 @@ export function useConversationTimeline({
   }, [readerAt, reportReader, revision, transcriptRevealed, transcriptRows.length]);
   // A short first window (down to 8 huge rows) may not fill the pane, and
   // with nothing to scroll the top threshold is never crossed.
-  useTranscriptHistoryFill(viewport, requestEarlierTranscript, revision, transcriptRevealed && !readerAt);
+  useTranscriptHistoryFill(viewport, requestEarlierTranscript, revision, populated && !readerAt);
   // The latest reply lives on the live tail: a history window gives way.
   const jumpToLatest = useCallback(() => {
     resetTranscriptToLive();
@@ -222,6 +222,8 @@ export function useConversationTimeline({
     turnPastEnd,
     /** What runs is past the last turn's end, whether or not it has settled rows since. */
     pastLastEnd,
+    /** Whether the trailing card's checkpoint already stood while the session was idle. */
+    trailingCheckpointShown,
     transcriptRows,
     transcriptRevealed,
     /** The list is mounted: its rows hold the place its reader is put at. */

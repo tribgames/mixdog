@@ -135,6 +135,8 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-cell {
 .session-rail-content {
   display: flex;
   flex-direction: column;
+  /* Aligns the first section's head row (.session-rail-tg, 28px) with the tab strip band without per-child padding shifts. */
+  padding-top: calc((var(--mx-rail-panel-band) - 28px) / 2 - 8px);
 }
 
 /* A category: a section of the panel, open or folded, set apart from the one
@@ -156,11 +158,6 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-cell {
   left: var(--session-rail-inset);
   height: 1px;
   background: var(--mx-border-muted);
-}
-/* The first section's head row (.session-rail-tg, 28px) on the tab strip's
-   row beside it (--mx-rail-panel-band). */
-.session-rail-content > .session-rail-sec:first-child {
-  padding-top: calc((var(--mx-rail-panel-band) - 28px) / 2);
 }
 .session-rail-sec[data-dragging] {
   opacity: var(--mx-op-dim);
@@ -337,7 +334,7 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-cell {
    or actions from the left, its Clean up at the right end. */
 .session-rail-ft {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px 8px;
   /* Its last button's border ends where a row's wash does, 8px past the text's right line: a box meets the
@@ -348,12 +345,14 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-cell {
   line-height: var(--mx-line-meta);
 }
 .session-rail-ft-end {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
   display: flex;
   gap: 6px;
   margin-left: auto;
 }
 .session-rail-ft > .session-rail-tidy {
+  flex: none;
   margin-left: auto;
 }
 /* The island's usage line (AgentsSummary) takes the foot's free room, flush
@@ -361,6 +360,7 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-cell {
 .session-rail .session-rail-ft > .composer-usage-readout {
   min-width: 0;
   flex: 1 1 0;
+  overflow: hidden;
   padding-inline: 0;
   font-size: var(--mx-font-supporting);
   font-weight: var(--mx-weight-regular);
@@ -368,15 +368,23 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-cell {
   cursor: default;
 }
 .session-rail-ft .composer-island-button {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: 8px;
   font-size: var(--mx-font-meta);
+  white-space: nowrap;
+}
+.session-rail-ft .composer-island-button > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* A button's mark, in a head or a foot: the left sidebar's row glyph, 14px and 8px from its label, resting in the
    icon ink as the sidebar's action icons do and taking the label's ink pointed at. */
 :is(.session-rail-hd, .session-rail-ft) .composer-island-button > svg {
+  flex: none;
   width: 14px;
   height: 14px;
   color: var(--mx-icon-muted);
@@ -384,7 +392,7 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-cell {
 :is(.session-rail-hd, .session-rail-ft) .composer-island-button:hover:not(:disabled, [aria-disabled="true"]) > svg {
   color: inherit;
 }
-.session-rail-ft .composer-island-button[aria-disabled="true"] {
+.session-rail-ft .composer-island-button:is(:disabled, [aria-disabled="true"]) {
   opacity: var(--mx-op-disabled);
   cursor: default;
 }
@@ -1135,18 +1143,13 @@ button.session-rail-row:focus-visible {
   justify-self: end;
   align-self: center;
 }
-/* A worded button (Stopping…, Retry, Release anyway, with the Stop beside it)
-   stands on a line of its own under the command, so the state stays in its
-   column ("Termination unconfirmed", as the island shows both) and the
-   button adds nothing to the columns' widths. */
-.session-rail ul.composer-island-jobs > :has(> .composer-island-row-actions > :not([data-icon])) {
+/* Only a held unconfirmed-termination row wraps its Release anyway + Stop actions
+   onto a second line; transient stop states (Stopping…, Retry) stay on one row. */
+.session-rail ul.composer-island-jobs > :has([data-state="unconfirmed"]) {
   grid-template-rows: minmax(var(--session-rail-row), auto) auto;
   row-gap: 0;
 }
-.session-rail
-  ul.composer-island-jobs
-  > :has(> .composer-island-row-actions > :not([data-icon]))
-  > .composer-island-row-actions {
+.session-rail ul.composer-island-jobs > :has([data-state="unconfirmed"]) > .composer-island-row-actions {
   grid-area: 2 / 2 / 3 / -1;
 }
 

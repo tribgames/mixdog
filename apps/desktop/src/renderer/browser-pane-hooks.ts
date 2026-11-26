@@ -6,6 +6,7 @@ import { scheduleBrowserForegroundRepaint, watchBrowserForegroundReturns } from 
 import type { BrowserPageElement } from './browser-page-client';
 import type { BrowserGuestBook } from './browser-pane-page-state';
 import { bindRequestedAddress } from './browser-page-request';
+import { useMobileBack } from './mobile-back';
 import {
   browserViewportEmulation,
   readBrowserViewportPreset,
@@ -221,6 +222,7 @@ export function useBrowserCredentials(desktopApi: DesktopApi, sessionId: string)
 /** Debounced history lookup for the address being typed. */
 export function useHistorySuggestions(desktopApi: DesktopApi, address: string, addressHasFocus: boolean) {
   const [historySuggestions, setHistorySuggestions] = useState<DesktopBrowserHistoryEntry[]>([]);
+  useMobileBack(historySuggestions.length > 0, () => setHistorySuggestions([]));
   useEffect(() => {
     if (!addressHasFocus || !address.trim() || !desktopApi?.browserHistorySearch) {
       setHistorySuggestions([]);

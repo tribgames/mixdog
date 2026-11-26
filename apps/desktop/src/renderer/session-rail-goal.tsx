@@ -229,21 +229,39 @@ export function GoalSection({ model, open, onToggle }: { model: GoalModel; open:
   );
 }
 
+/** Assign each task a stable identity within the unfiltered plan so moving
+ *  earlier tasks between Remaining and Done never rekeys surviving rows. */
+function todoTaskKeys(todo: NonNullable<GoalModel['todo']>): Map<TodoItem['task'], string> {
+  const keys = new Map<TodoItem['task'], string>();
+  todo.phases.forEach((phase, phaseIndex) => {
+    const seen = new Map<string, number>();
+    for (const task of phase.tasks) {
+      const content = String(task.content || '');
+      const occurrence = seen.get(content) ?? 0;
+      seen.set(content, occurrence + 1);
+      keys.set(task, `${phaseIndex}:${content}:${occurrence}`);
+    }
+  });
+  return keys;
+}
+
 /** Steps in plan order; with `headings`, each phase's first step follows its name. */
 function TodoRows({
   items,
   phases,
   headings,
+  taskKeys,
 }: {
   items: TodoItem[];
   phases: NonNullable<GoalModel['todo']>['phases'];
   headings: boolean;
+  taskKeys: ReadonlyMap<TodoItem['task'], string>;
 }) {
   return items.map(({ task, phase }, index) => {
     const status = task.status || 'pending';
+    const key = taskKeys.get(task) ?? `${phase}:${String(task.content || '')}`;
     return (
-      // biome-ignore lint/suspicious/noArrayIndexKey: steps carry no id and stay in plan order
-      <Fragment key={`${index}:${task.content}`}>
+      <Fragment key={key}>
         {headings && (index === 0 || items[index - 1].phase !== phase) && (
           <p className="session-rail-phase">{phaseName(phases[phase]?.name)}</p>
         )}
@@ -258,7 +276,7 @@ function TodoRows({
 
 /** The To-do category, as the island lists a plan: the remaining steps (the
  *  first few and every working one, the rest folded), then the done ones
- *  folded. A plan with nothing left opens its done steps. */
+ *  folded until the user expands them. */
 export function TodoSection({
   model,
   open,
@@ -272,11 +290,12 @@ export function TodoSection({
 }) {
   const { todo, progress } = model;
   if (!todo) return null;
+  const taskKeys = todoTaskKeys(todo);
   const { remaining, done, headings } = todoTaskGroups(todo);
   const { shown, rest } = todoRemainingSplit(remaining);
   const groups = [
     { key: 'rest', name: t('Rest {{n}}', { n: rest.length }), items: rest, open: folds.groupOpen('rest', false) },
-    { key: 'done', name: todoDoneLabel(done), items: done, open: folds.groupOpen('done', remaining.length === 0) },
+    { key: 'done', name: todoDoneLabel(done), items: done, open: folds.groupOpen('done', false) },
   ].filter((group) => group.items.length > 0);
   const restFold = groups.find((group) => group.key === 'rest');
   const doneFold = groups.find((group) => group.key === 'done');
@@ -288,7 +307,7 @@ export function TodoSection({
         open={group.open}
         onToggle={() => folds.setGroups({ [group.key]: !group.open })}
       />
-      {group.open && <TodoRows items={group.items} phases={todo.phases} headings={headings} />}
+      {group.open && <TodoRows items={group.items} phases={todo.phases} headings={headings} taskKeys={taskKeys} />}
     </>
   );
   return (
@@ -308,7 +327,7 @@ export function TodoSection({
       {remaining.length > 0 && (
         <div className="session-rail-group" data-group="remaining">
           <p className="session-rail-gl">{t('Remaining {{n}}', { n: remaining.length })}</p>
-          <TodoRows items={shown} phases={todo.phases} headings={headings} />
+          <TodoRows items={shown} phases={todo.phases} headings={headings} taskKeys={taskKeys} />
           {restFold && fold(restFold)}
         </div>
       )}

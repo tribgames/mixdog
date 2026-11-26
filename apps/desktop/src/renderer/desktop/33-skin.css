@@ -266,7 +266,10 @@ html[data-mixdog-skin] .pane-side-dock[data-open="true"][data-overlay="true"] {
 html[data-mixdog-skin] .pane-surface-handoff-layer {
   background: transparent;
 }
-html[data-mixdog-skin] :is(.pane-surface-handoff-layer[data-pane-surface-handoff="true"], .pane-surface-cover) {
+html[data-mixdog-skin] .pane-conversation-slot[data-conversation-parked="true"] {
+  opacity: 0;
+}
+html[data-mixdog-skin] .pane-surface-cover {
   backdrop-filter: blur(24px);
 }
 /* The window frame (titlebar band and activity rail) takes one plate under
@@ -389,8 +392,29 @@ html[data-mixdog-skin]
   backdrop-filter: blur(18px);
   box-shadow: inset 0 0 0 var(--mx-hairline, 1px) var(--mx-skin-edge);
 }
+html[data-mixdog-skin] .tool-activity[data-surface="desktop"]:not(.message.assistant *, .mx-chat-row *) {
+  position: relative;
+  z-index: 0;
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+html[data-mixdog-skin] .tool-activity[data-surface="desktop"]:not(.message.assistant *, .mx-chat-row *)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--mx-skin-card);
+  backdrop-filter: blur(18px);
+  box-shadow: inset 0 0 0 var(--mx-hairline, 1px) var(--mx-skin-edge);
+  pointer-events: none;
+}
 html[data-mixdog-skin]
-  .tool-activity[data-surface="desktop"][data-open="true"]:not(.message.assistant *, .mx-chat-row *) {
+  .tool-activity[data-surface="desktop"]:is([data-open="true"], [data-rendered="true"]):not(
+    .message.assistant *,
+    .mx-chat-row *
+  ) {
   width: 100%;
 }
 /* One vertical inset for every one-line plate (tool roll-up, live status and
@@ -426,7 +450,7 @@ html[data-mixdog-skin]
 }
 /* The phone's dark theme paints an opened roll-up's content on a dark step;
    under a skin it sits on the plate (the skin's ink is read on the plate). */
-:root[data-mixdog-skin][data-mixdog-mobile-tabs] .tool-activity .tool-activity-content {
+:root[data-mixdog-skin][data-mixdog-mobile-tabs] .tool-activity :is(.tool-activity-reveal, .tool-activity-content) {
   background: transparent;
 }
 /* The plate is the boundary mark; the trailing rule would dangle inside it. */
@@ -436,8 +460,9 @@ html[data-mixdog-skin] .compaction-divider:not(.message.assistant *, .mx-chat-ro
 html[data-mixdog-skin] .transcript-error-notice:not(.message.assistant *, .mx-chat-row *) {
   padding-block: 8px;
 }
+/* Avoid allocating a GPU backdrop surface per user message bubble. */
 html[data-mixdog-skin] .message.user .message-body {
-  backdrop-filter: blur(18px);
+  background: color-mix(in srgb, var(--mx-skin-card) 88%, var(--mx-skin-tint));
 }
 /* The bot chat's bubble for the user's lines is an accent wash over the
    bubble token; under a skin that token is a translucent message plate, so

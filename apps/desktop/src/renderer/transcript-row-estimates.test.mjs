@@ -1,7 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createTranscriptRowHeightStore, transcriptRowShape } from './transcript-row-estimates.ts';
-import { TRANSCRIPT_ROW_ESTIMATE } from './transcript-virtual-cache.ts';
+import {
+  createTranscriptRowHeightStore,
+  transcriptRowInitialPrior,
+  transcriptRowShape,
+} from './transcript-row-estimates.ts';
+import {
+  TRANSCRIPT_BAND_LEAD_PX,
+  TRANSCRIPT_COLLAPSED_TOOL_ROW_PX,
+  TRANSCRIPT_LIVE_ASSISTANT_ROW_PX,
+  TRANSCRIPT_PART_STEP_PX,
+  TRANSCRIPT_ROW_ESTIMATE,
+  TRANSCRIPT_THINKING_ROW_PX,
+} from './transcript-virtual-cache.ts';
 
 const reply = (id, text) => ({
   _tag: 'AssistantPart',
@@ -53,9 +64,9 @@ test('a row of a shape not measured yet takes the median height of its kind and 
   const searches = { ...tools(2, 4), items: tools(2, 4).items.map((item) => ({ ...item, kind: 'search' })) };
   assert.equal(store.estimate(searches, 411), 38);
   assert.equal(store.knows(searches, 411), false, 'a kind estimate is still a guess the session may relearn');
-  // A reply of a length never measured is not guessed from short or long ones; nor is a round of another size.
+  // A reply of a length never measured is not guessed from short or long ones; a single-call tool round takes its deterministic collapsed prior.
   assert.equal(store.estimate(reply(5, 'x'.repeat(600)), 411), TRANSCRIPT_ROW_ESTIMATE);
-  assert.equal(store.estimate(tools(3, 1), 411), TRANSCRIPT_ROW_ESTIMATE);
+  assert.equal(store.estimate(tools(3, 1), 411), TRANSCRIPT_COLLAPSED_TOOL_ROW_PX);
 });
 
 test('a row remembers its own height, and one row is one shape sample', () => {
@@ -138,4 +149,33 @@ test('shapes separate the features that change a reply’s height', () => {
   assert.notEqual(transcriptRowShape(reply(1, 'short')), transcriptRowShape(reply(2, report(1))));
   assert.notEqual(transcriptRowShape(tools(1, 1)), transcriptRowShape(tools(2, 4)));
   assert.equal(transcriptRowShape(reply(1, report(1))), transcriptRowShape(reply(2, report(7))));
+});
+
+test('coding rows get deterministic height priors without 60px overshoot', () => {
+  const user = { _tag: 'UserMessage', key: 's:u1', turnKey: 't', item: { id: 'u1', kind: 'user', text: 'hi' } };
+  const liveReply = {
+    _tag: 'AssistantPart',
+    key: 's:live',
+    turnKey: 't',
+    live: true,
+    item: { id: 'live', kind: 'assistant', text: 'Working', streaming: true },
+  };
+  const thinking = { _tag: 'Thinking', key: 's:think', turnKey: 't', active: true };
+  const tool = tools(10, 1);
+
+  assert.equal(transcriptRowInitialPrior([user, thinking], 1, 'coding'), TRANSCRIPT_THINKING_ROW_PX);
+  assert.equal(
+    transcriptRowInitialPrior([user, liveReply, thinking], 2, 'coding'),
+    TRANSCRIPT_THINKING_ROW_PX + TRANSCRIPT_BAND_LEAD_PX
+  );
+  assert.equal(transcriptRowInitialPrior([user, liveReply], 1, 'coding'), TRANSCRIPT_LIVE_ASSISTANT_ROW_PX);
+  assert.equal(
+    transcriptRowInitialPrior([user, tool, liveReply], 2, 'coding'),
+    TRANSCRIPT_LIVE_ASSISTANT_ROW_PX + TRANSCRIPT_PART_STEP_PX
+  );
+  assert.equal(transcriptRowInitialPrior([user, tool], 1, 'coding'), TRANSCRIPT_COLLAPSED_TOOL_ROW_PX);
+  assert.equal(
+    transcriptRowInitialPrior([user, liveReply, tool], 2, 'coding'),
+    TRANSCRIPT_COLLAPSED_TOOL_ROW_PX + TRANSCRIPT_PART_STEP_PX
+  );
 });

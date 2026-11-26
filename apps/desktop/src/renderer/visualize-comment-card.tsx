@@ -11,6 +11,7 @@ import {
 import { VISUALIZE_ELEMENT_ROLES } from '../shared/visualize-comment-kinds';
 import { rectFromFractions, type VisualizeFeedbackRect, type VisualizePagePick } from '../shared/visualize-feedback';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 
 const CARD_WIDTH_PX = 288;
 /** Between the comment card and its target, and the card and the pane's edge (CSS px). */
@@ -75,6 +76,7 @@ export function VisualizeCommentCard({
   remove,
   close,
   retarget,
+  active = true,
 }: {
   cardRef: RefObject<HTMLFormElement | null>;
   number: number;
@@ -87,8 +89,10 @@ export function VisualizeCommentCard({
   remove(): void;
   close(): void;
   retarget(selector: string): void;
+  active?: boolean;
 }) {
   const placeholder = pick ? t('Comment on this element…') : t('Comment on this area…');
+  useMobileBack(active, close, 'modal');
   const crumbs = pick ? [...pick.path, pick] : [];
   if (pick?.child) crumbs.push(pick.child);
   const onNoteKey = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {

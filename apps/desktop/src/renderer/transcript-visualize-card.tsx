@@ -16,6 +16,7 @@ import {
   Workflow,
 } from 'lucide-react';
 import {
+  createContext,
   type CSSProperties,
   type ReactNode,
   useCallback,
@@ -57,7 +58,8 @@ import {
   visualizeTabForTargets,
   visualizeTurnEndAt,
 } from './visualize-card-model';
-import { TurnChangesCard, TurnChangesContext, TurnChangesUndo } from './TurnChangesCard';
+import { TurnChangesCard, TurnChangesContext, TurnChangesUndo, TurnRowsContext } from './TurnChangesCard';
+import type { TranscriptRowModel } from './transcript-rows';
 import { type TurnChangesFile, type TurnChangesRef, turnCardHeld, useTurnChanges } from './turn-changes-model';
 import {
   claimTurnPreviewEnd,
@@ -71,7 +73,7 @@ import {
   turnPreviewPage,
   turnPreviewTargets,
 } from './turn-preview-model';
-import type { VisualizeTabView } from '../shared/visualize';
+import type { VisualizeSessionState, VisualizeTabView } from '../shared/visualize';
 import {
   openTurnPreviews,
   readVisualizeVersionThumbnail,
@@ -80,6 +82,8 @@ import {
   requestVisualizeVersion,
   revealVisualizeTab,
   useVisualizeState,
+  useVisualizeStateRehydrating,
+  useVisualizeHeldCalls,
   useVisualizeHeldSince,
   useVisualizePanelOnScreen,
   visualizeStateFor,
@@ -144,13 +148,14 @@ function tileState(closed: boolean, newest: boolean): string {
 function VisualizeTile({
   call,
   sessionId,
+  state,
   onOpen,
 }: {
   call: VisualizeCardCall;
   sessionId: string;
+  state: VisualizeSessionState;
   onOpen: (call: VisualizeCardCall) => void;
 }) {
-  const state = useVisualizeState(sessionId);
   const newest = useSyncExternalStore(
     subscribeVisualizeCards,
     () => visualizeCardNewest(sessionId, call),
@@ -241,11 +246,13 @@ function VisualizeTile({
 function VisualizeTurnCard({
   calls,
   sessionId,
+  state,
   compact = false,
   undo,
 }: {
   calls: readonly VisualizeCardCall[];
   sessionId: string;
+  state: VisualizeSessionState;
   /** Agent mode: the same card in the bubble column, at its width. */
   compact?: boolean;
   /** The turn's Undo, when this card stands in for every file the turn changed. */
@@ -289,7 +296,7 @@ function VisualizeTurnCard({
       </div>
       <div className="transcript-visualize-tiles">
         {view.items.map((call) => (
-          <VisualizeTile key={call.id} call={call} sessionId={sessionId} onOpen={(one) => run([one])} />
+          <VisualizeTile key={call.id} call={call} sessionId={sessionId} state={state} onOpen={(one) => run([one])} />
         ))}
       </div>
       {view.pages > 1 ? (
@@ -332,6 +339,44 @@ function useVisualizeOwnerSession(sessionId: string, calls: readonly VisualizeCa
   return useMemo(() => visualizeOwnerSessionId(sessionId, rows ?? [], calls), [sessionId, rows, calls]);
 }
 
+function isCompletedTurnBoundary(row: TranscriptRowModel): boolean {
+  if (row._tag === 'Error') return true;
+  if (row._tag === 'AssistantPart') {
+    return Boolean(row.completion) || row.item.kind === 'turndone' || Boolean(row.turnChanges);
+  }
+  return false;
+}
+
+export function trailingOpenTurnKey(rows: readonly TranscriptRowModel[]): string {
+  let openTurnKey = '';
+  let lastOpenIndex = -1;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    if (row._tag === 'Thinking' || row._tag === 'TurnGap') continue;
+    if (row._tag === 'UserMessage' && (row.item.steered || row.item.steer)) continue;
+    if (isCompletedTurnBoundary(row)) break;
+    if (!openTurnKey) openTurnKey = row.turnKey;
+    lastOpenIndex = index;
+    if (row._tag === 'UserMessage') break;
+  }
+  return openTurnKey ? `${openTurnKey}#${lastOpenIndex}` : '';
+}
+
+export const TrailingTurnKeyContext = createContext<string | null>(null);
+
+export function isTrailingTurnTools(rows: readonly TranscriptRowModel[], items: readonly TranscriptItem[]): boolean {
+  const probe = items[items.length - 1];
+  if (!probe) return false;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    if (row._tag === 'UserMessage' && !row.item.steered && !row.item.steer) return false;
+    if (isCompletedTurnBoundary(row)) return false;
+    if (row._tag === 'ToolActivity' && row.items.includes(probe)) return true;
+    if ('item' in row && row.item === probe) return true;
+  }
+  return false;
+}
+
 /** Under a tool group: one card per panel tab its `visualize` opens showed. */
 export function ToolVisualizeCards({
   items,
@@ -339,6 +384,7 @@ export function ToolVisualizeCards({
   compact = false,
   frame,
   turnKey = '',
+  rowTurnKey = '',
   turnChanges,
   replyText = '',
   surfacedBefore = NO_SURFACED,
@@ -360,6 +406,8 @@ export function ToolVisualizeCards({
   /** The turn of these items (coding mode's tool groups): a tab opened again
    *  in a later group of the same turn has its one card there. */
   turnKey?: string;
+  /** Row turn key used to match reactive trailing-turn state without colliding with in-turn card superseding. */
+  rowTurnKey?: string;
   /** The turn's final reply: a changed file it names is opened at the end. */
   replyText?: string;
   /** The turn this card ends (its rows' turn key): its end, when seen
@@ -374,19 +422,42 @@ export function ToolVisualizeCards({
   // the conversation it works for: its cards read their tabs (and its turn)
   // there, and open its previews there.
   const scope = useVisualizeOwnerSession(transcriptSessionId, all);
+  const surface = useContext(TurnChangesContext);
+  const rowsOf = useContext(TurnRowsContext);
+  const trailingTurnToken = useContext(TrailingTurnKeyContext);
+  const cardTurnKey = rowTurnKey || turnKey;
+  const inTrailingTurn = useMemo(() => {
+    if (trailingTurnToken === '') return false;
+    if (rowsOf) return isTrailingTurnTools(rowsOf(), items);
+    if (trailingTurnToken !== null && cardTurnKey) {
+      const sep = trailingTurnToken.lastIndexOf('#');
+      return (sep >= 0 ? trailingTurnToken.slice(0, sep) : trailingTurnToken) === cardTurnKey;
+    }
+    return true;
+  }, [trailingTurnToken, rowsOf, items, cardTurnKey]);
+  const turnHeld = turnChanges
+    ? turnCardHeld(turnChanges, surface?.turnRunning, surface?.trailingCheckpointShown)
+    : Boolean(surface?.turnRunning) && inTrailingTurn;
   // A card appears once, when the turn's end reveals its tab, already on the
   // final version: none is drawn (or redrawn per edit) while the turn runs,
   // and an open still running is not a card yet.
   const heldSince = useVisualizeHeldSince(scope);
+  const heldCalls = useVisualizeHeldCalls(scope);
   // An open whose tab had nothing left to show when its turn ended (closed,
   // or its file gone) gets no card: the host recorded that once, at the
   // turn's end, in the state every window and device receives.
-  const goneOpens = useVisualizeState(scope).goneOpens;
+  const rehydrating = useVisualizeStateRehydrating(scope);
+  const state = useVisualizeState(scope);
+  const goneOpens = state.goneOpens;
   const live = useMemo(() => all.filter((call) => !visualizeCardGone(goneOpens, call)), [all, goneOpens]);
   const opened = useMemo(() => finishedTargets(live), [live]);
-  const agentCalls = useMemo(() => visualizeCardsShown(live, heldSince), [live, heldSince]);
+  const agentCalls = useMemo(
+    () => (turnHeld || rehydrating ? NO_PREVIEW_CALLS : visualizeCardsShown(live, heldSince, heldCalls)),
+    [turnHeld, rehydrating, live, heldSince, heldCalls]
+  );
   const previews = useTurnPreviews({
     sessionId: scope,
+    state,
     items,
     opened,
     agentOpens: agentCalls.length > 0,
@@ -414,18 +485,20 @@ export function ToolVisualizeCards({
   // After render: noting a newer card re-renders the earlier ones (on their
   // own versions, or gone when the same turn opened the tab again).
   useEffect(() => {
+    if (rehydrating) return;
     noteVisualizeTurnCards(sessionId, turnKey, calls);
     noteVisualizeCards(sessionId, calls);
-  }, [sessionId, turnKey, calls]);
+  }, [rehydrating, sessionId, turnKey, calls]);
   const kept = superseded ? calls.filter((call) => !superseded.split('\n').includes(call.id)) : calls;
   const shown = useMemo(() => kept.map(previews.marked), [kept, previews.marked]);
   // The turn's previews come with its changes read: the row is pending until it answers (use-transcript-reveal.ts).
   const pending = previews.reading ? <span hidden data-transcript-pending="read" /> : null;
-  if (!sessionId || !shown.length) return pending;
+  if (!sessionId || rehydrating || !shown.length) return pending;
   const cards = (
     <VisualizeTurnCard
       calls={shown}
       sessionId={sessionId}
+      state={state}
       compact={compact}
       undo={turnChanges ? <TurnChangesUndo turnChanges={turnChanges} visualized={previews.visualized} /> : undefined}
     />
@@ -444,6 +517,7 @@ const NO_PREVIEW_CALLS: readonly VisualizeCardCall[] = [];
 
 function useTurnPreviews({
   sessionId,
+  state,
   items,
   opened,
   agentOpens,
@@ -455,6 +529,7 @@ function useTurnPreviews({
   endedAt,
 }: {
   sessionId: string;
+  state: VisualizeSessionState;
   items: readonly TranscriptItem[];
   opened: readonly string[];
   /** The agent opened tabs this turn: its previews open without being
@@ -470,7 +545,7 @@ function useTurnPreviews({
   const surface = useContext(TurnChangesContext);
   const changesSession = turnChanges ? (surface?.sessionId ?? '') : '';
   const checkpointId = turnChanges?.checkpointId ?? '';
-  const running = turnCardHeld(turnChanges, surface?.turnRunning);
+  const running = turnCardHeld(turnChanges, surface?.turnRunning, surface?.trailingCheckpointShown);
   const { reply, fresh, reading } = useTurnChanges({
     sessionId: changesSession,
     checkpointId,
@@ -481,7 +556,6 @@ function useTurnPreviews({
   const ready = Boolean(changesSession) && !running && reply?.status === 'ready';
   const files = ready && reply ? reply.files : NO_CHANGED_FILES;
   const root = ready && reply ? reply.root : '';
-  const state = useVisualizeState(sessionId);
   // Surfaced earlier: linked or opened by earlier turns (the transcript), or
   // shown by a panel tab now (the host's state). Keyed by content: the caller
   // builds the list afresh on every render.

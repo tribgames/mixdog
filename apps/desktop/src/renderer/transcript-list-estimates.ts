@@ -1,7 +1,11 @@
 import { type MutableRefObject, type RefObject, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { handoffLinesAt, roomPassIsQuiet, routineReplyIsQuiet, taskReportHidden } from './agent-chat-place';
 import { coreScrollState, measureTranscriptRow, type TranscriptVirtualizer } from './transcript-list-geometry';
-import { type TranscriptRowSurface, transcriptRowHeightStore } from './transcript-row-estimates';
+import {
+  type TranscriptRowSurface,
+  transcriptRowHeightStore,
+  transcriptRowInitialPrior,
+} from './transcript-row-estimates';
 import { useSessionAttentionIndex } from './session-attention-index';
 import type { TranscriptRowModel } from './transcript-rows';
 import { TRANSCRIPT_RELEARN_ATTRIBUTE, TRANSCRIPT_ROW_ESTIMATE } from './transcript-virtual-cache';
@@ -66,19 +70,28 @@ export function useTranscriptRowEstimates({
       fallbackEstimates.current.delete(row.key);
       if (variant) heldVariants.current.set(row.key, variant);
       else heldVariants.current.delete(row.key);
-      if (paintsNothing(row, variant, surfaceRef.current)) {
+      const surface = surfaceRef.current;
+      if (paintsNothing(row, variant, surface)) {
         heldEstimates.current.set(row.key, 0);
         return 0;
       }
+      const prior = transcriptRowInitialPrior(rowsRef.current, index, surface);
       // Before the viewport's first observation only: one width read at mount.
       if (!timelineWidth.current) timelineWidth.current = viewport.current?.clientWidth ?? 0;
-      if (!timelineWidth.current) return TRANSCRIPT_ROW_ESTIMATE;
+      if (!timelineWidth.current) return prior ?? TRANSCRIPT_ROW_ESTIMATE;
       const store = transcriptRowHeightStore();
-      // A flat fallback is held too (any re-estimate moves rows), but marked:
-      // the session's own first measured rows usually teach its shape a moment
-      // later, and relearnEstimates may then replace it.
-      const surface = surfaceRef.current;
-      if (!store.knows(row, timelineWidth.current, surface, variant)) fallbackEstimates.current.add(row.key);
+      // Deterministic priors (Thinking, newly mounted live AssistantPart, collapsed ToolActivity)
+      // hold their layout-exact size without enqueueing fallbackEstimates -> relearnEstimates().
+      if (store.knows(row, timelineWidth.current, surface, variant)) {
+        const estimate = store.estimate(row, timelineWidth.current, surface, variant);
+        heldEstimates.current.set(row.key, estimate);
+        return estimate;
+      }
+      if (prior !== null) {
+        heldEstimates.current.set(row.key, prior);
+        return prior;
+      }
+      fallbackEstimates.current.add(row.key);
       const estimate = store.estimate(row, timelineWidth.current, surface, variant);
       heldEstimates.current.set(row.key, estimate);
       return estimate;
@@ -108,7 +121,7 @@ export function useTranscriptRowEstimates({
     [viewport]
   );
   const relearnEstimates = useCallback(() => {
-    if (relearnFrame.current) return;
+    if (relearnFrame.current || fallbackEstimates.current.size === 0) return;
     viewport.current?.setAttribute(TRANSCRIPT_RELEARN_ATTRIBUTE, '');
     relearnFrame.current = window.requestAnimationFrame(() => {
       relearnFrame.current = 0;
@@ -135,6 +148,8 @@ export function useTranscriptRowEstimates({
         !('live' in row && row.live) &&
         !('active' in row && row.active) &&
         !element.querySelector('[data-transcript-pending]') &&
+        element.getAttribute('data-disclosure-animating') !== 'true' &&
+        !element.querySelector('[data-disclosure-animating="true"]') &&
         (size > 0 || element.firstElementChild?.getAttribute('data-blank') === 'true')
       ) {
         // What the observed box painted (TranscriptList.tsx data-variant), not

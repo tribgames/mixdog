@@ -241,7 +241,7 @@ export const PaneConversation = memo(function PaneConversation({
     read: requestSessionRead,
   });
   const mobileSurface = useMobileRemoteSurface();
-  const holdsList = mobileSurface && !hidden && sessionId !== '' && lane === null;
+  const holdsList = mobileSurface && !presentation.preparing && !hidden && sessionId !== '' && lane === null;
   const listHeld = useTranscriptListGate(sessionId, holdsList);
   const coverIdRef = useRef(sessionId || 'draft');
   const originSessionRef = useRef(sessionId || '');

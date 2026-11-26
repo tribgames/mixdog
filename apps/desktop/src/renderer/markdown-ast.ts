@@ -1,12 +1,10 @@
 import { unified } from 'unified';
-import rehypeHighlight from 'rehype-highlight';
-import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
-import remarkMath from 'remark-math';
 import remarkParse from 'remark-parse';
 import remarkRehype from 'remark-rehype';
-import { ensureKatexTextMetrics } from './katex-text-metrics';
+import { containsMarkdownMath } from './markdown-math-detect';
 import { safeMarkdownUrl } from './markdown-url';
+import { rehypeSharedHighlight } from './shared-lowlight';
 
 import {
   htmlLineBreaksToBreaks,
@@ -17,6 +15,8 @@ import {
   trimAutolinkCjkSuffix,
   trimTrailingCodeNewline,
 } from './markdown-plugins';
+
+export { containsMarkdownMath };
 
 interface MarkdownAstNode {
   type: 'root' | 'element' | 'text';
@@ -93,34 +93,6 @@ function preserveRawHtmlAsText() {
   };
 }
 
-const MATH_CLASS = /^(?:language-math|math-inline|math-display)$/;
-
-function isMathNode(node: SyntaxNode): boolean {
-  const className = (node.properties as { className?: unknown } | undefined)?.className;
-  return Array.isArray(className) && className.some((name) => MATH_CLASS.test(String(name)));
-}
-
-function mathSource(node: SyntaxNode): string {
-  if (node.type === 'text') return String(node.value ?? '');
-  return Array.isArray(node.children) ? node.children.map(mathSource).join('') : '';
-}
-
-// KaTeX lends characters it has no metrics for (CJK, …) the metrics of 'M',
-// which lets their ink cross a fraction bar. Hand it the measured metrics of
-// the math sources' characters before rehype-katex lays them out.
-function measureKatexTextGlyphs() {
-  return (tree: SyntaxNode) => {
-    const visit = (parent: SyntaxNode) => {
-      if (!Array.isArray(parent.children)) return;
-      for (const child of parent.children) {
-        if (isMathNode(child)) ensureKatexTextMetrics(mathSource(child));
-        else visit(child);
-      }
-    };
-    visit(tree);
-  };
-}
-
 // A table states its width, so its style needs no :has() over its rows
 // (22-markdown.css): one of those, matching any cell, made every node a
 // stream inserts a :has() trigger.
@@ -186,38 +158,89 @@ function normalizeAstNode(node: SyntaxNode, source: string, code = false): Markd
   };
 }
 
-const markdownProcessor = unified()
-  .use(remarkParse)
-  .use(repairAdjacentStrongPunctuation)
-  .use(remarkGfm, { singleTilde: false })
-  .use(trimAutolinkCjkSuffix)
-  // singleDollarTextMath:false — shell/price prose ("$PATH and $5") must never
-  // flip into inline math; only explicit $$…$$ math is intentional enough.
-  .use(remarkMath, { singleDollarTextMath: false })
-  .use(stripHtmlComments)
-  // Before preserveRawHtmlAsText: once a `<br>` is frozen into a text node it
-  // can no longer become a line break.
-  .use(htmlLineBreaksToBreaks)
-  .use(preserveRawHtmlAsText)
-  .use(remarkRehype)
-  .use(measureKatexTextGlyphs)
-  // TeX that cannot typeset reads as its source in the muted text tone; the
-  // reason is on hover.
-  .use(rehypeKatex, { errorColor: 'var(--mx-text-muted)' })
-  // Explicit-language fences only (no auto-detection); unknown languages
-  // simply stay unhighlighted, matching the previous plain rendering.
-  .use(rehypeHighlight)
-  .use(trimTrailingCodeNewline)
-  .use(markTableColumns)
-  .use(linkifyLocalPaths);
-// Freezing runs the attachers (rehype-highlight registers its grammars) at load instead of in
-// the first parse's commit: ~44 ms of a resumed phone task at 4x CPU.
-markdownProcessor.freeze();
+type MarkdownProcessor = {
+  parse(source: string): SyntaxNode;
+  runSync(tree: SyntaxNode, source: string): SyntaxNode;
+};
+
+function buildProcessor(mathPlugins?: typeof import('./markdown-math-plugins')): MarkdownProcessor {
+  const processor = unified()
+    .use(remarkParse)
+    .use(repairAdjacentStrongPunctuation)
+    .use(remarkGfm, { singleTilde: false })
+    .use(trimAutolinkCjkSuffix);
+  if (mathPlugins) {
+    // singleDollarTextMath:false — shell/price prose ("$PATH and $5") must never
+    // flip into inline math; only explicit $$…$$ math is intentional enough.
+    processor.use(mathPlugins.remarkMath, { singleDollarTextMath: false });
+  }
+  processor
+    .use(stripHtmlComments)
+    // Before preserveRawHtmlAsText: once a `<br>` is frozen into a text node it
+    // can no longer become a line break.
+    .use(htmlLineBreaksToBreaks)
+    .use(preserveRawHtmlAsText)
+    .use(remarkRehype);
+  if (mathPlugins) {
+    processor
+      .use(mathPlugins.measureKatexTextGlyphs)
+      // TeX that cannot typeset reads as its source in the muted text tone; the
+      // reason is on hover.
+      .use(mathPlugins.rehypeKatex, { errorColor: 'var(--mx-text-muted)' });
+  }
+  processor
+    // Explicit-language fences only (no auto-detection); unknown languages
+    // simply stay unhighlighted, matching the previous plain rendering.
+    .use(rehypeSharedHighlight)
+    .use(trimTrailingCodeNewline)
+    .use(markTableColumns)
+    .use(linkifyLocalPaths);
+  processor.freeze();
+  return processor as unknown as MarkdownProcessor;
+}
+
+const baseProcessor = buildProcessor();
+let mathProcessor: MarkdownProcessor | null = null;
+let mathLoadPromise: Promise<void> | null = null;
+
+export function isMarkdownMathLoaded(): boolean {
+  return mathProcessor !== null;
+}
+
+/** Loads `remark-math`, `rehype-katex` and KaTeX metrics only when text contains math. */
+export function loadMarkdownMathSupport(): Promise<void> {
+  if (mathProcessor) return Promise.resolve();
+  if (!mathLoadPromise) {
+    mathLoadPromise = import('./markdown-math-plugins')
+      .then((plugins) => {
+        mathProcessor = buildProcessor(plugins);
+      })
+      .catch((error: unknown) => {
+        mathLoadPromise = null;
+        throw error;
+      });
+  }
+  return mathLoadPromise;
+}
+
+function runProcessor(processor: MarkdownProcessor, source: string): MarkdownAstRoot {
+  const parsed = processor.parse(source);
+  // The plugins place the text they make by the source (markdown-plugins).
+  const transformed = processor.runSync(parsed, source);
+  return normalizeAstNode(transformed, source) as MarkdownAstRoot;
+}
 
 export function parseMarkdownToHast(text: string): MarkdownAstRoot {
   const source = String(text ?? '');
-  const parsed = markdownProcessor.parse(source);
-  // The plugins place the text they make by the source (markdown-plugins).
-  const transformed = markdownProcessor.runSync(parsed, source) as SyntaxNode;
-  return normalizeAstNode(transformed, source) as MarkdownAstRoot;
+  const processor = mathProcessor && containsMarkdownMath(source) ? mathProcessor : baseProcessor;
+  return runProcessor(processor, source);
+}
+
+export async function parseMarkdownToHastAsync(text: string): Promise<MarkdownAstRoot> {
+  const source = String(text ?? '');
+  if (containsMarkdownMath(source) && !mathProcessor) {
+    await loadMarkdownMathSupport();
+  }
+  const processor = mathProcessor && containsMarkdownMath(source) ? mathProcessor : baseProcessor;
+  return runProcessor(processor, source);
 }

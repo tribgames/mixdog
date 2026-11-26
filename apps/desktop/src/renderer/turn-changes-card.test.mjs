@@ -754,6 +754,24 @@ test('a tool round’s turn record is the one its card reads: the checkpoint and
     { checkpointId: '', boundary: '' },
     'still running: no latest turn is inferred'
   );
+
+  // Pre-steer and post-steer tool rounds share the turn's checkpoint and final boundary.
+  const steeredItems = [
+    { kind: 'user', id: 'u1', checkpointId: 'cp-steer' },
+    { kind: 'tool', id: 't1' },
+    { kind: 'user', id: 'u2', steered: true },
+    { kind: 'tool', id: 't2' },
+    { kind: 'turndone', id: 'd1', checkpointId: 'cp-steer' },
+  ];
+  const steeredKeys = ['turn:u1', 'turn:u1', 'attempt:1', 'attempt:1', 'attempt:1'];
+  assert.deepEqual(turnRecordOf(steeredItems, steeredKeys, 'turn:u1'), {
+    checkpointId: 'cp-steer',
+    boundary: 'd1',
+  });
+  assert.deepEqual(turnRecordOf(steeredItems, steeredKeys, 'attempt:1'), {
+    checkpointId: 'cp-steer',
+    boundary: 'd1',
+  });
 });
 
 /** A turn's rows as the transcript lists them: its prompt, the calls that wrote `paths`, and the reply its card stands on. */
@@ -1040,4 +1058,19 @@ test('the read names another set of files than the records did: the card changes
     assert.equal(card?.dataset.read, 'stalled');
     assert.match(card.title, /still being recorded\. Click the card to read them again/);
   });
+});
+
+test('a reclosed trailing card stays held while running if its checkpoint never stood idle', async (t) => {
+  const view = await mountCard(t, {
+    reply: () => ready([file('a.ts')]),
+    surface: { turnRunning: true, trailingCheckpointShown: false },
+    turnChanges: { checkpointId: 'cp', boundary: 'd2', trailing: true, reclosed: true },
+  });
+  assert.equal(view.calls.length, 0, 'no read while continuous wake loop is still running');
+  assert.equal(view.q('.turn-changes-card'), null, 'no mid-loop flash for an unshown reclosed checkpoint');
+
+  // If the checkpoint had already stood while idle before a later wake, reclosed stays visible.
+  await view.render({ ...view.value, turnRunning: true, trailingCheckpointShown: true });
+  assert.equal(view.calls.length, 1);
+  assert.ok(view.q('.turn-changes-card'), 'a checkpoint that already stood idle stays visible');
 });

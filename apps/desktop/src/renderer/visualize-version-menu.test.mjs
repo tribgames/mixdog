@@ -77,7 +77,8 @@ test('the menu lists versions newest first, with Compare and no Restore while li
 
 test('a version step, Back to current and Compare the host refuses each show its reason as the panel’s notice', async () => {
   const notices = [];
-  const refusal = 'The running turn has changed or closed tab t1; the panel shows it as it was before. Try again when the turn ends.';
+  const refusal =
+    'The running turn has changed or closed tab t1; the panel shows it as it was before. Try again when the turn ends.';
   const m = await mount(
     { ...baseTab, version: 2, panes: [{ target: 'a.html', version: 2 }] },
     {
@@ -109,7 +110,10 @@ test('a tab of the running turn the user asked to see carries a mark in the pane
   const root = createRoot(document.getElementById('root'));
   try {
     const notices = [];
-    assert.equal(visualizeTurnWorkAction(baseTab, () => {}), null);
+    assert.equal(
+      visualizeTurnWorkAction(baseTab, () => {}),
+      null
+    );
     const action = visualizeTurnWorkAction({ ...baseTab, turnWork: true }, (notice) => notices.push(notice));
     await act(async () => root.render(React.createElement(DockHeaderRow, { left: 'x', actions: [action] })));
     const mark = document.querySelector('button[aria-label="In progress"]');
@@ -163,6 +167,84 @@ test('declining the restore confirm sends nothing; Back to current shows live', 
     assert.deepEqual(
       m.sent.map((c) => [c.action, c.version]),
       [['version', null]]
+    );
+  } finally {
+    await close(m);
+  }
+});
+
+test('1-version tab with liveUnkept exposes version menu and selects v1 instead of live', async () => {
+  const m = await mount({ ...baseTab, versions: [{ n: 1, at: 1000 }], version: null, liveUnkept: true });
+  try {
+    assert.ok(button(), 'version menu is shown when live is unkept even with 1 kept version');
+    await act(async () => button().click());
+    const list = items();
+    assert.deepEqual(
+      list.map((item) => item.querySelector('span:nth-child(2)').textContent),
+      ['Current version', 'v1', 'Compare']
+    );
+    assert.equal(list[0].getAttribute('aria-checked'), 'true');
+    assert.equal(list[1].getAttribute('aria-checked'), 'false');
+    await act(async () => list[1].click());
+    await act(async () => button().click());
+    await act(async () => items()[2].click());
+    await act(async () => button().click());
+    await act(async () => items()[0].click());
+    assert.deepEqual(
+      m.sent.map((c) => [c.action, c.version, c.compare ?? false]),
+      [
+        ['version', 1, false],
+        ['version', 1, true],
+        ['version', null, false],
+      ]
+    );
+  } finally {
+    await close(m);
+  }
+});
+
+test('multi-version tab with liveUnkept sends newest kept version number instead of null', async () => {
+  const m = await mount({ ...baseTab, version: null, liveUnkept: true });
+  try {
+    await act(async () => button().click());
+    const list = items();
+    assert.deepEqual(
+      list.map((item) => item.querySelector('span:nth-child(2)').textContent),
+      ['Current version', 'v3', 'v2', 'v1', 'Compare']
+    );
+    assert.equal(list[0].getAttribute('aria-checked'), 'true');
+    assert.equal(list[1].getAttribute('aria-checked'), 'false');
+    await act(async () => list[1].click());
+    assert.deepEqual(
+      m.sent.map((c) => [c.action, c.version]),
+      [['version', 3]]
+    );
+  } finally {
+    await close(m);
+  }
+});
+
+test('multi-version tab viewing v1 with liveUnkept lets user select v3 or return to live', async () => {
+  const m = await mount({
+    ...baseTab,
+    version: 1,
+    liveUnkept: true,
+    panes: [{ target: 'a.html', version: 1 }],
+  });
+  try {
+    await act(async () => button().click());
+    const list = items();
+    assert.equal(list[0].textContent, 'Back to current version');
+    assert.equal(list[1].querySelector('span:nth-child(2)').textContent, 'v3');
+    await act(async () => list[1].click());
+    await act(async () => button().click());
+    await act(async () => items()[0].click());
+    assert.deepEqual(
+      m.sent.map((c) => [c.action, c.version]),
+      [
+        ['version', 3],
+        ['version', null],
+      ]
     );
   } finally {
     await close(m);

@@ -1,8 +1,18 @@
 import type { RendererCacheName } from '../shared/renderer-cache';
 import type { TranscriptItem } from './desktop-types';
 import { profileCacheStorage } from './profile-cache-storage';
+import { isThreadDivider } from './transcript-primitives';
 import type { TranscriptRowModel } from './transcript-rows';
-import { TRANSCRIPT_ROW_ESTIMATE } from './transcript-virtual-cache';
+import {
+  TRANSCRIPT_AFTER_CHANGES_STEP_PX,
+  TRANSCRIPT_BAND_LEAD_PX,
+  TRANSCRIPT_COLLAPSED_TOOL_ROW_PX,
+  TRANSCRIPT_DIVIDER_STEP_PX,
+  TRANSCRIPT_LIVE_ASSISTANT_ROW_PX,
+  TRANSCRIPT_PART_STEP_PX,
+  TRANSCRIPT_ROW_ESTIMATE,
+  TRANSCRIPT_THINKING_ROW_PX,
+} from './transcript-virtual-cache';
 
 /** What paints the rows: a coding transcript, a bot's chat, or a group room
  *  (member speeches, a band that is empty between member turns). */
@@ -92,6 +102,49 @@ export function transcriptRowKind(row: TranscriptRowModel): string {
     default:
       return row._tag;
   }
+}
+
+/** Deterministic base prior when no row/shape height is learned yet (coding surface). */
+export function deterministicRowBasePrior(
+  row: TranscriptRowModel | undefined,
+  surface: TranscriptRowSurface = 'coding'
+): number | null {
+  if (!row || surface !== 'coding') return null;
+  if (row._tag === 'Thinking') return TRANSCRIPT_THINKING_ROW_PX;
+  if (row._tag === 'AssistantPart' && row.live === true) return TRANSCRIPT_LIVE_ASSISTANT_ROW_PX;
+  if (row._tag === 'ToolActivity') return TRANSCRIPT_COLLAPSED_TOOL_ROW_PX;
+  return null;
+}
+
+/** Deterministic initial height prior including neighbour band/step padding (coding surface). */
+export function transcriptRowInitialPrior(
+  rows: readonly TranscriptRowModel[],
+  index: number,
+  surface: TranscriptRowSurface = 'coding'
+): number | null {
+  const row = rows[index];
+  const base = deterministicRowBasePrior(row, surface);
+  if (base === null || !row) return null;
+  const before = index > 0 ? rows[index - 1] : undefined;
+  const previous = before?._tag;
+  const leadsBand = previous === 'AssistantPart' || previous === 'ToolActivity';
+  const partAbove = previous === 'AssistantPart' || previous === 'ToolActivity' || previous === 'Error';
+  const dividedAbove = before?._tag === 'AssistantPart' && isThreadDivider(before.item);
+  if (row._tag === 'Thinking') {
+    return base + (leadsBand ? TRANSCRIPT_BAND_LEAD_PX : 0);
+  }
+  const dividerStep = dividedAbove;
+  const stepBefore = !dividerStep && partAbove;
+  const afterChanges =
+    stepBefore && (before?._tag === 'AssistantPart' || before?._tag === 'Error') && Boolean(before.turnChanges);
+  const topPadding = dividerStep
+    ? TRANSCRIPT_DIVIDER_STEP_PX
+    : afterChanges
+      ? TRANSCRIPT_AFTER_CHANGES_STEP_PX
+      : stepBefore
+        ? TRANSCRIPT_PART_STEP_PX
+        : 0;
+  return base + topPadding;
 }
 
 /** Keys derived from an item id survive reloads; positional keys do not. */
@@ -198,12 +251,13 @@ export function createTranscriptRowHeightStore(
   };
   return {
     estimate(row, width, surface, variant) {
-      if (!row || !(width > 0)) return TRANSCRIPT_ROW_ESTIMATE;
+      if (!row || !(width > 0)) return deterministicRowBasePrior(row, surface) ?? TRANSCRIPT_ROW_ESTIMATE;
       const known = keys.get(keyAt(row, width, surface, variant));
       if (known !== undefined) return known;
       return (
         medians.get(shapeAt(row, width, surface, variant)) ??
         medians.get(kindAt(row, width, surface, variant)) ??
+        deterministicRowBasePrior(row, surface) ??
         TRANSCRIPT_ROW_ESTIMATE
       );
     },

@@ -334,15 +334,17 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) :is(.transcript-shell
   box-sizing: border-box;
   /* The row box is exactly the geometry the virtualizer believes in: content
      that has not settled yet is clipped instead of pushing its neighbours. */
-  background: var(--mx-workspace-sheet);
   overflow: clip;
-  /* The row already clips to its box and its parent sizer already contains
-     layout, so this only tells the engine what the geometry above promises:
-     a streaming row's reflow and repaint stop at its own box. */
-  contain: layout paint;
+  /* Isolate each row's layout and style work without size/paint containment so
+     virtualizer height measurement and sticky code headers stay intact. */
+  contain: layout style;
 }
 .transcript-virtual-row:has([data-transcript-pending]) {
   min-height: var(--transcript-measured-height, 0px);
+}
+.transcript-virtual-row:has(.live-activity-reasoning) {
+  overflow: visible;
+  z-index: 2;
 }
 /* Within a turn, parts use a compact measured step. Turn boundaries are their
    own rows, so no flex gap or negative margin can disagree with geometry. */
@@ -376,7 +378,7 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) :is(.transcript-shell
 .transcript-virtual-row-content[data-tag="AssistantPart"],
 .transcript-virtual-row-content[data-tag="ToolActivity"],
 .transcript-virtual-row-content[data-tag="Error"],
-.transcript-virtual-row-content[data-turn-end="true"] {
+.transcript-virtual-row-content[data-turn-end="true"]:not([data-tag="UserMessage"]) {
   padding-bottom: 0;
 }
 .transcript-virtual-row-content[data-step-before="true"] {

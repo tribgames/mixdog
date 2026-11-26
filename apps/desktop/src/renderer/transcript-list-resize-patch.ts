@@ -1,12 +1,14 @@
 import type { MutableRefObject } from 'react';
-import { useCallback, useLayoutEffect, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { takeParkedGrowthAbove } from './markdown-block-parking';
 import type { createTranscriptEndPin } from './transcript-end-pin';
 import { createHeldRowShrinks, type HeldRowShrinks } from './transcript-list-held-shrinks';
 import {
   captureReadingAnchor,
+  ceilRowHeight,
   rememberRowHeight,
   coreScrollState,
+  runOrBatchEndPin,
   shouldDeferTranscriptScrollAdjustment,
   type TranscriptVirtualizer,
   viewportSize,
@@ -77,7 +79,7 @@ export function createTranscriptWidthSync({
   endPin: { now(): void };
   anchorHold: ReadingAnchorState['anchorHold'];
   restoreReadingAnchor(landing?: boolean): void;
-}) {
+}): () => void {
   let syncedWidth = 0;
   return () => {
     const element = getViewport();
@@ -96,7 +98,7 @@ export function createTranscriptWidthSync({
     const mounted = [...spacer.children].filter(
       (row): row is HTMLElement => row instanceof HTMLElement && row.dataset.timelineKey !== undefined
     );
-    const sizes = mounted.map((row) => rememberRowHeight(row, Math.round(row.getBoundingClientRect().height)));
+    const sizes = mounted.map((row) => rememberRowHeight(row, ceilRowHeight(row.getBoundingClientRect().height)));
     let changed = false;
     suppressAdjustment.current = true;
     try {
@@ -181,7 +183,7 @@ function useWidthSyncRegistration({
   const widthSyncing = useRef(false);
   const latest = useRef({ virtualizer, endPin, indexForPendingKey, restoreReadingAnchor });
   latest.current = { virtualizer, endPin, indexForPendingKey, restoreReadingAnchor };
-  const widthSync = useRef<(() => void) | null>(null);
+  const widthSync = useRef<ReturnType<typeof createTranscriptWidthSync> | null>(null);
   widthSync.current ??= createTranscriptWidthSync({
     getViewport: () => viewport.current,
     getSpacer: () => spacer.current,
@@ -326,16 +328,86 @@ export function useVirtualizerResizePatch({
   const heldShrinks = useRef<HeldRowShrinks | null>(null);
   heldShrinks.current ??= createHeldRowShrinks();
   const held = heldShrinks.current;
+  const heldTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const heldObserver = useRef<MutationObserver | null>(null);
+  const heldObserved = useRef<Element[]>([]);
+  const clearHeldTimer = useCallback(() => {
+    if (heldTimer.current !== null) {
+      clearTimeout(heldTimer.current);
+      heldTimer.current = null;
+    }
+  }, []);
+  const clearHeldObserver = useCallback(() => {
+    heldObserver.current?.disconnect();
+    heldObserver.current = null;
+    heldObserved.current = [];
+  }, []);
+  const clearHeldWatchers = useCallback(() => {
+    clearHeldTimer();
+    clearHeldObserver();
+  }, [clearHeldTimer, clearHeldObserver]);
+  const scheduleHeldSettle = useCallback(() => {
+    const instance = patchedVirtualizer.current;
+    const Observer =
+      typeof MutationObserver === 'function'
+        ? MutationObserver
+        : typeof window !== 'undefined' && typeof window.MutationObserver === 'function'
+          ? window.MutationObserver
+          : null;
+    const reparsing = instance && Observer ? held.reparsingElements(instance) : [];
+    const sameObserved =
+      reparsing.length === heldObserved.current.length &&
+      reparsing.every((element, index) => element === heldObserved.current[index]);
+    if (!sameObserved) {
+      clearHeldObserver();
+      if (reparsing.length > 0 && Observer) {
+        const observer = new Observer(() => {
+          const current = patchedVirtualizer.current;
+          if (!current) return;
+          held.settle(current, current.resizeItem);
+          if (held.size === 0) clearHeldWatchers();
+          else scheduleHeldSettle();
+        });
+        for (const element of reparsing) {
+          observer.observe(element, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['data-transcript-pending', 'class'],
+          });
+        }
+        heldObserver.current = observer;
+        heldObserved.current = reparsing;
+      }
+    }
+    if (heldTimer.current !== null) return;
+    const delay = held.nextExpiryMs(instance ?? undefined);
+    if (delay === null) return;
+    heldTimer.current = setTimeout(
+      () => {
+        heldTimer.current = null;
+        const current = patchedVirtualizer.current;
+        if (!current) return;
+        held.settle(current, current.resizeItem);
+        if (held.size === 0) clearHeldWatchers();
+        else scheduleHeldSettle();
+      },
+      Math.max(16, delay)
+    );
+  }, [held, clearHeldObserver, clearHeldWatchers]);
   const settleHeldShrinks = useCallback(
     (force = false) => {
       const instance = patchedVirtualizer.current;
       if (instance) held.settle(instance, instance.resizeItem, force);
+      if (held.size === 0) clearHeldWatchers();
+      else scheduleHeldSettle();
     },
-    [held]
+    [held, clearHeldWatchers, scheduleHeldSettle]
   );
   useLayoutEffect(() => {
     settleHeldShrinks();
   });
+  useEffect(() => clearHeldWatchers, [clearHeldWatchers]);
   if (patchedVirtualizer.current !== virtualizer) {
     patchedVirtualizer.current = virtualizer;
     const resizeItem = virtualizer.resizeItem;
@@ -351,6 +423,7 @@ export function useVirtualizerResizePatch({
       if (
         measured &&
         !anchoredAbove &&
+        virtualizer.options.anchorTo !== 'end' &&
         shouldDeferTranscriptScrollAdjustment(hasScrollGestureRef.current()) &&
         // Above the reader at both sizes: a row whose old box still reached
         // into view is folding on screen and lands now, its top edge kept.
@@ -362,7 +435,10 @@ export function useVirtualizerResizePatch({
       }
       pendingResizes.current.delete(measured?.key ?? index);
       const previous = measured ? (virtualizer.itemSizeCache.get(measured.key) ?? measured.size) : undefined;
-      if (measured && held.hold(virtualizer, measured.key, size)) return;
+      if (measured && held.hold(virtualizer, measured.key, size)) {
+        scheduleHeldSettle();
+        return;
+      }
       if (transcriptScrollDiagnosticsEnabled() && previous !== undefined && Math.abs(size - previous) >= 4) {
         logTranscriptScroll('row-resize', {
           index,
@@ -373,13 +449,19 @@ export function useVirtualizerResizePatch({
           top: element ? element.scrollTop : -1,
         });
       }
-      if (element && previous !== undefined && Math.abs(size - previous) > viewportSize(virtualizer)) {
+      if (
+        element &&
+        virtualizer.options.anchorTo !== 'end' &&
+        previous !== undefined &&
+        Math.abs(size - previous) > viewportSize(virtualizer)
+      ) {
         pinVisibleRows(element, resizePinned, resizePinFrame);
       }
       resizeItem(index, size);
       if (measured) held.measured(virtualizer, measured.key, size);
+      if (held.size === 0) clearHeldWatchers();
       if (virtualizer.options.followOnAppend || virtualizer.options.anchorTo === 'end') {
-        endPin.request();
+        runOrBatchEndPin(virtualizer, () => endPin.now());
       } else if (anchoredAbove) {
         queueAnchorRestore();
       }

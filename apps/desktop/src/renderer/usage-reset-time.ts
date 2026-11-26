@@ -22,15 +22,19 @@ function usageResetDisplayState({
   resetAt,
   refreshedAt,
   verificationFailed,
+  verifying = false,
   now = Date.now(),
 }: {
   resetAt: number | null;
   refreshedAt: number;
   verificationFailed: boolean;
+  verifying?: boolean;
   now?: number;
 }): UsageResetDisplayState {
   if (resetAt === null || resetAt > now) return 'active';
-  if (verificationFailed || refreshedAt >= resetAt) return 'unknown';
+  if (verificationFailed) return 'unknown';
+  if (verifying) return 'assumed-reset';
+  if (refreshedAt >= resetAt) return 'unknown';
   return 'assumed-reset';
 }
 
@@ -39,18 +43,21 @@ export function usageResetPresentation({
   resetAt,
   refreshedAt,
   verificationFailed,
+  verifying = false,
   now = Date.now(),
 }: {
   percent: number | null;
   resetAt: number | null;
   refreshedAt: number;
   verificationFailed: boolean;
+  verifying?: boolean;
   now?: number;
 }): { percent: number | null; resetTextOverride: '—' | null } {
   const state = usageResetDisplayState({
     resetAt,
     refreshedAt,
     verificationFailed,
+    verifying,
     now,
   });
   if (state === 'assumed-reset') return { percent: 0, resetTextOverride: '—' };
@@ -58,14 +65,10 @@ export function usageResetPresentation({
   return { percent, resetTextOverride: null };
 }
 
-export function nextUsageResetVerificationAt(
-  resetAts: readonly number[],
-  refreshedAt: number,
-  failedResetAts: ReadonlySet<number>
-): number | null {
+export function nextUsageResetVerificationAt(resetAts: readonly number[], now = Date.now()): number | null {
   let next: number | null = null;
   for (const resetAt of resetAts) {
-    if (!Number.isFinite(resetAt) || resetAt <= refreshedAt || failedResetAts.has(resetAt)) continue;
+    if (!Number.isFinite(resetAt) || resetAt <= now) continue;
     if (next === null || resetAt < next) next = resetAt;
   }
   return next;

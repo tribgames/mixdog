@@ -70,7 +70,7 @@ const HARNESS = `
     const scrollToEndRef = useRef(noop), setAnchorBottomRef = useRef(noop);
     const follow = useTranscriptFollow({ viewport, content, sessionKey: sessionId, scrollToEndRef, setAnchorBottomRef });
     pane.follow = follow;
-    const { transcriptRows, settledTurnKeys, turnPastEnd, pastLastEnd } = useTranscriptRows({
+    const { transcriptRows, settledTurnKeys, turnPastEnd, pastLastEnd, trailingCheckpointShown } = useTranscriptRows({
       identity: sessionId, sessionKey: sessionId, settledItems: items, settledRowItems: items, failedTurnKeys,
       precomputedTurnKeys: null, pendingItems: [], steerItems, liveItem, busy, commandBusy,
       commandActivityVisible: activityAt > 0, commandActivityStartedAt: activityAt, optimisticActivityStartedAt: 0,
@@ -78,6 +78,7 @@ const HARNESS = `
     const links = useConversationLinkSurfaces({}, {
       turnChangesSessionId: sessionId, turnChangesBusy: busy,
       turnChangesRunning: trailingTurnRuns(busy, 0, pastLastEnd),
+      trailingCheckpointShown,
       runningTurnKey: trailingTurnRuns(busy, 0, turnPastEnd)
         ? runningTurnKeyOf(items, settledTurnKeys, settledTurnKeys.at(-1) ?? '') : '',
     });

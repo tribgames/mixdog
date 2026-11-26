@@ -24,6 +24,11 @@ export type PendingPromptItem = TranscriptItem & {
   /** Submitted from this pane, not (or no longer) in the session runtime's
    *  queue, its row not landed yet. */
   steerLocal?: boolean;
+  /** Snapshot revision and non-authoritative state captured synchronously when
+   *  the host accepted this submit, so a restore/snapshot batched into the same
+   *  React commit cannot be mistaken for a pre-accept baseline. */
+  acceptedSnapshotRevision?: string | number | null;
+  acceptedWhileRestoring?: boolean;
 };
 
 /** The bubble text of a prompt sent from this pane. Attachments are never
@@ -95,13 +100,13 @@ export function pendingPromptTranscriptItems(
   const rows: PendingPromptItem[] = [];
   const ordered = [...byId.values()].sort((left, right) => left.submittedAt - right.submittedAt);
   for (const item of ordered) {
+    if (settledIds.has(String(item.id))) continue;
     // A message that could not be sent has no durable row to wait for: it
     // stays until it is sent again or cancelled.
     if (item.steer === 'failed') {
       rows.push(item);
       continue;
     }
-    if (settledIds.has(String(item.id))) continue;
     rows.push({ ...item, pending: true });
   }
   return rows;

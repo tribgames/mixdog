@@ -902,6 +902,7 @@ export default function RemoteBrowserPane({
           <BrowserPagePrompts
             key={`${frame.documentId}:${frame.dialog.id}`}
             frame={frame}
+            active={active && !importOpen}
             control={async (action) => {
               if (action.type === 'answer-dialog') await control({ ...action, documentId: frame.documentId });
             }}

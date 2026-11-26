@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setHistoryPositions } from '../../../../packages/protocol-client/src/rows.ts';
+import { _runIdleReclaimForTest } from './idle-reclaim.ts';
+import { registerBudgetedCache } from './renderer-cache-budget.ts';
 import { createSessionLaneStore, HIDDEN_SESSION_ROW_BUDGET } from './session-lane-store.ts';
 import {
   holdsReaderTop,
@@ -106,4 +108,175 @@ test('rows of sessions no pane shows are kept for an entry at their end: none wi
   assert.equal(store.get('shown').items.length, 900);
   off();
   keepReaderPlaces(tabs({}));
+});
+
+test('idle reclaim uses bounded sweepHidden (keeping tabbed tails under budget, trimming apart views, evicting untabbed lanes and ended markers) and growing positioned views enforce the shared budget', () => {
+  const prevWindow = globalThis.window;
+  const prevDocument = globalThis.document;
+  const idleCallbacks = new Map();
+  let nextIdleId = 1;
+  const flushIdle = () => {
+    for (const [id, callback] of [...idleCallbacks.entries()]) {
+      idleCallbacks.delete(id);
+      callback();
+    }
+  };
+  globalThis.window = {
+    setInterval: () => 1,
+    clearInterval: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    requestIdleCallback: (callback) => {
+      const id = nextIdleId++;
+      idleCallbacks.set(id, callback);
+      return id;
+    },
+    cancelIdleCallback: (id) => {
+      idleCallbacks.delete(id);
+    },
+  };
+  globalThis.document = {
+    visibilityState: 'visible',
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  };
+  let charsProbes = 0;
+  let trimCalls = 0;
+  let fakeBudgetChars = 25 * 1024 * 1024;
+  const unregisterFake = registerBudgetedCache({
+    name: 'test-positioned-view-budget-probe',
+    chars() {
+      charsProbes += 1;
+      return fakeBudgetChars;
+    },
+    trim(target) {
+      trimCalls += 1;
+      fakeBudgetChars = Math.min(fakeBudgetChars, target);
+    },
+  });
+  const store = createSessionLaneStore({ budget: true });
+  const stop = store.start(() => () => {});
+  try {
+    // 1. Growing transcriptViews/transcriptViewItems on a subscribed lane refreshes bytes and enforces budget.
+    const stableItems = rows(10);
+    const offShown = store.subscribe('shown-views', () => {});
+    store.setShownSessionIds(['shown-views']);
+    store.apply({
+      sessionId: 'shown-views',
+      snapshot: { sessionId: 'shown-views', items: stableItems },
+      frameSource: 'live',
+    });
+    const bytesBefore = store.stats().estimatedBytes;
+    const beforeTrimCalls = trimCalls;
+    fakeBudgetChars = 25 * 1024 * 1024;
+    const heavyViewItems = Array.from({ length: 20 }, (_, i) => ({
+      id: `old-${i}`,
+      kind: 'assistant',
+      text: 'V'.repeat(20_000),
+    }));
+    store.apply({
+      sessionId: 'shown-views',
+      snapshot: {
+        sessionId: 'shown-views',
+        items: stableItems,
+        transcriptViewItems: heavyViewItems,
+        transcriptViews: [{ items: heavyViewItems }],
+      },
+      frameSource: 'live',
+    });
+    assert.ok(store.stats().estimatedBytes > bytesBefore, 'positioned view growth updates lane byte accounting');
+    assert.equal(trimCalls, beforeTrimCalls, 'budget enforcement stays off the synchronous frame commit path');
+    flushIdle();
+    assert.ok(trimCalls > beforeTrimCalls, 'growing positioned views enforces the shared renderer cache budget');
+
+    // 1b. Streaming token frames on a subscribed lane do not probe budgeted caches on every token.
+    const streamItems = [...stableItems, { id: 'stream-1', kind: 'assistant', text: 'tok', streaming: true }];
+    store.apply({
+      sessionId: 'shown-views',
+      snapshot: {
+        sessionId: 'shown-views',
+        items: streamItems,
+        streamingTail: { itemId: 'stream-1', text: 'tok' },
+      },
+      frameSource: 'live',
+    });
+    flushIdle();
+    const probesBeforeStream = charsProbes;
+    const trimsBeforeStream = trimCalls;
+    fakeBudgetChars = 25 * 1024 * 1024;
+    for (let step = 1; step <= 20; step += 1) {
+      store.apply({
+        sessionId: 'shown-views',
+        snapshot: {
+          sessionId: 'shown-views',
+          items: [
+            ...stableItems,
+            { id: 'stream-1', kind: 'assistant', text: `tok ${'x'.repeat(step * 40)}`, streaming: true },
+          ],
+          streamingTail: { itemId: 'stream-1', text: `tok ${'x'.repeat(step * 40)}` },
+        },
+        frameSource: 'live',
+      });
+    }
+    flushIdle();
+    assert.equal(charsProbes, probesBeforeStream, 'streaming token frames do not probe budgeted caches per frame');
+    assert.equal(trimCalls, trimsBeforeStream, 'streaming token frames do not trigger budget trims per frame');
+    // Ending streaming enforces the budget once.
+    store.apply({
+      sessionId: 'shown-views',
+      snapshot: {
+        sessionId: 'shown-views',
+        items: [...stableItems, { id: 'stream-1', kind: 'assistant', text: 'final', streaming: false }],
+      },
+      frameSource: 'live',
+    });
+    flushIdle();
+    assert.ok(trimCalls > trimsBeforeStream, 'ending streaming enforces the shared budget');
+
+    // 2. Idle reclaim runs bounded sweepHidden: recently viewed tabbed tails stay instant (apart views trimmed),
+    // while untabbed/oversized hidden lanes are evicted with their positions and ended markers pruned.
+    keepReaderPlaces(tabs({ one: ['hidden-tab', 'shown-views'] }));
+    fakeBudgetChars = 0;
+    store.apply({
+      ...positioned('hidden-tab', rows(100), {
+        transcriptViewItems: rows(20, 500),
+        transcriptViews: [{ items: rows(20, 500) }],
+      }),
+      streamPosition: { epoch: 1, seq: 42, order: 0 },
+    });
+    store.apply({
+      ...positioned('untabbed', rows(40)),
+      streamPosition: { epoch: 1, seq: 9, order: 0 },
+    });
+    assert.deepEqual(store.streamPosition('hidden-tab'), { epoch: 1, seq: 42, order: 0 });
+    assert.deepEqual(store.streamPosition('untabbed'), { epoch: 1, seq: 9, order: 0 });
+
+    store.apply({ sessionId: 'ended-unshown', laneEnd: 'gone' });
+    assert.equal(store.sessionEnded('ended-unshown'), true);
+
+    _runIdleReclaimForTest();
+    assert.equal(
+      store.get('hidden-tab')?.items.length,
+      100,
+      'bounded idle reclaim keeps tabbed tail for instant revisit'
+    );
+    assert.deepEqual(
+      store.get('hidden-tab')?.transcriptViews,
+      [],
+      'apart positioned views are trimmed on idle reclaim'
+    );
+    assert.equal(store.get('untabbed'), null, 'untabbed hidden lane is evicted on idle reclaim');
+    assert.equal(store.streamPosition('untabbed'), null, 'positions are pruned when a lane is let go');
+    assert.equal(store.sessionEnded('ended-unshown'), false, 'ended is pruned for unkept lanes on reclaim');
+    assert.equal(store.get('shown-views')?.items.length, 11, 'shown lane remains pinned through idle reclaim');
+
+    offShown();
+  } finally {
+    stop();
+    unregisterFake();
+    store.clear();
+    keepReaderPlaces(tabs({}));
+    globalThis.window = prevWindow;
+    globalThis.document = prevDocument;
+  }
 });

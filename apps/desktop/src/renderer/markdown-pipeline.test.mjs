@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
 import { installTestDom } from './test-support/test-dom.mjs';
 
-import { parseMarkdownToHast } from './markdown-ast';
+import { loadMarkdownMathSupport, parseMarkdownToHast } from './markdown-ast';
 import { parseStreamingMarkdownAst, preloadSyncMarkdownParser } from './markdown-worker-client';
 import MarkdownBody from './MarkdownBody';
 import MarkdownAstBody from './MarkdownAstBody';
@@ -242,7 +242,8 @@ test('a streaming tail never shows syntax that is about to become something else
   assert.equal(heal('Intro\n2. T'), 'Intro\n2. T');
 });
 
-test('an unclosed $$ block streams as pending math, never as healed prose', () => {
+test('an unclosed $$ block streams as pending math, never as healed prose', async () => {
+  await loadMarkdownMathSupport();
   const heal = (text) => healStreamingMarkdownTail(text);
   const open = 'So:\n\n$$\n\\mathbb{R}_{+} \\times c_{j} * d^{*}';
   // Whole lines only, and no emphasis closer inside the math.
@@ -278,7 +279,8 @@ test('an unclosed $$ block streams as pending math, never as healed prose', () =
   assert.ok(shown);
 });
 
-test('math spans and blocks mask exactly what the settled renderer reads as math', () => {
+test('math spans and blocks mask exactly what the settled renderer reads as math', async () => {
+  await loadMarkdownMathSupport();
   const markup = (text) =>
     renderToStaticMarkup(
       React.createElement(MarkdownAstBody, { root: parseMarkdownToHast(text), copyControl: CopyControl })
@@ -300,7 +302,8 @@ test('math spans and blocks mask exactly what the settled renderer reads as math
   assert.equal(healStreamingMarkdownTail(banner), `${banner}**`);
 });
 
-test('open environments, groups and \\left in streaming math never paint an error frame', () => {
+test('open environments, groups and \\left in streaming math never paint an error frame', async () => {
+  await loadMarkdownMathSupport();
   const render = (text) =>
     new JSDOM(
       renderToStaticMarkup(

@@ -55,6 +55,8 @@ export type TurnChangesSurface = {
    *  not been idle since, and nothing is past that end): the trailing card
    *  is its own and stays hidden. */
   turnRunning: boolean;
+  /** Whether the trailing card's checkpoint has already stood while the session was idle. */
+  trailingCheckpointShown?: boolean;
   /** Opens the pane's session diff (the composer files segment's route). */
   onOpenSessionDiff?: () => void;
   onOpenFile?: (project: string, rel: string) => void;
@@ -457,7 +459,11 @@ function TurnChangesCardBody({
   visualized?: readonly string[];
 } & TurnChangesRef) {
   const { sessionId } = surface;
-  const running = turnCardHeld({ checkpointId, boundary, trailing, reclosed }, surface.turnRunning);
+  const running = turnCardHeld(
+    { checkpointId, boundary, trailing, reclosed },
+    surface.turnRunning,
+    surface.trailingCheckpointShown
+  );
   const {
     reply: read,
     reading,
@@ -744,7 +750,11 @@ function TurnChangesUndoBody({
   visualized,
 }: { surface: TurnChangesSurface; visualized: readonly string[] } & TurnChangesRef) {
   const { sessionId } = surface;
-  const running = turnCardHeld({ checkpointId, boundary, trailing, reclosed }, surface.turnRunning);
+  const running = turnCardHeld(
+    { checkpointId, boundary, trailing, reclosed },
+    surface.turnRunning,
+    surface.trailingCheckpointShown
+  );
   const { reply, adopt, invalidate } = useTurnChanges({ sessionId, checkpointId, boundary, enabled: !running });
   const mutation = useTurnChangesMutation({ sessionId, checkpointId, busy: surface.busy, adopt, invalidate });
   const { error, setError } = mutation;

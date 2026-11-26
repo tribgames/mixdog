@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
+import type { VisualizeTabView } from '../shared/visualize';
 import {
   sameRect,
   type VisualizeFeedbackRect,
@@ -191,6 +192,30 @@ export function releaseVisualizeProposals(sessionId: string, tabId?: string, fro
   };
   for (const key of [...proposedAt.keys()]) if (owned(key)) proposedAt.delete(key);
   const kept = new Map([...proposals].filter(([key]) => !owned(key)));
+  if (kept.size === proposals.size) return;
+  proposals = kept;
+  emitProposals();
+}
+
+/** Reconcile a session's choice proposals against its surviving `tabs`: drops
+ *  any tab absent from `tabs` and any pane index `>= tab.panes.length`. */
+export function pruneVisualizeProposals(
+  sessionId: string,
+  tabs: readonly Pick<VisualizeTabView, 'id' | 'panes'>[]
+): void {
+  if (!tabs.length) {
+    releaseVisualizeProposals(sessionId);
+    return;
+  }
+  const paneCounts = new Map(tabs.map((tab) => [tab.id, tab.panes.length]));
+  const stale = (key: string): boolean => {
+    const [session, tab, pane] = key.split('\0');
+    if (session !== sessionId) return false;
+    const count = paneCounts.get(tab);
+    return count === undefined || Number(pane) >= count;
+  };
+  for (const key of [...proposedAt.keys()]) if (stale(key)) proposedAt.delete(key);
+  const kept = new Map([...proposals].filter(([key]) => !stale(key)));
   if (kept.size === proposals.size) return;
   proposals = kept;
   emitProposals();

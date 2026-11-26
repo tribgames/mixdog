@@ -1,3 +1,5 @@
+import { desktopAgentIdentity } from '../shared/agent-activity';
+import type { DesktopAgentPoolRow } from '../shared/contract';
 import {
   PANE_DOCK_BROWSER_SURFACE,
   PANE_DOCK_DIFF_SURFACE,
@@ -194,6 +196,170 @@ export function agentSessionPanelsShown(
 ): ReadonlyMap<string, AgentSessionPanelTarget> {
   if (![...current.values()].some((target) => tabSessionIds.has(target.sessionId))) return current;
   return new Map([...current].filter(([, target]) => !tabSessionIds.has(target.sessionId)));
+}
+
+/** The `(scopeSessionId, tag)` identity of an open panel target's sub-agent
+ *  session (`scopeSessionId` is `parentSessionId || ownerSessionId`, matching
+ *  backend tag scope), remembered so a closed session removed from the pool
+ *  can still follow a respawned session on the same tag. `pinned` is set when
+ *  a historical `released: true` session was already superseded on first sight. */
+export type AgentSessionPanelIdentity = {
+  scopeSessionId: string;
+  tag: string;
+  at: number;
+  pinned?: boolean;
+};
+
+function poolRowStamp(row: DesktopAgentPoolRow): number {
+  const parse = (value: unknown): number => {
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+    const text = String(value || '').trim();
+    if (!text) return 0;
+    if (/^\d+(?:\.\d+)?$/.test(text)) {
+      const numeric = Number(text);
+      if (Number.isFinite(numeric) && numeric > 0) return numeric;
+    }
+    const parsed = Date.parse(text);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  };
+  return parse(row.createdAt) || parse(row.startedAt) || 0;
+}
+
+function poolRowIdentity(row: DesktopAgentPoolRow): AgentSessionPanelIdentity | null {
+  const sessionId = String(row.sessionId || '').trim();
+  const parentSessionId = String(row.parentSessionId || '').trim();
+  const ownerSessionId = String(row.ownerSessionId || '').trim();
+  const scopeSessionId = (parentSessionId && parentSessionId !== sessionId ? parentSessionId : '') || ownerSessionId;
+  const tag = desktopAgentIdentity(row);
+  if (!sessionId || !scopeSessionId || !tag || sessionId === scopeSessionId) return null;
+  if (
+    String(row.agent || '')
+      .trim()
+      .toLowerCase() === 'lead'
+  )
+    return null;
+  return { scopeSessionId, tag, at: poolRowStamp(row) };
+}
+
+function scopeTagKey(identity: Pick<AgentSessionPanelIdentity, 'scopeSessionId' | 'tag'>): string {
+  return `${identity.scopeSessionId}\0${identity.tag}`;
+}
+
+function supersedes(oldAt: number, candidateAt: number): boolean {
+  return !(oldAt > 0 && candidateAt > 0 && candidateAt < oldAt);
+}
+
+function latestLiveByScopeTag(
+  pool: readonly DesktopAgentPoolRow[]
+): Map<string, { row: DesktopAgentPoolRow; sessionId: string; at: number }> {
+  const latest = new Map<string, { row: DesktopAgentPoolRow; sessionId: string; at: number }>();
+  for (const row of pool) {
+    if (row.released === true) continue;
+    const sessionId = String(row.sessionId || '').trim();
+    if (!sessionId) continue;
+    const identity = poolRowIdentity(row);
+    if (!identity) continue;
+    const key = scopeTagKey(identity);
+    const existing = latest.get(key);
+    if (!existing || (identity.at > 0 ? identity.at >= existing.at : existing.at === 0)) {
+      latest.set(key, { row, sessionId, at: identity.at });
+    }
+  }
+  return latest;
+}
+
+function agentPanelTargetTitle(row: DesktopAgentPoolRow, fallback: string): string {
+  const tag = String(row.tag || '').trim();
+  const sessionTitle = String(row.title || '').trim();
+  if (tag && tag.toLowerCase() !== sessionTitle.toLowerCase()) {
+    return [sessionTitle, tag].filter(Boolean).join(' · ');
+  }
+  return sessionTitle || tag || fallback;
+}
+
+/** Records the `(scopeSessionId, tag, at)` of any open panel target present in
+ *  `pool`. A target first observed while already `released: true` and already
+ *  superseded by a newer live session on the same `(scopeSessionId, tag)` is
+ *  marked `pinned: true` so explicitly opening a historical row stays on it. */
+export function recordAgentSessionPanelIdentities(
+  identities: Map<string, AgentSessionPanelIdentity>,
+  panels: ReadonlyMap<string, AgentSessionPanelTarget>,
+  pool: readonly DesktopAgentPoolRow[]
+): void {
+  if (panels.size === 0 || pool.length === 0) return;
+  const targets = new Set([...panels.values()].map((target) => target.sessionId));
+  let latestByTag: Map<string, { row: DesktopAgentPoolRow; sessionId: string; at: number }> | null = null;
+  for (const row of pool) {
+    const sessionId = String(row.sessionId || '').trim();
+    if (!sessionId || !targets.has(sessionId)) continue;
+    const identity = poolRowIdentity(row);
+    if (!identity) continue;
+    const prior = identities.get(sessionId);
+    if (!prior) {
+      let pinned = false;
+      if (row.released === true) {
+        latestByTag ??= latestLiveByScopeTag(pool);
+        const replacement = latestByTag.get(scopeTagKey(identity));
+        pinned = Boolean(replacement && replacement.sessionId !== sessionId && supersedes(identity.at, replacement.at));
+      }
+      identities.set(sessionId, pinned ? { ...identity, pinned: true } : identity);
+    } else if (identity.at > 0 && (prior.at === 0 || identity.at < prior.at)) {
+      identities.set(sessionId, { ...prior, at: identity.at });
+    }
+  }
+}
+
+/** Updates any open `agent-session` panel whose target session was closed
+ *  (`released: true` or removed from the pool after its `(scopeSessionId, tag)`
+ *  was observed) and superseded by a newer non-released session for the same
+ *  `(scopeSessionId, tag)` not already hosted in another panel or open as a
+ *  tab. Explicitly opened historical sessions (`pinned: true`) stay put. */
+export function supersededAgentSessionPanels(
+  current: ReadonlyMap<string, AgentSessionPanelTarget>,
+  pool: readonly DesktopAgentPoolRow[],
+  identities: ReadonlyMap<string, AgentSessionPanelIdentity>,
+  claimedSessionIds?: ReadonlySet<string>
+): ReadonlyMap<string, AgentSessionPanelTarget> {
+  if (current.size === 0 || pool.length === 0) return current;
+  const bySession = new Map<string, DesktopAgentPoolRow>();
+  for (const row of pool) {
+    const sessionId = String(row.sessionId || '').trim();
+    if (sessionId) bySession.set(sessionId, row);
+  }
+  const latestByTag = latestLiveByScopeTag(pool);
+  const claimed = new Set<string>(claimedSessionIds);
+  for (const target of current.values()) claimed.add(target.sessionId);
+  let next = current;
+  for (const [host, target] of current) {
+    const remembered = identities.get(target.sessionId);
+    if (remembered?.pinned) continue;
+    const oldRow = bySession.get(target.sessionId);
+    if (oldRow && oldRow.released !== true) continue;
+    const rowIdentity = oldRow ? poolRowIdentity(oldRow) : null;
+    const identity =
+      rowIdentity && remembered
+        ? {
+            ...rowIdentity,
+            at:
+              rowIdentity.at > 0 && remembered.at > 0
+                ? Math.min(rowIdentity.at, remembered.at)
+                : rowIdentity.at || remembered.at,
+          }
+        : (rowIdentity ?? remembered ?? null);
+    if (!identity) continue;
+    const replacement = latestByTag.get(scopeTagKey(identity));
+    if (!replacement || replacement.sessionId === target.sessionId) continue;
+    if (!supersedes(identity.at, replacement.at)) continue;
+    // One host per sub-agent session: never steal a session already hosted elsewhere or open in a tab.
+    if (claimed.has(replacement.sessionId)) continue;
+    claimed.delete(target.sessionId);
+    claimed.add(replacement.sessionId);
+    next = withAgentSessionPanel(next, host, {
+      sessionId: replacement.sessionId,
+      title: agentPanelTargetTitle(replacement.row, target.title),
+    });
+  }
+  return next;
 }
 
 /** `view` when the tab's own right-side groups (paneRightGroupsFor) hold it,

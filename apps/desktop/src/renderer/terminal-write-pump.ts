@@ -1,6 +1,7 @@
 interface PendingTerminalWrite {
   id: string;
   data: string;
+  gen?: number;
   acknowledge: boolean;
   queuedAt: number;
   before?: () => void;
@@ -26,22 +27,23 @@ export class TerminalWritePump {
 
   constructor(
     private readonly write: (data: string, complete: () => void) => void,
-    private readonly acknowledge: (id: string, charCount: number) => void,
+    private readonly acknowledge: (id: string, charCount: number, gen?: number) => void,
     private readonly now: () => number = () => performance.now(),
     private readonly maxInFlightChars = 64 * 1024
   ) {}
 
-  push(id: string, data: string): void {
+  push(id: string, data: string, gen?: number): void {
     const terminalId = String(id || '');
     const value = String(data || '');
     if (this.disposed || !terminalId || !value) return;
     const tail = this.pending.at(-1);
-    if (tail?.acknowledge && tail.id === terminalId && !tail.resolve) {
+    if (tail?.acknowledge && tail.id === terminalId && tail.gen === gen && !tail.resolve) {
       tail.data += value;
     } else {
       this.pending.push({
         id: terminalId,
         data: value,
+        ...(gen !== undefined ? { gen } : {}),
         acknowledge: true,
         queuedAt: this.now(),
       });
@@ -93,7 +95,7 @@ export class TerminalWritePump {
     this.inFlightChars = 0;
     this.pending.length = 0;
     for (const item of abandoned) {
-      if (item.acknowledge) this.acknowledge(item.id, item.data.length);
+      if (item.acknowledge) this.acknowledge(item.id, item.data.length, item.gen);
       item.resolve?.();
     }
   }
@@ -121,7 +123,7 @@ export class TerminalWritePump {
             this.totalQueueMs += queuedMs;
             this.maxQueueMs = Math.max(this.maxQueueMs, queuedMs);
             this.totalCommitMs += Math.max(0, this.now() - submittedAt);
-            this.acknowledge(item.id, item.data.length);
+            this.acknowledge(item.id, item.data.length, item.gen);
           }
           item.resolve?.();
           this.drain();

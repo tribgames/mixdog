@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { nextComposerSubmissionId } from './composer-draft';
 import { useConversationPaneComposerActions } from './conversation-pane-composer-actions';
 import type { ConversationProps } from './conversation-pane-props';
 import { promptWaitsBehindActiveTurn, type PendingPromptItem } from './conversation-prompt-items';
 import { useConversationComposerActions } from './conversation-support';
 import type { TranscriptItem } from './desktop-types';
+import { defaultSessionLaneStore } from './session-lane-store';
 import { useConversationPendingPrompts } from './use-conversation-pending-prompts';
 
 export type ConversationSubmission = ReturnType<typeof useConversationSubmission>;
@@ -77,6 +78,63 @@ export function useConversationSubmission(
     routeSnapshot: pane.routeSnapshot,
     onInheritSession: pane.onInheritSession,
   });
+  const subscribeLane = useCallback(
+    (listener: () => void) => {
+      if (!shownSessionId) return () => {};
+      const offLane = defaultSessionLaneStore.subscribe(shownSessionId, listener);
+      const offPosition = defaultSessionLaneStore.subscribeStreamPosition(shownSessionId, listener);
+      return () => {
+        offLane();
+        offPosition();
+      };
+    },
+    [shownSessionId]
+  );
+  const laneMarker = useSyncExternalStore(subscribeLane, () => {
+    if (!shownSessionId) return '';
+    const laneSnap = defaultSessionLaneStore.get(shownSessionId);
+    const isRestoring = laneSnap?.restoreOwed === true || laneSnap?.replayPending === true ? '1' : '0';
+    const epoch = defaultSessionLaneStore.streamPosition(shownSessionId)?.epoch ?? '';
+    return `${isRestoring}:${epoch}`;
+  });
+  const restoring =
+    laneMarker.startsWith('1:') || pane.snapshot.restoreOwed === true || pane.snapshot.replayPending === true;
+  const streamEpoch = laneMarker ? laneMarker.slice(2) : '';
+  const laneProgressRef = useRef({
+    scope: transcriptSessionKey,
+    wasRestoring: restoring,
+    restoreGeneration: 0,
+    lastEpoch: streamEpoch,
+    epochGeneration: 0,
+  });
+  if (laneProgressRef.current.scope !== transcriptSessionKey) {
+    laneProgressRef.current = {
+      scope: transcriptSessionKey,
+      wasRestoring: restoring,
+      restoreGeneration: 0,
+      lastEpoch: streamEpoch,
+      epochGeneration: 0,
+    };
+  } else {
+    if (laneProgressRef.current.wasRestoring && !restoring) {
+      laneProgressRef.current.restoreGeneration += 1;
+    }
+    laneProgressRef.current.wasRestoring = restoring;
+    if (streamEpoch) {
+      if (laneProgressRef.current.lastEpoch && laneProgressRef.current.lastEpoch !== streamEpoch) {
+        laneProgressRef.current.epochGeneration += 1;
+      }
+      laneProgressRef.current.lastEpoch = streamEpoch;
+    }
+  }
+  const transcriptGeneration =
+    typeof pane.snapshot.transcriptGeneration === 'number' ? pane.snapshot.transcriptGeneration : 0;
+  const authoritativeSnapshotRevision =
+    typeof pane.snapshot.snapshotRevision === 'number' ? pane.snapshot.snapshotRevision : 0;
+  const snapshotRevision = `${authoritativeSnapshotRevision}:${laneProgressRef.current.restoreGeneration}:${laneProgressRef.current.epochGeneration}:${transcriptGeneration}`;
+  const commandActive =
+    Boolean(pane.snapshot.commandBusy) ||
+    (pane.snapshot.commandStatus != null && pane.snapshot.commandStatus.active !== false);
   // A prompt sent behind an active turn is a steering message the turn reads
   // at its next step boundary. An idle submit — including a draft's first
   // prompt, whose atomic RPC spans session materialization — starts a turn.
@@ -86,9 +144,16 @@ export function useConversationSubmission(
     optimisticPrompts,
     setOptimisticPrompts,
     settledItems,
-    queued: pane.snapshot.queued,
+    queued: Array.isArray(pane.snapshot.queued) ? pane.snapshot.queued : [],
     transcriptSessionKey,
     promotedOwnDraft,
+    busy: Boolean(pane.snapshot.busy),
+    compacting: commandActive,
+    hasOlder: pane.snapshot.transcriptHasOlder === true || pane.snapshot.transcriptHistory === 'older',
+    turnId: typeof pane.snapshot.turnId === 'string' ? pane.snapshot.turnId : '',
+    snapshotRevision,
+    snapshotPreview: pane.snapshot.transcriptPreview === true,
+    restoring,
   });
   // Submit re-arms follow. The new row is an append, so virtual-core's
   // followOnAppend is the only end write.
@@ -98,7 +163,18 @@ export function useConversationSubmission(
     resetTranscriptToLive();
     armFollow();
   };
+  const acceptSnapshotContextRef = useRef({
+    snapshotRevision,
+    restoring,
+    snapshotPreview: pane.snapshot.transcriptPreview === true,
+  });
+  acceptSnapshotContextRef.current = {
+    snapshotRevision,
+    restoring,
+    snapshotPreview: pane.snapshot.transcriptPreview === true,
+  };
   const actions = useConversationComposerActions({
+    acceptSnapshotContextRef,
     armFollowOnSubmitRef,
     composerActions,
     draftModeRef,

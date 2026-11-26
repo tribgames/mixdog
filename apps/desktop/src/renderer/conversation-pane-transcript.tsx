@@ -21,6 +21,7 @@ import {
   TurnRowsContext,
   type TurnChangesSurface,
 } from './TurnChangesCard';
+import { TrailingTurnKeyContext, trailingOpenTurnKey } from './transcript-visualize-card';
 import type { ConversationTimeline } from './use-conversation-timeline';
 import type { ConversationTranscriptSource } from './use-conversation-transcript-source';
 import type { ConversationViewport } from './use-conversation-viewport';
@@ -100,6 +101,7 @@ function TranscriptRowContexts({
   const shownRows = useRef(rows);
   shownRows.current = rows;
   const rowsOf = useCallback(() => shownRows.current, []);
+  const trailingTurnKey = useMemo(() => trailingOpenTurnKey(rows), [rows]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: one set per session shown
   const withheldCards = useMemo(() => new Set<string>(), [sessionId]);
   const room = useAgentRoom(sessionId);
@@ -116,9 +118,11 @@ function TranscriptRowContexts({
                 <TranscriptViewerDeviceContext.Provider value={viewerDevice}>
                   <TurnChangesContext.Provider value={turnChangesSurface}>
                     <TurnRowsContext.Provider value={rowsOf}>
-                      <TurnCardsWithheldContext.Provider value={withheldCards}>
-                        {children}
-                      </TurnCardsWithheldContext.Provider>
+                      <TrailingTurnKeyContext.Provider value={trailingTurnKey}>
+                        <TurnCardsWithheldContext.Provider value={withheldCards}>
+                          {children}
+                        </TurnCardsWithheldContext.Provider>
+                      </TrailingTurnKeyContext.Provider>
                     </TurnRowsContext.Provider>
                   </TurnChangesContext.Provider>
                 </TranscriptViewerDeviceContext.Provider>

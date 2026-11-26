@@ -130,7 +130,7 @@ test('AppShellOverlays renders the update dialog when an update is ready', async
   assert.match(document.body.textContent || '', /2\.0\.0/);
 });
 
-test('AppShellOverlays keeps a closed command surface mounted but inactive and inert', async (t) => {
+test('AppShellOverlays unmounts a closed command surface instead of retaining hidden DOM', async (t) => {
   const { document, render, settleLazy } = await mountOverlays(t);
   await import('../CommandSurface.tsx');
   await render({ commandSurface: 'doctor', commandSurfaceSessionId: '' });
@@ -142,10 +142,7 @@ test('AppShellOverlays keeps a closed command surface mounted but inactive and i
   assert.equal(openDoctorSurface.closest('.mixdog-settings-layer')?.hasAttribute('inert'), false);
 
   await render({ commandSurface: null, commandSurfaceSessionId: '' });
-  const retainedDoctorSurface = document.querySelector('[data-surface="doctor"]');
-  assert.equal(retainedDoctorSurface, openDoctorSurface, 'Closing must preserve the mounted surface');
-  assert.equal(retainedDoctorSurface.closest('.mixdog-settings-layer')?.getAttribute('data-surface-active'), 'false');
-  assert.equal(retainedDoctorSurface.closest('.mixdog-settings-layer')?.hasAttribute('inert'), true);
+  assert.equal(document.querySelector('[data-surface="doctor"]'), null, 'Closing must unmount the command surface');
 });
 
 test('AppShellOverlays renders a session-scoped command surface as the active view', async (t) => {
@@ -309,12 +306,11 @@ test('desktop Settings and hidden rail panes wait for a request and stay mounted
   assert.ok(compactionReads() > beforeSettings, 'the Settings capability sweep runs on first open');
 
   await act(async () => firstDialog.querySelector('button[aria-label="Close settings"]').click());
-  assert.equal(dialog(), firstDialog);
-  assert.equal(firstDialog.getAttribute('data-surface-active'), 'false');
-  assert.ok(firstDialog.hasAttribute('inert'));
+  assert.equal(dialog(), null, 'closing Settings unmounts its overlay DOM');
   const firstOpenLoads = loads.mock.callCount();
   await act(async () => gear.click());
-  assert.equal(dialog(), firstDialog);
-  assert.equal(firstDialog.getAttribute('data-surface-active'), 'true');
-  assert.equal(loads.mock.callCount(), firstOpenLoads);
+  const reopenedDialog = dialog();
+  assert.notEqual(reopenedDialog, null, 'reopening mounts a fresh Settings dialog');
+  assert.equal(reopenedDialog.getAttribute('data-surface-active'), 'true');
+  assert.equal(loads.mock.callCount(), firstOpenLoads, 'reopening reuses the loaded module without re-importing');
 });

@@ -52,7 +52,7 @@ export function restoreAlreadyApplied(
     ? result.restoredSubmissionIds.map(String).filter(Boolean)
     : [];
   if (!id || !ids.some(wasSubmittedHere)) return false;
-  return replyRestoreApplied(id, sessionId, applied);
+  return replyRestoreApplied(id, sessionId, applied, ids);
 }
 
 /** A voice take's words joined to the editor's draft, sent without passing through the editor. `settle(true)` runs in

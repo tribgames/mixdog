@@ -26,6 +26,7 @@ import {
 } from './skin-color';
 import { SKIN_MANIFEST } from './skin-manifest';
 import { subscribeUserTheme, userThemeAccent } from './appearance/user-theme';
+import { syncNativeMobileTheme } from './desktop-theme';
 import { syncSkinBootSnapshot } from './skin-boot-snapshot';
 import { deleteCustomSkinMedia, putCustomSkinMedia, readCustomSkinMedia } from './skin-media-store';
 import { type SkinMotion, syncSkinMotion } from './skin-motion';
@@ -394,6 +395,7 @@ function skinMotion(id: SkinId): SkinMotion | null {
     first paint (skin-boot-snapshot.ts). */
 function applyCurrent(): void {
   paintCurrent();
+  syncNativeMobileTheme();
   syncSkinBootSnapshot();
 }
 

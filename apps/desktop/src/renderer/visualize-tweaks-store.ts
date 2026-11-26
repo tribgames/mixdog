@@ -132,6 +132,28 @@ export function releaseVisualizeTweaks(sessionId: string, tabId?: string, fromPa
   changed();
 }
 
+/** Reconcile a session's stored tweaks against its surviving `tabs`: drops any
+ *  tab absent from `tabs` and any pane index `>= tab.panes.length`. */
+export function pruneVisualizeTweaks(sessionId: string, tabs: readonly Pick<VisualizeTabView, 'id' | 'panes'>[]): void {
+  if (!tabs.length) {
+    releaseVisualizeTweaks(sessionId);
+    return;
+  }
+  const paneCounts = new Map(tabs.map((tab) => [tab.id, tab.panes.length]));
+  const stale = (key: string): boolean => {
+    const [session, tab, pane] = key.split('\0');
+    if (session !== sessionId) return false;
+    const count = paneCounts.get(tab);
+    return count === undefined || Number(pane) >= count;
+  };
+  const nextDefs = new Map([...defs].filter(([key]) => !stale(key)));
+  const nextValues = new Map([...values].filter(([key]) => !stale(key)));
+  if (nextDefs.size === defs.size && nextValues.size === values.size) return;
+  defs = nextDefs;
+  values = nextValues;
+  changed();
+}
+
 /** Test seam. */
 export function resetVisualizeTweakStore(): void {
   defs = new Map();

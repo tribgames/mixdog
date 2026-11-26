@@ -32,6 +32,8 @@ type TerminalSurface = {
    *  attach to shells already running, never start or change one. */
   warm: boolean;
   expanded: boolean;
+  /** True while a microtask is scheduled to unmount this surface if still hidden. */
+  releaseQueued: boolean;
   /** Side dock header widened while this surface is expanded. */
   header: HTMLElement | null;
   container: HTMLDivElement;
@@ -138,10 +140,33 @@ export function useSessionTerminalSurfaces(
     return null;
   }, []);
 
+  const destroySurface = useCallback((sessionId: string, surface: TerminalSurface) => {
+    if (surfaces.current.get(sessionId) !== surface) return;
+    surface.releaseQueued = false;
+    expandedSurfaceRect(undefined, false, surface);
+    unmountSurfaceRoot(surface.root);
+    surface.container.remove();
+    surfaces.current.delete(sessionId);
+    syncExpandedSurfaceFlag();
+  }, []);
+
   const commit = useCallback(
     (surface: TerminalSurface) => {
       const selected = position(surface);
       if (selected) surface.cwd = selected[1].cwd;
+      if (!selected && !surface.warm) {
+        if (!surface.releaseQueued) {
+          surface.releaseQueued = true;
+          queueMicrotask(() => {
+            surface.releaseQueued = false;
+            if (surfaces.current.get(surface.sessionId) !== surface) return;
+            if (preferredSurfaceSlot(surface.slots) || surface.warm) return;
+            destroySurface(surface.sessionId, surface);
+          });
+        }
+        return;
+      }
+      surface.releaseQueued = false;
       // A closing sheet's slot keeps the terminal placed (its pixels) but not
       // active: no focus hold, no keys, no fits.
       const active = Boolean(selected) && selected?.[1].exiting !== true;
@@ -163,7 +188,7 @@ export function useSessionTerminalSurfaces(
         })
       );
     },
-    [position, renderTerminalSurface]
+    [destroySurface, position, renderTerminalSurface]
   );
 
   const ensure = useCallback((sessionId: string, cwd: string | null) => {
@@ -180,6 +205,7 @@ export function useSessionTerminalSurfaces(
       cwd,
       warm: false,
       expanded: false,
+      releaseQueued: false,
       header: null,
       container,
       root: createRoot(container),
@@ -228,6 +254,7 @@ export function useSessionTerminalSurfaces(
       const surface = surfaces.current.get(sessionId);
       if (!surface) return;
       surface.slots.delete(node);
+      if (surface.slots.size === 0) surface.warm = false;
       commit(surface);
     },
     [commit]
@@ -244,16 +271,10 @@ export function useSessionTerminalSurfaces(
   const release = useCallback(
     (sessionId: string) => {
       const surface = surfaces.current.get(sessionId);
-      if (surface) {
-        expandedSurfaceRect(undefined, false, surface);
-        unmountSurfaceRoot(surface.root);
-        surface.container.remove();
-        syncExpandedSurfaceFlag();
-        surfaces.current.delete(sessionId);
-      }
+      if (surface) destroySurface(sessionId, surface);
       for (const terminalId of releaseSessionTerminalTabs(sessionId)) disposeTerminalSurface(terminalId);
     },
-    [disposeTerminalSurface]
+    [destroySurface, disposeTerminalSurface]
   );
 
   const setParkingHost = useCallback(
@@ -266,8 +287,14 @@ export function useSessionTerminalSurfaces(
 
   useEffect(
     () => () => {
-      for (const surface of surfaces.current.values()) unmountSurfaceRoot(surface.root);
+      const remaining = [...surfaces.current.values()];
       surfaces.current.clear();
+      for (const surface of remaining) {
+        expandedSurfaceRect(undefined, false, surface);
+        surface.container.remove();
+        queueMicrotask(() => unmountSurfaceRoot(surface.root));
+      }
+      syncExpandedSurfaceFlag();
     },
     []
   );

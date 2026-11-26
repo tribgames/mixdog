@@ -325,8 +325,13 @@ html[data-mixdog-mobile-tabs] .provider-account-picker-trigger {
   margin: -10px -6px -10px -12px;
 }
 html[data-mixdog-mobile-tabs] .tool-header.tool-activity-header {
-  min-height: var(--mx-touch-min);
-  margin-block: -8px;
+  position: relative;
+  overflow: visible;
+}
+html[data-mixdog-mobile-tabs] .tool-header.tool-activity-header::before {
+  content: "";
+  position: absolute;
+  inset: min(0px, calc((100% - var(--mx-touch-min)) / 2)) 0;
 }
 /* An inline file link ignores min-height and vertical margins; its hit frame
    hangs off ::before instead. The code-copy and turn-review marks keep the

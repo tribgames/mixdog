@@ -1,9 +1,6 @@
-import { common, createLowlight } from 'lowlight';
-
 import type { VisualizeInlineKind, VisualizePaneView } from '../shared/visualize';
 import { type DeviceSaveResult, saveBlobOnDevice } from './file-download-transfer';
-
-const lowlight = createLowlight(common);
+import { getSharedLowlight } from './shared-lowlight';
 
 /** One run of text with the highlight classes of the spans it sits in
  *  (outermost first); nested spans keep inherited colors. */
@@ -62,11 +59,14 @@ export function highlightSourceLines(source: string, language: string): SourceLi
     for (const child of node.children ?? []) walk(child, next);
   };
   let tree: HastNode | null = null;
-  if (language && lowlight.registered(language)) {
-    try {
-      tree = lowlight.highlight(language, source) as unknown as HastNode;
-    } catch {
-      tree = null;
+  if (language) {
+    const lowlight = getSharedLowlight();
+    if (lowlight.registered(language)) {
+      try {
+        tree = lowlight.highlight(language, source) as unknown as HastNode;
+      } catch {
+        tree = null;
+      }
     }
   }
   if (tree) walk(tree, []);

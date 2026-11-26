@@ -40,8 +40,28 @@ html[data-mixdog-mobile-tabs] .workspace-tab-home-dot {
 html[data-mixdog-mobile-tabs] .workspace-tab-home-dot.off {
   background: var(--mx-text-muted);
 }
+html[data-mixdog-mobile-tabs] .workspace-tab-home-dot.is-reconnecting {
+  animation: workspace-tab-home-dot-pulse 1.8s ease-in-out infinite;
+}
 html[data-mixdog-mobile-tabs] .workspace-tab-home-dot.warn {
   background: var(--mx-warning);
+}
+@keyframes workspace-tab-home-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-mixdog-mobile-tabs] .workspace-tab-home-dot.is-reconnecting {
+    animation: none;
+  }
+}
+:root[data-mixdog-motion="paused"] .workspace-tab-home-dot.is-reconnecting {
+  animation-play-state: paused;
 }
 html[data-mixdog-mobile-tabs] .workspace-tab-home-mark {
   /* Chrome-glyph optical size (measured: ~20dp); the frameless mark inks its

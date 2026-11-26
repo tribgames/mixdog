@@ -18,6 +18,7 @@ import {
 import React, {
   Suspense,
   lazy,
+  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -98,9 +99,6 @@ import {
 import { classifyToolCategory, formatToolSurface } from '../../../../packages/protocol-client/src/rows/tool-surface.mjs';
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { formatElapsed as formatCardElapsed } from '../../../../packages/protocol-client/src/rows/time-format.mjs';
-// biome-ignore format: @ts-expect-error must precede the specifier
-// @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { deriveToolCardModel, deriveToolOutcomeTone, splitLineDeltaTokens } from '../../../../packages/protocol-client/src/rows/tool-card-model.mjs';
 
 interface DetailLinePart {
@@ -164,30 +162,124 @@ function useRememberedDisclosure(
   return [open, () => choose(!open), remembered !== undefined, () => choose(true)];
 }
 
-/** Disclosure in two steps so the body can animate: it is mounted before it
- *  expands and stays mounted until the collapse transition is over. */
-function useToolActivityDisclosure(panelOpen: boolean): { rendered: boolean; expanded: boolean } {
+const TOOL_DISCLOSURE_FALLBACK_MS = 260;
+
+function prefersReducedMotion(): boolean {
+  return Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+}
+
+/** Disclosure in two steps so user-toggled bodies can animate: it mounts at 0fr
+ *  before expanding on a committed frame and unmounts on grid-template-rows
+ *  transitionend (with a timer fallback when transitions do not fire). Automatic
+ *  transitions (incoming live calls) snap immediately without the 2-rAF delay. */
+function useToolActivityDisclosure(
+  panelOpen: boolean,
+  shouldAnimateRef?: React.MutableRefObject<boolean>
+): {
+  rendered: boolean;
+  expanded: boolean;
+  animating: boolean;
+  onTransitionEnd: (event: React.TransitionEvent<HTMLElement>) => void;
+} {
   const [rendered, setRendered] = useState(panelOpen);
   const [expanded, setExpanded] = useState(panelOpen);
+  const [animating, setAnimating] = useState(false);
+  const previousOpenRef = useRef(panelOpen);
+  const panelOpenRef = useRef(panelOpen);
+  panelOpenRef.current = panelOpen;
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
+  const animateGateRef = useRef(shouldAnimateRef);
+  animateGateRef.current = shouldAnimateRef;
+  const fallbackTimerRef = useRef<number | null>(null);
+
+  const clearFallbackTimer = useCallback(() => {
+    if (fallbackTimerRef.current !== null) {
+      window.clearTimeout(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+    }
+  }, []);
+
   useLayoutEffect(() => {
+    if (previousOpenRef.current === panelOpen) return undefined;
+    previousOpenRef.current = panelOpen;
+    clearFallbackTimer();
+    const gate = animateGateRef.current;
+    const animate = gate ? gate.current : true;
+    if (gate) gate.current = false;
+
+    if (prefersReducedMotion() || !animate) {
+      setRendered(panelOpen);
+      setExpanded(panelOpen);
+      setAnimating(false);
+      return undefined;
+    }
+
     if (panelOpen) {
       setRendered(true);
+      setAnimating(true);
+      const startExpand = () => {
+        setAnimating(true);
+        setExpanded(true);
+        fallbackTimerRef.current = window.setTimeout(() => {
+          fallbackTimerRef.current = null;
+          setAnimating(false);
+        }, TOOL_DISCLOSURE_FALLBACK_MS);
+      };
       // No frame clock (a headless DOM): expand on the next task instead.
       if (typeof window.requestAnimationFrame !== 'function') {
-        const timer = window.setTimeout(() => setExpanded(true), 0);
-        return () => window.clearTimeout(timer);
+        const timer = window.setTimeout(startExpand, 0);
+        return () => {
+          window.clearTimeout(timer);
+          clearFallbackTimer();
+        };
       }
-      const frame = window.requestAnimationFrame(() => setExpanded(true));
-      return () => window.cancelAnimationFrame(frame);
+      let secondFrame = 0;
+      const firstFrame = window.requestAnimationFrame(() => {
+        secondFrame = window.requestAnimationFrame(startExpand);
+      });
+      return () => {
+        window.cancelAnimationFrame(firstFrame);
+        if (secondFrame) window.cancelAnimationFrame(secondFrame);
+        clearFallbackTimer();
+      };
     }
+
+    if (!expandedRef.current) {
+      setRendered(false);
+      setAnimating(false);
+      return undefined;
+    }
+
+    setAnimating(true);
     setExpanded(false);
-    const timer = window.setTimeout(
-      () => setRendered(false),
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 0 : 200
-    );
-    return () => window.clearTimeout(timer);
-  }, [panelOpen]);
-  return { rendered, expanded };
+    fallbackTimerRef.current = window.setTimeout(() => {
+      fallbackTimerRef.current = null;
+      setRendered(false);
+      setAnimating(false);
+    }, TOOL_DISCLOSURE_FALLBACK_MS);
+    return () => {
+      clearFallbackTimer();
+    };
+  }, [panelOpen, clearFallbackTimer]);
+
+  useEffect(() => clearFallbackTimer, [clearFallbackTimer]);
+
+  const onTransitionEnd = useCallback(
+    (event: React.TransitionEvent<HTMLElement>) => {
+      if (event.target !== event.currentTarget) return;
+      if (event.propertyName !== 'grid-template-rows') return;
+      if (expandedRef.current !== panelOpenRef.current) return;
+      clearFallbackTimer();
+      setAnimating(false);
+      if (!panelOpenRef.current) {
+        setRendered(false);
+      }
+    },
+    [clearFallbackTimer]
+  );
+
+  return { rendered, expanded, animating, onTransitionEnd };
 }
 
 interface ToolActivityGroupProps {
@@ -247,7 +339,7 @@ const Elapsed = React.memo(function Elapsed({
   return elapsedMs >= minMs ? (
     <>
       {prefix}
-      {formatCardElapsed(elapsedMs) as string}
+      {formatElapsed(elapsedMs)}
     </>
   ) : null;
 });
@@ -301,7 +393,12 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
     disclosureKey,
     calls.some((item) => toolActivityCallExpands(item, mode))
   );
-  const { rendered, expanded } = useToolActivityDisclosure(open);
+  const userToggledRef = useRef(false);
+  const handleToggleOpen = () => {
+    userToggledRef.current = true;
+    toggleOpen();
+  };
+  const { rendered, expanded, animating, onTransitionEnd } = useToolActivityDisclosure(open, userToggledRef);
   const contentId = useId();
   const outcomeUnknown = useToolOutcomeUnknown();
   const pending = items.some((item) => !toolItemDone(item) && !outcomeUnknown(item.id));
@@ -342,12 +439,18 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
   }, [calls]);
 
   return (
-    <article ref={groupRef} className="tool-activity" data-surface="desktop" data-open={open ? 'true' : 'false'}>
+    <article
+      ref={groupRef}
+      className="tool-activity"
+      data-surface="desktop"
+      data-open={open ? 'true' : 'false'}
+      data-rendered={rendered ? 'true' : 'false'}
+    >
       <button
         type="button"
         className="tool-header tool-activity-header"
         onPointerDown={(event) => event.stopPropagation()}
-        onClick={toggleOpen}
+        onClick={handleToggleOpen}
         aria-expanded={open}
         aria-controls={contentId}
       >
@@ -366,7 +469,12 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
         </span>
       </button>
       {rendered && (
-        <div className="tool-activity-reveal" data-expanded={expanded ? 'true' : 'false'}>
+        <div
+          className="tool-activity-reveal"
+          data-expanded={expanded ? 'true' : 'false'}
+          data-disclosure-animating={animating ? 'true' : undefined}
+          onTransitionEnd={onTransitionEnd}
+        >
           <div className="tool-activity-reveal-clip">
             <div className="tool-activity-content" id={contentId}>
               <ToolActivityDetails items={calls} disclosureKey={disclosureKey} mode={mode} scope={disclosureScope} />
@@ -666,7 +774,7 @@ function renderToolActivityHeader({
   // The row is a plain container: the disclosure is a stretched sibling
   // button and the file link a separate button, so controls never nest.
   // Clicks on the row's text reach the container and toggle like before.
-  const metaLine = open && presentation.hasDetails ? toolActivityMetaLine(presentation) : '';
+  const metaLine = presentation.hasDetails ? toolActivityMetaLine(presentation) : '';
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: the stretched sibling button is the keyboard path; this click only widens the target.
     // biome-ignore lint/a11y/useKeyWithClickEvents: same as above.
@@ -692,7 +800,7 @@ function renderToolActivityHeader({
       )}
       <span className="tool-title tool-activity-item-title">
         <b>{presentation.verb}</b>
-        {presentation.headerSubject && !(open && presentation.hideSubjectWhenOpen) && (
+        {presentation.headerSubject && (
           <small data-kind={presentation.subjectKind}>
             {presentation.subjectIsTarget ? (
               <LocalPathMention path={presentation.targetPath} line={presentation.targetLine}>
@@ -705,10 +813,9 @@ function renderToolActivityHeader({
         )}
       </span>
       <ToolDiffCounts counts={presentation.diffCounts} />
-      {metaLine && <span className="tool-activity-item-meta">{metaLine}</span>}
       <ToolRowOutcome
         presentation={presentation}
-        metaBesideVerb={!metaLine && (!presentation.hasDetails || !presentation.headerSubject)}
+        metaBesideVerb={!presentation.hasDetails || !presentation.headerSubject}
       />
       {presentation.pending && <ToolWorkingStatus startedAt={startedAt} />}
       {presentation.pending && (
@@ -895,12 +1002,20 @@ function renderToolActivityDetails(
   full: ToolActivityPresentation,
   contentId: string,
   onShowMore: (() => void) | null,
-  onOpenDiff: (() => void) | null = null
+  onOpenDiff: (() => void) | null = null,
+  footer: ReactNode = null
 ) {
   const mode = onShowMore ? toolActivityPreviewMode(full) : null;
   const capped = mode === 'height' ? capPresentation(full) : null;
   const presentation = capped ? capped.view : full;
   const output = mode === 'lines' ? previewOutputLines(full.outputText) : { text: presentation.outputText, hidden: 0 };
+  const rawMetaLine = toolActivityMetaLine(full);
+  const headerAlreadyShowsMeta =
+    !full.headerSubject &&
+    full.tone === 'neutral' &&
+    Boolean(full.metaText) &&
+    rawMetaLine === toolActivityMetaLine({ ...full, resultLabel: '', fields: [], fieldsInline: false });
+  const metaLine = headerAlreadyShowsMeta ? '' : rawMetaLine;
   return (
     <div className="tool-activity-item-body" id={contentId}>
       <ToolActivityPreview
@@ -908,6 +1023,8 @@ function renderToolActivityDetails(
         hiddenLines={output.hidden}
         truncated={Boolean(capped?.cut)}
         onShowMore={onShowMore}
+        metaLine={metaLine}
+        footer={footer}
       >
         {presentation.targets.length > 0 && presentation.sections.length === 0 && (
           <section className="tool-activity-item-section">
@@ -966,12 +1083,16 @@ function ToolActivityPreview({
   hiddenLines,
   truncated,
   onShowMore,
+  metaLine,
+  footer,
   children,
 }: {
   mode: ToolActivityPreviewMode | null;
   hiddenLines: number;
   truncated: boolean;
   onShowMore: (() => void) | null;
+  metaLine: string;
+  footer: ReactNode;
   children: ReactNode;
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
@@ -1009,6 +1130,7 @@ function ToolActivityPreview({
   const more = Boolean(mode && onShowMore && (hiddenLines > 0 || truncated || clipped));
   return (
     <div className="tool-activity-item-body-inner">
+      {metaLine && <p className="tool-activity-item-meta">{metaLine}</p>}
       <div className="tool-activity-preview" data-clamped={mode ?? 'false'} ref={frameRef}>
         <div>{children}</div>
       </div>
@@ -1022,6 +1144,7 @@ function ToolActivityPreview({
           {hiddenLines > 0 ? t('… +{{lines}} lines', { lines: hiddenLines }) : t('… Show more')}
         </button>
       )}
+      {footer}
     </div>
   );
 }
@@ -1077,7 +1200,12 @@ function ToolActivityItem({
         }
       : null;
   const panelOpen = open && presentation.hasDetails;
-  const { rendered, expanded } = useToolActivityDisclosure(panelOpen);
+  const userToggledRef = useRef(false);
+  const handleToggle = () => {
+    userToggledRef.current = true;
+    onToggle();
+  };
+  const { rendered, expanded, animating, onTransitionEnd } = useToolActivityDisclosure(panelOpen, userToggledRef);
   const copyGate = useMemo(
     () => (fullOutput.copyPending ? { load: fullOutput.load, failed: fullOutput.failed } : null),
     [fullOutput.copyPending, fullOutput.load, fullOutput.failed]
@@ -1088,14 +1216,28 @@ function ToolActivityItem({
       className={`tool-activity-item ${presentation.tone}`}
       data-open={open ? 'true' : 'false'}
       data-expanded={expanded ? 'true' : 'false'}
+      data-rendered={rendered && presentation.hasDetails ? 'true' : 'false'}
+      data-disclosure-animating={animating ? 'true' : undefined}
+      onTransitionEnd={onTransitionEnd}
     >
-      {renderToolActivityHeader({ presentation, open, onToggle, contentId, startedAt: toolItemStartedAt(item) })}
+      {renderToolActivityHeader({
+        presentation,
+        open,
+        onToggle: handleToggle,
+        contentId,
+        startedAt: toolItemStartedAt(item),
+      })}
       <ToolCopyGateContext.Provider value={copyGate}>
         {rendered &&
           presentation.hasDetails &&
-          renderToolActivityDetails(presentation, contentId, chosen ? null : keepOpen, openDiff)}
+          renderToolActivityDetails(
+            presentation,
+            contentId,
+            chosen ? null : keepOpen,
+            openDiff,
+            <FullToolOutputButton output={fullOutput} />
+          )}
       </ToolCopyGateContext.Provider>
-      {rendered && presentation.hasDetails && <FullToolOutputButton output={fullOutput} />}
     </article>
   );
 }

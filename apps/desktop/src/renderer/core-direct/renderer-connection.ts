@@ -51,8 +51,11 @@ const toStatus = (state: string): DesktopProtocolStatus => {
 };
 
 /** What a window of this connection hears: the scoped-feed notifications (`fs/changed`, `system/ports/updated`, login
- *  updates), the loss of a sign-in feed, and the section changes of the scoped feeds it watches (`push`). */
-export type RendererWindow = Pick<ProtocolWindow, 'notification' | 'loginFeedLost' | 'push'>;
+ *  updates), the loss of a sign-in feed, the section changes of the scoped feeds it watches (`push`), and optionally
+ *  when a watched scoped feed is dropped (`feedLost`). */
+export type RendererWindow = Pick<ProtocolWindow, 'notification' | 'loginFeedLost' | 'push'> & {
+  feedLost?(feedId: string): void;
+};
 
 /** A file call of the window asks for `nodeErrors`: a path beyond the project is refused with Node's plain `Error` text ("Path is outside
  *  the project."), as the window's IPC path showed it, not as the bare permission refusal the core's other callers get. */
@@ -103,7 +106,6 @@ export type RendererConnection = Pick<
   | 'viewPorts'
   | 'watchFiles'
   | 'unwatchFiles'
-  | 'watchFeed'
   | 'unwatchFeed'
   | 'loginFeed'
   | 'onEvent'
@@ -113,6 +115,7 @@ export type RendererConnection = Pick<
   | 'noteUserInput'
   | 'close'
 > & {
+  watchFeed(window: RendererWindow, feedId: string, options?: { refresh?: boolean }): Promise<{ absent: boolean }>;
   /** The same client with the library types: what the size-aware sender and the blob calls take. */
   protocolClient(): ProtocolClient<SessionFold> | null;
   /** Called when a reopen drops the current client, before the new one is opened: the connection is `reconnecting`. */
@@ -279,7 +282,7 @@ export function createRendererConnection({
         )
       );
     }
-    for (const feedId of [...feedWatches.keys()]) {
+    for (const [feedId, route] of [...feedWatches]) {
       tally.push(
         restored.call('feed/subscribe', { feedId }).then(
           () => {
@@ -289,13 +292,14 @@ export function createRendererConnection({
             // Only a feed the core does not hold is gone; any other failure keeps what the windows hold and tells them.
             if (isAbsentFeed(error)) {
               settled.lost += 1;
-              dropFeed(feedId);
+              if (feedWatches.get(feedId) === route) dropFeed(feedId);
               return;
             }
             settled.failed += 1;
             const message = error instanceof Error ? error.message : String(error);
-            for (const window of [...(feedWatches.get(feedId)?.windows ?? [])])
-              window.push({ kind: 'feedError', feedId, message });
+            if (feedWatches.get(feedId) === route) {
+              for (const window of [...route.windows]) window.push({ kind: 'feedError', feedId, message });
+            }
           }
         )
       );
@@ -305,28 +309,49 @@ export function createRendererConnection({
     );
   };
   /** Forgets a feed the core no longer has and removes the sections it held from its watchers. */
-  const dropFeed = (feedId: string): void => {
+  const dropFeed = (feedId: string, skipNotifyWindow?: RendererWindow): void => {
     const route = feedWatches.get(feedId);
     feedWatches.delete(feedId);
     if (!route) return;
     const changes = removalsOf(route);
-    if (changes.length) for (const window of [...route.windows]) window.push({ kind: 'sections', changes });
+    for (const window of [...route.windows]) {
+      if (changes.length) window.push({ kind: 'sections', changes });
+      if (window !== skipNotifyWindow) window.feedLost?.(feedId);
+    }
   };
-  const watchFeed = async (window: RendererWindow, feedId: string): Promise<{ absent: boolean }> => {
-    const live = await connectedAfterFirstOpen();
+  const watchFeed = async (
+    window: RendererWindow,
+    feedId: string,
+    options?: { refresh?: boolean }
+  ): Promise<{ absent: boolean }> => {
+    const refresh = options?.refresh === true;
+    const before = feedWatches.get(feedId);
+    let live: ConnectionClient;
+    try {
+      live = await connectedAfterFirstOpen();
+    } catch (error) {
+      if (refresh && before && feedWatches.get(feedId) === before) dropFeed(feedId, window);
+      throw error;
+    }
     const known = feedWatches.get(feedId);
-    if (known) {
+    if (known && !refresh) {
       known.windows.add(window);
       const changes = [...known.held.values()].map((entry) => ({ section: entry.section, key: entry.key, entry }));
       if (changes.length) window.push({ kind: 'sections', changes });
       return { absent: false };
     }
-    feedWatches.set(feedId, { windows: new Set([window]), held: new Map() });
+    const route: ScopedFeedRoute = known
+      ? { windows: new Set([...known.windows, window]), held: known.held }
+      : { windows: new Set([window]), held: new Map() };
+    feedWatches.set(feedId, route);
     try {
       await live.call('feed/subscribe', { feedId });
+      if (feedWatches.get(feedId) !== route && !feedWatches.has(feedId)) {
+        void live.call('feed/unsubscribe', { feedId }).catch(() => undefined);
+      }
       return { absent: false };
     } catch (error) {
-      feedWatches.delete(feedId);
+      if (feedWatches.get(feedId) === route) dropFeed(feedId, window);
       if (isAbsentFeed(error)) return { absent: true };
       throw directError(error);
     }
@@ -401,11 +426,22 @@ export function createRendererConnection({
         const followed = login ? loginFeeds.get(login.flowId) : undefined;
         if (login && followed) followed.state = login.state;
         for (const window of [...windows]) window.notification(method, params);
-        const feedId = (event as { notification: { feed?: { id: string } } }).notification.feed?.id;
+        const feedId =
+          (event as { notification: { feed?: { id: string } } }).notification.feed?.id ??
+          ((method === 'feed/snapshot' || method === 'feed/closed' || method === 'feed/ended') &&
+          params &&
+          typeof params === 'object' &&
+          typeof (params as { feedId?: unknown }).feedId === 'string'
+            ? (params as { feedId: string }).feedId
+            : undefined);
         const route = feedId === undefined ? undefined : feedWatches.get(feedId);
-        if (route) {
-          const changes = scopedSectionChanges(route, method, params);
-          if (changes.length) for (const window of [...route.windows]) window.push({ kind: 'sections', changes });
+        if (route && feedId !== undefined) {
+          if (method === 'feed/closed' || method === 'feed/ended') {
+            dropFeed(feedId);
+          } else {
+            const changes = scopedSectionChanges(route, method, params);
+            if (changes.length) for (const window of [...route.windows]) window.push({ kind: 'sections', changes });
+          }
         }
       }
     });

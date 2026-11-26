@@ -3,6 +3,7 @@ import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { t } from './i18n';
 import { useMenuDismiss } from './menu-dismiss';
+import { useMobileBack } from './mobile-back';
 import type { StudioBoard } from './studio-boards';
 
 /** Every board's mark: one glyph in the Sessions row slot (16px, muted ink). */
@@ -87,6 +88,7 @@ export function StudioBoardPicker({
   };
   const current = boards.find((board) => board.id === openId) ?? null;
   useMenuDismiss({ open, close: () => setBox(null), trigger, panels: () => [menu.current] });
+  useMobileBack(open, () => setBox(null));
   // Focus enters the open menu on its checked item, as in the row menus.
   useEffect(() => {
     if (open) menu.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus();

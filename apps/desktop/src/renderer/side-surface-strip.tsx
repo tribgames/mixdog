@@ -16,6 +16,7 @@ import { t } from './i18n';
 import { sideFileKey, type PaneSideDockFile } from './side-file-tabs';
 import { EditorViewSwitch, type EditorViewControls } from './editor-view-switch';
 import { DockHeaderRow, type DockAction } from './pane-dock-chrome';
+import { useMobileBack } from './mobile-back';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { useZoomBarVisible, zoomBarAction } from './zoom-bar-pref';
 import { markTabStripFades, scrollTabStripByWheel, useTabStripFades } from './tab-strip-fades';
@@ -164,6 +165,7 @@ function SideFileTabMenu({
   onDismiss(): void;
 }) {
   const menu = useRef<HTMLDivElement | null>(null);
+  useMobileBack(true, onDismiss);
   useEffect(() => {
     menu.current?.querySelector<HTMLButtonElement>('button')?.focus();
     const dismiss = (event: PointerEvent) => {

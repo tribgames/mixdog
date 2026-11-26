@@ -198,3 +198,39 @@ test('the record of entered turns keeps the most recent ones; a working turn sta
   await workingAgain.render(props('working'));
   assert.equal(animated(workingAgain.host), false, 'the working turn does not replay');
 });
+
+test('hard state-machine phase transitions switch immediately without dwell delay', async (t) => {
+  fakeClock(t);
+  const { host, render } = mount(t);
+  const mode = () => host.querySelector('.live-activity')?.getAttribute('data-mode') ?? null;
+  await render({ snapshot: spinner({ mode: 'requesting' }) });
+  assert.equal(mode(), 'requesting');
+  await render({ snapshot: spinner({ mode: 'thinking' }) });
+  assert.equal(mode(), 'thinking', 'requesting -> thinking lands immediately');
+  await render({ snapshot: spinner({ mode: 'tool-use' }) });
+  assert.equal(mode(), 'tool-use', 'thinking -> tool-use lands immediately');
+  await render({ snapshot: spinner({ mode: 'responding' }) });
+  assert.equal(mode(), 'responding', 'tool-use -> responding lands immediately');
+  await render({ snapshot: spinner({ mode: 'tool-use' }) });
+  assert.equal(mode(), 'tool-use', 'responding -> tool-use lands immediately');
+});
+
+test('LiveActivity stays mounted throughout an active turn and isolates reasoning disclosure', async (t) => {
+  fakeClock(t);
+  const { host, render } = mount(t);
+  await render({ snapshot: { busy: true } });
+  assert.ok(host.querySelector('.live-activity'), 'busy turn keeps status row mounted even without spinner');
+  await render({ snapshot: { busy: true, commandStatus: { active: true, mode: 'resuming' } } });
+  assert.ok(host.querySelector('.live-activity'), 'busy turn never collapses to null on resuming commandStatus');
+  await render({
+    snapshot: { busy: true, thinking: { publicSummary: 'Checking the layout math' }, ...spinner({ mode: 'thinking' }) },
+  });
+  const reasoningSlot = host.querySelector('.live-activity-reasoning[data-slot="live-activity-reasoning"]');
+  assert.ok(reasoningSlot, 'reasoning disclosure mounts in its isolated overlay container');
+  assert.ok(reasoningSlot.querySelector('details.thinking-disclosure'), 'details lives inside the isolated container');
+  assert.equal(
+    host.querySelector('.live-activity-status details.thinking-disclosure'),
+    null,
+    'status row remains status-only'
+  );
+});

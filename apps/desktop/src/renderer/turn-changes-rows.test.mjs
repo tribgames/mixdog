@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { projectSettledTranscriptRows } from './transcript-rows.ts';
+import { transcriptTurnKeys } from './renderer-logic.mjs';
+import { createSettledProjector, projectSettledTranscriptRows } from './transcript-rows.ts';
 import { transcriptRowNode } from './conversation-support.tsx';
 // The changes card under a turn's row, listing none of its preview card's files.
 import { PreviewedTurnChangesCard as TurnChangesCard } from './transcript-visualize-card.tsx';
@@ -324,4 +325,133 @@ test('a tool round names its recorded turn and the files that turn’s card leav
   assert.equal(node.props.checkpointId, 'cp-1');
   assert.equal(node.props.boundary, 'd1', 'the end its card stands on');
   assert.equal(node.props.visualized, visualized);
+});
+
+test('a turn ending on a tool round after an assistant preamble places its changes card after the tools, not on the preamble', () => {
+  const rows = project([
+    { kind: 'user', id: 'u1', text: 'one', checkpointId: 'cp-1' },
+    { kind: 'assistant', id: 'a1', text: 'checking now' },
+    { kind: 'tool', id: 't1', name: 'edit', args: {}, result: 'ok' },
+    { kind: 'turndone', id: 'd1', status: 'complete' },
+  ]);
+  assert.deepEqual(
+    rows.map((row) => row._tag),
+    ['UserMessage', 'AssistantPart', 'ToolActivity', 'AssistantPart']
+  );
+  assert.deepEqual(cards(rows), [
+    { tag: 'AssistantPart', key: 's:d1', checkpointId: 'cp-1', boundary: 'd1', trailing: true },
+  ]);
+});
+
+test('a new prompt after multiple completions in one attempt keeps earlier completions folded when the final completion follows a tool', () => {
+  const beforeNextPrompt = [
+    { kind: 'user', id: 'u1', text: 'one', attemptId: 'att-1', checkpointId: 'cp-1' },
+    { kind: 'assistant', id: 'a1', text: 'step 1', attemptId: 'att-1' },
+    { kind: 'turndone', id: 'd1', status: 'complete', attemptId: 'att-1' },
+    { kind: 'assistant', id: 'a2', text: 'step 2', attemptId: 'att-1' },
+    { kind: 'turndone', id: 'd2', status: 'complete', attemptId: 'att-1' },
+    { kind: 'tool', id: 't1', name: 'edit', args: {}, result: 'ok', attemptId: 'att-1' },
+    { kind: 'turndone', id: 'd3', status: 'complete', attemptId: 'att-1' },
+  ];
+  const afterNextPrompt = [...beforeNextPrompt, { kind: 'user', id: 'u2', text: 'two', attemptId: 'att-2' }];
+  const projector = createSettledProjector();
+  const projectWithAttemptKeys = (items) =>
+    projector.project({
+      sessionKey: 's',
+      items,
+      turnKeys: transcriptTurnKeys(items),
+      failedTurns: new Set(),
+    });
+
+  const before = projectWithAttemptKeys(beforeNextPrompt);
+  assert.equal(before.endsWithCompletion, true);
+  assert.deepEqual(
+    before.rows.map((row) => [row._tag, row.key]),
+    [
+      ['UserMessage', 's:u1'],
+      ['AssistantPart', 's:a1'],
+      ['AssistantPart', 's:a2'],
+      ['ToolActivity', 's:t1:tool-activity'],
+      ['AssistantPart', 's:d3'],
+    ]
+  );
+
+  const after = projectWithAttemptKeys(afterNextPrompt);
+  assert.equal(after.endsWithCompletion, false);
+  assert.deepEqual(
+    after.rows.map((row) => [row._tag, row.key]),
+    [
+      ['UserMessage', 's:u1'],
+      ['AssistantPart', 's:a1'],
+      ['AssistantPart', 's:a2'],
+      ['ToolActivity', 's:t1:tool-activity'],
+      ['AssistantPart', 's:d3'],
+      ['TurnGap', 's:gap:u2'],
+      ['UserMessage', 's:u2'],
+    ]
+  );
+  assert.deepEqual(cards(after.rows), [
+    { tag: 'AssistantPart', key: 's:d3', checkpointId: 'cp-1', boundary: 'd3', trailing: false },
+  ]);
+});
+
+test('a cancelled attempt with an earlier successful end does not attach Completed to its reply after the next prompt', () => {
+  const beforeNextPrompt = [
+    { kind: 'user', id: 'u1', text: 'one', attemptId: 'att-1', checkpointId: 'cp-1' },
+    { kind: 'assistant', id: 'a1', text: 'step 1', attemptId: 'att-1' },
+    { kind: 'turndone', id: 'd1', status: 'complete', attemptId: 'att-1' },
+    { kind: 'assistant', id: 'a2', text: 'step 2', attemptId: 'att-1' },
+    { kind: 'turndone', id: 'd2', status: 'cancelled', attemptId: 'att-1' },
+  ];
+  const afterNextPrompt = [...beforeNextPrompt, { kind: 'user', id: 'u2', text: 'two', attemptId: 'att-2' }];
+  const projector = createSettledProjector();
+  const projectWithAttemptKeys = (items) =>
+    projector.project({
+      sessionKey: 's',
+      items,
+      turnKeys: transcriptTurnKeys(items),
+      failedTurns: new Set(),
+    });
+
+  for (const [label, items, expectedTail] of [
+    ['before next prompt', beforeNextPrompt, []],
+    [
+      'after next prompt',
+      afterNextPrompt,
+      [
+        ['TurnGap', 's:gap:u2'],
+        ['UserMessage', 's:u2'],
+      ],
+    ],
+  ]) {
+    const projected = projectWithAttemptKeys(items);
+    assert.deepEqual(
+      projected.rows.map((row) => [row._tag, row.key]),
+      [
+        ['UserMessage', 's:u1'],
+        ['AssistantPart', 's:a1'],
+        ['AssistantPart', 's:a2'],
+        ['AssistantPart', 's:d2'],
+        ...expectedTail,
+      ],
+      label
+    );
+    const a1Row = projected.rows.find((row) => row.key === 's:a1');
+    const a2Row = projected.rows.find((row) => row.key === 's:a2');
+    const d2Row = projected.rows.find((row) => row.key === 's:d2');
+    assert.equal(a1Row?.completion, undefined, `${label}: a1 has no completion`);
+    assert.equal(a2Row?.completion, undefined, `${label}: cancelled attempt does not attach earlier Completed to a2`);
+    assert.equal(d2Row?.item?.status, 'cancelled', `${label}: cancelled end remains shown`);
+    const trailing = label === 'before next prompt';
+    assert.deepEqual(cards(projected.rows), [
+      {
+        tag: 'AssistantPart',
+        key: 's:d2',
+        checkpointId: 'cp-1',
+        boundary: 'd2',
+        trailing,
+        ...(trailing ? { reclosed: true } : {}),
+      },
+    ]);
+  }
 });

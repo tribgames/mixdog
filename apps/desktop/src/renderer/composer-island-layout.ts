@@ -20,16 +20,19 @@ const WORKTREE_NAME_MIN_PX = 72;
 /** The pill's labels give way one step at a time, least needed first (words
  *  before figures; counts and state marks never go), and come back in the
  *  reverse order. A fit is how many steps are taken; the island lists them in
- *  data-fit, which the stylesheet reads. */
+ *  data-fit, which the stylesheet reads. The last step also lets a pill still
+ *  wider than its room take another line, so no form runs past the pane. */
 const FIT_STEPS = [
   'git-word',
   'files-word',
   'files-lines',
   'shell-word',
   'agents-word',
+  'resume-time',
   'goal-time',
   'branch-cap',
   'branch-glyph',
+  'resume-glyph',
   'tight',
 ] as const;
 const LAST_FIT = FIT_STEPS.length;
@@ -47,11 +50,32 @@ type FormWidth = { width: number; squeeze: number };
 const formWidths = new Map<string, FormWidth[]>();
 const FORM_WIDTHS_MAX = 200;
 
+/** A wrapped pill's line starts (markLineStarts); they move nothing. */
+const LINE_START_MARKS = / data-line-start=""/g;
+
 /** The pill's markup plus the root's attributes (theme, text size): equal
  *  keys lay out to equal widths. */
 function labelFitKey(pill: Element): string {
   const root = document.documentElement;
-  return `${root.className}|${root.getAttribute('style') ?? ''}|${JSON.stringify(root.dataset)}|${pill.innerHTML}`;
+  const markup = pill.innerHTML.replace(LINE_START_MARKS, '');
+  return `${root.className}|${root.getAttribute('style') ?? ''}|${JSON.stringify(root.dataset)}|${markup}`;
+}
+
+/** Marks the segments that open a wrapped pill's later lines, as laid out
+ *  (offsets: a running glide reads nothing), so no separator is drawn at a
+ *  line's start (15-composer.css). The separator paints outside layout, so
+ *  the mark never moves a line break. */
+function markLineStarts(pill: Element): void {
+  let lineBottom = Number.NEGATIVE_INFINITY;
+  let first = true;
+  for (const child of pill.children) {
+    if (!(child instanceof HTMLElement) || child.getClientRects().length === 0) continue;
+    const starts = !first && child.offsetTop >= lineBottom - 0.5;
+    if (child.hasAttribute('data-line-start') !== starts) child.toggleAttribute('data-line-start', starts);
+    const bottom = child.offsetTop + child.offsetHeight;
+    lineBottom = starts ? bottom : Math.max(lineBottom, bottom);
+    first = false;
+  }
 }
 
 /** The last fit per room (the card's width, which every session of a window
@@ -65,6 +89,9 @@ let lastFit = 0;
 const FIT_EXPAND_MARGIN_PX = 24;
 /** The pill's width at rest, which an opened panel takes (15-composer.css). */
 const REST_WIDTH = '--island-rest-width';
+/** The pill's height at rest (two lines when wrapped): an opened panel keeps
+ *  its floor and its slot's height (15-composer.css). */
+const REST_HEIGHT = '--island-rest-pill-height';
 
 function applyFit(island: HTMLElement, fit: number): void {
   const tokens = fitTokens(fit);
@@ -88,6 +115,16 @@ export function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRe
     let fit = fitByRoom.get(stage.clientWidth) ?? lastFit;
     let widths: FormWidth[] = [];
     let widthsKey = '';
+    let singleLineHeight = 0;
+    let wrappedHeight = 0;
+    const writeRestSize = (width: number, height: number, wrapped: boolean) => {
+      if (width > 0) stage.style.setProperty(REST_WIDTH, `${width}px`);
+      if (height > 0) {
+        stage.style.setProperty(REST_HEIGHT, `${height}px`);
+        if (wrapped) wrappedHeight = height;
+        else singleLineHeight = height;
+      }
+    };
     // A form is read under data-measuring, which lays out the steps it names
     // at the pill's natural width over the fit shown (the stylesheet), so the
     // shown fit is never taken off to read.
@@ -133,15 +170,15 @@ export function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRe
           next -= 1;
         }
       }
+      // Read before data-measuring goes: the last form is first read here.
+      const fits = needOf(next, reserve) <= budget;
       island.removeAttribute('data-measuring');
-      return { next, fits: needOf(next, reserve) <= budget };
+      return { next, fits };
     };
     // Read as laid out: a segment still gliding to its place (useIslandGlide)
     // paints past the pill's edge without overflowing it.
     const overflows = () => withoutGlides(island, () => pill.scrollWidth > pill.clientWidth);
-    const refit = () => {
-      // Only the resting pill is fitted: an open tab hides or fills it.
-      if (room <= 0 || island.getAttribute('data-mode') !== 'pill') return;
+    const fitPill = () => {
       // The widths are trusted only for what decides them, compared on every
       // path: a room change, the bot's reserve or the pill resizing may come
       // with other type (a smaller text size) and no change of markup.
@@ -159,6 +196,50 @@ export function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRe
       }
       fit = decided.next;
       rememberFit(fit, room);
+      markLineStarts(pill);
+      const box = withoutGlides(island, () => pill.getBoundingClientRect());
+      writeRestSize(box.width, box.height, fit === LAST_FIT && !decided.fits);
+    };
+    const refit = () => {
+      // Only the resting pill is fitted: an open tab hides or fills it.
+      if (room <= 0 || island.getAttribute('data-mode') !== 'pill') return;
+      fitPill();
+    };
+    // Recompute resting pill width/height when the pane resizes while a panel
+    // is open so `--island-rest-pill-height` never stays stale at a prior wrap.
+    const recomputeRestForPanel = () => {
+      if (room <= 0 || island.getAttribute('data-mode') !== 'panel') return;
+      if (pill.hidden) {
+        island.style.setProperty('--island-measure-room', `${room}px`);
+        island.setAttribute('data-measuring-rest', '');
+        try {
+          fitPill();
+        } finally {
+          island.removeAttribute('data-measuring-rest');
+          island.style.removeProperty('--island-measure-room');
+        }
+        return;
+      }
+      if (!widths.length) return;
+      const reserve = petIslandReserveFor(island);
+      const budget = room - 2 * reserve;
+      let fitted: FormWidth | null = null;
+      for (let form = 0; form <= LAST_FIT; form += 1) {
+        const known = widths[form];
+        if (!known) continue;
+        const need = known.width - (reserve > 0 ? 0 : known.squeeze);
+        if (need <= budget) {
+          fitted = known;
+          break;
+        }
+      }
+      if (fitted) {
+        stage.style.setProperty(REST_WIDTH, `${Math.min(fitted.width, Math.max(0, budget))}px`);
+        if (singleLineHeight > 0) stage.style.setProperty(REST_HEIGHT, `${singleLineHeight}px`);
+        else stage.style.removeProperty(REST_HEIGHT);
+      } else if (wrappedHeight > 0) {
+        stage.style.setProperty(REST_HEIGHT, `${wrappedHeight}px`);
+      }
     };
     const initialRoom = stage.clientWidth;
     applyFit(island, fit);
@@ -170,17 +251,16 @@ export function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRe
     // The pill is watched too: type that lands later (fonts) resizes it with
     // no change of room or content, and its resting width is what an opened
     // panel takes. A stage with no box (its surface hidden) decides nothing.
-    const resize = new ResizeObserver((entries) => {
+    const resize = new ResizeObserver(() => {
       const next = stage.clientWidth;
-      if (next > 0) {
-        room = next;
+      if (next <= 0) return;
+      const roomChanged = next !== room;
+      room = next;
+      const mode = island.getAttribute('data-mode');
+      if (mode === 'pill') {
         refit();
-      }
-      for (const entry of entries) {
-        const width = entry.borderBoxSize?.[0]?.inlineSize ?? 0;
-        if (entry.target === pill && width > 0 && island.getAttribute('data-mode') === 'pill') {
-          stage.style.setProperty(REST_WIDTH, `${width}px`);
-        }
+      } else if (roomChanged && mode === 'panel') {
+        recomputeRestForPanel();
       }
     });
     resize.observe(stage);
@@ -220,7 +300,7 @@ const GLIDE_TIMING: KeyframeAnimationOptions = {
 /** Changes smaller than this are left to land in place. */
 const GLIDE_MIN_PX = 0.5;
 /** What can move the pill's segments or a panel's rows and height. */
-const GLIDE_ATTRIBUTES = ['data-mode', 'data-expanded', 'data-fit', 'hidden', 'style'];
+const GLIDE_ATTRIBUTES = ['data-mode', 'data-expanded', 'data-fit', 'data-line-start', 'hidden', 'style'];
 
 /** The element's own glides, its ::before frame's included (which only a
  *  subtree query lists). */
@@ -288,8 +368,8 @@ export function useIslandGlide(
     if (!active || !island || !pill || typeof island.animate !== 'function') return undefined;
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     let mode: string | null = null;
-    let segments = new Map<Element, number>();
-    let frame: { left: number; right: number } | null = null;
+    let segments = new Map<Element, { x: number; y: number }>();
+    let frame: { left: number; right: number; top: number; bottom: number } | null = null;
     let panelHeight = -1;
     let rows = new Map<Element, number>();
 
@@ -300,20 +380,36 @@ export function useIslandGlide(
     const listRows = () => Array.from(island.querySelector('.composer-island-jobs')?.children ?? []);
     const frameInsets = () => {
       if (!glides(island).some((animation) => (animation.effect as KeyframeEffect | null)?.pseudoElement)) {
-        return { left: 0, right: 0 };
+        return { left: 0, right: 0, top: 0, bottom: 0 };
       }
       const style = getComputedStyle(island, '::before');
-      return { left: Number.parseFloat(style.left) || 0, right: Number.parseFloat(style.right) || 0 };
+      const px = (value: string) => Number.parseFloat(value) || 0;
+      return { left: px(style.left), right: px(style.right), top: px(style.top), bottom: px(style.bottom) };
     };
     const settleFrame = () => {
       if (!glides(island).some((animation) => animation.playState === 'running')) island.removeAttribute('data-glide');
     };
 
+    const recordPill = (box = island.getBoundingClientRect()) => {
+      segments = new Map(
+        visibleSegments().map((segment) => {
+          const rect = segment.getBoundingClientRect();
+          const offset = glideOffset(segment);
+          return [segment, { x: rect.left - offset.x, y: rect.top - offset.y }];
+        })
+      );
+      frame =
+        mode === 'pill' && box.width > 0
+          ? { left: box.left, right: box.right, top: box.top, bottom: box.bottom }
+          : null;
+    };
+    const syncPill = () => {
+      if (mode === 'pill' && island.getAttribute('data-mode') === 'pill') recordPill();
+    };
     const record = () => {
       mode = island.getAttribute('data-mode');
-      segments = new Map(visibleSegments().map((segment) => [segment, segment.getBoundingClientRect().left]));
       const box = island.getBoundingClientRect();
-      frame = mode === 'pill' && box.width > 0 ? { left: box.left, right: box.right } : null;
+      recordPill(box);
       panelHeight = mode === 'panel' ? box.height : -1;
       rows = new Map(listRows().map((row) => [row, (row as HTMLElement).offsetTop]));
     };
@@ -335,12 +431,19 @@ export function useIslandGlide(
       }
       // Where everything is painted now: the last laid-out place plus any glide
       // still running toward it.
-      const paintedSegments = new Map<Element, number>();
-      for (const [segment, left] of segments) {
-        if (segment.isConnected) paintedSegments.set(segment, left + glideOffset(segment).x);
+      const paintedSegments = new Map<Element, { x: number; y: number }>();
+      for (const [segment, place] of segments) {
+        if (!segment.isConnected) continue;
+        const offset = glideOffset(segment);
+        paintedSegments.set(segment, { x: place.x + offset.x, y: place.y + offset.y });
       }
       const insets = frameInsets();
-      const paintedFrame = frame && { left: frame.left + insets.left, right: frame.right - insets.right };
+      const paintedFrame = frame && {
+        left: frame.left + insets.left,
+        right: frame.right - insets.right,
+        top: frame.top + insets.top,
+        bottom: frame.bottom - insets.bottom,
+      };
       const heightGliding = glides(island).some(
         (animation) => !(animation.effect as KeyframeEffect | null)?.pseudoElement
       );
@@ -351,23 +454,29 @@ export function useIslandGlide(
       record();
 
       if (mode === 'pill') {
-        for (const [segment, left] of segments) {
+        for (const [segment, place] of segments) {
           const from = paintedSegments.get(segment);
           if (from === undefined) glideTo(segment, [{ opacity: 0 }, { opacity: 1 }]);
-          else if (Math.abs(from - left) > GLIDE_MIN_PX) {
-            glideTo(segment, [{ transform: `translateX(${from - left}px)` }, { transform: 'none' }]);
+          else {
+            const x = from.x - place.x;
+            const y = from.y - place.y;
+            if (Math.abs(x) > GLIDE_MIN_PX || Math.abs(y) > GLIDE_MIN_PX) {
+              glideTo(segment, [{ transform: `translate(${x}px, ${y}px)` }, { transform: 'none' }]);
+            }
           }
         }
         if (paintedFrame && frame) {
           const left = paintedFrame.left - frame.left;
           const right = frame.right - paintedFrame.right;
-          if (Math.abs(left) > GLIDE_MIN_PX || Math.abs(right) > GLIDE_MIN_PX) {
+          const top = paintedFrame.top - frame.top;
+          const bottom = frame.bottom - paintedFrame.bottom;
+          if ([left, right, top, bottom].some((inset) => Math.abs(inset) > GLIDE_MIN_PX)) {
             island.setAttribute('data-glide', '');
             glideTo(
               island,
               [
-                { left: `${left}px`, right: `${right}px` },
-                { left: '0px', right: '0px' },
+                { left: `${left}px`, right: `${right}px`, top: `${top}px`, bottom: `${bottom}px` },
+                { left: '0px', right: '0px', top: '0px', bottom: '0px' },
               ],
               {
                 pseudoElement: '::before',
@@ -392,14 +501,24 @@ export function useIslandGlide(
     };
 
     record();
-    const mutation = new MutationObserver(glide);
+    const mutation = new MutationObserver((records) => {
+      if (records.every((entry) => entry.type === 'attributes' && entry.attributeName === 'data-line-start')) {
+        syncPill();
+        return;
+      }
+      glide();
+    });
     mutation.observe(island, {
       subtree: true,
       childList: true,
       characterData: true,
       attributeFilter: GLIDE_ATTRIBUTES,
     });
+    const resize = new ResizeObserver(syncPill);
+    if (island.parentElement) resize.observe(island.parentElement);
+    resize.observe(pill);
     return () => {
+      resize.disconnect();
       mutation.disconnect();
       cancelAll();
     };
@@ -567,7 +686,9 @@ function fitDockedApproval(slot: HTMLElement, island: HTMLElement): void {
 /** A panel paints upward from the pill's resting floor, so its real room is
  *  the pane's top down to that floor (the dock's height varies). */
 function measurePanelRoom(slot: HTMLElement, stage: HTMLElement, pane: Element) {
-  const pillHeight = Number.parseFloat(window.getComputedStyle(slot).getPropertyValue('--island-pill-height')) || 0;
+  const style = window.getComputedStyle(stage);
+  const pillHeight =
+    Number.parseFloat(style.getPropertyValue(REST_HEIGHT) || style.getPropertyValue('--island-pill-height')) || 0;
   const room = stage.getBoundingClientRect().top - pane.getBoundingClientRect().top + pillHeight;
   slot.style.setProperty(PANEL_ROOM, `${Math.max(0, Math.floor(room))}px`);
 }

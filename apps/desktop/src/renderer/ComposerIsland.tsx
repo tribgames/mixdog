@@ -23,6 +23,7 @@ import {
 import type { DesktopAgentActivityState } from '../shared/agent-activity';
 import type { DesktopAgentPoolRow } from '../shared/contract';
 import {
+  agentPlace,
   agentPoolStore,
   agentRoleLabel,
   islandAgentRows,
@@ -64,6 +65,7 @@ import { hitRateNote, plainFloorNote } from './usage-stats-model';
 import { useWholeRowList } from './whole-row-list';
 import { usageMoney } from './usage-format';
 import { ShellJobContent, ShellRowButton, useShellStops } from './shell-job-controls';
+import { useMobileBack } from './mobile-back';
 import { ComposerIslandContext, type ComposerIslandTab, type IslandSegmentReserves } from './composer-island-state';
 import {
   rememberedSegmentAdvances,
@@ -75,7 +77,7 @@ import { desktopHeaderSnapshotsEqual, paneHeaderView } from './desktop-snapshot-
 import { EMPTY_SNAPSHOT } from './desktop-types';
 import { t } from './i18n';
 import { IslandColumnSizer, IslandPanelFoot, IslandPanelHead, TidyButton } from './IslandPanelFoot';
-import { formatWorkClock, formatWorkElapsed, timeMs } from './transcript-primitives';
+import { formatWorkClock, formatWorkElapsed } from './transcript-primitives';
 import { MxIcon } from './MxIcon';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import { quotaRemainingLabel, quotaResetLabel } from './quota-continue';
@@ -195,15 +197,13 @@ type AgentKindGroup = {
 /** The listed agents by kind (Worker, Reviewer, …) and the provider and model they run on, each group's rows in the
  *  list's order. The groups stand in the order their first agent appeared (started), so work starting or ending moves
  *  no group. */
-function agentKindGroups(agents: readonly IslandAgentRow[]): AgentKindGroup[] {
+function agentKindGroups(sessionId: string, agents: readonly IslandAgentRow[]): AgentKindGroup[] {
   const groups = new Map<string, AgentKindGroup & { first: number }>();
+  // An agent keeps its place and its last known route through a restart: its kind keeps its key, its fold and its place.
   const routed = (row: IslandAgentRow) => {
     const { agent } = row.node;
-    return {
-      kind: agentRoleLabel(agent.agent || agent.tag),
-      provider: String(agent.provider || ''),
-      model: String(agent.model || ''),
-    };
+    const { provider, model, at } = agentPlace(sessionId, agent);
+    return { kind: agentRoleLabel(agent.agent || agent.tag), provider, model, appeared: at };
   };
   // An agent whose route is not known yet stands with the first of its kind whose route is.
   const known = new Map<string, { provider: string; model: string }>();
@@ -212,12 +212,10 @@ function agentKindGroups(agents: readonly IslandAgentRow[]): AgentKindGroup[] {
     if ((provider || model) && !known.has(kind)) known.set(kind, { provider, model });
   }
   for (const row of agents) {
-    const { agent } = row.node;
     const own = routed(row);
-    const { kind } = own;
+    const { kind, appeared } = own;
     const { provider, model } = own.provider || own.model ? own : (known.get(kind) ?? own);
     const key = [kind, provider, model].join('/');
-    const appeared = timeMs(agent.createdAt) || timeMs(agent.startedAt) || Number.POSITIVE_INFINITY;
     const group = groups.get(key);
     if (group) {
       group.rows.push(row);
@@ -336,14 +334,16 @@ export function AgentGroupList({
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
 }) {
   const folds = useSessionRailFolds(sessionId);
-  const groups = agentKindGroups(agents);
+  const groups = agentKindGroups(sessionId, agents);
   const models = kindModelLabels(groups);
   return (
     <div ref={listRef} className={className} role="tree" aria-label={t('Agents')}>
       {groups.map((group) => {
         const { rows } = group;
         const key = `agents:${group.key}`;
-        const open = folds.groupOpen(key, kindsOpen);
+        const fallback =
+          group.provider || group.model ? folds.groupOpen(`agents:${group.kind}//`, kindsOpen) : kindsOpen;
+        const open = folds.groupOpen(key, fallback);
         return (
           <Fragment key={group.key}>
             <AgentKindFold
@@ -351,12 +351,7 @@ export function AgentGroupList({
               model={models.get(group.key) ?? ''}
               foldKey={key}
               open={open}
-              onToggle={() =>
-                folds.setGroups(
-                  { [key]: !open },
-                  { prefix: 'agents:', keys: groups.map((shown) => `agents:${shown.key}`) }
-                )
-              }
+              onToggle={() => folds.setGroups({ [key]: !open })}
             />
             {open &&
               rows.map(({ node, state, finished }, index) => (
@@ -903,8 +898,35 @@ export function useQuotaRemaining(resetAt: number | null): string {
   return resetAt === null ? '' : quotaRemainingLabel(resetAt, now);
 }
 
-function ResumeRemaining({ resetAt }: { resetAt: number }) {
-  return <>{useQuotaRemaining(resetAt)}</>;
+/** The time alone is what a narrow island keeps of the sentence (useIslandFit);
+ *  its name keeps the whole of it, whatever the width shows. */
+function ResumeSegment({
+  resume,
+  expanded,
+  onClick,
+}: {
+  resume: ComposerIslandQuotaResume;
+  expanded: boolean;
+  onClick(): void;
+}) {
+  const time = quotaResetLabel(resume.resetAt);
+  const text = t('Resumes in {{model}} at {{time}}', { model: resume.model, time });
+  const remaining = useQuotaRemaining(resume.resetAt);
+  return (
+    <button
+      type="button"
+      className="composer-island-seg composer-island-seg-warning composer-island-seg-resume"
+      aria-expanded={expanded}
+      aria-label={remaining ? `${text}, ${remaining}` : text}
+      title={text}
+      onClick={onClick}
+    >
+      <MxIcon name="clock" size={16} />
+      <span className="composer-island-seg-text">{text}</span>
+      <span className="composer-island-seg-time">{time}</span>
+      <span className="composer-island-seg-sub">{remaining}</span>
+    </button>
+  );
 }
 
 function ResumePanel({ resume }: { resume: ComposerIslandQuotaResume }) {
@@ -1033,6 +1055,7 @@ export const ComposerIsland = memo(function ComposerIsland({
   const agentsPanel = mode === 'panel' && expanded === 'agents' && agentRows.length > 0;
   const shellsPanel = mode === 'panel' && expanded === 'shells' && shellTotal > 0;
   const ownPanel = resumePanel || agentsPanel || shellsPanel;
+  useMobileBack(ownPanel, () => setExpanded(''));
   const [reserves] = useState<IslandSegmentReserves>(() => {
     const known = rememberedSegmentAdvances(routeSessionId) ?? carriedAdvances;
     return { branch: known?.branch ?? 0, files: known?.files ?? 0, git: known?.git ?? 0 };
@@ -1057,23 +1080,11 @@ export const ComposerIsland = memo(function ComposerIsland({
               hidden={mode === 'approval' || mode === 'flash' || ownPanel}
             >
               {quotaResume && (
-                <button
-                  type="button"
-                  className="composer-island-seg composer-island-seg-warning"
-                  aria-expanded={expanded === 'resume'}
+                <ResumeSegment
+                  resume={quotaResume}
+                  expanded={expanded === 'resume'}
                   onClick={() => setExpanded(expanded === 'resume' ? '' : 'resume')}
-                >
-                  <MxIcon name="clock" size={16} />
-                  <span className="composer-island-seg-text">
-                    {t('Resumes in {{model}} at {{time}}', {
-                      model: quotaResume.model,
-                      time: quotaResetLabel(quotaResume.resetAt),
-                    })}
-                  </span>
-                  <span className="composer-island-seg-sub">
-                    <ResumeRemaining resetAt={quotaResume.resetAt} />
-                  </span>
-                </button>
+                />
               )}
               {goal}
               {agentRows.length > 0 && (

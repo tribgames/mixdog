@@ -9,6 +9,7 @@ import { createRoot, type Root } from 'react-dom/client';
 
 import { useDeferredModule } from './deferred-module';
 import { browserPaneModule } from './lazy-widgets';
+import { SurfaceActiveContext } from './surface-activity';
 import { useSlotRemeasure } from './surface-slot-remeasure';
 import {
   applySurfaceInteractivity,
@@ -125,19 +126,21 @@ export function useSessionBrowserSurfaces(
       const foreground = selected?.[1].foreground === true;
       renderSurfaceRoot(
         surface.root,
-        renderBrowserSurface({
-          sessionId: surface.sessionId,
-          active,
-          foreground,
-          // Every inactive page keeps its guest laid out at full size (an
-          // Electron guest stops repainting otherwise), the exiting one too.
-          parked: !active,
-          expanded: surface.expanded && foreground,
-          onToggleExpanded: () => {
-            surface.expanded = !surface.expanded;
-            commit(surface);
-          },
-        })
+        <SurfaceActiveContext.Provider value={active}>
+          {renderBrowserSurface({
+            sessionId: surface.sessionId,
+            active,
+            foreground,
+            // Every inactive page keeps its guest laid out at full size (an
+            // Electron guest stops repainting otherwise), the exiting one too.
+            parked: !active,
+            expanded: surface.expanded && foreground,
+            onToggleExpanded: () => {
+              surface.expanded = !surface.expanded;
+              commit(surface);
+            },
+          })}
+        </SurfaceActiveContext.Provider>
       );
     },
     [position, renderBrowserSurface]

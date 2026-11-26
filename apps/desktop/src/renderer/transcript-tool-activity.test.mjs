@@ -185,7 +185,7 @@ test('Goal and load control tools stay hidden while ordinary tools remain visibl
   assert.equal(project(hidden).rows.length, 0);
 });
 
-test('a live-only notice or compaction marker follows the group a reload shows whole', () => {
+test('a live-only notice or compaction marker stays in chronological emission order', () => {
   const first = { kind: 'tool', id: 'first', name: 'read', result: 'ok' };
   const notice = { kind: 'notice', id: 'notice', text: 'Prompt cache expired', tone: 'info' };
   const marker = { kind: 'statusdone', id: 'marker', label: 'Compact checked' };
@@ -193,16 +193,16 @@ test('a live-only notice or compaction marker follows the group a reload shows w
   const settled = project([first, notice, marker, second]);
   assert.deepEqual(
     settled.rows.map((row) => row._tag),
-    ['ToolActivity', 'AssistantPart', 'AssistantPart']
+    ['ToolActivity', 'AssistantPart', 'AssistantPart', 'ToolActivity']
   );
-  assert.deepEqual(settled.rows[0].items, [first, second]);
+  assert.deepEqual(settled.rows[0].items, [first]);
   assert.deepEqual(
-    settled.rows.slice(1).map((row) => row.item),
+    settled.rows.slice(1, 3).map((row) => row.item),
     [notice, marker]
   );
-  assert.equal(settled.rows[0].key, project([first, second]).rows[0].key);
+  assert.deepEqual(settled.rows[3].items, [second]);
   const live = appendLiveTranscriptRows({ sessionKey: 'session', settled, turnRunning: true });
-  assert.equal(live[0].open, true, 'the next call still lands in the group');
+  assert.equal(live[3].open, true, 'the trailing live tool group stays open');
 });
 
 test('a whitespace-only reply segment does not split the group, as after a reload', () => {
@@ -2031,4 +2031,39 @@ test('the card append_to_tail writes after a third response counts three in the 
   assert.equal(rows.length, 1);
   assert.equal(rows[0].count, 3);
   assert.equal(desktopToolActivitySummary(mergeToolRows(rows), true), 'Agent responses ×3');
+});
+
+test('optimistic user submission mounts Thinking row and pending UserMessage avoids data-turn-end flicker', async () => {
+  const { rowSteps } = await import('./TranscriptList.tsx');
+  const settled = projectSettledTranscriptRows({
+    sessionKey: 's',
+    items: [],
+    turnKeys: [],
+    failedTurns: new Set(),
+  });
+  const pendingUser = { id: 'p1', kind: 'user', text: 'hello', pending: true };
+  const liveRows = appendLiveTranscriptRows({
+    sessionKey: 's',
+    settled,
+    pendingItems: [pendingUser],
+    thinking: false,
+  });
+  assert.deepEqual(
+    liveRows.map((row) => row._tag),
+    ['UserMessage', 'Thinking'],
+    'optimistic submission mounts Thinking immediately'
+  );
+  const painted = {
+    paintedAbove: (i) => i - 1,
+    paintedBelow: (i) => (i + 1 < liveRows.length ? i + 1 : -1),
+    nodeAt: () => 'content',
+  };
+  assert.equal(rowSteps(liveRows[0], 0, liveRows, 'content', painted).turnEnd, false);
+  // Even standalone before Thinking mounts, a pending UserMessage never claims data-turn-end.
+  const lone = [liveRows[0]];
+  assert.equal(
+    rowSteps(lone[0], 0, lone, 'content', { paintedAbove: () => -1, paintedBelow: () => -1, nodeAt: () => 'content' })
+      .turnEnd,
+    false
+  );
 });

@@ -14,11 +14,11 @@ import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import { BlockMath, InlineMath } from '@tiptap/extension-mathematics';
 import { Details, DetailsContent, DetailsSummary } from '@tiptap/extension-details';
 import { Markdown } from '@tiptap/markdown';
-import { common, createLowlight } from 'lowlight';
 import { Marked } from 'marked';
 import { t } from '../i18n';
+import { getSharedLowlight } from '../shared-lowlight';
 
-export const richMarkdownLowlight = createLowlight(common);
+export const richMarkdownLowlight = getSharedLowlight();
 
 type MarkedExtensionList = {
   extensions?: Array<{ level?: string; start?: (this: unknown, src: string) => number | undefined }>;

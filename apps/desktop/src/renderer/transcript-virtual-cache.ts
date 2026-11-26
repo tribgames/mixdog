@@ -8,6 +8,14 @@ export const TRANSCRIPT_ROW_ESTIMATE = 60;
 export const TRANSCRIPT_VIRTUAL_OVERSCAN = 10;
 /** The shortest row the list paints: the live band's line (desktop/12-transcript.css). */
 export const TRANSCRIPT_MIN_ROW_PX = 24;
+/** Deterministic initial row height priors for coding transcripts (12-transcript.css / 14-live-activity.css). */
+export const TRANSCRIPT_THINKING_ROW_PX = 24;
+export const TRANSCRIPT_BAND_LEAD_PX = 16;
+export const TRANSCRIPT_LIVE_ASSISTANT_ROW_PX = 24;
+export const TRANSCRIPT_COLLAPSED_TOOL_ROW_PX = 30;
+export const TRANSCRIPT_PART_STEP_PX = 8;
+export const TRANSCRIPT_AFTER_CHANGES_STEP_PX = 20;
+export const TRANSCRIPT_DIVIDER_STEP_PX = 24;
 // Breathing room above the measured composer footprint. The footprint itself
 // is supplied by the dock, never guessed from an expected number of controls.
 export const TRANSCRIPT_BOTTOM_SPACER = 24;

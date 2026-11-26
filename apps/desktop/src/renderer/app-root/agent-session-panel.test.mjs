@@ -505,3 +505,366 @@ test('an ended sub-agent stays read-only from the panel’s own copy, and a fres
   await act(async () => store.apply(frame(11)));
   assert.equal(seen.held, null, 'a fresh live frame ends read-only');
 });
+
+test('an open agent-session panel follows a closed sub-agent to its respawned session on the same owner and tag, while keeping unsuperseded historical sessions', async (t) => {
+  const { dom } = installTestDom(null, {
+    jsdom: { url: 'https://mixdog.test/' },
+    expose: ['navigator', 'HTMLElement', 'Event', 'CustomEvent', 'localStorage'],
+  });
+  let listener = () => {};
+  let revision = 1;
+  const entry = (value) => ({ section: 'agentPool', key: null, revision: ++revision, value });
+  const lead = {
+    tag: 'lead:lead-1',
+    agent: 'lead',
+    sessionId: 'lead-1',
+    ownerSessionId: 'lead-1',
+    status: 'idle',
+    stage: 'idle',
+    createdAt: 100,
+  };
+  const oldRow = {
+    tag: 'fw-heavy',
+    agent: 'heavy-worker',
+    sessionId: 'sub-old',
+    ownerSessionId: 'lead-1',
+    parentSessionId: 'lead-1',
+    status: 'error',
+    stage: 'error',
+    createdAt: 1_000,
+    startedAt: 1_000,
+    settledAt: 1_500,
+  };
+  const host = {
+    sections: {
+      snapshot: async () => ({ status: 'ready', entries: [entry([lead, oldRow])] }),
+      subscribe: (next) => {
+        listener = next;
+        return () => {};
+      },
+    },
+  };
+  window.mixdogDesktop = host;
+  const { sectionStoreFor } = await import('../section-store.ts');
+  const { defaultSessionLaneStore: store } = await import('../session-lane-store.ts');
+  const { useSessionPaneSurfaces } = await import('../use-session-pane-surfaces.ts');
+  const { AgentSessionPanel } = await import('../AgentSessionPanel.tsx');
+  await sectionStoreFor(host).ready();
+  store.setShownSessionIds(['sub-old', 'sub-new', 'sub-new-2']);
+  store.apply({
+    sessionId: 'sub-old',
+    snapshot: { sessionId: 'sub-old', items: [{ id: 'old-failed' }] },
+    frameSource: 'live',
+  });
+  const shell = { surfaces: null, renderedSessionId: null, held: undefined };
+  function Harness() {
+    shell.surfaces = useSessionPaneSurfaces(['lead-1']);
+    const target = shell.surfaces.agentSessionPanels.get('lead-1');
+    if (!target) {
+      shell.renderedSessionId = null;
+      shell.held = undefined;
+      return null;
+    }
+    return React.createElement(AgentSessionPanel, {
+      key: target.sessionId,
+      target,
+      active: true,
+      heldLanes: shell.surfaces.heldAgentLanes,
+      renderConversation: (sessionId, _title, held) => {
+        shell.renderedSessionId = sessionId;
+        shell.held = held;
+        return null;
+      },
+      onOpenAsTab() {},
+      onClose() {},
+    });
+  }
+  const root = createRoot(dom.window.document.getElementById('root'));
+  await act(async () => root.render(React.createElement(Harness)));
+  t.after(async () => {
+    await act(async () => root.unmount());
+    store.setShownSessionIds([]);
+  });
+  const pushPool = async (rows) => {
+    await act(async () => {
+      listener({ kind: 'sections', changes: [{ section: 'agentPool', key: null, entry: entry(rows) }] });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  };
+
+  // Open the failed sub-agent in the side panel, then its lane ends (frozen snapshot held).
+  await act(async () => shell.surfaces.showAgentSessionPanel('lead-1', { sessionId: 'sub-old', title: 'fw-heavy' }));
+  assert.equal(shell.renderedSessionId, 'sub-old');
+  await act(async () => store.apply({ sessionId: 'sub-old', snapshot: null, frameSource: 'live', laneEnd: 'gone' }));
+  assert.deepEqual(shell.held?.items, [{ id: 'old-failed' }]);
+
+  // Another owner spawning the same tag or the same owner spawning another tag must not hijack the panel.
+  await pushPool([
+    lead,
+    { ...oldRow, released: true },
+    { ...oldRow, sessionId: 'other-owner-sub', ownerSessionId: 'lead-2', parentSessionId: 'lead-2', createdAt: 2_000 },
+    { ...oldRow, sessionId: 'other-tag-sub', tag: 'fw-other', createdAt: 2_000 },
+  ]);
+  assert.equal(shell.surfaces.agentSessionPanels.get('lead-1').sessionId, 'sub-old');
+
+  // Respawn on the same (ownerSessionId, tag) while sub-old is marked released: panel follows to sub-new immediately.
+  const newRow = {
+    ...oldRow,
+    sessionId: 'sub-new',
+    title: 'Retry build',
+    status: 'running',
+    stage: 'streaming',
+    createdAt: 3_000,
+    startedAt: 3_000,
+    turnStartedAt: 3_000,
+    settledAt: null,
+  };
+  await pushPool([lead, { ...oldRow, released: true }, newRow]);
+  assert.deepEqual(shell.surfaces.agentSessionPanels.get('lead-1'), {
+    sessionId: 'sub-new',
+    title: 'Retry build · fw-heavy',
+  });
+  assert.equal(shell.renderedSessionId, 'sub-new');
+  assert.equal(shell.held, null, 'does not stay pinned to the old held snapshot');
+  assert.equal(shell.surfaces.heldAgentLanes.has('sub-old'), false);
+
+  // Even when a closed session is removed from the pool completely before respawn, the remembered tag follows it.
+  await pushPool([lead]);
+  assert.equal(shell.surfaces.agentSessionPanels.get('lead-1').sessionId, 'sub-new');
+  const thirdRow = { ...newRow, sessionId: 'sub-new-2', title: null, createdAt: 4_000, startedAt: 4_000 };
+  await pushPool([lead, thirdRow]);
+  assert.deepEqual(shell.surfaces.agentSessionPanels.get('lead-1'), {
+    sessionId: 'sub-new-2',
+    title: 'fw-heavy',
+  });
+
+  // Explicitly clicking a historical/closed session with no superseding session stays on that historical session.
+  const historical = {
+    ...oldRow,
+    tag: 'hist-tag',
+    sessionId: 'sub-hist',
+    status: 'completed',
+    stage: 'completed',
+    released: true,
+    createdAt: 500,
+  };
+  await pushPool([lead, thirdRow, historical]);
+  await act(async () => shell.surfaces.showAgentSessionPanel('lead-1', { sessionId: 'sub-hist', title: 'hist-tag' }));
+  assert.deepEqual(shell.surfaces.agentSessionPanels.get('lead-1'), {
+    sessionId: 'sub-hist',
+    title: 'hist-tag',
+  });
+  // A historical session not in the pool at all also stays open cleanly.
+  await act(async () =>
+    shell.surfaces.showAgentSessionPanel('lead-1', { sessionId: 'sub-ancient', title: 'Ancient run' })
+  );
+  assert.deepEqual(shell.surfaces.agentSessionPanels.get('lead-1'), {
+    sessionId: 'sub-ancient',
+    title: 'Ancient run',
+  });
+});
+
+test('an open agent-session panel respects parent scope, open tabs, explicit historical clicks, and ignores progress-only pool ticks', async (t) => {
+  const { dom } = installTestDom(null, {
+    jsdom: { url: 'https://mixdog.test/' },
+    expose: ['navigator', 'HTMLElement', 'Event', 'CustomEvent', 'localStorage'],
+  });
+  let listener = () => {};
+  let revision = 1;
+  const entry = (value) => ({ section: 'agentPool', key: null, revision: ++revision, value });
+  const lead = {
+    tag: 'lead:lead-1',
+    agent: 'lead',
+    sessionId: 'lead-1',
+    ownerSessionId: 'lead-1',
+    status: 'idle',
+    stage: 'idle',
+    createdAt: 100,
+  };
+  const grandA1 = {
+    tag: 'audit',
+    agent: 'reviewer',
+    sessionId: 'grand-a-1',
+    ownerSessionId: 'lead-1',
+    parentSessionId: 'worker-a',
+    status: 'running',
+    stage: 'streaming',
+    createdAt: 1_000,
+    startedAt: 1_000,
+  };
+  const grandB1 = {
+    tag: 'audit',
+    agent: 'reviewer',
+    sessionId: 'grand-b-1',
+    ownerSessionId: 'lead-1',
+    parentSessionId: 'worker-b',
+    status: 'running',
+    stage: 'streaming',
+    createdAt: 2_000,
+    startedAt: 2_000,
+  };
+  const host = {
+    sections: {
+      snapshot: async () => ({ status: 'ready', entries: [entry([lead, grandA1, grandB1])] }),
+      subscribe: (next) => {
+        listener = next;
+        return () => {};
+      },
+    },
+  };
+  window.mixdogDesktop = host;
+  const { sectionStoreFor } = await import('../section-store.ts');
+  const { useSessionPaneSurfaces } = await import('../use-session-pane-surfaces.ts');
+  await sectionStoreFor(host).ready();
+  const shell = { surfaces: null, tabs: ['lead-1', 'grand-a-tab'], renders: 0 };
+  function Harness() {
+    shell.renders += 1;
+    shell.surfaces = useSessionPaneSurfaces(shell.tabs);
+    return null;
+  }
+  const root = createRoot(dom.window.document.getElementById('root'));
+  const render = () => act(async () => root.render(React.createElement(Harness)));
+  await render();
+  t.after(async () => {
+    await act(async () => root.unmount());
+  });
+  const pushPool = async (rows) => {
+    await act(async () => {
+      listener({ kind: 'sections', changes: [{ section: 'agentPool', key: null, entry: entry(rows) }] });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  };
+
+  // Open worker-a's grand-agent while live.
+  await act(async () => shell.surfaces.showAgentSessionPanel('lead-1', { sessionId: 'grand-a-1', title: 'audit' }));
+  assert.equal(shell.surfaces.agentSessionPanels.get('lead-1')?.sessionId, 'grand-a-1');
+
+  // Progress-only pool ticks keep getView() identical and cause zero extra renders.
+  const rendersBeforeProgress = shell.renders;
+  await pushPool([
+    lead,
+    { ...grandA1, progressAt: 1_100, updatedAt: 1_100, toolCalls: 2, ledgerToken: 'tok-1' },
+    grandB1,
+  ]);
+  await pushPool([
+    lead,
+    { ...grandA1, progressAt: 1_200, updatedAt: 1_200, toolCalls: 3, ledgerToken: 'tok-2' },
+    grandB1,
+  ]);
+  assert.equal(shell.renders, rendersBeforeProgress, 'progress-only ticks do not re-render or reconcile');
+
+  // Closing grand-a-1 while sibling worker-b runs the same tag must NOT hijack onto grand-b-1.
+  await pushPool([lead, { ...grandA1, status: 'completed', stage: 'completed', released: true }, grandB1]);
+  assert.equal(shell.surfaces.agentSessionPanels.get('lead-1')?.sessionId, 'grand-a-1');
+
+  // Respawning grand-a onto a sessionId already open as a tab must NOT retarget and close the side panel.
+  const grandATab = { ...grandA1, sessionId: 'grand-a-tab', createdAt: 3_000, startedAt: 3_000 };
+  await pushPool([lead, { ...grandA1, status: 'completed', stage: 'completed', released: true }, grandB1, grandATab]);
+  assert.equal(shell.surfaces.agentSessionPanels.get('lead-1')?.sessionId, 'grand-a-1');
+  assert.equal(shell.surfaces.sessionPanelViews.get('lead-1'), 'agent-session');
+
+  // Respawning grand-a onto a new non-tab session follows cleanly.
+  const grandA2 = { ...grandA1, sessionId: 'grand-a-2', title: 'Retry audit', createdAt: 4_000, startedAt: 4_000 };
+  await pushPool([lead, { ...grandA1, status: 'completed', stage: 'completed', released: true }, grandB1, grandA2]);
+  assert.deepEqual(shell.surfaces.agentSessionPanels.get('lead-1'), {
+    sessionId: 'grand-a-2',
+    title: 'Retry audit · audit',
+  });
+
+  // Explicitly clicking the historical released row grand-a-1 AFTER grand-a-2 already exists stays on grand-a-1.
+  await act(async () => shell.surfaces.showAgentSessionPanel('lead-1', { sessionId: 'grand-a-1', title: 'audit' }));
+  assert.deepEqual(shell.surfaces.agentSessionPanels.get('lead-1'), {
+    sessionId: 'grand-a-1',
+    title: 'audit',
+  });
+  // Even if grand-a-2 is later closed and respawned as grand-a-3, the explicitly chosen historical row stays put.
+  const grandA3 = { ...grandA1, sessionId: 'grand-a-3', createdAt: 5_000, startedAt: 5_000 };
+  await pushPool([
+    lead,
+    { ...grandA1, status: 'completed', stage: 'completed', released: true },
+    { ...grandA2, status: 'completed', stage: 'completed', released: true },
+    grandA3,
+  ]);
+  assert.equal(shell.surfaces.agentSessionPanels.get('lead-1')?.sessionId, 'grand-a-1');
+});
+
+test('closing a claimed respawn tab re-reconciles agent-session panel under StrictMode so the panel follows S2', async (t) => {
+  const { dom } = installTestDom(t, {
+    html: '<!doctype html><html><body><div id="root"></div></body></html>',
+    jsdom: { url: 'http://localhost/' },
+    expose: ['CustomEvent', 'Event', 'HTMLElement', 'Node', 'localStorage'],
+  });
+  let listener = null;
+  let revision = 0;
+  const entry = (rows) => ({ section: 'agentPool', key: null, revision: ++revision, value: rows });
+  const lead = { sessionId: 'lead-tab-follow', ownerSessionId: 'lead-tab-follow', agent: 'lead', status: 'idle' };
+  const s1 = {
+    tag: 'worker-follow',
+    agent: 'worker',
+    sessionId: 's1-live',
+    ownerSessionId: 'lead-tab-follow',
+    parentSessionId: 'lead-tab-follow',
+    status: 'running',
+    stage: 'streaming',
+    createdAt: 1_000,
+    startedAt: 1_000,
+  };
+  const s2 = {
+    tag: 'worker-follow',
+    agent: 'worker',
+    sessionId: 's2-respawn',
+    ownerSessionId: 'lead-tab-follow',
+    parentSessionId: 'lead-tab-follow',
+    title: 'Second run',
+    status: 'running',
+    stage: 'streaming',
+    createdAt: 2_000,
+    startedAt: 2_000,
+  };
+  const host = {
+    sections: {
+      snapshot: async () => ({ status: 'ready', entries: [entry([lead, s1])] }),
+      subscribe: (next) => {
+        listener = next;
+        return () => {};
+      },
+    },
+  };
+  window.mixdogDesktop = host;
+  const { sectionStoreFor } = await import('../section-store.ts');
+  const { useSessionPaneSurfaces } = await import('../use-session-pane-surfaces.ts');
+  await sectionStoreFor(host).ready();
+
+  const shell = { surfaces: null, tabs: ['lead-tab-follow', 's2-respawn'] };
+  function Harness({ tabs }) {
+    shell.surfaces = useSessionPaneSurfaces(tabs);
+    return null;
+  }
+  const root = createRoot(dom.window.document.getElementById('root'));
+  const render = (tabs) =>
+    act(async () => root.render(React.createElement(React.StrictMode, null, React.createElement(Harness, { tabs }))));
+  await render(shell.tabs);
+  t.after(async () => {
+    await act(async () => root.unmount());
+  });
+
+  await act(async () =>
+    shell.surfaces.showAgentSessionPanel('lead-tab-follow', { sessionId: 's1-live', title: 'worker-follow' })
+  );
+  // S1 closes and S2 spawns while S2 is already open in a tab -> panel stays on S1.
+  await act(async () => {
+    listener({
+      kind: 'sections',
+      changes: [{ section: 'agentPool', key: null, entry: entry([lead, { ...s1, released: true }, s2]) }],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  assert.equal(shell.surfaces.agentSessionPanels.get('lead-tab-follow')?.sessionId, 's1-live');
+
+  // Closing S2's tab (with no pool event) triggers reconciliation so the panel follows S2.
+  await render(['lead-tab-follow']);
+  assert.deepEqual(shell.surfaces.agentSessionPanels.get('lead-tab-follow'), {
+    sessionId: 's2-respawn',
+    title: 'Second run · worker-follow',
+  });
+});

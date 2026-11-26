@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { defaultSessionLaneStore } from './session-lane-store';
-import { previewSessionTranscript, requestSessionRead, usesVisibleSessionActivation } from './session-read-request';
+import { requestSessionRead, usesVisibleSessionActivation } from './session-read-request';
 import { transcriptTurnKeys } from './renderer-logic.mjs';
 import { transcriptRowHeightStore } from './transcript-row-estimates';
 import { projectSettledTranscriptRows, type TranscriptRowModel } from './transcript-rows';
@@ -55,12 +55,14 @@ interface OpenIntent {
   ended: boolean;
   confirmed: boolean;
   stopWaiting: (() => void) | null;
+  attachWait: (() => void) | null;
 }
 let intent: OpenIntent | null = null;
 let lastToken = 0;
 
 function endIntent(ended: OpenIntent): void {
   ended.ended = true;
+  ended.attachWait = null;
   ended.stopWaiting?.();
   ended.stopWaiting = null;
   if (intent === ended) intent = null;
@@ -72,11 +74,20 @@ function endIntent(ended: OpenIntent): void {
  *  itself: one wait per session, ended by the lane's delivery (even an empty
  *  one), the read failing, or the intent being finalized unopened. */
 export function prepareSessionOpen(sessionId: string): Promise<boolean> {
-  // Review/changes reads belong to the activated pane on this path; the intent only reads stored rows.
-  if (usesVisibleSessionActivation()) return previewSessionTranscript(sessionId);
-  if (intent?.sessionId === sessionId && !intent.ended) return intent.read;
+  if (intent?.sessionId === sessionId && !intent.ended) {
+    const active = intent;
+    if (active.attachWait && !active.stopWaiting && defaultSessionLaneStore.get(sessionId)) {
+      endIntent(active);
+      prepareSessionRows(sessionId);
+    }
+    return active.read;
+  }
   if (intent) endIntent(intent);
-  const read = requestSessionRead(sessionId);
+  const visibleActivation = usesVisibleSessionActivation();
+  // On core-direct visible activation, skip non-positioned preview reads that positioned
+  // thread/resume immediately discards, and only subscribe for uncached lane delivery once
+  // navigation confirms so speculative hovers never leave dangling store listeners.
+  const read = visibleActivation ? Promise.resolve(true) : requestSessionRead(sessionId);
   const current: OpenIntent = {
     token: ++lastToken,
     sessionId,
@@ -84,19 +95,28 @@ export function prepareSessionOpen(sessionId: string): Promise<boolean> {
     ended: false,
     confirmed: false,
     stopWaiting: null,
+    attachWait: null,
   };
   intent = current;
+  const deliver = () => {
+    if (!defaultSessionLaneStore.get(sessionId)) return false;
+    endIntent(current);
+    prepareSessionRows(sessionId);
+    return true;
+  };
+  const attachWait = () => {
+    if (current.ended || current.stopWaiting) return;
+    if (!deliver()) current.stopWaiting = defaultSessionLaneStore.subscribe(sessionId, deliver);
+  };
+  if (visibleActivation) {
+    if (!deliver()) current.attachWait = attachWait;
+    return read;
+  }
   void read.then(
     (ready) => {
       if (current.ended) return;
       if (!ready) return endIntent(current);
-      const deliver = () => {
-        if (!defaultSessionLaneStore.get(sessionId)) return false;
-        endIntent(current);
-        prepareSessionRows(sessionId);
-        return true;
-      };
-      if (!deliver()) current.stopWaiting = defaultSessionLaneStore.subscribe(sessionId, deliver);
+      attachWait();
     },
     () => endIntent(current)
   );
@@ -111,7 +131,10 @@ export function currentOpenToken(sessionId: string): number {
 /** The navigation to a session went ahead, synchronously in its handler: the
  *  intent that led to it keeps its wait until the lane is delivered. */
 export function confirmSessionOpen(sessionId: string): void {
-  if (intent?.sessionId === sessionId) intent.confirmed = true;
+  if (intent?.sessionId === sessionId && !intent.ended) {
+    intent.confirmed = true;
+    intent.attachWait?.();
+  }
 }
 
 /** The handler that may have navigated is done: an intent it did not confirm

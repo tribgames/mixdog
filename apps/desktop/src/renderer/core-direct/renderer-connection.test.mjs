@@ -411,3 +411,174 @@ test('ports_viewed_before_the_first_open_subscribe_once_it_opens', async () => {
     ['system/ports/subscribe']
   );
 });
+
+test('rejected stale watchFeed does not delete a replacement route for the same feedId', async () => {
+  const first = Promise.withResolvers();
+  let calls = 0;
+  const { client, connection } = await opened(async (method, params) => {
+    if (method === 'feed/subscribe' && params.feedId === 'lsp:/proj') {
+      calls += 1;
+      if (calls === 1) return first.promise;
+    }
+    return { ok: true };
+  });
+  const w = win();
+  connection.attach(w);
+
+  const staleWatch = connection.watchFeed(w, 'lsp:/proj');
+  await new Promise((r) => setImmediate(r));
+  await connection.unwatchFeed(w, 'lsp:/proj');
+  assert.deepEqual(await connection.watchFeed(w, 'lsp:/proj'), { absent: false });
+
+  first.reject(new Error('stale failure'));
+  await assert.rejects(staleWatch, /stale failure/);
+
+  client.emit({
+    type: 'notification',
+    notification: {
+      method: 'lsp/diagnostics/updated',
+      feed: { id: 'lsp:/proj' },
+      params: { section: 'lspDiagnostics', key: 'file:///proj/a.ts', revision: 1, value: { uri: 'file:///proj/a.ts' } },
+    },
+  });
+  assert.equal(w.pushes.at(-1)?.changes?.[0]?.key, 'file:///proj/a.ts', 'replacement route still delivers updates');
+});
+
+test('dropFeed on absent reconnect and feed/closed notifies feedLost and clears held entries', async () => {
+  let missing = false;
+  const { client, connection } = await opened(async (method) => {
+    if (method === 'feed/subscribe' && missing) throw absent;
+    return { ok: true };
+  });
+  const lostFeeds = [];
+  const w = { ...win(), feedLost: (id) => lostFeeds.push(id) };
+  connection.attach(w);
+
+  await connection.watchFeed(w, 'lsp:/wt');
+  client.emit({
+    type: 'notification',
+    notification: {
+      method: 'lsp/diagnostics/updated',
+      feed: { id: 'lsp:/wt' },
+      params: { section: 'lspDiagnostics', key: 'file:///wt/a.ts', revision: 1, value: { uri: 'file:///wt/a.ts' } },
+    },
+  });
+  missing = true;
+  client.emit({ type: 'status', status: { state: 'reconnecting' } });
+  client.emit({ type: 'status', status: { state: 'ready' } });
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(lostFeeds, ['lsp:/wt']);
+  assert.equal(w.pushes.at(-1)?.changes?.[0]?.entry, null);
+
+  missing = false;
+  await connection.watchFeed(w, 'lsp:/wt');
+  client.emit({
+    type: 'notification',
+    notification: { method: 'feed/closed', feed: { id: 'lsp:/wt' }, params: { feedId: 'lsp:/wt' } },
+  });
+  assert.deepEqual(lostFeeds, ['lsp:/wt', 'lsp:/wt']);
+});
+
+test('failed refresh watchFeed drops route so subsequent ordinary watchFeed resubscribes', async () => {
+  let failNext = false;
+  const { client, connection } = await opened(async (method, params) => {
+    if (method === 'feed/subscribe' && params.feedId === 'lsp:/refresh-fail' && failNext) {
+      failNext = false;
+      throw new Error('temporary failure');
+    }
+    return { ok: true };
+  });
+  const w = win();
+  connection.attach(w);
+
+  await connection.watchFeed(w, 'lsp:/refresh-fail');
+  client.emit({
+    type: 'notification',
+    notification: {
+      method: 'lsp/diagnostics/updated',
+      feed: { id: 'lsp:/refresh-fail' },
+      params: {
+        section: 'lspDiagnostics',
+        key: 'file:///refresh-fail/a.ts',
+        revision: 1,
+        value: { uri: 'file:///refresh-fail/a.ts' },
+      },
+    },
+  });
+  assert.equal(
+    client.calls.filter((c) => c.method === 'feed/subscribe' && c.params.feedId === 'lsp:/refresh-fail').length,
+    1
+  );
+
+  // Refresh fails with a non-absent error: route must be dropped and held entries cleared.
+  failNext = true;
+  await assert.rejects(connection.watchFeed(w, 'lsp:/refresh-fail', { refresh: true }), /temporary failure/);
+  assert.equal(w.pushes.at(-1)?.changes?.[0]?.entry, null, 'failed refresh clears stale held entries');
+  assert.equal(connection.snapshot().entries.filter((e) => e.section === 'lspDiagnostics').length, 0);
+
+  // Subsequent ordinary watchFeed (without refresh) must actually send feed/subscribe again.
+  await connection.watchFeed(w, 'lsp:/refresh-fail');
+  assert.equal(
+    client.calls.filter((c) => c.method === 'feed/subscribe' && c.params.feedId === 'lsp:/refresh-fail').length,
+    3
+  );
+  client.emit({
+    type: 'notification',
+    notification: {
+      method: 'lsp/diagnostics/updated',
+      feed: { id: 'lsp:/refresh-fail' },
+      params: {
+        section: 'lspDiagnostics',
+        key: 'file:///refresh-fail/b.ts',
+        revision: 1,
+        value: { uri: 'file:///refresh-fail/b.ts' },
+      },
+    },
+  });
+  assert.equal(w.pushes.at(-1)?.changes?.[0]?.key, 'file:///refresh-fail/b.ts');
+});
+
+test('refresh watchFeed that fails awaiting connection reopen drops stale route so next watch resubscribes', async () => {
+  let opens = 0;
+  const firstClient = fakeClient();
+  const thirdClient = fakeClient();
+  const connection = createRendererConnection({
+    open: async () => {
+      opens += 1;
+      if (opens === 1) return firstClient;
+      if (opens === 2) throw new Error('reopen failed');
+      return thirdClient;
+    },
+  });
+  await connection.start();
+  const w = win();
+  connection.attach(w);
+
+  await connection.watchFeed(w, 'lsp:/reopen-fail');
+  firstClient.emit({
+    type: 'notification',
+    notification: {
+      method: 'lsp/diagnostics/updated',
+      feed: { id: 'lsp:/reopen-fail' },
+      params: {
+        section: 'lspDiagnostics',
+        key: 'file:///reopen-fail/a.ts',
+        revision: 1,
+        value: { uri: 'file:///reopen-fail/a.ts' },
+      },
+    },
+  });
+
+  // Drop the connection so the next watchFeed must reopen via connectedAfterFirstOpen().
+  firstClient.emit({ type: 'status', status: { state: 'closed' } });
+  await assert.rejects(connection.watchFeed(w, 'lsp:/reopen-fail', { refresh: true }), /reopen failed/);
+  assert.equal(w.pushes.at(-1)?.changes?.[0]?.entry, null, 'stale held entries cleared when refresh reopen fails');
+
+  // When the connection succeeds later, an ordinary watchFeed (no refresh) must subscribe on the new client.
+  await connection.watchFeed(w, 'lsp:/reopen-fail');
+  assert.equal(
+    thirdClient.calls.filter((c) => c.method === 'feed/subscribe' && c.params.feedId === 'lsp:/reopen-fail').length,
+    1,
+    'ordinary watchFeed resubscribes instead of hitting an orphaned route'
+  );
+});

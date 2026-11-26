@@ -14,6 +14,13 @@ export function useConversationPendingPrompts({
   queued,
   transcriptSessionKey,
   promotedOwnDraft,
+  busy,
+  compacting,
+  hasOlder,
+  turnId,
+  snapshotRevision,
+  snapshotPreview,
+  restoring,
 }: {
   optimisticPrompts: PendingPromptItem[];
   setOptimisticPrompts: Dispatch<SetStateAction<PendingPromptItem[]>>;
@@ -21,6 +28,13 @@ export function useConversationPendingPrompts({
   queued: unknown;
   transcriptSessionKey: string;
   promotedOwnDraft: { current: boolean };
+  busy?: boolean;
+  compacting?: boolean;
+  hasOlder?: boolean;
+  turnId?: string;
+  snapshotRevision?: string | number | null;
+  snapshotPreview?: boolean;
+  restoring?: boolean;
 }) {
   const steering = useConversationSteering(optimisticPrompts, settledItems, queued);
   const { transcriptPendingPromptItems } = steering;
@@ -42,6 +56,14 @@ export function useConversationPendingPrompts({
     settledItems,
     optimisticPrompts,
     setOptimisticPrompts,
+    queued,
+    busy,
+    compacting,
+    hasOlder,
+    turnId,
+    snapshotRevision,
+    snapshotPreview,
+    restoring,
   });
   return { ...steering, reviewItems, goalSubmitScopeRef, goalSubmission, goalSubmissionId };
 }

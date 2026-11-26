@@ -40,7 +40,11 @@ export function transcriptMountMargin(
   const most = Math.ceil(viewportHeight / TRANSCRIPT_MIN_ROW_PX);
   const end = Math.min(range.count, measurements.length) - 1;
   let from = range.startIndex;
-  while (from > 0 && range.startIndex - from < most && (measurements[from]?.start ?? 0) > first.start - viewportHeight) {
+  while (
+    from > 0 &&
+    range.startIndex - from < most &&
+    (measurements[from]?.start ?? 0) > first.start - viewportHeight
+  ) {
     from -= 1;
   }
   let to = range.endIndex;

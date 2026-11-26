@@ -10,6 +10,7 @@ import {
 } from 'react';
 
 import { t } from '../i18n';
+import { useMobileBack } from '../mobile-back';
 import { MxIcon } from '../MxIcon';
 import { acquireTitleBarDim } from '../titlebar-dim';
 
@@ -143,6 +144,7 @@ export function DialogFrame({
   // The scrim below cannot cover the NATIVE caption controls — hold the
   // titlebar dim claim for as long as this dialog layer is mounted.
   useEffect(() => acquireTitleBarDim(), []);
+  useMobileBack(true, onClose);
   return (
     <div className="mx-dialog-layer" role="presentation">
       <section className="mx-dialog" role="dialog" aria-modal="true" aria-label={title}>

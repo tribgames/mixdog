@@ -5,6 +5,8 @@ import { editorFileOpener } from '../shared/file-preview';
 import type { ScmContextMenuItem } from './ScmContextMenu';
 import type { ComposerAttachment } from './composer-support';
 import { t } from './i18n';
+import { registerIdleReclaim } from './idle-reclaim';
+import { RendererLruCache } from './renderer-lru-cache';
 
 /** An attachment kept on the PC by the content hash a message records. */
 export interface StoredAttachment {
@@ -214,7 +216,13 @@ export interface SentAttachmentData {
 }
 
 const SENT_ATTACHMENT_LIMIT = 64;
-const sentAttachments = new Map<string, SentAttachmentData>();
+const sentAttachments = new RendererLruCache<string, SentAttachmentData>({
+  name: 'sent-attachments',
+  maxEntries: SENT_ATTACHMENT_LIMIT,
+  maxChars: Number.POSITIVE_INFINITY,
+  measure: (entry, key) => entry.data.length + entry.name.length + entry.mimeType.length + key.length,
+});
+registerIdleReclaim(() => sentAttachments.clear());
 
 function sentKey(submissionId: string | number | undefined, token: string): string | null {
   const id = submissionId === undefined || submissionId === null ? '' : String(submissionId);
@@ -247,11 +255,7 @@ export function registerSentAttachments(
   for (const { token, ...data } of attachments) {
     const key = sentKey(submissionId, token);
     if (!key || !token) continue;
-    sentAttachments.delete(key);
     sentAttachments.set(key, data);
-    if (sentAttachments.size > SENT_ATTACHMENT_LIMIT) {
-      sentAttachments.delete(sentAttachments.keys().next().value as string);
-    }
   }
 }
 

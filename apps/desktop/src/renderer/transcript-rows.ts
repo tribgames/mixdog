@@ -265,6 +265,9 @@ interface SettledTranscriptProjection {
    *  folded into its assistant row: that row's footer now stands where the
    *  live band was. */
   endsWithFoldedCompletion: boolean;
+  /** The settled items close with a successful completion (`closingEnd`),
+   *  either folded into its assistant row or standing alone after a tool round. */
+  endsWithCompletion: boolean;
   /** The turn the settled items leave open: their last item's, unless they close with a turn's end ('' then, and for
    *  no item). It is not always `currentTurnKey`: a prompt that places no row (a hidden wake kickoff) opens a turn
    *  after the last row's turn has ended. */
@@ -362,6 +365,8 @@ interface TurnFacts {
   lastAssistant: number | undefined;
   /** Its ends that read as complete, oldest first. */
   dones: readonly number[];
+  /** Its last turndone item (any status): earlier complete ends stay folded. */
+  lastEnd: number | undefined;
 }
 
 const NO_DONES: readonly number[] = [];
@@ -498,10 +503,15 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
       const turnKey = keyAt(index);
       countId(item?.id, 1);
       const facts = turns.get(turnKey);
-      let next: TurnFacts = facts ?? { first: index, lastAssistant: undefined, dones: NO_DONES };
+      let next: TurnFacts = facts ?? { first: index, lastAssistant: undefined, dones: NO_DONES, lastEnd: undefined };
       if (item?.kind === 'assistant' && isVisibleTranscriptItem(item)) next = { ...next, lastAssistant: index };
-      else if (item?.kind === 'turndone' && closesReply(item)) {
-        next = { ...next, dones: [...next.dones, index] };
+      else if (item?.kind === 'tool' && isVisibleTranscriptItem(item) && next.lastAssistant !== undefined) {
+        // A visible tool round after a preamble leaves no trailing reply for turndone to fold back onto.
+        next = { ...next, lastAssistant: undefined };
+      } else if (item?.kind === 'turndone') {
+        next = closesReply(item)
+          ? { ...next, dones: [...next.dones, index], lastEnd: index }
+          : { ...next, lastEnd: index };
       }
       if (next !== facts) {
         if (!turnsBefore.has(turnKey)) turnsBefore.set(turnKey, facts);
@@ -542,9 +552,12 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
       const now = after?.dones ?? NO_DONES;
       const sameEnds = was.length === now.length && was.every((index, at) => index === now[at]);
       const replyMoved = before?.lastAssistant !== after?.lastAssistant && (was.length > 0 || now.length > 0);
+      const lastEndMoved = before?.lastEnd !== after?.lastEnd && (was.length > 0 || now.length > 0);
       // An end among the items read again may be another object in the same place: the reply shows it.
       const endRead = (was.at(-1) ?? -1) >= kept || (now.at(-1) ?? -1) >= kept;
-      if (!sameEnds || replyMoved || endRead) reaches(Math.min(before?.first ?? kept, after?.first ?? kept));
+      if (!sameEnds || replyMoved || lastEndMoved || endRead) {
+        reaches(Math.min(before?.first ?? kept, after?.first ?? kept));
+      }
     }
     // One changed-files card per checkpoint, at the LAST turndone carrying it (a completion wake can close the same
     // checkpoint again): the end that had it, and the one that has it now, are placed again.
@@ -627,12 +640,14 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
         if (isCompletionTranscriptItem(items[index])) lastCompletionByTurn.set(turnKey, index);
       }
     }
-    /** A successful turn's "Thought for …" completion belongs to the assistant row it closes, not to a row of its own. */
-    const folded = (item: TranscriptItem | undefined, turnKey: string): boolean =>
-      item?.kind === 'turndone' &&
-      !failed(turnKey) &&
-      closesReply(item) &&
-      turns.get(turnKey)?.lastAssistant !== undefined;
+    /** A successful turn's "Thought for …" completion belongs to the assistant row it closes, not to a row of its own;
+     *  earlier superseded completions in the same turn stay folded even when the final completion follows a tool round. */
+    const folded = (item: TranscriptItem | undefined, index: number, turnKey: string): boolean => {
+      if (item?.kind !== 'turndone' || failed(turnKey) || !closesReply(item)) return false;
+      const facts = turns.get(turnKey);
+      if (!facts) return false;
+      return facts.lastAssistant !== undefined || facts.lastEnd !== index;
+    };
     const cardAt = (index: number): TurnChangesRef | undefined => {
       const checkpointId = endCheckpoints.get(index);
       if (checkpointId === undefined || cardOwners.get(checkpointId) !== index) return undefined;
@@ -655,13 +670,13 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
     const closing = (index: number, turnKey: string) => {
       const facts = failed(turnKey) ? undefined : turns.get(turnKey);
       if (!facts || facts.lastAssistant !== index || facts.dones.length === 0) return null;
+      const finalDone = facts.dones.at(-1) as number;
+      if (facts.lastEnd !== finalDone) return null;
       let card: TurnChangesRef | undefined;
       for (let at = facts.dones.length - 1; at >= 0 && !card; at -= 1) card = cardAt(facts.dones[at] as number);
-      return { completion: items[facts.dones.at(-1) as number], card };
+      return { completion: items[finalDone], card };
     };
     let pendingToolActivity: PendingToolActivityItem[] = [];
-    // Live-only rows met inside a group: a reload has none to end it, so they follow it.
-    let heldLiveOnly: PendingToolActivityItem[] = [];
     // Each failed turn's last row placed so far: the fallback failure row's item.
     const lastShownByTurn = new Map<string, TranscriptItem>();
     const pushContentItem = (item: TranscriptItem, index: number, turnKey: string) => {
@@ -680,9 +695,6 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
     const flushToolActivity = () => {
       pushToolActivity(builder, sessionKey, pendingToolActivity);
       pendingToolActivity = [];
-      const live = heldLiveOnly;
-      heldLiveOnly = [];
-      for (const { item, index, turnKey } of live) pushContentItem(item, index, turnKey);
     };
     const placeItem = (item: TranscriptItem, index: number, turnKey: string) => {
       if (failed(turnKey) && isCompletionTranscriptItem(item)) {
@@ -693,8 +705,7 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
         }
         return;
       }
-      if (folded(item, turnKey)) {
-        flushToolActivity();
+      if (folded(item, index, turnKey)) {
         return;
       }
       if (item?.kind === 'user' && isTranscriptCancelledStatusText(item.text)) {
@@ -711,10 +722,6 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
         if (failed(turnKey)) lastShownByTurn.set(turnKey, item);
         return;
       }
-      if (pendingToolActivity[0]?.turnKey === turnKey && isLiveOnlyTranscriptRow(item)) {
-        heldLiveOnly.push({ item, index, turnKey });
-        return;
-      }
       flushToolActivity();
       pushContentItem(item, index, turnKey);
     };
@@ -722,7 +729,6 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
       // A mark: no group is open, and the last row is not a status row a later failure joins.
       if (
         pendingToolActivity.length === 0 &&
-        heldLiveOnly.length === 0 &&
         builder.rows.at(-1)?._tag !== 'Error' &&
         (markItems.length === 0 || builder.rows.length > (markRows.at(-1) as number))
       ) {
@@ -753,12 +759,15 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
     let ownIds: Set<unknown> | null = null;
     let ownKeys: Set<string> | null = null;
     const last = closingEnd(items);
+    const lastItem = last >= 0 ? items[last] : undefined;
+    const lastTurnKey = last >= 0 ? keyAt(last) : '';
     const output: SettledTranscriptProjection = {
       rows,
       currentTurnKey: builder.currentTurnKey,
       previousRowWasUser: builder.previousRowWasUser,
       itemCount: items.length,
-      endsWithFoldedCompletion: last >= 0 && folded(items[last], keyAt(last)),
+      endsWithFoldedCompletion: last >= 0 && folded(lastItem, last, lastTurnKey),
+      endsWithCompletion: last >= 0 && lastItem?.kind === 'turndone' && !failed(lastTurnKey) && closesReply(lastItem),
       openTurnKey: last < 0 && items.length > 0 ? keyAt(items.length - 1) : '',
       // The projector's own sets answer for its newest projection; an older one still read answers from its own rows.
       hasSettledItem(id) {
@@ -846,7 +855,10 @@ export function appendLiveTranscriptRows({
       `pending:${String(item.id ?? index)}`
     );
   });
-  if (thinking) {
+  const optimisticSubmission = pendingItems.some(
+    (item) => item?.kind === 'user' && item.pending === true && !settled.hasSettledItem(item.id)
+  );
+  if (thinking || optimisticSubmission) {
     pushThinkingRow(
       builder,
       sessionKey,

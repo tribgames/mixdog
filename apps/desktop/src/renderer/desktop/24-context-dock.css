@@ -473,7 +473,8 @@
   transition: opacity var(--mx-motion-fast) linear;
   cursor: pointer;
 }
-.context-block-map i[data-context-key="free"] {
+.context-block-map i[data-context-key="free"],
+.context-block-map i[data-context-key="host"] {
   cursor: default;
 }
 .context-block-map[data-hover="true"] i[data-muted="true"] {

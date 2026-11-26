@@ -35,7 +35,14 @@ for (const key of [
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { default: React, act } = await import('react');
 const { createRoot } = await import('react-dom/client');
-const { ApprovalCard } = await import('./ApprovalCard.tsx');
+const {
+  ApprovalCard,
+  HeldRequestCard,
+  publishHeldSettlements,
+  releaseApprovalCardState,
+  releaseApprovalSessionState,
+  retainHeldSettlements,
+} = await import('./ApprovalCard.tsx');
 const { QuestionCard } = await import('./QuestionCard.tsx');
 
 mock.timers.enable({ apis: ['Date'] });
@@ -2556,6 +2563,103 @@ test("a decided takeover's card forgets the agent stopped, and a login window en
     const back = await mount(card(loginTakeover('l-end')).element);
     assert.deepEqual(back.rows(), ['Cancel', 'Sign in…'], 'nothing was written after the card unmounted');
     await back.done();
+  } finally {
+    dom.window.mixdogDesktop = previous;
+  }
+});
+
+test('unmounted ApprovalCard state (laterIds, controlReadyIds, loginStatuses) and heldSettled do not outlive their session', async () => {
+  const previous = dom.window.mixdogDesktop;
+  let readyCalls = 0;
+  const desktop = loginDesktop();
+  desktop.api.takeoverReady = () => {
+    readyCalls += 1;
+    return readyCalls === 1 ? Promise.resolve(true) : new Promise(() => {});
+  };
+  dom.window.mixdogDesktop = desktop.api;
+  const approval = { ...loginTakeover('l-session-gone'), sessionId: 'sess-approval-gone' };
+  try {
+    // 1. Populate controlReadyIds, loginStatuses, and laterIds while mounted, then unmount BEFORE deciding.
+    const first = await mount(card(approval, { hostSessionId: 'sess-approval-gone' }).element);
+    await settle();
+    await first.click(first.button('Sign in…'));
+    await desktop.end({ state: 'closed' });
+    await settle();
+    await first.click(first.doc.querySelector('.approval-close'));
+    assert.ok(first.doc.querySelector('.question-chip'), 'decide later collapsed the card to a chip');
+    await first.done();
+
+    // Release the session while the card is unmounted (simulating session deletion or end).
+    releaseApprovalSessionState('sess-approval-gone');
+    desktop.api.browserLoginStatus = async () => ({ state: 'unavailable' });
+
+    const second = await mount(card(approval, { hostSessionId: 'sess-approval-gone' }).element);
+    assert.equal(second.doc.querySelector('.question-chip'), null, 'laterIds was released with the session');
+    assert.deepEqual(second.rows(), ['Cancel', 'Sign in…'], 'loginStatuses was released with the session');
+    assert.equal(second.row(1).disabled, true, 'controlReadyIds was released with the session');
+    await second.done();
+
+    // 2. Releasing an unrelated hostSessionId or another resolved approval id never wipes a still-pending sub-session approval.
+    readyCalls = 0;
+    const subApproval = { ...loginTakeover('l-sub-pending'), sessionId: 'sess-child' };
+    const queuedApproval = { ...loginTakeover('l-queued-pending'), sessionId: 'sess-child' };
+    const third = await mount(card(subApproval, { hostSessionId: 'sess-parent-host' }).element);
+    await settle();
+    await third.click(third.doc.querySelector('.approval-close'));
+    await third.done();
+    const queued = await mount(card(queuedApproval, { hostSessionId: 'sess-parent-host' }).element);
+    await settle();
+    await queued.click(queued.doc.querySelector('.approval-close'));
+    await queued.done();
+
+    releaseApprovalSessionState('sess-parent-host');
+    releaseApprovalCardState('l-sub-pending');
+
+    const subRemount = await mount(card(subApproval, { hostSessionId: 'sess-parent-host' }).element);
+    assert.equal(subRemount.doc.querySelector('.question-chip'), null, 'released approval id cleared its own laterIds');
+    await subRemount.done();
+
+    const queuedRemount = await mount(card(queuedApproval, { hostSessionId: 'sess-parent-host' }).element);
+    assert.ok(
+      queuedRemount.doc.querySelector('.question-chip'),
+      'releasing host session or another approval id preserves still-pending approval state'
+    );
+    await queuedRemount.done();
+    releaseApprovalSessionState('sess-child');
+
+    // 3. heldSettled releases on pane unmount (retainHeldSettlements cleanup) and on session release.
+    const heldSession = 'sess_home_cleanup';
+    const releaseHeld = retainHeldSettlements(heldSession);
+    publishHeldSettlements(heldSession, [
+      { id: 'settled-row', kind: 'tool', heldRequest: { id: 'held-1', status: 'approved', device: '' } },
+    ]);
+    const heldPending = {
+      id: 'held-1',
+      status: 'pending',
+      tool: 'shell',
+      reason: 'Run',
+      expiresAt: Date.now() + 60_000,
+    };
+    const folded = await mount(React.createElement(HeldRequestCard, { held: heldPending, sessionId: heldSession }));
+    assert.equal(folded.doc.querySelector('.approval-prompt'), null, 'settled held request folds while retained');
+    await folded.done();
+
+    releaseHeld();
+    const afterUnmount = await mount(
+      React.createElement(HeldRequestCard, { held: heldPending, sessionId: heldSession })
+    );
+    assert.ok(afterUnmount.doc.querySelector('.approval-prompt'), 'heldSettled released on pane unmount');
+    await afterUnmount.done();
+
+    publishHeldSettlements(heldSession, [
+      { id: 'settled-row', kind: 'tool', heldRequest: { id: 'held-1', status: 'approved', device: '' } },
+    ]);
+    releaseApprovalSessionState(heldSession);
+    const afterDelete = await mount(
+      React.createElement(HeldRequestCard, { held: heldPending, sessionId: heldSession })
+    );
+    assert.ok(afterDelete.doc.querySelector('.approval-prompt'), 'heldSettled released on session delete');
+    await afterDelete.done();
   } finally {
     dom.window.mixdogDesktop = previous;
   }

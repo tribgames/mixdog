@@ -53,9 +53,7 @@ const {
   reportingTerminalDisposer,
   sessionTerminalId,
   useSessionTerminalSurfaces,
-} = await import(
-  './session-terminal-surfaces.tsx'
-);
+} = await import('./session-terminal-surfaces.tsx');
 const { applyTerminalActivity, StableTerminalFitScheduler } = await import('./terminal-fit.ts');
 
 const renderFixture = (props) =>
@@ -106,7 +104,7 @@ function Harness({ sessionId, active, cwd, disposeTerminal, onController, docked
   );
 }
 
-test('an expanded terminal covers the main panel below the dock header and resets when parked', async () => {
+test('an expanded terminal covers the main panel below the dock header and resets when hidden', async () => {
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
@@ -131,28 +129,61 @@ test('an expanded terminal covers the main panel below the dock header and reset
     assert.equal(header.style.width, '1000px');
 
     await act(async () => root.render(React.createElement(Harness, { ...props, active: false })));
-    assert.equal(container.dataset.parked, 'true');
-    assert.equal(container.dataset.expanded, 'false');
+    assert.equal(document.querySelector('.session-terminal-surface-container'), null);
     assert.equal(header.dataset.surfaceExpanded, undefined);
     assert.equal(header.style.left, '');
     assert.equal(header.style.width, '');
+
     await act(async () => root.render(React.createElement(Harness, { ...props, active: true })));
-    assert.equal(container.dataset.expanded, 'false');
-    assert.equal(container.style.top, '20px');
+    const reopened = document.querySelector('.session-terminal-surface-container');
+    assert.ok(reopened);
+    assert.notEqual(reopened, container);
+    assert.equal(reopened.dataset.expanded, 'false');
+    assert.equal(reopened.style.top, '20px');
   } finally {
     await act(async () => root.unmount());
     host.remove();
   }
 });
 
-test('one session terminal root parks and restores at Browser Use width', async () => {
+test('a hidden session terminal releases its root and container without disposing its PTY, and remounts when shown again', async () => {
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
+  const disposed = [];
+  let mounts = 0;
+  let unmounts = 0;
+  function TrackedFixture(props) {
+    React.useEffect(() => {
+      mounts += 1;
+      return () => {
+        unmounts += 1;
+      };
+    }, []);
+    return renderFixture(props);
+  }
+  function TrackedHarness({ sessionId, active, cwd }) {
+    const controller = useSessionTerminalSurfaces(
+      (props) => React.createElement(TrackedFixture, props),
+      (terminalId) => disposed.push(terminalId)
+    );
+    return React.createElement(
+      React.Fragment,
+      null,
+      React.createElement(SessionTerminalParkingHost, { controller }),
+      React.createElement(SessionTerminalSlot, {
+        controller,
+        sessionId,
+        active,
+        foreground: active,
+        cwd,
+      })
+    );
+  }
   try {
     await act(async () =>
       root.render(
-        React.createElement(Harness, {
+        React.createElement(TrackedHarness, {
           sessionId: 'alpha',
           active: true,
           cwd: 'C:/alpha',
@@ -165,33 +196,39 @@ test('one session terminal root parks and restores at Browser Use width', async 
     assert.equal(container.style.height, '480px');
     assert.equal(container.querySelector('.terminal-surface-fixture').dataset.cwd, 'C:/alpha');
     assert.equal(container.querySelector('.terminal-surface-fixture').dataset.active, 'true');
+    assert.equal(mounts, 1);
+    assert.equal(unmounts, 0);
 
     await act(async () =>
       root.render(
-        React.createElement(Harness, {
+        React.createElement(TrackedHarness, {
           sessionId: 'alpha',
           active: false,
           cwd: 'C:/alpha',
         })
       )
     );
-    assert.equal(document.querySelector('.session-terminal-surface-container'), container);
-    assert.equal(container.dataset.parked, 'true');
-    assert.equal(container.style.width, '720px');
-    assert.equal(container.style.height, '480px');
-    assert.equal(container.querySelector('.terminal-surface-fixture').dataset.parked, 'true');
+    assert.equal(document.querySelector('.session-terminal-surface-container'), null);
+    assert.equal(unmounts, 1, 'hiding the terminal unmounts its dedicated React root');
+    assert.deepEqual(disposed, [], 'hiding the terminal keeps the backend PTY alive');
 
     await act(async () =>
       root.render(
-        React.createElement(Harness, {
+        React.createElement(TrackedHarness, {
           sessionId: 'alpha',
           active: true,
           cwd: 'C:/alpha',
         })
       )
     );
-    assert.equal(document.querySelector('.session-terminal-surface-container'), container);
-    assert.equal(container.dataset.parked, 'false');
+    const reopened = document.querySelector('.session-terminal-surface-container');
+    assert.ok(reopened);
+    assert.notEqual(reopened, container);
+    assert.equal(reopened.dataset.parked, 'false');
+    assert.equal(reopened.style.width, '720px');
+    assert.equal(reopened.style.height, '480px');
+    assert.equal(mounts, 2);
+    assert.deepEqual(disposed, []);
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -333,17 +370,17 @@ test("a closing sheet's terminal keeps its pixels but is inert, aria-hidden, unf
     assert.equal(fixture.dataset.active, 'true');
     assert.equal(fixture.dataset.foreground, 'true');
 
-    // The exit ends: parked, and it stays inert while parked.
+    // The exit ends: surface is unmounted and removed from the DOM.
     await act(async () => root.render(React.createElement(Harness, { ...props, active: true, exiting: true })));
     await act(async () => root.render(React.createElement(Harness, { ...props, active: false })));
-    assert.equal(container.dataset.parked, 'true');
-    assert.equal(container.getAttribute('aria-hidden'), 'true');
-    assert.equal(container.hasAttribute('inert'), true, 'a parked terminal is never interactive');
+    assert.equal(document.querySelector('.session-terminal-surface-container'), null);
 
-    // A genuine reopen restores it.
+    // A genuine reopen mounts a fresh interactive surface.
     await act(async () => root.render(React.createElement(Harness, { ...props, active: true })));
-    assert.equal(container.hasAttribute('inert'), false);
-    assert.equal(container.hasAttribute('aria-hidden'), false);
+    const reopened = document.querySelector('.session-terminal-surface-container');
+    assert.ok(reopened);
+    assert.equal(reopened.hasAttribute('inert'), false);
+    assert.equal(reopened.hasAttribute('aria-hidden'), false);
   } finally {
     await act(async () => root.unmount());
     host.remove();

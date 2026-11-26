@@ -4,6 +4,8 @@ import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
+import { _runIdleReclaimForTest } from './idle-reclaim.ts';
+import { enforceRendererCacheBudget, totalBudgetedChars } from './renderer-cache-budget.ts';
 import {
   createImagePreviewStore,
   memoryPreviewBackend,
@@ -14,7 +16,7 @@ import {
 import { purgeRemovedSessionPreviews } from './session-catalog-cache.ts';
 import { MarkdownSessionContext } from './MarkdownLink.tsx';
 import { TranscriptRow, loadAttachmentThumbnail } from './transcript-row.tsx';
-import { registerImagePreview } from './transcript-metrics.ts';
+import { imagePreviewCache, imagePreviewKey, registerImagePreview } from './transcript-metrics.ts';
 
 const url = (n, size = 10) => `data:image/webp;base64,${String(n).repeat(size)}`;
 
@@ -231,4 +233,31 @@ test('a removed session in the catalog deletes its previews, a listed or kept on
   assert.equal(await persistentImagePreviews.get('gone|1'), undefined);
   assert.equal(await persistentImagePreviews.get('stay|1'), url('2'));
   assert.equal(await persistentImagePreviews.get('new|1'), url('3'));
+});
+
+test('image preview hot map counts in the shared budget and clears on idle reclaim while keeping backend data; transcript imagePreviewCache clears on idle reclaim', async () => {
+  const backend = memoryPreviewBackend();
+  const store = createImagePreviewStore(backend);
+  const large = url('X', 80_000);
+  const before = totalBudgetedChars();
+  await store.put('s-hot|1', 's-hot', large);
+  assert.ok(totalBudgetedChars() - before >= 80_000, 'hot map is accounted in the shared budget');
+  assert.equal(store.peek('s-hot|1'), large);
+
+  _runIdleReclaimForTest();
+  assert.equal(store.peek('s-hot|1'), undefined, 'idle reclaim clears the in-memory hot map');
+  assert.equal(await store.get('s-hot|1'), large, 'backend persistence still serves the preview after hot clear');
+
+  enforceRendererCacheBudget(0);
+  assert.equal(store.peek('s-hot|1'), undefined, 'budget trim evicts hot previews');
+
+  // Item 1: transcript-metrics imagePreviewCache is also released on idle reclaim.
+  registerImagePreview('sub-idle', 1, 4, 'data:image/png;base64,CCCC');
+  assert.equal(imagePreviewCache.peek(imagePreviewKey('sub-idle', 1, 4)), 'data:image/png;base64,CCCC');
+  _runIdleReclaimForTest();
+  assert.equal(
+    imagePreviewCache.peek(imagePreviewKey('sub-idle', 1, 4)),
+    undefined,
+    'idle reclaim clears imagePreviewCache'
+  );
 });

@@ -1,16 +1,26 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
-
-import { createRemotePreviewApi } from './remote-file-preview.ts';
-import { readRemoteFile, REMOTE_PREVIEW_CHUNK_BYTES } from './remote-file-range.ts';
-import { buildPageSrcdoc, resolvePageReference } from './remote-page-inliner.ts';
-import { openSandboxedPagePreview, PREVIEW_LINK, sandboxedPageDocument } from './sandboxed-page-preview.ts';
-import { sandboxStorageShimScript } from '../shared/sandbox-storage-shim.ts';
+import React, { act, useEffect } from 'react';
 
 const dom = new JSDOM('<!doctype html><body></body>');
 globalThis.DOMParser = dom.window.DOMParser;
 globalThis.document = dom.window.document;
+
+const { createRoot } = await import('react-dom/client');
+const { _runIdleReclaimForTest } = await import('./idle-reclaim.ts');
+const { enforceRendererCacheBudget, totalBudgetedChars } = await import('./renderer-cache-budget.ts');
+const {
+  createRemotePreviewApi,
+  getMediaSessionEpoch,
+  retainBlobPreviewUrl,
+  subscribeMediaSession,
+  useBlobPreviewLease,
+} = await import('./remote-file-preview.ts');
+const { readRemoteFile, REMOTE_PREVIEW_CHUNK_BYTES } = await import('./remote-file-range.ts');
+const { buildPageSrcdoc, resolvePageReference } = await import('./remote-page-inliner.ts');
+const { openSandboxedPagePreview, PREVIEW_LINK, sandboxedPageDocument } = await import('./sandboxed-page-preview.ts');
+const { sandboxStorageShimScript } = await import('../shared/sandbox-storage-shim.ts');
 
 // Fake host serving `files` through the same two methods as the real one.
 function fakeHost(files) {
@@ -572,4 +582,576 @@ test('media session changes notify subscribers until they unsubscribe', async ()
   stop();
   notifyMediaSessionChanged();
   assert.equal(seen.length, 2);
+});
+
+test('remote preview blob URLs pin while leased, revoke on trim/reclaim once unleased, and refresh mounted previews after backgrounding', async () => {
+  _runIdleReclaimForTest();
+  await Promise.resolve();
+  const origCreate = URL.createObjectURL;
+  const origRevoke = URL.revokeObjectURL;
+  let seq = 0;
+  const revoked = [];
+  URL.createObjectURL = () => `blob:test-${++seq}`;
+  URL.revokeObjectURL = (value) => {
+    revoked.push(value);
+  };
+  let visibility = 'visible';
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true,
+    get: () => visibility,
+  });
+  let epochBumps = 0;
+  const stopMedia = subscribeMediaSession(() => {
+    epochBumps += 1;
+  });
+  try {
+    const bytes = new Uint8Array(400_000);
+    const host = fakeHost({
+      'a.bin': { mime: 'application/octet-stream', bytes },
+      'b.bin': { mime: 'application/octet-stream', bytes },
+      'c.bin': { mime: 'application/octet-stream', bytes },
+      'd.bin': { mime: 'application/octet-stream', bytes },
+      'inflight.bin': { mime: 'application/octet-stream', bytes },
+    });
+    const api = createRemotePreviewApi(host.call);
+
+    const before = totalBudgetedChars();
+    const first = await api.previewProjectFile('/p', 'a.bin');
+    assert.ok(totalBudgetedChars() - before >= 200_000, 'blob URL bytes are accounted in the shared cache budget');
+
+    // A leased (mounted/active) preview URL must survive budget trim and idle reclaim.
+    const releaseFirst = retainBlobPreviewUrl(first.url);
+    assert.ok(releaseFirst, 'live blob URL can be leased');
+    enforceRendererCacheBudget(0);
+    _runIdleReclaimForTest();
+    await Promise.resolve();
+    assert.deepEqual(revoked, [], 'leased blob URL is not revoked while displayed');
+
+    // Releasing the lease allows budget trim to evict and revoke it.
+    releaseFirst();
+    enforceRendererCacheBudget(0);
+    await Promise.resolve();
+    assert.deepEqual(revoked, [first.url], 'budget trim revokes unleased blob URLs');
+    assert.equal(retainBlobPreviewUrl(first.url), null, 'revoked blob URL cannot be leased again');
+
+    const second = await api.previewProjectFile('/p', 'b.bin');
+    _runIdleReclaimForTest();
+    await Promise.resolve();
+    assert.deepEqual(revoked, [first.url, second.url], 'idle reclaim revokes unleased blob URLs');
+
+    // Backgrounding respects isPinned: leased and in-flight blob URLs stay alive, unleased ones are revoked,
+    // and active in-flight fetches mark visibility return to bump mediaSessionEpoch.
+    const third = await api.previewProjectFile('/p', 'c.bin');
+    const releaseThird = retainBlobPreviewUrl(third.url);
+    assert.ok(releaseThird);
+    const fourth = await api.previewProjectFile('/p', 'd.bin');
+    const epochBefore = getMediaSessionEpoch();
+    visibility = 'hidden';
+    document.dispatchEvent(new dom.window.Event('visibilitychange'));
+    await Promise.resolve();
+    assert.deepEqual(
+      revoked,
+      [first.url, second.url, fourth.url],
+      'backgrounding revokes unleased blob URLs while keeping leased (pinned) URLs intact'
+    );
+    assert.equal(epochBumps, 0, 'hiding does not bump media session epoch yet');
+
+    visibility = 'visible';
+    document.dispatchEvent(new dom.window.Event('visibilitychange'));
+    assert.equal(getMediaSessionEpoch(), epochBefore + 1, 'returning visible refreshes after unpinned eviction');
+    assert.equal(epochBumps, 1);
+    releaseThird();
+    enforceRendererCacheBudget(0);
+
+    // Active in-flight fetch during hidden stays unrevoked and triggers refresh on visibility return.
+    let releaseInflight;
+    const inflightStarted = new Promise((resolve) => {
+      const origCall = host.call;
+      host.callWithGate = async (method, params) => {
+        if (method !== 'previewProjectFile' && params?.[1] === 'inflight.bin') {
+          resolve();
+          await new Promise((done) => {
+            releaseInflight = done;
+          });
+        }
+        return origCall(method, params);
+      };
+    });
+    const inflightApi = createRemotePreviewApi(host.callWithGate);
+    const inflightPromise = inflightApi.previewProjectFile('/p', 'inflight.bin');
+    await inflightStarted;
+    const epochBeforeInflight = getMediaSessionEpoch();
+    visibility = 'hidden';
+    document.dispatchEvent(new dom.window.Event('visibilitychange'));
+    releaseInflight();
+    const inflight = await inflightPromise;
+    assert.ok(!revoked.includes(inflight.url), 'in-flight blob URL is not silently revoked on hide');
+    visibility = 'visible';
+    document.dispatchEvent(new dom.window.Event('visibilitychange'));
+    assert.equal(
+      getMediaSessionEpoch(),
+      epochBeforeInflight + 1,
+      'active in-flight fetch during hide marks visibility return for refresh'
+    );
+  } finally {
+    stopMedia();
+    visibility = 'visible';
+    URL.createObjectURL = origCreate;
+    URL.revokeObjectURL = origRevoke;
+  }
+});
+
+test('concurrent remote preview reads enforce byte budget and entry limit once pending reads settle', async () => {
+  _runIdleReclaimForTest();
+  await Promise.resolve();
+  const origCreate = URL.createObjectURL;
+  const origRevoke = URL.revokeObjectURL;
+  let seq = 0;
+  const revoked = [];
+  URL.createObjectURL = () => `blob:concurrent-${++seq}`;
+  URL.revokeObjectURL = (value) => {
+    revoked.push(value);
+  };
+  try {
+    // 1. Byte budget: 3 concurrent 20 MiB reads (10M chars each = 30M chars > 24M chars budget)
+    //    whose metadata sizes match actual byte counts.
+    const largeBytes = 20 * 1024 * 1024;
+    const largeGates = [];
+    const largeCall = async (method, params) => {
+      if (method === 'previewProjectFile') {
+        return { kind: 'video', mime: 'video/mp4', mtimeMs: 1, size: largeBytes };
+      }
+      const [, , , offset] = params;
+      if (offset === 0) {
+        await new Promise((resolve) => {
+          largeGates.push(resolve);
+        });
+      }
+      return {
+        data: Buffer.alloc(largeBytes).toString('base64'),
+        mime: 'video/mp4',
+        offset: 0,
+        size: largeBytes,
+        mtimeMs: 1,
+      };
+    };
+    const budgetApi = createRemotePreviewApi(largeCall);
+    const beforeBudget = totalBudgetedChars();
+    const largePromises = [
+      budgetApi.previewProjectFile('/p', 'big-1.mp4'),
+      budgetApi.previewProjectFile('/p', 'big-2.mp4'),
+      budgetApi.previewProjectFile('/p', 'big-3.mp4'),
+    ];
+    while (largeGates.length < 3) await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(revoked.length, 0, 'in-flight reads stay pinned until settlement');
+
+    for (const release of largeGates) release();
+    const largeResults = await Promise.all(largePromises);
+    assert.equal(revoked.length, 0, 'concurrently settled reads stay live across caller continuation');
+    assert.equal(largeResults.length, 3);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.ok(revoked.length >= 1, 'unleased concurrent reads over budget evict and revoke older blobs after handoff');
+    assert.ok(
+      totalBudgetedChars() - beforeBudget <= 24 * 1024 * 1024,
+      `retained chars (${totalBudgetedChars() - beforeBudget}) must fit within the 24M char budget`
+    );
+
+    // 2. Entry limit: 52 concurrent small reads exceed BLOB_CACHE_LIMIT (48) while pending,
+    //    stay live across caller resolution, then trim down to 48 once unleased handoffs expire.
+    const smallGates = [];
+    const smallData = Buffer.from('ok').toString('base64');
+    const smallCall = async (method) => {
+      if (method === 'previewProjectFile') {
+        return { kind: 'image', mime: 'image/png', mtimeMs: 1, size: 2 };
+      }
+      await new Promise((resolve) => {
+        smallGates.push(resolve);
+      });
+      return { data: smallData, mime: 'image/png', offset: 0, size: 2, mtimeMs: 1 };
+    };
+    const countApi = createRemotePreviewApi(smallCall);
+    const revokedBeforeCount = revoked.length;
+    const smallPromises = Array.from({ length: 52 }, (_, i) => countApi.previewProjectFile('/p', `s-${i}.png`));
+    while (smallGates.length < 52) await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(revoked.length, revokedBeforeCount, 'all 52 pending reads remain pinned until settlement');
+
+    for (const release of smallGates) release();
+    const smallResults = await Promise.all(smallPromises);
+    assert.equal(
+      revoked.length,
+      revokedBeforeCount,
+      'all 52 concurrently settled previews remain unrevoked when returned to callers'
+    );
+    assert.equal(smallResults.length, 52);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(
+      revoked.length - revokedBeforeCount,
+      4,
+      'unleased concurrent reads trim back to BLOB_CACHE_LIMIT (48) once handoff expires'
+    );
+  } finally {
+    _runIdleReclaimForTest();
+    URL.createObjectURL = origCreate;
+    URL.revokeObjectURL = origRevoke;
+  }
+});
+
+test('50 concurrent previews return only live URLs and releasing 50 leases trims count and byte caps', async () => {
+  _runIdleReclaimForTest();
+  await Promise.resolve();
+  const origCreate = URL.createObjectURL;
+  const origRevoke = URL.revokeObjectURL;
+  let seq = 0;
+  const revoked = [];
+  const revokedSet = new Set();
+  URL.createObjectURL = () => `blob:lease-50-${++seq}`;
+  URL.revokeObjectURL = (value) => {
+    revoked.push(value);
+    revokedSet.add(value);
+  };
+  try {
+    // 1. 50 concurrent small previews: none revoked on return, all 50 leaseable, releasing all 50 trims count to 48.
+    const smallGates = [];
+    const smallData = Buffer.from('ok').toString('base64');
+    const smallApi = createRemotePreviewApi(async (method) => {
+      if (method === 'previewProjectFile') {
+        return { kind: 'image', mime: 'image/png', mtimeMs: 1, size: 2 };
+      }
+      await new Promise((resolve) => {
+        smallGates.push(resolve);
+      });
+      return { data: smallData, mime: 'image/png', offset: 0, size: 2, mtimeMs: 1 };
+    });
+    const smallPromises = Array.from({ length: 50 }, (_, i) => smallApi.previewProjectFile('/p', `c-${i}.png`));
+    while (smallGates.length < 50) await new Promise((resolve) => setTimeout(resolve, 0));
+    for (const release of smallGates) release();
+    const smallPreviews = await Promise.all(smallPromises);
+    assert.equal(
+      smallPreviews.filter((preview) => revokedSet.has(preview.url)).length,
+      0,
+      'none of the 50 concurrent preview URLs may be revoked before callers acquire leases'
+    );
+    const smallLeases = smallPreviews.map((preview) => retainBlobPreviewUrl(preview.url));
+    assert.ok(smallLeases.every(Boolean), 'every returned URL from 50 concurrent previews must be leaseable');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(revoked.length, 0, 'all 50 leased URLs stay live while leased');
+
+    for (const release of smallLeases) release();
+    assert.equal(revoked.length, 2, 'releasing 50 leases immediately trims back to BLOB_CACHE_LIMIT (48)');
+    const liveSmallAfterRelease = smallPreviews.filter((preview) => !revokedSet.has(preview.url));
+    assert.equal(liveSmallAfterRelease.length, 48);
+
+    _runIdleReclaimForTest();
+    await Promise.resolve();
+
+    // 2. 50 concurrent 2 MiB previews (1M chars each = 50M chars > 24M budget):
+    //    all 50 stay live while leased, and releasing all 50 immediately trims within count and byte caps.
+    const twoMiB = 2 * 1024 * 1024;
+    const chunkBase64 = Buffer.alloc(twoMiB).toString('base64');
+    const sizedGates = [];
+    const sizedApi = createRemotePreviewApi(async (method) => {
+      if (method === 'previewProjectFile') {
+        return { kind: 'image', mime: 'image/png', mtimeMs: 1, size: twoMiB };
+      }
+      await new Promise((resolve) => {
+        sizedGates.push(resolve);
+      });
+      return { data: chunkBase64, mime: 'image/png', offset: 0, size: twoMiB, mtimeMs: 1 };
+    });
+    const beforeChars = totalBudgetedChars();
+    const revokedBeforeSized = revoked.length;
+    const sizedPromises = Array.from({ length: 50 }, (_, i) => sizedApi.previewProjectFile('/p', `big-${i}.png`));
+    while (sizedGates.length < 50) await new Promise((resolve) => setTimeout(resolve, 0));
+    for (const release of sizedGates) release();
+    const sizedPreviews = await Promise.all(sizedPromises);
+    assert.equal(
+      sizedPreviews.filter((preview) => revokedSet.has(preview.url)).length,
+      0,
+      'none of the 50 concurrent 2 MiB previews may be revoked before lease acquisition'
+    );
+    const sizedLeases = sizedPreviews.map((preview) => retainBlobPreviewUrl(preview.url));
+    assert.ok(sizedLeases.every(Boolean), 'all 50 concurrent 2 MiB preview URLs must be leaseable');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(revoked.length, revokedBeforeSized, 'leased previews stay live even above byte budget');
+    assert.ok(totalBudgetedChars() - beforeChars >= 50 * 1024 * 1024, 'all 50 leased previews are accounted in budget');
+
+    for (const release of sizedLeases) release();
+    const remainingChars = totalBudgetedChars() - beforeChars;
+    const liveSizedAfterRelease = sizedPreviews.filter((preview) => !revokedSet.has(preview.url)).length;
+    assert.ok(
+      liveSizedAfterRelease <= 48,
+      `releasing 50 leases must enforce count limit (got ${liveSizedAfterRelease} live)`
+    );
+    assert.ok(
+      remainingChars <= 24 * 1024 * 1024,
+      `releasing 50 leases must enforce 24M char byte budget (got ${remainingChars})`
+    );
+    assert.ok(
+      revoked.length - revokedBeforeSized >= 26,
+      'releasing 50 x 2 MiB leases revokes excess blobs immediately without waiting for another insert'
+    );
+  } finally {
+    _runIdleReclaimForTest();
+    URL.createObjectURL = origCreate;
+    URL.revokeObjectURL = origRevoke;
+  }
+});
+
+test('releasing an 8 MiB lease while a 46 MiB blob stays leased strictly enforces the 24M byte cap', async () => {
+  _runIdleReclaimForTest();
+  await Promise.resolve();
+  const origCreate = URL.createObjectURL;
+  const origRevoke = URL.revokeObjectURL;
+  let seq = 0;
+  const revoked = [];
+  URL.createObjectURL = () => `blob:strict-cap-${++seq}`;
+  URL.revokeObjectURL = (value) => {
+    revoked.push(value);
+  };
+  try {
+    const fortySixMiB = 46 * 1024 * 1024;
+    const eightMiB = 8 * 1024 * 1024;
+    const payload = Buffer.alloc(16).toString('base64');
+    const api = createRemotePreviewApi(async (method, params) => {
+      const size = params[1] === 'large.bin' ? fortySixMiB : eightMiB;
+      if (method === 'previewProjectFile') {
+        return { kind: 'video', mime: 'video/mp4', mtimeMs: 1, size };
+      }
+      return { data: payload, mime: 'video/mp4', offset: 0, size: 16, mtimeMs: 1 };
+    });
+
+    const beforeChars = totalBudgetedChars();
+    const large = await api.previewProjectFile('/p', 'large.bin');
+    const releaseLarge = retainBlobPreviewUrl(large.url);
+    assert.ok(releaseLarge, '46 MiB blob must be leaseable');
+
+    const medium = await api.previewProjectFile('/p', 'medium.bin');
+    const releaseMedium = retainBlobPreviewUrl(medium.url);
+    assert.ok(releaseMedium, '8 MiB blob must be leaseable');
+
+    assert.equal(revoked.length, 0, 'both leased blobs stay live while pinned');
+    assert.equal(
+      totalBudgetedChars() - beforeChars,
+      27 * 1024 * 1024,
+      '46 MiB (23M chars) + 8 MiB (4M chars) = 27M chars while both are leased'
+    );
+
+    releaseMedium();
+    assert.deepEqual(
+      revoked,
+      [medium.url],
+      'releasing the 8 MiB lease immediately evicts it even though 4M fits the shared budget 25% reserve'
+    );
+    assert.equal(
+      totalBudgetedChars() - beforeChars,
+      23 * 1024 * 1024,
+      'remaining retained chars strictly fit within the 24M cap'
+    );
+    const verifyLarge = retainBlobPreviewUrl(large.url);
+    assert.ok(verifyLarge, 'the 46 MiB leased blob remains live');
+    verifyLarge();
+    releaseLarge();
+    _runIdleReclaimForTest();
+    assert.equal(totalBudgetedChars() - beforeChars, 0, 'releasing all leases leaves zero leaked bytes');
+  } finally {
+    _runIdleReclaimForTest();
+    URL.createObjectURL = origCreate;
+    URL.revokeObjectURL = origRevoke;
+  }
+});
+
+test('staggered concurrent reads over budget keep all returned URLs leaseable until Promise.all completes', async () => {
+  _runIdleReclaimForTest();
+  await Promise.resolve();
+  const origCreate = URL.createObjectURL;
+  const origRevoke = URL.revokeObjectURL;
+  let seq = 0;
+  const revoked = [];
+  URL.createObjectURL = () => `blob:staggered-${++seq}`;
+  URL.revokeObjectURL = (value) => {
+    revoked.push(value);
+  };
+  try {
+    const thirtyMiB = 30 * 1024 * 1024;
+    const payload = Buffer.alloc(16).toString('base64');
+    let secondRangeStarted;
+    const waitSecondRange = new Promise((resolve) => {
+      secondRangeStarted = resolve;
+    });
+    let releaseSecondRange;
+    const api = createRemotePreviewApi(async (method, params) => {
+      if (method === 'previewProjectFile') {
+        return { kind: 'video', mime: 'video/mp4', mtimeMs: 1, size: thirtyMiB };
+      }
+      if (params[1] === 'second.mp4') {
+        secondRangeStarted();
+        await new Promise((resolve) => {
+          releaseSecondRange = resolve;
+        });
+      }
+      return { data: payload, mime: 'video/mp4', offset: 0, size: 16, mtimeMs: 1 };
+    });
+
+    const beforeChars = totalBudgetedChars();
+    const firstPromise = api.previewProjectFile('/p', 'first.mp4');
+    const secondPromise = api.previewProjectFile('/p', 'second.mp4');
+    const batchPromise = Promise.all([firstPromise, secondPromise]);
+
+    // First settles while second is still in flight; wait across macrotasks and invoke
+    // shared-budget trimming (simulating an unrelated cache call like composer-draft)
+    // to ensure neither post-settlement trim nor shared-budget trim evicts it early.
+    const firstSettled = await firstPromise;
+    await waitSecondRange;
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    enforceRendererCacheBudget();
+    assert.deepEqual(
+      revoked,
+      [],
+      'earlier-settling read must not be evicted by post-settlement or shared-budget trim while a concurrent read is still in flight'
+    );
+
+    releaseSecondRange();
+    const [first, second] = await batchPromise;
+    assert.equal(first.url, firstSettled.url);
+    assert.deepEqual(revoked, [], 'neither staggered URL may be revoked before Promise.all continuation');
+
+    const releaseFirst = retainBlobPreviewUrl(first.url);
+    const releaseSecond = retainBlobPreviewUrl(second.url);
+    assert.ok(releaseFirst, 'first staggered URL must be leaseable at Promise.all continuation');
+    assert.ok(releaseSecond, 'second staggered URL must be leaseable at Promise.all continuation');
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(revoked, [], 'both leased URLs stay live');
+
+    releaseFirst();
+    assert.deepEqual(revoked, [first.url], 'releasing first lease trims back within 24M cap');
+    assert.equal(totalBudgetedChars() - beforeChars, 15 * 1024 * 1024);
+    releaseSecond();
+    _runIdleReclaimForTest();
+    assert.equal(totalBudgetedChars() - beforeChars, 0);
+  } finally {
+    _runIdleReclaimForTest();
+    URL.createObjectURL = origCreate;
+    URL.revokeObjectURL = origRevoke;
+  }
+});
+
+test('useBlobPreviewLease acquires at layout commit before passive effects, detects pre-render revocation, preserves hold() replacements, and ignores unmanaged blobs', async () => {
+  _runIdleReclaimForTest();
+  await Promise.resolve();
+  const origCreate = URL.createObjectURL;
+  const origRevoke = URL.revokeObjectURL;
+  const prevWindow = globalThis.window;
+  const prevHTMLElement = globalThis.HTMLElement;
+  const prevNode = globalThis.Node;
+  const prevElement = globalThis.Element;
+  const prevActEnv = globalThis.IS_REACT_ACT_ENVIRONMENT;
+  let seq = 0;
+  const revoked = [];
+  URL.createObjectURL = () => `blob:hook-managed-${++seq}`;
+  URL.revokeObjectURL = (value) => {
+    revoked.push(value);
+  };
+  globalThis.window = dom.window;
+  globalThis.HTMLElement = dom.window.HTMLElement;
+  globalThis.Node = dom.window.Node;
+  globalThis.Element = dom.window.Element;
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    const host = fakeHost({
+      'a.png': file('png', 'image/png'),
+      'b.png': file('png2', 'image/png'),
+    });
+    const api = createRemotePreviewApi(host.call);
+    const livePreview = await api.previewProjectFile('/p', 'b.png');
+
+    // Declare the reclaiming passive useEffect BEFORE useBlobPreviewLease so this
+    // test fails if acquisition ever regresses from useLayoutEffect to useEffect.
+    let survivedReclaimInPassiveEffect = false;
+    function LayoutOrderProbe({ url }) {
+      useEffect(() => {
+        _runIdleReclaimForTest();
+        survivedReclaimInPassiveEffect = !revoked.includes(url);
+      }, [url]);
+      useBlobPreviewLease(url, () => {});
+      return null;
+    }
+
+    await act(async () => {
+      root.render(React.createElement(LayoutOrderProbe, { url: livePreview.url }));
+    });
+    assert.equal(
+      survivedReclaimInPassiveEffect,
+      true,
+      'useBlobPreviewLease must acquire its lease in useLayoutEffect before earlier-declared passive useEffect runs'
+    );
+
+    // Replacing a small pending lease via hold() with a newly settled 50 MiB over-budget URL
+    // must retain the replacement before releasing the old lease so the replacement is never revoked.
+    let controller = null;
+    function HoldProbe({ url }) {
+      controller = useBlobPreviewLease(url, () => {});
+      return null;
+    }
+    await act(async () => {
+      root.render(React.createElement(HoldProbe, { url: '' }));
+    });
+    const fiftyMiB = 50 * 1024 * 1024;
+    const payload = Buffer.alloc(16).toString('base64');
+    const sizedApi = createRemotePreviewApi(async (method, params) => {
+      const size = params[1] === 'huge.png' ? fiftyMiB : 16;
+      if (method === 'previewProjectFile') {
+        return { kind: 'image', mime: 'image/png', mtimeMs: 1, size };
+      }
+      return { data: payload, mime: 'image/png', offset: 0, size: 16, mtimeMs: 1 };
+    });
+    const small = await sizedApi.previewProjectFile('/p', 'small.png');
+    controller.hold(small.url);
+    const huge = await sizedApi.previewProjectFile('/p', 'huge.png');
+    controller.hold(huge.url);
+    assert.ok(!revoked.includes(huge.url), 'hold() replacement must not revoke the incoming 50 MiB URL');
+    const verifyHuge = retainBlobPreviewUrl(huge.url);
+    assert.ok(verifyHuge, 'incoming 50 MiB URL must remain live and leaseable after hold() replacement');
+    verifyHuge();
+    controller.releasePending();
+
+    const preview = await api.previewProjectFile('/p', 'a.png');
+    // Revoke before any component renders with `preview.url`.
+    _runIdleReclaimForTest();
+    assert.equal(retainBlobPreviewUrl(preview.url), null);
+
+    let revokedCalls = 0;
+    function Probe({ url }) {
+      useBlobPreviewLease(url, () => {
+        revokedCalls += 1;
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Probe, { url: preview.url }));
+    });
+    assert.equal(revokedCalls, 1, 'hook notifies caller when a managed blob URL was revoked before first render');
+
+    await act(async () => {
+      root.render(React.createElement(Probe, { url: 'blob:unmanaged-external' }));
+    });
+    assert.equal(revokedCalls, 1, 'hook does not fire onRevoked for unmanaged blob URLs');
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+    globalThis.window = prevWindow;
+    globalThis.HTMLElement = prevHTMLElement;
+    globalThis.Node = prevNode;
+    globalThis.Element = prevElement;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = prevActEnv;
+    _runIdleReclaimForTest();
+    URL.createObjectURL = origCreate;
+    URL.revokeObjectURL = origRevoke;
+  }
 });

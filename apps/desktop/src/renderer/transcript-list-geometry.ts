@@ -20,6 +20,59 @@ export type CoreScrollState = {
 
 export const coreScrollState = (instance: TranscriptVirtualizer) => instance as unknown as CoreScrollState;
 
+type EndPinBatch = {
+  depth: number;
+  flush: (() => void) | null;
+};
+
+const endPinBatches = new WeakMap<TranscriptVirtualizer, EndPinBatch>();
+
+/** Coalesces synchronous end-pin writes triggered inside `fn` so a multi-row
+ *  measurement batch pins once at the end instead of per row. */
+export function batchVirtualizerEndPin<T>(instance: TranscriptVirtualizer, fn: () => T): T {
+  let state = endPinBatches.get(instance);
+  if (!state) {
+    state = { depth: 0, flush: null };
+    endPinBatches.set(instance, state);
+  }
+  state.depth += 1;
+  try {
+    return fn();
+  } finally {
+    state.depth -= 1;
+    if (state.depth === 0) {
+      const flush = state.flush;
+      state.flush = null;
+      endPinBatches.delete(instance);
+      flush?.();
+    }
+  }
+}
+
+/** Runs `pinNow` synchronously unless `instance` is inside an active
+ *  `batchVirtualizerEndPin`, in which case it runs once when the batch exits. */
+export function runOrBatchEndPin(instance: TranscriptVirtualizer, pinNow: () => void): void {
+  const state = endPinBatches.get(instance);
+  if (state && state.depth > 0) {
+    state.flush = pinNow;
+    return;
+  }
+  pinNow();
+}
+
+/** Rounds a measured row height up to the next device-pixel boundary so the
+ *  following row cannot sit over a sub-pixel bottom hairline. */
+export function ceilRowHeight(height: number): number {
+  if (!Number.isFinite(height) || height <= 0) return 0;
+  if (Number.isInteger(height)) return height;
+  const dpr =
+    typeof window !== 'undefined' && Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
+      ? window.devicePixelRatio
+      : 1;
+  const ceiled = Math.ceil(height * dpr - 1e-6) / dpr;
+  return ceiled < height ? height : ceiled;
+}
+
 export function rememberRowHeight(element: HTMLElement, height: number): number {
   // A pending parser/chunk is not a new measurement of the resolved content.
   // CSS holds the last real box until the pending marker leaves the row.
@@ -41,7 +94,7 @@ export function measureTranscriptRow(
   const collapsed =
     observed === 0 && Number(box?.inlineSize) > 0 && !element.querySelector('[data-transcript-pending]');
   if (Number.isFinite(observed) && (observed > 0 || collapsed)) {
-    return rememberRowHeight(element as HTMLElement, Math.round(observed));
+    return rememberRowHeight(element as HTMLElement, ceilRowHeight(observed));
   }
   const index = instance.indexFromElement(element as HTMLDivElement);
   const key = instance.options.getItemKey(index);

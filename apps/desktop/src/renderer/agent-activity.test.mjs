@@ -82,6 +82,79 @@ test('a running row whose start stamp is ahead of the clock reads 0s and never w
   assert.equal(agentElapsedText('idle', { turnStartedAt: clock + 500, startedAt: 0 }, clock), 'Idle');
 });
 
+test('a running row formats its initial sub-second clock in the active UI locale and keeps its spawn origin across same-task updates', async () => {
+  const { default: i18next } = await import('./i18n.ts');
+  const { uiTimeUnit } = await import('./ui-format.ts');
+  const clock = Date.UTC(2026, 9, 18, 12, 0, 0);
+  const previous = i18next.language;
+  try {
+    await i18next.changeLanguage('ko');
+    assert.equal(
+      agentElapsedText('running', { turnStartedAt: clock - 400, startedAt: 0 }, clock),
+      uiTimeUnit(0, 'second')
+    );
+    assert.equal(
+      agentElapsedText('running', { turnStartedAt: clock - 1_400, startedAt: 0 }, clock),
+      uiTimeUnit(1, 'second')
+    );
+  } finally {
+    await i18next.changeLanguage(previous);
+  }
+
+  const dom = installDom();
+  let push;
+  const spawnAt = Date.now() - 3_200;
+  const staleAt = Date.now() - 5_000;
+  const queuedTurnAt = Date.now() - 400;
+  const lead = {
+    agent: 'lead',
+    sessionId: 'lead-s',
+    ownerSessionId: 'lead-s',
+    status: 'running',
+    stage: 'running',
+    turnStartedAt: spawnAt,
+  };
+  const workerRow = (extra = {}) => ({
+    agent: 'worker',
+    tag: 'fix-timer',
+    sessionId: 'worker-s',
+    ownerSessionId: 'lead-s',
+    parentSessionId: 'lead-s',
+    status: 'running',
+    stage: 'running',
+    taskId: 'task-spawn-1',
+    turnStartedAt: spawnAt,
+    ...extra,
+  });
+  window.mixdogDesktop = {
+    async listAgentPool() {
+      return [lead, workerRow()];
+    },
+    subscribeAgentPool(listener) {
+      push = listener;
+      return () => {};
+    },
+  };
+  const sessions = [{ id: 'lead-s', title: 'lead-s', preview: '', updatedAt: 1, messageCount: 1 }];
+  const text = () => document.querySelector('[data-agent-session-id="worker-s"] .agent-activity-elapsed')?.textContent;
+  try {
+    await act(async () => dom.root.render(React.createElement(AgentActivityPane, { active: false, sessions })));
+    await expandAllAgentGroups();
+    assert.match(text(), /^[3-5]s$/);
+    // Missing or older turn stamps on an active snapshot never move the clock backwards.
+    await act(async () => push([lead, workerRow({ turnStartedAt: null })]));
+    assert.match(text(), /^[3-5]s$/);
+    await act(async () => push([lead, workerRow({ turnStartedAt: staleAt })]));
+    assert.match(text(), /^[3-5]s$/);
+    // A coalesced queued follow-up turn keeping KEPT_FIELDS taskId starts its own fresh clock.
+    await act(async () => push([lead, workerRow({ taskId: 'task-spawn-1', turnStartedAt: queuedTurnAt })]));
+    assert.match(text(), /^[0-1]s$/);
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
 test('missing liveness is unknown, and execution capacity waits are queued', () => {
   assert.equal(desktopAgentActivityState({ status: 'unknown', stage: 'unknown' }), 'unknown');
   assert.equal(desktopAgentActivityState({ status: 'running', stage: 'resource_wait' }), 'queued');
@@ -2985,4 +3058,251 @@ test('the pool view keeps its rows through progress no surface shows', async () 
   await push([{ ...row, progressAt: 30, todo: { completed: 1, total: 2 } }]);
   assert.notEqual(store.getView(), view);
   assert.deepEqual(store.getView()[0].todo, { completed: 1, total: 2 });
+});
+
+test('a restarted agent reads its live state at once, without the plan its ended run left', async () => {
+  const { agentPoolStore, startAgentPool } = await import('./agent-activity-model.ts');
+  let listener = () => {};
+  let revision = 1;
+  const entry = (value) => ({ section: 'agentPool', key: null, revision: ++revision, value });
+  const ended = { completed: 0, total: 9, current: 'Read the logs' };
+  const row = {
+    tag: 'restart',
+    agent: 'worker',
+    status: 'completed',
+    stage: 'completed',
+    sessionId: 'w-restart',
+    ownerSessionId: 'lead-a',
+    turnStartedAt: 10,
+    settledAt: 15,
+    todo: ended,
+  };
+  const host = {
+    sections: {
+      snapshot: async () => ({ status: 'ready', entries: [entry([row])] }),
+      subscribe: (next) => {
+        listener = next;
+        return () => {};
+      },
+    },
+  };
+  await sectionStoreFor(host).ready();
+  const store = agentPoolStore(host);
+  startAgentPool(store);
+  await sectionStoreFor(host).ready();
+  const push = async (rows) => {
+    listener({ kind: 'sections', changes: [{ section: 'agentPool', key: null, entry: entry(rows) }] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+  const shown = () => {
+    const [agent] = store.getView();
+    return [desktopAgentActivityState(agent), agent.todo ?? null];
+  };
+  assert.deepEqual(shown(), ['idle', ended]);
+  // A follow-up: the row runs again, still carrying the ended run's plan.
+  const running = { ...row, status: 'running', stage: 'streaming', turnStartedAt: 20, settledAt: null };
+  await push([running]);
+  assert.deepEqual(shown(), ['running', null]);
+  const plan = { completed: 0, total: 4, current: 'Plan' };
+  await push([{ ...running, todo: plan }]);
+  assert.deepEqual(shown(), ['running', plan], 'its new plan from its first step list');
+  // Stopped, then restarted again before writing a plan: the same holds after a failure.
+  await push([{ ...running, todo: plan, status: 'error', stage: 'error', settledAt: 25 }]);
+  assert.deepEqual(shown(), ['failed', plan]);
+  await push([{ ...running, todo: plan, turnStartedAt: 30 }]);
+  assert.deepEqual(shown(), ['running', null]);
+  // A pass through an unproven state is no restart.
+  const next = { completed: 1, total: 3 };
+  await push([{ ...running, todo: next, turnStartedAt: 30 }]);
+  await push([{ ...running, todo: next, turnStartedAt: 30, status: 'unknown', stage: 'unknown' }]);
+  await push([{ ...running, todo: next, turnStartedAt: 30 }]);
+  assert.deepEqual(shown(), ['running', next]);
+});
+
+test('siblings with tied or missing start times keep their first-seen order when the pool reorders', async () => {
+  const { islandAgentRows } = await import('./agent-activity-model.ts');
+  const owner = 'lead-tied-order';
+  const lead = { sessionId: owner, ownerSessionId: owner, agent: 'lead', tag: `lead:${owner}`, status: 'idle' };
+  const row = (id, extra = {}) => ({
+    sessionId: id,
+    ownerSessionId: owner,
+    parentSessionId: owner,
+    agent: 'worker',
+    tag: id,
+    status: 'completed',
+    stage: 'completed',
+    ...extra,
+  });
+  const first = row('tied-z', { createdAt: 1_000 });
+  const second = row('tied-a', { createdAt: 1_000 });
+  const tags = (pool) => islandAgentRows(pool, owner).map((entry) => entry.node.agent.tag);
+  assert.deepEqual(tags([lead, first, second]), ['tied-z', 'tied-a']);
+  assert.deepEqual(
+    tags([lead, { ...second, status: 'running', stage: 'streaming' }, first]),
+    ['tied-z', 'tied-a'],
+    'reordering the pool on restart moves neither sibling'
+  );
+});
+
+test('closing an agent and spawning a new session on the same tag replaces the row cleanly without stale route or plan', async () => {
+  const { agentPlace, islandAgentRows } = await import('./agent-activity-model.ts');
+  const owner = 'lead-respawn-clean';
+  const lead = { sessionId: owner, ownerSessionId: owner, agent: 'lead', tag: `lead:${owner}`, status: 'idle' };
+  const closedOld = {
+    sessionId: 'sess-old',
+    ownerSessionId: owner,
+    parentSessionId: owner,
+    agent: 'worker',
+    tag: 'same-tag',
+    status: 'completed',
+    stage: 'completed',
+    provider: 'anthropic',
+    model: 'claude-opus-4-5',
+    createdAt: 1_000,
+    startedAt: 1_000,
+    settledAt: 2_000,
+    todo: { completed: 0, total: 9, current: 'Old plan' },
+    released: true,
+  };
+  const sibling = {
+    sessionId: 'sess-mid',
+    ownerSessionId: owner,
+    parentSessionId: owner,
+    agent: 'worker',
+    tag: 'mid-tag',
+    status: 'completed',
+    stage: 'completed',
+    provider: 'anthropic',
+    model: 'claude-opus-4-5',
+    createdAt: 3_000,
+    startedAt: 3_000,
+    settledAt: 3_500,
+  };
+  const respawnedNoRoute = {
+    sessionId: 'sess-new',
+    ownerSessionId: owner,
+    parentSessionId: owner,
+    agent: 'worker',
+    tag: 'same-tag',
+    status: 'running',
+    stage: 'streaming',
+    provider: null,
+    model: null,
+    createdAt: 5_000,
+    startedAt: 5_000,
+    turnStartedAt: 5_000,
+    settledAt: null,
+  };
+  // Even when the respawned row is listed before the closed row, the tag keeps its original place and route while its own route is pending.
+  const firstRows = islandAgentRows([lead, respawnedNoRoute, sibling, closedOld], owner);
+  assert.deepEqual(
+    firstRows.map((entry) => [entry.node.agent.tag, entry.node.sessionId, entry.state, entry.node.agent.todo ?? null]),
+    [
+      ['same-tag', 'sess-new', 'running', null],
+      ['mid-tag', 'sess-mid', 'idle', null],
+    ]
+  );
+  assert.equal(agentPlace(owner, respawnedNoRoute).provider, 'anthropic');
+  assert.equal(agentPlace(owner, respawnedNoRoute).model, 'claude-opus-4-5');
+
+  // Once the respawned session reports a new route, the still-listed released row must not overwrite it.
+  const respawnedNewRoute = { ...respawnedNoRoute, provider: 'openai', model: 'gpt-5.4' };
+  islandAgentRows([lead, closedOld, sibling, respawnedNewRoute], owner);
+  assert.equal(agentPlace(owner, respawnedNewRoute).provider, 'openai');
+  assert.equal(agentPlace(owner, respawnedNewRoute).model, 'gpt-5.4');
+  // Between turns (route absent again), it keeps the new session's route rather than reverting to the closed session's.
+  const respawnedBetweenTurns = { ...respawnedNoRoute, status: 'running', stage: 'running', turnStartedAt: 6_000 };
+  islandAgentRows([lead, closedOld, sibling, respawnedBetweenTurns], owner);
+  assert.equal(agentPlace(owner, respawnedBetweenTurns).provider, 'openai');
+  assert.equal(agentPlace(owner, respawnedBetweenTurns).model, 'gpt-5.4');
+});
+
+test('a kind header opened before its first route arrives stays open once its provider and model land', async () => {
+  const { AgentGroupList } = await import('./ComposerIsland.tsx');
+  const { islandAgentRows } = await import('./agent-activity-model.ts');
+  const owner = 'lead-fold-route-arrival';
+  const dom = installDom();
+  try {
+    const lead = { sessionId: owner, ownerSessionId: owner, agent: 'lead', tag: `lead:${owner}`, status: 'idle' };
+    const starting = {
+      sessionId: 'h1',
+      ownerSessionId: owner,
+      parentSessionId: owner,
+      agent: 'heavy-worker',
+      tag: 'new-heavy',
+      status: 'running',
+      stage: 'queued',
+      provider: null,
+      model: null,
+      createdAt: 1_000,
+    };
+    const render = (pool) =>
+      React.createElement(AgentGroupList, {
+        sessionId: owner,
+        agents: islandAgentRows(pool, owner),
+        usage: { agentRowTokens: new Map(), agentRowFloors: new Set() },
+        clock: 2_000,
+        className: 'agent-pool-list',
+        sizer: null,
+        kindsOpen: false,
+      });
+    await act(async () => dom.root.render(render([lead, starting])));
+    const fold = () => document.querySelector('.composer-island-agent-fold');
+    assert.equal(fold().getAttribute('aria-expanded'), 'false');
+    await act(async () => fold().click());
+    assert.equal(fold().getAttribute('aria-expanded'), 'true');
+    // The provider and model arrive for the first time: the header must stay open.
+    await act(async () =>
+      dom.root.render(render([lead, { ...starting, stage: 'streaming', provider: 'anthropic', model: 'claude-opus' }]))
+    );
+    assert.equal(fold().getAttribute('aria-expanded'), 'true');
+    assert.ok(document.querySelector('[data-agent-tag="new-heavy"]'));
+    // Folding it explicitly afterwards persists closed.
+    await act(async () => fold().click());
+    assert.equal(fold().getAttribute('aria-expanded'), 'false');
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test('stampless siblings break ties by first-seen seq and releaseAgentPlaces cleans up deleted sessions', async () => {
+  const { agentPlace, islandAgentRows, releaseAgentPlaces } = await import('./agent-activity-model.ts');
+  const owner = 'lead-stampless-seq';
+  const lead = { sessionId: owner, ownerSessionId: owner, agent: 'lead', tag: `lead:${owner}`, status: 'idle' };
+  const first = {
+    sessionId: 'no-ts-a',
+    ownerSessionId: owner,
+    parentSessionId: owner,
+    agent: 'worker',
+    tag: 'alpha',
+    status: 'running',
+    createdAt: null,
+    startedAt: null,
+  };
+  const second = {
+    sessionId: 'no-ts-b',
+    ownerSessionId: owner,
+    parentSessionId: owner,
+    agent: 'worker',
+    tag: 'beta',
+    status: 'running',
+    createdAt: null,
+    startedAt: null,
+  };
+  // Register alpha before beta, then pass them in reverse pool order: alpha must still precede beta by seq.
+  const initialPlace = agentPlace(owner, first);
+  agentPlace(owner, second);
+  const ordered = islandAgentRows([lead, second, first], owner);
+  assert.deepEqual(
+    ordered.map((entry) => entry.node.agent.tag),
+    ['alpha', 'beta'],
+    'two siblings without timestamps break ties by seq instead of NaN'
+  );
+
+  // Releasing the owner clears its remembered places so a later session starts with a fresh seq.
+  releaseAgentPlaces(owner);
+  const recreatedPlace = agentPlace(owner, first);
+  assert.ok(recreatedPlace.seq > initialPlace.seq, 'releaseAgentPlaces evicted previous host entries');
+  releaseAgentPlaces(owner);
 });

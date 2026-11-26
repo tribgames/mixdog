@@ -1,4 +1,4 @@
-import { createElement, Fragment, type ReactNode, useContext, useMemo } from 'react';
+import { createElement, Fragment, type ReactNode, useCallback, useContext, useMemo, useRef } from 'react';
 import { greetingSuggestions } from '../shared/greeting-suggestions';
 import { stripAgentMessageEnvelope } from '../shared/core-src/runtime/shared/agent-message-envelope.mjs';
 import {
@@ -49,6 +49,7 @@ import type { ConversationProps } from './conversation-pane-props';
 import { type TurnCardsSeat, transcriptRowNode } from './conversation-support';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import type { TranscriptRowModel } from './transcript-rows';
+import { backgroundWorkCounts } from './transcript-status';
 import { ToolVisualizeCards } from './transcript-visualize-card';
 import { turnOf } from './conversation-turn-index';
 import { carriedLast } from './list-carry';
@@ -60,6 +61,11 @@ const NO_TOOL_ITEMS: readonly TranscriptItem[] = [];
 /** Where a transcript's last turn's end is, carried on from the list a frame made it from. */
 const lastTurnEnd = carriedLast<TranscriptItem>((item) => item?.kind === 'turndone');
 const NO_MEMBERS: string[] = [];
+
+// A line outside any run, in the bubble column (tool-round records, cards).
+function asideRow(children: ReactNode): ReactNode {
+  return createElement(AgentChatRow, { place: null, member: null }, children);
+}
 
 /** What a room's band shows: the core's trailing typing row as supplied. A member's name, or nobody's while the
  *  supervisor chooses the next speaker (`room.speaker` empty), which keeps the band's footprint through the hand-off. The
@@ -122,6 +128,7 @@ function turnCards(
       ? createElement(ToolVisualizeCards, {
           items: tools,
           sessionId: disclosureScope,
+          rowTurnKey: row.turnKey,
           ...cardProps,
           turnChanges: changesRef,
           ...turnEnd,
@@ -319,7 +326,9 @@ export function useConversationRowRenderer({
 }) {
   const { retryTurn } = useConversationRetry(settledItems, settledTurnKeys, submit);
   const latestCompletion = liveItems[lastTurnEnd(liveItems)];
-  const retryDisabled = Boolean(snapshot.busy) || transitioning;
+  const snapshotBusy = Boolean(snapshot.busy);
+  const snapshotSessionId = String(snapshot.sessionId || '').trim();
+  const retryDisabled = snapshotBusy || transitioning;
   const { label } = useRoomContacts(agentMode);
   // Sessions waiting for the user now: a wait report shows only for them.
   const waiting = useSessionAttentionIndex().needsUser;
@@ -341,96 +350,182 @@ export function useConversationRowRenderer({
   // The lines child sessions' surfaces (a sub-agent's, a task session's, a
   // room member's browser or terminal) leave in this owner conversation.
   const childPeeks = useChildSurfacePeeks(disclosureScope);
-  // A line outside any run, in the bubble column (tool-round records, cards).
-  const asideRow = (children: ReactNode): ReactNode =>
-    createElement(AgentChatRow, { place: null, member: null }, children);
-  const rowNode = (row: TranscriptRowModel, seat?: TurnCardsSeat): ReactNode =>
-    transcriptRowNode(row, {
-      turnCards: seat,
-      quietTools: agentMode,
-      disclosureScope,
-      optimisticActivityStartedAt,
-      readOnly,
-      renderAssistantRow,
-      retryDisabled,
-      settledItems,
-      settledTurnKeys,
-      liveItems,
-      latestCompletion,
-      snapshot,
-      onRetryTurn: retryTurn,
-      onOpenSettings,
-      questionCard,
-    });
+
+  const backgroundWork = !snapshotBusy && latestCompletion ? backgroundWorkCounts(snapshot) : undefined;
+  const backgroundWorkKey = backgroundWork ? `${backgroundWork.shell}:${backgroundWork.agent}` : '';
+  const liveActive =
+    !agentMode &&
+    (snapshotBusy ||
+      Boolean(snapshot.commandBusy) ||
+      Boolean(snapshot.spinner) ||
+      Boolean(snapshot.commandStatus) ||
+      Boolean(snapshot.thinking) ||
+      optimisticActivityStartedAt > 0);
+  const liveSpinner = liveActive ? snapshot.spinner : undefined;
+  const liveCommandStatus = liveActive ? snapshot.commandStatus : undefined;
+  const liveThinking = liveActive ? snapshot.thinking : undefined;
+  const liveHasApproval = liveActive && Boolean(snapshot.toolApproval);
+  const liveEffort = liveActive
+    ? `${snapshot.turnEffort ?? ''}|${snapshot.effort ?? ''}|${snapshot.autoEffort ? 1 : 0}|${snapshot.provider ?? ''}|${snapshot.model ?? ''}`
+    : '';
+  const roomTypingKey = roomTyping ? `${roomTyping.speaker}\0${roomTyping.name}\0${roomTyping.deciding ? 1 : 0}` : '';
+  const askingKey = asking.length ? asking.join('\0') : '';
+  const roomLabel = agentMode ? label : null;
+
+  const latestRef = useRef({
+    snapshot,
+    settledItems,
+    settledTurnKeys,
+    liveItems,
+    retryTurn,
+    onOpenSettings,
+    label,
+    roomTyping,
+    asking,
+  });
+  latestRef.current = {
+    snapshot,
+    settledItems,
+    settledTurnKeys,
+    liveItems,
+    retryTurn,
+    onOpenSettings,
+    label,
+    roomTyping,
+    asking,
+  };
+
+  const stableRetryTurn = useCallback((turnKey: string) => {
+    void latestRef.current.retryTurn(turnKey);
+  }, []);
+  const stableOnOpenSettings = useCallback<ConversationProps['onOpenSettings']>((section) => {
+    latestRef.current.onOpenSettings(section);
+  }, []);
+
   // Agent mode: a turn's visualize opens leave one card, a tile per tab, under
   // its last row, once the turn ends (transcript-visualize-card.tsx), above the turn's
   // changed-files line when the row has one.
-  const renderTranscriptRow = (
-    row: TranscriptRowModel,
-    index = 0,
-    rows: readonly TranscriptRowModel[] = [row]
-  ): ReactNode => {
-    const { cards, visualized } = turnCards(rows, index, row, {
-      settledItems,
-      settledTurnKeys,
+  // biome-ignore lint/correctness/useExhaustiveDependencies: narrow snapshot/room keys intentionally keep renderTranscriptRow stable across unrelated Conversation updates
+  const renderTranscriptRow = useCallback(
+    (row: TranscriptRowModel, index = 0, rows: readonly TranscriptRowModel[] = [row]): ReactNode => {
+      const {
+        snapshot: currentSnapshot,
+        settledItems: currentSettledItems,
+        settledTurnKeys: currentSettledTurnKeys,
+        liveItems: currentLiveItems,
+        label: currentLabel,
+        roomTyping: currentRoomTyping,
+        asking: currentAsking,
+      } = latestRef.current;
+      const rowNode = (targetRow: TranscriptRowModel, seat?: TurnCardsSeat): ReactNode =>
+        transcriptRowNode(targetRow, {
+          turnCards: seat,
+          quietTools: agentMode,
+          disclosureScope,
+          optimisticActivityStartedAt,
+          readOnly,
+          renderAssistantRow,
+          retryDisabled,
+          settledItems: currentSettledItems,
+          settledTurnKeys: currentSettledTurnKeys,
+          liveItems: currentLiveItems,
+          latestCompletion,
+          snapshot: currentSnapshot,
+          onRetryTurn: stableRetryTurn,
+          onOpenSettings: stableOnOpenSettings,
+          questionCard,
+        });
+      const renderRow = (
+        targetRow: TranscriptRowModel,
+        targetIndex: number,
+        targetRows: readonly TranscriptRowModel[],
+        /** The turn's visualize cards: placed above its changed-files line. */
+        seat: TurnCardsSeat
+      ): ReactNode => {
+        // A `setup connect_connector` call leaves its connect card under the round.
+        const connectorIds = targetRow._tag === 'ToolActivity' && !readOnly ? connectorCardIds(targetRow.items) : [];
+        const connectorCards = connectorIds.length
+          ? connectorIds.map((id) => createElement(ConnectorChatCard, { key: id, id }))
+          : null;
+        if (!agentMode) {
+          // A task report a hand-off line already shows paints nothing; the
+          // turn's hand-off lines sit under its reply (or its working row while
+          // it runs), as in a chat.
+          if (taskReportHidden(targetRows, targetIndex, waiting)) return null;
+          const node = rowNode(targetRow, seat);
+          const block = handoffBlock(targetRows, targetIndex);
+          return connectorCards || block ? createElement(Fragment, null, node, block, connectorCards) : node;
+        }
+        return agentChatRow(targetRow, targetIndex, targetRows, seat, {
+          rowNode,
+          asideRow,
+          label: currentLabel,
+          homeAgent,
+          inRoom,
+          roomTyping: currentRoomTyping,
+          questionCard,
+          cardKey,
+          disclosureScope,
+          connectorCards,
+          waiting,
+        });
+      };
+      const { cards, visualized } = turnCards(rows, index, row, {
+        settledItems: currentSettledItems,
+        settledTurnKeys: currentSettledTurnKeys,
+        disclosureScope,
+        cardProps: agentMode ? { compact: true, frame: asideRow } : null,
+      });
+      const seat = { cards, placed: false, visualized };
+      const node = renderRow(row, index, rows, seat);
+      const carded = cards && !seat.placed ? createElement(Fragment, null, node, cards) : node;
+      // A room member's handed-off questions, under its newest words.
+      const seated = roomQuestionSeatsAt(rows, index, currentAsking);
+      const shown = seated.length
+        ? createElement(
+            Fragment,
+            null,
+            carded,
+            asideRow(seated.map((speaker) => createElement(RoomHandoffQuestions, { key: speaker, speaker })))
+          )
+        : carded;
+      // A child's line follows the row recorded last before its reveal.
+      const peeks = childSurfacePeeksAt(rows, index, childPeeks);
+      if (!peeks.length) return shown;
+      const lines = createElement(ChildSurfacePeekLines, { sessionId: disclosureScope, peeks });
+      return createElement(Fragment, null, shown, agentMode ? asideRow(lines) : lines);
+    },
+    [
+      agentMode,
+      askingKey,
+      backgroundWorkKey,
+      cardKey,
+      childPeeks,
       disclosureScope,
-      cardProps: agentMode ? { compact: true, frame: asideRow } : null,
-    });
-    const seat = { cards, placed: false, visualized };
-    const node = renderRow(row, index, rows, seat);
-    const carded = cards && !seat.placed ? createElement(Fragment, null, node, cards) : node;
-    // A room member's handed-off questions, under its newest words.
-    const seated = roomQuestionSeatsAt(rows, index, asking);
-    const shown = seated.length
-      ? createElement(
-          Fragment,
-          null,
-          carded,
-          asideRow(seated.map((speaker) => createElement(RoomHandoffQuestions, { key: speaker, speaker })))
-        )
-      : carded;
-    // A child's line follows the row recorded last before its reveal.
-    const peeks = childSurfacePeeksAt(rows, index, childPeeks);
-    if (!peeks.length) return shown;
-    const lines = createElement(ChildSurfacePeekLines, { sessionId: disclosureScope, peeks });
-    return createElement(Fragment, null, shown, agentMode ? asideRow(lines) : lines);
-  };
-  const renderRow = (
-    row: TranscriptRowModel,
-    index: number,
-    rows: readonly TranscriptRowModel[],
-    /** The turn's visualize cards: placed above its changed-files line. */
-    seat: TurnCardsSeat
-  ): ReactNode => {
-    // A `setup connect_connector` call leaves its connect card under the round.
-    const connectorIds = row._tag === 'ToolActivity' && !readOnly ? connectorCardIds(row.items) : [];
-    const connectorCards = connectorIds.length
-      ? connectorIds.map((id) => createElement(ConnectorChatCard, { key: id, id }))
-      : null;
-    if (!agentMode) {
-      // A task report a hand-off line already shows paints nothing; the
-      // turn's hand-off lines sit under its reply (or its working row while
-      // it runs), as in a chat.
-      if (taskReportHidden(rows, index, waiting)) return null;
-      const node = rowNode(row, seat);
-      const block = handoffBlock(rows, index);
-      return connectorCards || block ? createElement(Fragment, null, node, block, connectorCards) : node;
-    }
-    return agentChatRow(row, index, rows, seat, {
-      rowNode,
-      asideRow,
-      label,
       homeAgent,
       inRoom,
-      roomTyping,
+      latestCompletion,
+      liveCommandStatus,
+      liveEffort,
+      liveHasApproval,
+      liveSpinner,
+      liveThinking,
+      optimisticActivityStartedAt,
       questionCard,
-      cardKey,
-      disclosureScope,
-      connectorCards,
+      readOnly,
+      renderAssistantRow,
+      retryDisabled,
+      roomLabel,
+      roomTypingKey,
+      snapshotBusy,
+      snapshotSessionId,
+      stableOnOpenSettings,
+      stableRetryTurn,
       waiting,
-    });
-  };
-  return { renderTranscriptRow };
+    ]
+  );
+
+  return useMemo(() => ({ renderTranscriptRow }), [renderTranscriptRow]);
 }
 
 /** A row of an agent's chat: bubbles, typing rows and the cards a turn leaves

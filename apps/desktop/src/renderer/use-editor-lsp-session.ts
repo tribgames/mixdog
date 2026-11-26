@@ -21,6 +21,16 @@ import {
 
 type EditorInstance = import('monaco-editor').editor.IStandaloneCodeEditor;
 
+let nextLspAttachmentSeq = 0;
+
+function createLspAttachmentId(): string {
+  const random =
+    typeof globalThis.crypto?.randomUUID === 'function'
+      ? globalThis.crypto.randomUUID()
+      : Math.random().toString(36).slice(2, 10);
+  return `att-${++nextLspAttachmentSeq}-${random}`;
+}
+
 export function useEditorLspSession({
   editorRef,
   modelRef,
@@ -56,7 +66,9 @@ export function useEditorLspSession({
   const lspCapabilitiesKey = useRef('');
   const lspLanguageId = useRef('');
   const lspLastVersion = useRef(-1);
-  const lspOpenPromise = useRef<Promise<unknown> | null>(null);
+  const lspOpenPromise = useRef<Promise<DesktopLspServerState> | null>(null);
+  const lspAttachmentId = useRef('');
+  const lspEverOpened = useRef(false);
   const lspAttached = useRef(false);
   const lspAttachmentEpoch = useRef(0);
   const lspReopenAt = useRef(0);
@@ -105,6 +117,8 @@ export function useEditorLspSession({
         if (!lspAttached.current || Date.now() < lspReopenAt.current) return false;
         lspReopenAt.current = Date.now() + 5_000;
         const epoch = lspAttachmentEpoch.current;
+        if (!lspAttachmentId.current) lspAttachmentId.current = createLspAttachmentId();
+        const attachmentId = lspAttachmentId.current;
         const reopening = api.lspDocument({
           kind: 'open',
           projectPath,
@@ -112,6 +126,7 @@ export function useEditorLspSession({
           languageId: model.getLanguageId(),
           version: model.getVersionId(),
           content: model.getValue(),
+          attachmentId,
         });
         lspOpenPromise.current = reopening;
         try {
@@ -119,6 +134,7 @@ export function useEditorLspSession({
           if (epoch !== lspAttachmentEpoch.current || !lspAttached.current) return false;
           acceptLspState(state, model.getLanguageId());
           if (!state.available) return false;
+          lspEverOpened.current = true;
           lspLastVersion.current = model.getVersionId();
           return true;
         } catch {
@@ -127,6 +143,7 @@ export function useEditorLspSession({
       }
       const version = model.getVersionId();
       if (kind === 'change' && version === lspLastVersion.current) return true;
+      const attachmentId = lspAttachmentId.current;
       const state = await api.lspDocument({
         kind,
         projectPath,
@@ -134,9 +151,13 @@ export function useEditorLspSession({
         languageId: model.getLanguageId(),
         version,
         content: model.getValue(),
+        ...(attachmentId ? { attachmentId } : {}),
       });
       acceptLspState(state, model.getLanguageId());
-      if (state.available) lspLastVersion.current = version;
+      if (state.available) {
+        lspEverOpened.current = true;
+        lspLastVersion.current = version;
+      }
       return state.available;
     },
     [acceptLspState, api, readModel, projectPath, relPath]
@@ -201,20 +222,31 @@ export function useEditorLspSession({
       lspAttached.current = false;
       lspAttachmentEpoch.current += 1;
       const pendingOpen = lspOpenPromise.current;
+      const wasOpened = lspEverOpened.current;
+      const attachmentId = lspAttachmentId.current;
+      const languageId = lspLanguageId.current || model.getLanguageId();
+      const version = model.getVersionId();
       lspOpenPromise.current = null;
+      lspAttachmentId.current = '';
+      lspEverOpened.current = false;
       lspReady.current = false;
       lspLastVersion.current = -1;
       void Promise.resolve(pendingOpen)
-        .catch(() => undefined)
-        .then(() =>
-          api?.lspDocument?.({
+        .then(
+          (state) => wasOpened || Boolean(state?.available),
+          () => wasOpened
+        )
+        .then((shouldClose) => {
+          if (!shouldClose) return;
+          return api?.lspDocument?.({
             kind: 'close',
             projectPath,
             relPath,
-            languageId: lspLanguageId.current || model.getLanguageId(),
-            version: model.getVersionId(),
-          })
-        )
+            languageId,
+            version,
+            ...(attachmentId ? { attachmentId } : {}),
+          });
+        })
         .catch(() => undefined);
     },
     [api, projectPath, relPath]
@@ -229,6 +261,9 @@ export function useEditorLspSession({
       if (lspAttached.current) return;
       lspAttached.current = true;
       const epoch = ++lspAttachmentEpoch.current;
+      const attachmentId = createLspAttachmentId();
+      lspAttachmentId.current = attachmentId;
+      lspEverOpened.current = false;
       lspLanguageId.current = languageId;
       const opening = api.lspDocument({
         kind: 'open',
@@ -237,13 +272,17 @@ export function useEditorLspSession({
         languageId,
         version: model.getVersionId(),
         content: model.getValue(),
+        attachmentId,
       });
       lspOpenPromise.current = opening;
       void opening
         .then((state) => {
           if (epoch !== lspAttachmentEpoch.current || !lspAttached.current) return;
           acceptLspState(state, languageId);
-          if (state.available) lspLastVersion.current = model.getVersionId();
+          if (state.available) {
+            lspEverOpened.current = true;
+            lspLastVersion.current = model.getVersionId();
+          }
           void updateOutline();
         })
         .catch(() => {

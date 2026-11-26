@@ -140,6 +140,8 @@ const CONVERSATION_FIELDS = [
   'transcriptHistory',
   'transcriptWindowStart',
   'transcriptGeneration',
+  'snapshotRevision',
+  'replayPending',
   // A positioned window's facts (use-transcript-history.ts positionedFactsOf).
   'transcriptPositioned',
   'transcriptWindowVersion',

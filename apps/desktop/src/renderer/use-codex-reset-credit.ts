@@ -151,6 +151,7 @@ export function useCodexResetCredit(api: UsageApi, dashboard: unknown, sidebarOp
   const consume = async () => {
     if (!offer || count < 1 || resetting || typeof api?.invokeCapability !== 'function') return;
     const idempotencyKey = codexResetAttempt(offer);
+    const readStartedAt = Date.now();
     setResetting(true);
     setNotice('');
     try {
@@ -184,7 +185,7 @@ export function useCodexResetCredit(api: UsageApi, dashboard: unknown, sidebarOp
         setNotice(t('Reset could not be confirmed. Retrying is safe.'));
         return;
       }
-      if (!publishUsageDashboard(result.dashboard)) {
+      if (!publishUsageDashboard(result.dashboard, { readStartedAt, providers: [SUBSCRIPTIONS[0].provider] })) {
         void refreshUsageDashboard(api, { force: true });
       }
       clearCodexResetAttempt(offer);

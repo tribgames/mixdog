@@ -203,9 +203,13 @@ function readVisualizeCardCalls(items: readonly TranscriptItem[]): VisualizeCard
  *  turns stay as they are. */
 export function visualizeCardsShown(
   calls: readonly VisualizeCardCall[],
-  heldSince: number | null
+  heldSince: number | null,
+  heldCalls?: ReadonlySet<string> | null
 ): VisualizeCardCall[] {
-  return calls.filter((call) => !call.pending && (heldSince === null || call.at < heldSince));
+  return calls.filter(
+    (call) =>
+      !call.pending && !(call.callId && heldCalls?.has(call.callId)) && (heldSince === null || call.at < heldSince)
+  );
 }
 
 // The newest card of each tab, per session: one card per tab reads in full
@@ -437,9 +441,11 @@ export function previewFileLabel(path: string): string {
   return /^index\.[^.]+$/i.test(base) && parts.length > 1 ? (parts.at(-2) ?? base) : base;
 }
 
-/** The version the tab shows (the newest when live); 0 without versions. */
+/** The version the tab shows (the newest when live, or 0 when live is unkept); 0 without versions. */
 export function visualizeCardVersion(tab: VisualizeTabView | null): number {
-  return tab?.version ?? tab?.versions?.at(-1)?.n ?? 0;
+  if (!tab) return 0;
+  if (tab.version != null) return tab.version;
+  return tab.liveUnkept ? 0 : (tab.versions?.at(-1)?.n ?? 0);
 }
 
 // The version each card's turn ended on (by session and call id): a card drawn at its
@@ -491,7 +497,9 @@ export function visualizeCardOwnVersion(
     // A closed tab has no live version: the card keeps the one it showed.
     return live || (cardVersions.get(versionKey) ?? call.version ?? 0);
   }
-  return versionProducedAt(tab?.versions, call.at) || (cardVersions.get(`${sessionId}\0${call.id}`) ?? call.version ?? 0);
+  return (
+    versionProducedAt(tab?.versions, call.at) || (cardVersions.get(`${sessionId}\0${call.id}`) ?? call.version ?? 0)
+  );
 }
 // Tab titles as the agent gave them at open ("v1" → "요금제 배치 시안"), per
 // session, so later rows (check, capture, close…) name the page, not the id.

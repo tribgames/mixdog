@@ -1,6 +1,6 @@
-// Dock terminal view: a module-shared xterm
-// instance over the main-process PTY. The xterm DOM is re-appended on
-// remount so tab switches keep scrollback; the PTY survives regardless.
+// Dock terminal view: mounts xterm while a pane shows the terminal and
+// releases xterm, its addons, write pump and DOM on unmount while keeping
+// the core PTY alive; reopening restores output from the core's PTY replay.
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
@@ -57,6 +57,8 @@ const SIZE_OWNER_HEARTBEAT_MS = 10_000;
 
 type TerminalView = {
   id: string | null;
+  /** Authoritative terminal-feed snapshot generation last rendered into `term`. */
+  feedGen: number | null;
   /** Profile id the live PTY was ensured with; a strip change respawns it. */
   shell?: string;
   term: Terminal;
@@ -85,6 +87,17 @@ type TerminalView = {
   /** A scrollback replay still being written into `term` (trackReplay): the
    *  screen is not complete until it settles, whoever started it. */
   replayPending: Promise<void> | null;
+  /** Live ensure/attach calls currently binding this view; closes the gap
+   *  between API settlement and `view.id` assignment during mount handoff. */
+  inflightAttachCount: number;
+  /** Attached PTY ids handed off from an outgoing view while this view is
+   *  still binding; detached automatically if this view fails or unmounts unbound. */
+  handedOffPtyIds: Set<string>;
+  /** Aborted when this view is released so its own stalled ensure/attach releases
+   *  its API inflight token immediately instead of deferring detach. */
+  abortController: AbortController;
+  /** Set only when the tab/session itself is explicitly closed (disposeTerminalPane). */
+  ptyDisposed: boolean;
 };
 interface TerminalViewState {
   cols: number;
@@ -93,10 +106,12 @@ interface TerminalViewState {
   atBottom: boolean;
 }
 const terminalViews = new Map<string, TerminalView>();
+/** Last ensured shell profile per live tab so a shell change respawns its PTY even across remounts. */
+const terminalShells = new Map<string, string>();
+/** Views with an ensure/attach call in flight so an explicit close can dispose a late PTY answer. */
+const inflightViews = new Map<string, Set<TerminalView>>();
 const DOCK_TERMINAL_KEY = '__dock__';
 const TERMINAL_VIEW_STATE_KEY = 'mixdog.desktop-terminal-view.v1';
-/** How long a hidden terminal keeps its WebGL context (see the activity effect). */
-const TERMINAL_RENDERER_RELEASE_DELAY_MS = 5_000;
 
 /** A per-terminal record map persisted under one storage key. Throws on
  *  unavailable or corrupt storage; every caller treats that as best-effort. */
@@ -176,6 +191,148 @@ function watchTerminalSizeOwner(): void {
     }) ?? (() => {});
 }
 
+function unwatchTerminalSizeOwnerIfEmpty(): void {
+  if (terminalViews.size > 0 || !unwatchSizeOwner) return;
+  unwatchSizeOwner();
+  unwatchSizeOwner = undefined;
+}
+
+function trackInflightView(key: string, view: TerminalView): () => void {
+  let set = inflightViews.get(key);
+  if (!set) {
+    set = new Set();
+    inflightViews.set(key, set);
+  }
+  set.add(view);
+  return () => {
+    set.delete(view);
+    if (set.size === 0) inflightViews.delete(key);
+  };
+}
+
+function hasActiveTerminalConsumer(ptyId: string, excluding?: TerminalView): boolean {
+  for (const other of terminalViews.values()) {
+    if (other !== excluding && !other.ptyDisposed && other.id === ptyId) return true;
+  }
+  return false;
+}
+
+/** Transfers feed ownership of `ptyId` to a live consumer (bound or actively binding for `key`),
+ *  or detaches it immediately if no consumer will read it. */
+function handOffOrDetachPty(key: string, ptyId: string, excluding?: TerminalView): void {
+  if (hasActiveTerminalConsumer(ptyId, excluding)) return;
+  const current = terminalViews.get(key);
+  if (current && current !== excluding && !current.ptyDisposed && current.inflightAttachCount > 0) {
+    current.handedOffPtyIds.add(ptyId);
+    return;
+  }
+  window.mixdogDesktop.termDetach?.(ptyId);
+}
+
+/** Releases any handed-off PTYs that `view` did not end up binding once its attach calls settle. */
+function flushUnboundHandedOffPtys(key: string, view: TerminalView): void {
+  if (view.inflightAttachCount > 0 || view.handedOffPtyIds.size === 0) return;
+  const pending = [...view.handedOffPtyIds];
+  view.handedOffPtyIds.clear();
+  if (view.ptyDisposed) return;
+  for (const ptyId of pending) {
+    if (view.id !== ptyId) handOffOrDetachPty(key, ptyId, view);
+  }
+}
+
+type AbortableTerminalDesktop = {
+  termEnsure?: (
+    id: string | null,
+    cwd?: string | null,
+    shell?: string | null,
+    signal?: AbortSignal
+  ) => ReturnType<NonNullable<typeof window.mixdogDesktop.termEnsure>>;
+  termAttach?: (id: string, signal?: AbortSignal) => ReturnType<NonNullable<typeof window.mixdogDesktop.termAttach>>;
+  termAcknowledge?: (id: string, charCount: number, gen?: number) => void;
+  subscribeTabTermData?: (
+    id: string,
+    listener: (event: { id: string; data: string; reset?: true }, gen?: number) => void
+  ) => () => void;
+  isTerminalAttached?: (id: string) => boolean;
+  terminalFeedGeneration?: (id: string) => number | null;
+  terminalSessionGeneration?: (session: unknown) => number | null;
+};
+
+function callTermEnsure(id: string | null, cwd: string | null, shell: string | null, signal: AbortSignal) {
+  return (window.mixdogDesktop as AbortableTerminalDesktop).termEnsure?.(id, cwd, shell, signal);
+}
+
+function callTermAttach(id: string, signal: AbortSignal) {
+  return (window.mixdogDesktop as AbortableTerminalDesktop).termAttach?.(id, signal);
+}
+
+function isTerminalFeedAttached(id: string): boolean {
+  const check = (window.mixdogDesktop as AbortableTerminalDesktop).isTerminalAttached;
+  return typeof check === 'function' ? check(id) : true;
+}
+
+function getTerminalFeedGeneration(id: string): number | null | undefined {
+  const check = (window.mixdogDesktop as AbortableTerminalDesktop).terminalFeedGeneration;
+  return typeof check === 'function' ? check(id) : undefined;
+}
+
+function getTerminalSessionGeneration(session: unknown): number | null | undefined {
+  const check = (window.mixdogDesktop as AbortableTerminalDesktop).terminalSessionGeneration;
+  return typeof check === 'function' ? check(session) : undefined;
+}
+
+function subscribeViewTermData(view: TerminalView) {
+  const desktop = window.mixdogDesktop as AbortableTerminalDesktop;
+  const subscribeTab = desktop.subscribeTabTermData;
+  const subscribe = window.mixdogDesktop.subscribeTermData as
+    | ((listener: (event: { id: string; data: string; reset?: true }, gen?: number) => void) => () => void)
+    | undefined;
+  if (!subscribeTab && !subscribe) return undefined;
+  return (listener: (event: { id: string; data: string; reset?: true }, gen?: number) => void) => {
+    const wrapped = (event: { id: string; data: string; reset?: true }, gen?: number) => {
+      if (event.reset === true && event.id === view.id) {
+        const currentGen = getTerminalFeedGeneration(event.id);
+        if (typeof currentGen === 'number') view.feedGen = currentGen;
+      }
+      listener(event, gen);
+    };
+    if (subscribeTab && view.id) return subscribeTab(view.id, wrapped);
+    return subscribe!(wrapped);
+  };
+}
+
+/** Releases xterm, addons, write pump and DOM without terminating the backend PTY when `keepPtyAlive` is true. */
+function releaseTerminalView(key: string, view: TerminalView, keepPtyAlive: boolean): void {
+  if (terminalViews.get(key) === view) terminalViews.delete(key);
+  if (keepPtyAlive) view.abortController.abort();
+  const owned = new Set<string>(view.handedOffPtyIds);
+  view.handedOffPtyIds.clear();
+  if (view.id) owned.add(view.id);
+  if (keepPtyAlive) {
+    for (const ptyId of owned) handOffOrDetachPty(key, ptyId, view);
+  }
+  // Drop the context-loss listener first so term.dispose()'s WebglAddon teardown
+  // does not flip webglUnavailable, and let term.dispose() mark the terminal disposed
+  // before WebglAddon disposes so xterm skips building a fallback DOM renderer.
+  view.webglContextLoss?.dispose();
+  view.webglContextLoss = null;
+  view.localEcho?.reset();
+  detachTerminalOutput(view);
+  view.writer.dispose();
+  try {
+    view.fit.dispose();
+  } catch {
+    /* already disposed with terminal */
+  }
+  try {
+    view.term.dispose();
+  } catch {
+    /* already detached */
+  }
+  releaseWebglRenderer(view);
+  unwatchTerminalSizeOwnerIfEmpty();
+}
+
 function tryEnableWebglRenderer(view: TerminalView): void {
   if (view.webgl || view.webglUnavailable || !view.term.element) return;
   // A phone keeps xterm's DOM renderer: at a fractional device pixel ratio the WebGL canvas and its glyph atlas disagree on pixel size.
@@ -230,9 +387,9 @@ function releaseWebglRenderer(view: TerminalView): void {
   }
 }
 
-/** Main's flow control: output parsed into xterm is acknowledged by its char count. */
-function acknowledgeTerminalOutput(id: string, charCount: number): void {
-  window.mixdogDesktop.termAcknowledge?.(id, charCount);
+/** Main's flow control: output parsed into xterm is acknowledged by its char count and buffer generation. */
+function acknowledgeTerminalOutput(id: string, charCount: number, gen?: number): void {
+  (window.mixdogDesktop as AbortableTerminalDesktop).termAcknowledge?.(id, charCount, gen);
 }
 
 function terminalView(key: string): TerminalView {
@@ -277,6 +434,7 @@ function terminalView(key: string): TerminalView {
     : null;
   const created: TerminalView = {
     id: null,
+    feedGen: null,
     term,
     fit,
     webgl: null,
@@ -291,6 +449,10 @@ function terminalView(key: string): TerminalView {
     warmed: false,
     warmRestore: null,
     replayPending: null,
+    inflightAttachCount: 0,
+    handedOffPtyIds: new Set(),
+    abortController: new AbortController(),
+    ptyDisposed: false,
   };
   terminalViews.set(key, created);
   watchTerminalSizeOwner();
@@ -341,27 +503,39 @@ export function prewarmTerminal(terminalId: string): Promise<boolean> {
   }
   const view = existing ?? terminalView(terminalId);
   view.warming ??= (async () => {
-    const attached = await window.mixdogDesktop.termAttach?.(terminalId);
-    // Released meanwhile, or attached by a pane that mounted first.
-    if (terminalViews.get(terminalId) !== view) return false;
-    if (view.id) return true;
-    if (!attached) {
-      discardUnopenedView(terminalViews, terminalId, view);
-      return false;
-    }
-    view.id = attached.id;
-    applyEnsuredSizeOwner(view, attached.sizeOwner);
+    view.inflightAttachCount += 1;
     let replayWrite: Promise<void> | null = null;
-    if (attached.replay) {
-      view.warmRestore = readTerminalViewState(terminalId);
-      if (view.warmRestore) view.term.resize(view.warmRestore.cols, view.warmRestore.rows);
-      view.localEcho?.reset();
-      replayWrite = trackReplay(view, attached.replay);
-    } else {
-      clearTerminalViewState(terminalId);
+    try {
+      const attached = await callTermAttach(terminalId, view.abortController.signal);
+      // Released meanwhile, or attached by a pane that mounted first.
+      if (terminalViews.get(terminalId) !== view) {
+        if (attached && !view.ptyDisposed) handOffOrDetachPty(terminalId, attached.id, view);
+        return false;
+      }
+      if (view.id) return true;
+      if (!attached) {
+        discardUnopenedView(terminalViews, terminalId, view);
+        return false;
+      }
+      view.id = attached.id;
+      const attachedGen = getTerminalSessionGeneration(attached);
+      if (attachedGen !== undefined) view.feedGen = attachedGen;
+      view.handedOffPtyIds.delete(attached.id);
+      applyEnsuredSizeOwner(view, attached.sizeOwner);
+      if (attached.replay) {
+        view.warmRestore = readTerminalViewState(terminalId);
+        if (view.warmRestore) view.term.resize(view.warmRestore.cols, view.warmRestore.rows);
+        view.localEcho?.reset();
+        replayWrite = trackReplay(view, attached.replay);
+      } else {
+        clearTerminalViewState(terminalId);
+      }
+      attachTerminalOutput(view, subscribeViewTermData(view), acknowledgeTerminalOutput);
+      view.warmed = true;
+    } finally {
+      view.inflightAttachCount = Math.max(0, view.inflightAttachCount - 1);
+      flushUnboundHandedOffPtys(terminalId, view);
     }
-    attachTerminalOutput(view, window.mixdogDesktop.subscribeTermData, acknowledgeTerminalOutput);
-    view.warmed = true;
     await replayWrite;
     return true;
   })()
@@ -377,18 +551,16 @@ export function prewarmTerminal(terminalId: string): Promise<boolean> {
 
 export async function disposeTerminalPane(id: string): Promise<void> {
   const view = terminalViews.get(id);
-  terminalViews.delete(id);
+  if (view) view.ptyDisposed = true;
+  const inflight = inflightViews.get(id);
+  if (inflight) {
+    for (const pending of inflight) pending.ptyDisposed = true;
+  }
+  terminalShells.delete(id);
   clearTerminalViewState(id);
   forgetTerminalModifiers(id);
   const ptyId = view?.id || id;
-  view?.localEcho?.reset();
-  if (view) detachTerminalOutput(view);
-  view?.writer.dispose();
-  try {
-    view?.term.dispose();
-  } catch {
-    /* already detached */
-  }
+  if (view) releaseTerminalView(id, view, false);
   await window.mixdogDesktop.termDispose?.(ptyId);
 }
 
@@ -445,6 +617,7 @@ export default function TerminalPane({
   onReady?: () => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<TerminalView | null>(null);
   const fitSchedulerRef = useRef<StableTerminalFitScheduler<TerminalViewState> | null>(null);
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
@@ -459,8 +632,28 @@ export default function TerminalPane({
   activeRef.current = active;
   const key = terminalId || DOCK_TERMINAL_KEY;
   const [droppingPaths, setDroppingPaths] = useState(false);
+  const phoneLayout = useMobileRemoteSurface();
   beginBootSurface('terminal', key);
   reportBootSurfaceStage('terminal', key, 'module');
+  // While the phone shows this terminal its grid is the PTY's: renew the claim
+  // for the host's lease, and hand the size back (so the PC fits its own pane
+  // again) the moment the phone stops showing it. Declared before the mount
+  // effect so unmount releases ownership before `terminalViews` drops the view.
+  useEffect(() => {
+    if (!active || !phoneLayout) return undefined;
+    const beat = window.setInterval(() => {
+      const view = terminalViews.get(key) ?? viewRef.current;
+      if (!view?.id) return;
+      const grid = view.fit.proposeDimensions() ?? view.term;
+      sendSizeOwnerHeartbeat(window.mixdogDesktop, view.id, grid.cols, grid.rows);
+    }, SIZE_OWNER_HEARTBEAT_MS);
+    return () => {
+      window.clearInterval(beat);
+      fitSchedulerRef.current?.invalidateResize();
+      const view = terminalViews.get(key) ?? viewRef.current;
+      if (view?.id && !view.ptyDisposed) sendSizeOwnerRelease(window.mixdogDesktop, view.id);
+    };
+  }, [active, key, phoneLayout]);
   useEffect(() => {
     const container = host.current;
     if (!container) return undefined;
@@ -477,7 +670,10 @@ export default function TerminalPane({
     let noticeShown = false;
     let pendingRestore: TerminalViewState | null = null;
     let replayOnReattach = false;
+    // Do not overwrite persisted viewport state before ensure, replay, and any saved viewport restore finish.
+    let viewStateReady = false;
     const view = terminalView(key);
+    viewRef.current = view;
     const { term } = view;
     const modifiers = terminalModifiers(key);
     let fitDebounce = 0;
@@ -485,7 +681,7 @@ export default function TerminalPane({
       window.clearTimeout(persistTimer);
       persistTimer = window.setTimeout(() => {
         persistTimer = 0;
-        if (!disposed) writeTerminalViewState(key, view);
+        if (!disposed && viewStateReady) writeTerminalViewState(key, view);
       }, 120);
     };
     const fitScheduler = new StableTerminalFitScheduler<TerminalViewState>({
@@ -496,14 +692,17 @@ export default function TerminalPane({
       },
       currentGrid: () => ({ cols: term.cols, rows: term.rows }),
       proposeGrid: () => view.followSize ?? view.fit.proposeDimensions() ?? null,
-      fit: (restore) => fitTerminalView(view, restore),
+      fit: (restore) => {
+        fitTerminalView(view, restore);
+        if (view.id && !view.replayPending) viewStateReady = true;
+      },
       emitResize: ({ cols, rows }) => {
         // A followed grid is the phone's: never send it back as our own.
         if (view.id && !view.followSize)
           window.mixdogDesktop.termResize?.(view.id, cols, rows, isMobileRemoteSurface());
       },
       onSettled: () => {
-        writeTerminalViewState(key, view);
+        if (viewStateReady) writeTerminalViewState(key, view);
         // A replay still being written is not a ready screen; its own fit,
         // once written, settles again.
         if (view.id && !view.replayPending && term.element?.querySelector('.xterm-screen')) {
@@ -523,7 +722,8 @@ export default function TerminalPane({
     // relay round trip overlaps it instead of following it.
     let earlyEnsure: ReturnType<NonNullable<typeof window.mixdogDesktop.termEnsure>> | null = null;
     if (!attachOnlyRef.current && isMobileRemoteSurface() && connectionLinkView()?.terminalsAvailable !== false) {
-      earlyEnsure = window.mixdogDesktop.termEnsure?.(view.id ?? terminalId ?? null, cwd, shell || null) ?? null;
+      earlyEnsure =
+        callTermEnsure(view.id ?? terminalId ?? null, cwd, shell || null, view.abortController.signal) ?? null;
       earlyEnsure?.catch(() => {});
     }
     if (term.element) container.appendChild(term.element);
@@ -539,8 +739,10 @@ export default function TerminalPane({
       }
     }
     if (terminalPaintsAtOnce(key)) {
-      fitScheduler.schedule(view.warmRestore);
+      const restore = view.warmRestore;
       view.warmRestore = null;
+      if (view.id && !restore) viewStateReady = true;
+      fitScheduler.schedule(restore);
       if (term.element?.querySelector('.xterm-screen')) onReadyRef.current?.();
     }
     revealTimer = window.setTimeout(() => {
@@ -551,7 +753,8 @@ export default function TerminalPane({
     }, 1_500);
     scrollDisposable = term.onScroll(schedulePersist);
     const runEnsure = async (mode: TerminalConnectMode) => {
-      const shellChanged = Boolean(view.id) && view.shell !== undefined && view.shell !== shell;
+      const previousShell = terminalShells.get(key);
+      const shellChanged = previousShell !== undefined && previousShell !== shell;
       // A warm-up never respawns: the open's ensure applies the shell change.
       if (mode === 'attach' && shellChanged) return;
       // A strip shell change respawns THIS tab's PTY: dispose the old
@@ -559,48 +762,99 @@ export default function TerminalPane({
       // replacement under the same terminal id (tab identity holds).
       const early = shellChanged ? null : earlyEnsure;
       earlyEnsure = null;
-      if (shellChanged && view.id) {
-        const previous = view.id;
+      if (shellChanged) {
+        const previous = view.id || terminalId || key;
+        detachTerminalOutput(view);
         view.id = null;
+        view.feedGen = null;
+        terminalShells.delete(key);
         clearTerminalViewState(key);
         view.localEcho?.reset();
-        try {
-          term.reset();
-        } catch {
-          /* fresh spawn repaints anyway */
-        }
+        await view.writer.writeReplay('', () => {
+          try {
+            term.reset();
+          } catch {
+            /* fresh spawn repaints anyway */
+          }
+        });
         await window.mixdogDesktop.termDispose?.(previous);
+        if (disposed) return;
       }
-      const ensureNow = () => window.mixdogDesktop.termEnsure?.(view.id ?? terminalId ?? null, cwd, shell || null);
+      const ensureNow = () =>
+        callTermEnsure(view.id ?? terminalId ?? null, cwd, shell || null, view.abortController.signal);
+      const untrackInflight = trackInflightView(key, view);
+      view.inflightAttachCount += 1;
       let ensured: Awaited<ReturnType<typeof ensureNow>> | null | undefined;
-      if (early) ensured = await early;
-      else if (mode === 'attach') {
-        ensured = await window.mixdogDesktop.termAttach?.(view.id || terminalId || key);
-        // Not running: the open's ensure starts it.
-        if (!ensured) return;
-      } else ensured = await ensureNow();
-      reportBootSurfaceStage('terminal', key, 'data', ensured ? 'pty-ready' : 'shell-only');
-      if (!ensured) {
-        if (!disposed) onReadyRef.current?.();
-        return;
-      }
-      if (disposed) {
-        // A final session release removes the shared view while ensure() is in
-        // flight. Dispose the actual generated PTY id once it arrives.
-        if (terminalViews.get(key) !== view) {
-          await window.mixdogDesktop.termDispose?.(ensured.id);
+      let alreadyAttached = false;
+      let isNewPty = false;
+      let reattached = false;
+      let disposeAfterMountId: string | null = null;
+      try {
+        if (early) ensured = await early;
+        else if (mode === 'attach') {
+          const liveFeedGen = view.id !== null ? getTerminalFeedGeneration(view.id) : null;
+          const upToDate =
+            view.id !== null &&
+            !replayOnReattach &&
+            (liveFeedGen === undefined
+              ? isTerminalFeedAttached(view.id)
+              : liveFeedGen !== null && view.feedGen === liveFeedGen);
+          if (upToDate && view.id !== null) {
+            // Already bound and streaming this exact snapshot generation on the current link:
+            // avoid a redundant refresh attach whose snapshot cut would drop in-flight deltas.
+            alreadyAttached = true;
+            ensured = { id: view.id, replay: '' };
+          } else {
+            ensured = await callTermAttach(view.id || terminalId || key, view.abortController.signal);
+            // Not running: the open's ensure starts it.
+            if (!ensured) return;
+          }
+        } else ensured = await ensureNow();
+        reportBootSurfaceStage('terminal', key, 'data', ensured ? 'pty-ready' : 'shell-only');
+        if (!ensured) {
+          if (!disposed) onReadyRef.current?.();
+          return;
         }
+        if (disposed) {
+          // Only an explicit tab/session close kills a PTY whose ensure() settled
+          // after unmount; hiding a pane detaches this window's feed subscription
+          // unless another active mount already took over or is binding this terminal.
+          if (view.ptyDisposed) {
+            disposeAfterMountId = ensured.id;
+          } else {
+            handOffOrDetachPty(key, ensured.id, view);
+          }
+        } else {
+          isNewPty = view.id !== ensured.id;
+          const sessionGen = alreadyAttached ? undefined : getTerminalSessionGeneration(ensured);
+          // Redraw from snapshot only when the authoritative feed generation differs from what this
+          // view has already rendered (e.g. replacement PTY or post-outage snapshot), never when a
+          // relink resumed seamlessly in replay mode on the same generation.
+          reattached =
+            !isNewPty &&
+            !alreadyAttached &&
+            (sessionGen !== undefined ? sessionGen !== null && view.feedGen !== sessionGen : replayOnReattach);
+          replayOnReattach = false;
+          view.id = ensured.id;
+          if (sessionGen !== undefined && (isNewPty || reattached)) {
+            view.feedGen = sessionGen;
+          }
+          view.handedOffPtyIds.delete(ensured.id);
+        }
+      } finally {
+        untrackInflight();
+        view.inflightAttachCount = Math.max(0, view.inflightAttachCount - 1);
+        flushUnboundHandedOffPtys(key, view);
+      }
+      if (disposeAfterMountId) {
+        await window.mixdogDesktop.termDispose?.(disposeAfterMountId);
         return;
       }
-      const isNewPty = view.id !== ensured.id;
-      // A server window back from an outage missed the output in between:
-      // the same PTY's replay redraws it from a clean screen.
-      const reattached = replayOnReattach && !isNewPty;
-      replayOnReattach = false;
-      view.id = ensured.id;
+      if (disposed || !ensured) return;
       // An answer without `sizeOwner` means nobody owns the size: a follower that missed the release stops following.
-      applyEnsuredSizeOwner(view, ensured.sizeOwner);
+      if (!alreadyAttached) applyEnsuredSizeOwner(view, ensured.sizeOwner);
       view.shell = shell;
+      terminalShells.set(key, shell);
       if (isNewPty) fitScheduler.invalidateResize();
       // A warm-up's replay still being written (opened mid-replay) finishes
       // before this pane fits and reports ready, with its saved viewport.
@@ -620,16 +874,17 @@ export default function TerminalPane({
         clearTerminalViewState(key);
       } else if (reattached) {
         view.localEcho?.reset();
-        try {
-          term.reset();
-        } catch {
-          /* disposed mid-reattach */
-        }
-        if (ensured.replay) replayWrite = trackReplay(view, ensured.replay);
+        replayWrite = trackReplay(view, ensured.replay, () => {
+          try {
+            term.reset();
+          } catch {
+            /* disposed mid-reattach */
+          }
+        });
       }
       // A retry after a failed attempt must not stack a second subscription
       // or key handler onto the same view.
-      attachTerminalOutput(view, window.mixdogDesktop.subscribeTermData, acknowledgeTerminalOutput);
+      attachTerminalOutput(view, subscribeViewTermData(view), acknowledgeTerminalOutput);
       const sendToPty = (rawData: string) => {
         if (!view.id) return;
         // Armed phone Ctrl/Alt apply to the next input, typed or from the bar.
@@ -660,6 +915,7 @@ export default function TerminalPane({
         fitScheduler.schedule(pendingRestore);
         pendingRestore = null;
       } else {
+        viewStateReady = true;
         fitScheduler.schedule();
       }
       if (!observer) {
@@ -762,16 +1018,16 @@ export default function TerminalPane({
       window.clearTimeout(revealTimer);
       window.clearTimeout(persistTimer);
       if (retryTimer) window.clearTimeout(retryTimer);
-      writeTerminalViewState(key, view);
+      if (viewStateReady) writeTerminalViewState(key, view);
       stopCommands?.();
       observer?.disconnect();
       dataDisposable?.dispose();
       imeDetach?.();
       scrollDisposable?.dispose();
-      // A hidden tab must not hold a GPU context; reattach re-enables WebGL.
-      releaseWebglRenderer(view);
-      // The xterm DOM node stays alive for the next attach; only detach it.
-      if (term.element?.parentElement === container) container.removeChild(term.element);
+      // Release xterm, addons, write pump and DOM when no pane shows this
+      // terminal; the PTY stays running and replays on the next open.
+      releaseTerminalView(key, view, !view.ptyDisposed);
+      if (viewRef.current === view) viewRef.current = null;
     };
   }, [cwd, key, shell, terminalId]);
   // The warm-up ends (the real open): the ensure runs whatever the warm-up
@@ -784,19 +1040,12 @@ export default function TerminalPane({
   useEffect(() => (active && !attachOnly ? markTerminalShown(key) : undefined), [active, attachOnly, key]);
   useEffect(() => {
     const view = terminalViews.get(key);
-    let releaseTimer = 0;
     applyTerminalActivity(active, {
       enableRenderer: () => {
         if (view) tryEnableWebglRenderer(view);
       },
-      // Releasing the GL context swaps xterm to its DOM renderer, which
-      // measures the cell box: a forced layout of the whole window inside the
-      // commit that hides the terminal. The hidden terminal keeps its context
-      // for a while; a reopen inside that window reuses it.
       releaseRenderer: () => {
-        releaseTimer = window.setTimeout(() => {
-          if (view) releaseWebglRenderer(view);
-        }, TERMINAL_RENDERER_RELEASE_DELAY_MS);
+        if (view && !attachOnly) releaseWebglRenderer(view);
       },
       scheduleFit: () => fitSchedulerRef.current?.schedule(),
       pauseFit: () => fitSchedulerRef.current?.pause(),
@@ -808,27 +1057,7 @@ export default function TerminalPane({
         }
       },
     });
-    return () => window.clearTimeout(releaseTimer);
-  }, [active, key]);
-  const phoneLayout = useMobileRemoteSurface();
-  // While the phone shows this terminal its grid is the PTY's: renew the claim
-  // for the host's lease, and hand the size back (so the PC fits its own pane
-  // again) the moment the phone stops showing it.
-  useEffect(() => {
-    if (!active || !phoneLayout) return undefined;
-    const beat = window.setInterval(() => {
-      const view = terminalViews.get(key);
-      if (!view?.id) return;
-      const grid = view.fit.proposeDimensions() ?? view.term;
-      sendSizeOwnerHeartbeat(window.mixdogDesktop, view.id, grid.cols, grid.rows);
-    }, SIZE_OWNER_HEARTBEAT_MS);
-    return () => {
-      window.clearInterval(beat);
-      fitSchedulerRef.current?.invalidateResize();
-      const view = terminalViews.get(key);
-      if (view?.id) sendSizeOwnerRelease(window.mixdogDesktop, view.id);
-    };
-  }, [active, key, phoneLayout]);
+  }, [active, attachOnly, key]);
   const serverLink = useConnectionLink();
   const modifiers = terminalModifiers(key);
   const sendBarKey = (barKey: TerminalBarKey) => {

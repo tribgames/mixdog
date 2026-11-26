@@ -336,19 +336,100 @@ const MIRRORED_STYLE = [
   'borderLeftStyle',
 ] as const;
 
-function mirrorTextareaBox(source: HTMLTextAreaElement, layer: HTMLDivElement) {
-  const style = window.getComputedStyle(source);
-  for (const property of MIRRORED_STYLE) layer.style[property] = style[property];
+interface MirrorStyleCache {
+  source: HTMLTextAreaElement;
+  borders: number;
+  paddingRight: number;
+  values: string[];
+  lastPaddingRight: number;
+  lastLeft: number;
+  lastTop: number;
+  lastWidth: number;
+  lastHeight: number;
+  lastScrollTop: number;
+}
+
+const mirrorStyleCache = new WeakMap<HTMLDivElement, MirrorStyleCache>();
+
+export function mirrorTextareaBox(source: HTMLTextAreaElement, layer: HTMLDivElement, refreshStyles = false): void {
+  // Read all textarea geometry before writing layer.style to avoid forced reflow.
+  const offsetWidth = source.offsetWidth;
+  const clientWidth = source.clientWidth;
+  const offsetLeft = source.offsetLeft;
+  const offsetTop = source.offsetTop;
+  const offsetHeight = source.offsetHeight;
+  const scrollTop = source.scrollTop;
+
+  let cached = mirrorStyleCache.get(layer);
+  const needsStyleRefresh = !cached || cached.source !== source || refreshStyles;
+  let nextValues: string[] | null = null;
+  let borders = cached?.borders ?? 0;
+  let basePaddingRight = cached?.paddingRight ?? 0;
+  if (needsStyleRefresh) {
+    const style = window.getComputedStyle(source);
+    nextValues = MIRRORED_STYLE.map((property) => style[property]);
+    borders = (Number.parseFloat(style.borderLeftWidth) || 0) + (Number.parseFloat(style.borderRightWidth) || 0);
+    basePaddingRight = Number.parseFloat(style.paddingRight) || 0;
+  }
+
+  if (needsStyleRefresh && nextValues) {
+    const previousValues = cached?.source === source ? cached.values : null;
+    for (let index = 0; index < MIRRORED_STYLE.length; index += 1) {
+      const value = nextValues[index];
+      if (!previousValues || previousValues[index] !== value) {
+        layer.style[MIRRORED_STYLE[index]] = value;
+      }
+    }
+    if (!cached || cached.source !== source) {
+      cached = {
+        source,
+        borders,
+        paddingRight: basePaddingRight,
+        values: nextValues,
+        lastPaddingRight: Number.NaN,
+        lastLeft: Number.NaN,
+        lastTop: Number.NaN,
+        lastWidth: Number.NaN,
+        lastHeight: Number.NaN,
+        lastScrollTop: Number.NaN,
+      };
+      mirrorStyleCache.set(layer, cached);
+    } else {
+      cached.borders = borders;
+      cached.paddingRight = basePaddingRight;
+      cached.values = nextValues;
+    }
+  }
+
   // A vertical scrollbar narrows the textarea's line box; the layer has none,
   // so its right padding absorbs the scrollbar width instead.
-  const borders = Number.parseFloat(style.borderLeftWidth) + Number.parseFloat(style.borderRightWidth);
-  const scrollbar = Math.max(0, source.offsetWidth - source.clientWidth - (borders || 0));
-  layer.style.paddingRight = `${Number.parseFloat(style.paddingRight) + scrollbar}px`;
-  layer.style.left = `${source.offsetLeft}px`;
-  layer.style.top = `${source.offsetTop}px`;
-  layer.style.width = `${source.offsetWidth}px`;
-  layer.style.height = `${source.offsetHeight}px`;
-  layer.scrollTop = source.scrollTop;
+  const activeCache = cached!;
+  const scrollbar = Math.max(0, offsetWidth - clientWidth - (activeCache.borders || 0));
+  const paddingRight = activeCache.paddingRight + scrollbar;
+  if (activeCache.lastPaddingRight !== paddingRight) {
+    layer.style.paddingRight = `${paddingRight}px`;
+    activeCache.lastPaddingRight = paddingRight;
+  }
+  if (activeCache.lastLeft !== offsetLeft) {
+    layer.style.left = `${offsetLeft}px`;
+    activeCache.lastLeft = offsetLeft;
+  }
+  if (activeCache.lastTop !== offsetTop) {
+    layer.style.top = `${offsetTop}px`;
+    activeCache.lastTop = offsetTop;
+  }
+  if (activeCache.lastWidth !== offsetWidth) {
+    layer.style.width = `${offsetWidth}px`;
+    activeCache.lastWidth = offsetWidth;
+  }
+  if (activeCache.lastHeight !== offsetHeight) {
+    layer.style.height = `${offsetHeight}px`;
+    activeCache.lastHeight = offsetHeight;
+  }
+  if (activeCache.lastScrollTop !== scrollTop) {
+    layer.scrollTop = scrollTop;
+    activeCache.lastScrollTop = scrollTop;
+  }
 }
 
 export function useComposerSkillHighlight({
@@ -379,7 +460,8 @@ export function useComposerSkillHighlight({
   const segments = useMemo(() => composerHighlightSegments(text, isSkill), [text, isSkill]);
   const recognised = segments.some((segment) => segment.skill || segment.slash);
   const active = !disabled && !composing && recognised;
-  // Every commit can move the box (autosize, scrollbar), so re-mirror on each.
+  // Every commit can move the box (autosize, scrollbar), so re-mirror geometry on each;
+  // static computed styles stay cached until resize, theme, or font changes.
   useLayoutEffect(() => {
     const element = textarea.current;
     const layer = layerRef.current;
@@ -389,15 +471,25 @@ export function useComposerSkillHighlight({
     const element = textarea.current;
     const layer = layerRef.current;
     if (!active || !element || !layer) return undefined;
-    const sync = () => mirrorTextareaBox(element, layer);
+    const refresh = () => mirrorTextareaBox(element, layer, true);
     const scroll = () => {
-      layer.scrollTop = element.scrollTop;
+      const top = element.scrollTop;
+      layer.scrollTop = top;
+      const cached = mirrorStyleCache.get(layer);
+      if (cached) cached.lastScrollTop = top;
     };
-    const resize = new ResizeObserver(sync);
-    resize.observe(element);
+    const resize = typeof ResizeObserver === 'function' ? new ResizeObserver(refresh) : null;
+    resize?.observe(element);
+    const root = element.ownerDocument?.documentElement;
+    const themeObserver = root && typeof MutationObserver === 'function' ? new MutationObserver(refresh) : null;
+    themeObserver?.observe(root, { attributes: true });
+    const fonts = element.ownerDocument?.fonts;
+    fonts?.addEventListener?.('loadingdone', refresh);
     element.addEventListener('scroll', scroll);
     return () => {
-      resize.disconnect();
+      resize?.disconnect();
+      themeObserver?.disconnect();
+      fonts?.removeEventListener?.('loadingdone', refresh);
       element.removeEventListener('scroll', scroll);
     };
   }, [active, textarea]);

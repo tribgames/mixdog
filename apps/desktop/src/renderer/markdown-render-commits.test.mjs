@@ -9,7 +9,9 @@ import { installTestDom } from './test-support/test-dom.mjs';
 import { parseMarkdownToHast } from './markdown-ast';
 import { markdownComponents } from './markdown-components';
 import {
+  containsMarkdownMath,
   parseStreamingMarkdownAst,
+  preloadMarkdownMath,
   preloadSyncMarkdownParser,
   SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS,
 } from './markdown-worker-client';
@@ -185,8 +187,8 @@ test('replies mounting in one commit share one frame of synchronous parsing; one
     );
     assert.deepEqual(
       commits[0],
-      { pending: 4, source: false, table: true },
-      'one reply fills the frame; the rest wait for the worker, painting no raw source'
+      { pending: 1, source: false, table: true },
+      'visible tail replies share the frame allowance; replies beyond it wait for the worker, painting no raw source'
     );
     assert.equal(frames.length, 1, 'the allowance renews through a single animation frame');
     // The worker path still delivers every reply.
@@ -321,6 +323,7 @@ test('a streamed reply ends, in the commit that ends it, as the same reply read 
     await preloadSyncMarkdownParser();
     const markup = () => host.querySelector('.markdown').innerHTML;
     for (const [name, text] of Object.entries(STREAMED_REPLIES)) {
+      if (containsMarkdownMath(text)) await preloadMarkdownMath();
       let firstCommit = null;
       const render = (id, end, streaming) =>
         act(async () =>

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { type BtwCardState, createBtwController } from './btw-side-question';
 import { errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import { usePhoneSurfaceMarked } from './mobile-surface';
 import { ProgressSpinner } from './ProgressSpinner';
 import { copyTextToClipboard } from './text-format';
@@ -70,6 +71,7 @@ export function useBtwCard(sessionId: string | undefined, active: boolean, block
   // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is the reset trigger; the body does not read it
   useEffect(() => api.close, [api, sessionId]);
   const open = card !== null;
+  useMobileBack(open && active, api.close);
   useEffect(() => {
     if (!open || !active || blocked) return;
     const onKeyDown = (event: KeyboardEvent) => {

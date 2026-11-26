@@ -13,6 +13,7 @@ import {
   type DesktopPetTheme,
 } from '../shared/desktop-pet';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 
 /** The side of the pet its menu opens on: the right unless a menu `width`
  *  wide would run past `screenRight` (the window's on-screen extent, window
@@ -125,6 +126,7 @@ export function PetMenu({
   onClose: () => void;
 }) {
   const panel = useRef<HTMLDivElement | null>(null);
+  useMobileBack(true, onClose);
   const [side, setSide] = useState<'right' | 'left'>('right');
   const startScale = state.scale ?? DESKTOP_PET_SCALE.default;
   const [draft, setDraft] = useState<{ from: number; to: number } | null>(null);

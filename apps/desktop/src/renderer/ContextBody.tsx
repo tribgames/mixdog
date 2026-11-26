@@ -138,7 +138,7 @@ function SessionUsageFooter({ usage, compactions }: { usage: unknown; compaction
 
 type EstimatedCategory = { key: string; label: string; tokens: number };
 
-function estimatedCategories(semantic: Row, schema: Row, request: Row): EstimatedCategory[] {
+function estimatedCategories(semantic: Row, schema: Row, request: Row, agent = false): EstimatedCategory[] {
   return [
     {
       key: 'system',
@@ -150,7 +150,8 @@ function estimatedCategories(semantic: Row, schema: Row, request: Row): Estimate
       label: t('System tools'),
       tokens:
         tokenBuckets(schema, ['code', 'web', 'mutation', 'channels', 'setup', 'other', 'control', 'session']) +
-        nonNegativeNumber(request.requestOverheadTokens),
+        // External agent sessions do not send provider HTTP requests from Mixdog.
+        (agent ? 0 : nonNegativeNumber(request.requestOverheadTokens)),
     },
     { key: 'mcp', label: t('MCP tools'), tokens: tokenBuckets(schema, ['mcp']) },
     { key: 'agents', label: t('Custom agents'), tokens: tokenBuckets(schema, ['agents']) },
@@ -165,41 +166,8 @@ function estimatedCategories(semantic: Row, schema: Row, request: Row): Estimate
   ];
 }
 
-/** What Mixdog itself puts in an external agent's context: the system prompt it appends, its tools (which reach the
- *  agent as the `mixdog` MCP server), its memory and the conversation it keeps. */
-function agentSessionCategories(semantic: Row, schema: Row): EstimatedCategory[] {
-  return [
-    {
-      key: 'system',
-      label: t('System prompt'),
-      tokens: tokenBuckets(semantic, ['system', 'workflow', 'workspace', 'environment', 'other']),
-    },
-    {
-      key: 'mcp',
-      label: t('MCP tools'),
-      tokens: tokenBuckets(schema, [
-        'code',
-        'web',
-        'mutation',
-        'channels',
-        'setup',
-        'other',
-        'control',
-        'session',
-        'mcp',
-        'agents',
-        'memory',
-        'skills',
-      ]),
-    },
-    { key: 'memory', label: t('Memory files'), tokens: tokenBuckets(semantic, ['memory']) },
-    { key: 'messages', label: t('Messages'), tokens: tokenBuckets(semantic, ['chat', 'assistant', 'toolResults']) },
-    { key: 'reasoning', label: t('Reasoning tokens'), tokens: tokenBuckets(semantic, ['reasoning']) },
-  ];
-}
-
-/** `total` divided among the categories in their estimated proportions, in whole tokens that add up to it. */
-function dividedAmong(estimated: EstimatedCategory[], total: number, categorized: number): EstimatedCategory[] {
+/** `total` divided among the items in their estimated proportions, in whole tokens that add up to it. */
+function dividedAmong<T extends { tokens: number }>(estimated: T[], total: number, categorized: number): T[] {
   const exact = estimated.map((category) => (category.tokens / categorized) * total);
   const whole = exact.map(Math.floor);
   let left = Math.round(total) - whole.reduce((sum, tokens) => sum + tokens, 0);
@@ -212,39 +180,208 @@ function dividedAmong(estimated: EstimatedCategory[], total: number, categorized
   return estimated.map((category, index) => ({ ...category, tokens: whole[index] }));
 }
 
+const STANDING_AGENT_KEYS = new Set(['system', 'tools', 'mcp', 'agents', 'memory', 'skills']);
+
+/** Reconcile a local context inspection against an external agent's reported
+ *  usage so the inspector omits provider HTTP overhead and never overflows a
+ *  smaller agent-reported window after external compaction. */
+function reconcileAgentInspection(rawInspection: ContextInspection, used: number | null): ContextInspection {
+  const overheadTokensByCategory = new Map<string, number>();
+  const overheadEstimatedByCategory = new Map<string, number>();
+  const overheadCountByCategory = new Map<string, number>();
+  let removedOverheadTokens = 0;
+  const keptEntries = rawInspection.entries.filter((entry) => {
+    if (entry.kind !== 'overhead' && entry.group !== 'overhead') return true;
+    const tokens = nonNegativeNumber(entry.tokens);
+    const estimated = nonNegativeNumber(entry.estimatedTokens ?? entry.tokens);
+    removedOverheadTokens += tokens;
+    overheadTokensByCategory.set(entry.category, (overheadTokensByCategory.get(entry.category) ?? 0) + tokens);
+    overheadEstimatedByCategory.set(entry.category, (overheadEstimatedByCategory.get(entry.category) ?? 0) + estimated);
+    overheadCountByCategory.set(entry.category, (overheadCountByCategory.get(entry.category) ?? 0) + 1);
+    return false;
+  });
+  const categories = rawInspection.categories.map((category) => {
+    const dropTokens = overheadTokensByCategory.get(category.key) ?? 0;
+    const dropEstimated = overheadEstimatedByCategory.get(category.key) ?? 0;
+    const dropCount = overheadCountByCategory.get(category.key) ?? 0;
+    if (!dropTokens && !dropEstimated && !dropCount) return category;
+    const nextTokens = Math.max(0, category.tokens - dropTokens);
+    const nextEstimated =
+      category.estimatedTokens !== undefined ? Math.max(0, category.estimatedTokens - dropEstimated) : undefined;
+    return {
+      ...category,
+      tokens: nextTokens,
+      ...(nextEstimated !== undefined ? { estimatedTokens: nextEstimated } : {}),
+      count: Math.max(0, category.count - dropCount),
+    };
+  });
+  const categoryTotal = categories.reduce((sum, category) => sum + nonNegativeNumber(category.tokens), 0);
+  const baseEstimatedTokens =
+    categories.length > 0
+      ? categoryTotal
+      : Math.max(0, nonNegativeNumber(rawInspection.estimatedTokens) - removedOverheadTokens);
+  if (used === null) {
+    return {
+      ...rawInspection,
+      categories,
+      entries: keptEntries,
+      estimatedTokens: Math.round(baseEstimatedTokens),
+    };
+  }
+  const targetUsed = Math.max(0, Math.round(used));
+  const gap = targetUsed - Math.round(baseEstimatedTokens);
+  if (gap > 0) {
+    const hasHost = categories.some((category) => category.key === 'host');
+    const nextCategories = hasHost
+      ? categories.map((category) =>
+          category.key === 'host' ? { ...category, tokens: category.tokens + gap } : category
+        )
+      : [...categories, { key: 'host', label: 'Other', tokens: gap, count: 0 }];
+    return {
+      ...rawInspection,
+      categories: nextCategories,
+      entries: keptEntries,
+      estimatedTokens: targetUsed,
+    };
+  }
+  if (gap === 0) {
+    return {
+      ...rawInspection,
+      categories,
+      entries: keptEntries,
+      estimatedTokens: targetUsed,
+    };
+  }
+  const standing = categories.filter((category) => STANDING_AGENT_KEYS.has(category.key));
+  const conversation = categories.filter(
+    (category) => !STANDING_AGENT_KEYS.has(category.key) && category.key !== 'host'
+  );
+  const standingTotal = standing.reduce((sum, category) => sum + nonNegativeNumber(category.tokens), 0);
+  const conversationTotal = conversation.reduce((sum, category) => sum + nonNegativeNumber(category.tokens), 0);
+  const nextTokensByCategory = new Map<string, number>();
+  if (standingTotal <= targetUsed) {
+    for (const category of standing) nextTokensByCategory.set(category.key, nonNegativeNumber(category.tokens));
+    const conversationBudget = targetUsed - standingTotal;
+    if (conversationTotal > 0 && conversationBudget > 0) {
+      for (const category of dividedAmong(conversation, conversationBudget, conversationTotal)) {
+        nextTokensByCategory.set(category.key, category.tokens);
+      }
+    } else {
+      for (const category of conversation) nextTokensByCategory.set(category.key, 0);
+    }
+  } else {
+    if (standingTotal > 0 && targetUsed > 0) {
+      for (const category of dividedAmong(standing, targetUsed, standingTotal)) {
+        nextTokensByCategory.set(category.key, category.tokens);
+      }
+    } else {
+      for (const category of standing) nextTokensByCategory.set(category.key, 0);
+    }
+    for (const category of conversation) nextTokensByCategory.set(category.key, 0);
+  }
+  const scaledCategories = categories.map((category) => {
+    const nextTokens = nextTokensByCategory.get(category.key) ?? 0;
+    if (nextTokens === category.tokens) return category;
+    return {
+      ...category,
+      tokens: nextTokens,
+      estimatedTokens: category.estimatedTokens ?? category.tokens,
+    };
+  });
+  const scaledCategorySet = new Set(
+    scaledCategories
+      .filter((category, index) => category.tokens !== categories[index].tokens)
+      .map((category) => category.key)
+  );
+  if (scaledCategorySet.size === 0) {
+    return {
+      ...rawInspection,
+      categories: scaledCategories,
+      entries: keptEntries,
+      estimatedTokens: targetUsed,
+    };
+  }
+  const entryTokensById = new Map<string, number>();
+  for (const key of scaledCategorySet) {
+    const budget = nextTokensByCategory.get(key) ?? 0;
+    const active = keptEntries.filter(
+      (entry) => entry.category === key && entry.state !== 'deferred' && nonNegativeNumber(entry.tokens) > 0
+    );
+    const activeTotal = active.reduce((sum, entry) => sum + nonNegativeNumber(entry.tokens), 0);
+    if (budget <= 0 || activeTotal <= 0) {
+      for (const entry of active) entryTokensById.set(entry.id, 0);
+    } else {
+      for (const entry of dividedAmong(active, budget, activeTotal)) {
+        entryTokensById.set(entry.id, entry.tokens);
+      }
+    }
+  }
+  const scaledEntries = keptEntries.map((entry) => {
+    const nextTokens = entryTokensById.get(entry.id);
+    if (nextTokens === undefined || nextTokens === entry.tokens) return entry;
+    return {
+      ...entry,
+      tokens: nextTokens,
+      estimatedTokens: entry.estimatedTokens ?? entry.tokens,
+    };
+  });
+  return {
+    ...rawInspection,
+    categories: scaledCategories,
+    entries: scaledEntries,
+    estimatedTokens: targetUsed,
+  };
+}
+
 /** The estimated composition of a context status: each category's tokens,
  *  their sum, the free space left in a window of `windowTokens`, and the
  *  window the shares are of (never less than what is held). With the
  *  window's measured total (`used`) the estimates say only how the
  *  measurement divides: each category takes its estimated share of it, so
  *  the parts add up to the reading beside them, and the free space is what
- *  the measurement leaves. An external agent's session (`agent`) shows Mixdog's own parts as they are, never rescaled,
- *  and what the agent reports beyond them as one row for what it holds that Mixdog cannot see. Where Mixdog's own
- *  estimate is above the agent's own count, the agent's count is the measurement and the estimate only says how it
- *  divides: the parts are divided within it, so parts and free space never pass the window. */
+ *  the measurement leaves. An external agent's session (`agent`) uses the same
+ *  category breakdown as a provider session, keeping Mixdog's own parts as
+ *  they are and showing what the agent reports beyond them as one row for what
+ *  it holds that Mixdog cannot see. When the external agent compacts its own
+ *  history while Mixdog's local transcript stays uncompacted (`estimate > used`),
+ *  standing inputs keep their sizes while the remaining count divides across
+ *  local conversation rows. */
 export function contextMix(status: unknown, windowTokens: number, used: number | null = null, agent = false) {
   const context = record(status);
   const request = record(context.request);
+  const estimated = estimatedCategories(
+    record(record(context.messages).semantic),
+    record(request.toolSchemaBreakdown),
+    request,
+    agent
+  );
   if (agent) {
-    const estimated = agentSessionCategories(record(record(context.messages).semantic), record(request.toolSchemaBreakdown));
     const estimate = estimated.reduce((sum, category) => sum + category.tokens, 0);
-    const parts = used !== null && estimate > used ? dividedAmong(estimated, used, estimate) : estimated;
+    let parts = estimated;
+    if (used !== null && estimate > used) {
+      const standing = estimated.filter((category) => STANDING_AGENT_KEYS.has(category.key));
+      const conversation = estimated.filter((category) => !STANDING_AGENT_KEYS.has(category.key));
+      const standingTotal = standing.reduce((sum, category) => sum + category.tokens, 0);
+      if (standingTotal <= used) {
+        const conversationTotal = conversation.reduce((sum, category) => sum + category.tokens, 0);
+        const scaledConversation = dividedAmong(conversation, used - standingTotal, conversationTotal);
+        parts = [...standing, ...scaledConversation];
+      } else {
+        const scaledStanding = dividedAmong(standing, used, standingTotal);
+        parts = [...scaledStanding, ...conversation.map((category) => ({ ...category, tokens: 0 }))];
+      }
+    }
     const shown = parts.reduce((sum, category) => sum + category.tokens, 0);
     const host = used === null ? 0 : Math.max(0, used - shown);
     const held = shown + host;
     return {
-      categories: [...parts, { key: 'host', label: t('Held by the agent'), tokens: host }],
+      categories: [...parts, { key: 'host', label: t('Other'), tokens: host }],
       categorized: held,
       held,
       free: Math.max(0, windowTokens - held),
       windowTokens: Math.max(windowTokens, held),
     };
   }
-  const estimated = estimatedCategories(
-    record(record(context.messages).semantic),
-    record(request.toolSchemaBreakdown),
-    request
-  );
   const categorized = estimated.reduce((sum, category) => sum + category.tokens, 0);
   const held = used ?? categorized;
   return {
@@ -307,11 +444,10 @@ export function ContextBody({
 }) {
   const context = record(status);
   const agent = isAgentSession(snapshot);
-  // An agent's session shows the composition the session panel shows: what the request inspection lists is a provider's
-  // request, which an agent's context is not.
-  const inspection = agent ? undefined : (context.inspection as ContextInspection | undefined);
+  const rawInspection = context.inspection as ContextInspection | undefined;
   const usage = contextDisplayUsage(status, snapshot);
   const used = usage.used;
+  const inspection = agent && rawInspection ? reconcileAgentInspection(rawInspection, used) : rawInspection;
   const windowTokens = usage.limit;
   const usedPercent = contextPercent(used, windowTokens) || 0;
   const label = readingLabel(usage.source, agent);

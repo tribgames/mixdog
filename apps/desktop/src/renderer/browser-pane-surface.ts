@@ -5,6 +5,7 @@ import { type RefObject, useEffect, useMemo, useState } from 'react';
 import { createBrowserAgentFollow } from './browser-agent-follow';
 import type { BrowserPageElement } from './browser-page-client';
 import { onBrowserPaneRevealed } from './browser-page-request';
+import { useMobileBack } from './mobile-back';
 
 /** The shown tab follows the page the agent drives (see browser-agent-follow). */
 export function useBrowserAgentFollow(sessionId: string, webviewRef: RefObject<BrowserPageElement | null>) {
@@ -38,6 +39,7 @@ export function useBrowserFullscreen(sessionId: string): boolean {
 
 /** Escape restores an expanded pane (not while a dialog over it is open). */
 export function useEscapeRestore(enabled: boolean, onToggleExpanded: (() => void) | undefined) {
+  useMobileBack(enabled && Boolean(onToggleExpanded), () => onToggleExpanded?.());
   useEffect(() => {
     if (!enabled || !onToggleExpanded) return undefined;
     const onEscape = (event: KeyboardEvent) => {

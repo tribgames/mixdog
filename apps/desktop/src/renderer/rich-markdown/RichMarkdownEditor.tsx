@@ -6,6 +6,7 @@ import { TextSelection } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
 import { Placeholder } from '@tiptap/extensions';
 import { t } from '../i18n';
+import { useMobileBack } from '../mobile-back';
 import type { RichMarkdownPromptKind } from './rich-markdown-commands';
 import { RichMarkdownDocumentContext } from './rich-markdown-context';
 import { linkRangeAt, PROGRAMMATIC } from './rich-markdown-document';
@@ -138,6 +139,8 @@ export default function RichMarkdownEditor(props: RichMarkdownEditorProps) {
   };
 
   const closeMenu = () => setMenu(null);
+  useMobileBack(active && Boolean(menu), closeMenu);
+  useMobileBack(active && Boolean(linkBubble) && !prompt, () => setLinkBubble(null));
 
   const openPrompt = (kind: RichMarkdownPromptKind, edit?: { latex: string; pos: number }) => {
     setLinkBubble(null);

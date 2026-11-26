@@ -59,6 +59,7 @@
 }
 .session-outputs-state {
   flex: 1 0 auto;
+  min-width: 20px;
   display: inline-flex;
   justify-content: flex-end;
   align-items: baseline;
@@ -72,28 +73,37 @@
   border-radius: 50%;
   background: var(--mx-accent);
 }
-/* Its glyph ends on the rows' right line, where the time ends. */
+/* Overlaid in the same fixed right-hand slot as .session-outputs-state so
+   revealing it on hover/focus causes zero horizontal layout shift. */
 .session-outputs-close {
-  position: relative;
-  flex: none;
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  z-index: 1;
   width: 24px;
   height: 24px;
-  display: none;
+  display: grid;
   place-items: center;
-  margin-right: -4px;
   padding: 0;
   border: 0;
   border-radius: var(--mx-radius-md);
   background: none;
   color: var(--mx-text);
   cursor: pointer;
+  transform: translateY(-50%);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 .session-outputs-close:is(:hover, :focus-visible) {
   background: var(--mx-hover);
 }
 .session-outputs-row:is(:hover, :has(:focus-visible)) > .session-outputs-close {
-  display: grid;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
 }
 .session-outputs-row:is(:hover, :has(:focus-visible)) .session-outputs-state {
-  display: none;
+  opacity: 0;
+  visibility: hidden;
 }

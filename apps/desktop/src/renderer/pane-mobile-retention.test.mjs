@@ -391,3 +391,259 @@ test('text sent to the composer lands only in the focused pane when both panes s
   assert.equal(view.drafts.get('b'), 'hello');
   assert.equal(view.drafts.get('a'), '');
 });
+
+test('a phone keeps the outgoing session painted while the incoming session prepares', async (t) => {
+  const { dom, root } = installTestDom(t, {
+    html: '<!doctype html><html data-mixdog-mobile-tabs><body><main id="root"></main></body></html>',
+    expose: ['navigator', 'Element', 'HTMLElement', 'MutationObserver'],
+    rootId: 'root',
+  });
+  Object.defineProperty(dom.window.navigator, 'userAgent', { configurable: true, get: () => PHONE_UA });
+  dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+  const [{ PaneWorkspace }, { createPaneLeaf }, { usePanePresentation }] = await Promise.all([
+    import('./PaneWorkspace.tsx'),
+    import('./pane-layout.ts'),
+    import('./pane-presentation.ts'),
+  ]);
+  const presentations = new Map();
+  function HandoverConversation({ id, focused }) {
+    presentations.set(id, usePanePresentation());
+    return React.createElement('section', { 'data-session': id, 'data-focused': String(focused) });
+  }
+  const render = async (active) => {
+    const leaf = { ...createPaneLeaf(active, 'pane-1'), tabs: [A, B] };
+    await act(async () =>
+      root.render(
+        React.createElement(PaneWorkspace, {
+          workspace: {
+            layout: leaf,
+            leaves: [leaf],
+            restoredFromStorage: true,
+            restorePending: false,
+            focusedLeaf: leaf,
+            focusedLeafId: leaf.id,
+            focusLeaf: () => {},
+            activateTab: () => {},
+            setRatio: () => {},
+          },
+          renderActive: () => null,
+          renderConversation: (selection, focused) =>
+            React.createElement(HandoverConversation, { id: selection.id, focused }),
+          onFocusSelection: () => {},
+        })
+      )
+    );
+  };
+  const conversationOf = (id) => dom.window.document.querySelector(`[data-session="${id}"]`);
+  const surfaceOf = (id) => conversationOf(id)?.closest('.conversation-persistent-surface') ?? null;
+
+  await render(A);
+  assert.equal(surfaceOf('a').hasAttribute('data-preparing'), false);
+  assert.equal(surfaceOf('a').hasAttribute('data-retained'), false);
+  assert.equal(surfaceOf('a').hasAttribute('aria-hidden'), false);
+  assert.equal(conversationOf('a').dataset.focused, 'true');
+
+  await render(B);
+  assert.equal(surfaceOf('a').hasAttribute('data-retained'), false, 'outgoing session stays painted while B prepares');
+  assert.equal(surfaceOf('a').inert, true, 'outgoing session takes no input during handover');
+  assert.equal(surfaceOf('a').hasAttribute('aria-hidden'), false, 'outgoing session stays visible to AT while painted');
+  assert.equal(surfaceOf('b').hasAttribute('data-preparing'), true, 'incoming session prepares unseen behind A');
+  assert.equal(surfaceOf('b').inert, true, 'preparing session cannot take focus while invisible');
+  assert.equal(surfaceOf('b').getAttribute('aria-hidden'), 'true', 'preparing session is hidden from AT');
+  assert.equal(conversationOf('b').dataset.focused, 'false', 'preparing session is not focused while invisible');
+  assert.equal(presentations.get('b').preparing, true);
+
+  await act(async () => presentations.get('b').ready());
+  assert.equal(surfaceOf('a').hasAttribute('data-retained'), true, 'outgoing hides once incoming is ready');
+  assert.equal(surfaceOf('a').getAttribute('aria-hidden'), 'true', 'retained outgoing session is hidden from AT');
+  assert.equal(surfaceOf('b').hasAttribute('data-preparing'), false, 'incoming presents atomically');
+  assert.equal(surfaceOf('b').inert, false);
+  assert.equal(surfaceOf('b').hasAttribute('aria-hidden'), false, 'presented incoming session clears aria-hidden');
+  assert.equal(conversationOf('b').dataset.focused, 'true', 'presented incoming session becomes focused');
+});
+
+test('desktop-theme synchronizes explicit and system Mixdog theme backing colors to Android and iOS shells', async (t) => {
+  const { dom } = installTestDom(t, { actEnvironment: false });
+  let osDark = false;
+  dom.window.matchMedia = (query) => ({
+    matches: query === '(prefers-color-scheme: dark)' ? osDark : !osDark,
+    addEventListener() {},
+    removeEventListener() {},
+  });
+  const androidMessages = [];
+  const iosMessages = [];
+  dom.window.MixdogNativeTheme = {
+    postMessage(message) {
+      androidMessages.push(JSON.parse(message));
+    },
+  };
+  dom.window.webkit = {
+    messageHandlers: {
+      mixdogTheme: {
+        postMessage(payload) {
+          iosMessages.push(payload);
+        },
+      },
+    },
+  };
+  const theme = await import('./desktop-theme.ts');
+
+  // Explicit Dark on a light phone must override OS DayNight / userInterfaceStyle.
+  theme.setDesktopThemePreference('dark');
+  assert.deepEqual(androidMessages.at(-1), { surface: '#111111', band: '#181818', followSystem: false });
+  assert.deepEqual(iosMessages.at(-1), { surface: '#111111', band: '#181818', followSystem: false });
+
+  // Explicit White (or adopted host White theme) on a dark phone locks native backing to light.
+  osDark = true;
+  theme.adoptHostThemePreference('white');
+  assert.deepEqual(androidMessages.at(-1), { surface: '#fcfcfc', band: '#f7f7f7', followSystem: false });
+  assert.deepEqual(iosMessages.at(-1), { surface: '#fcfcfc', band: '#f7f7f7', followSystem: false });
+
+  // System preference restores OS DayNight / dynamic UIColor tracking.
+  theme.setDesktopThemePreference('system');
+  assert.deepEqual(androidMessages.at(-1), { surface: '#111111', band: '#181818', followSystem: true });
+  assert.deepEqual(iosMessages.at(-1), { surface: '#111111', band: '#181818', followSystem: true });
+});
+
+test('desktop-theme synchronizes custom JSON theme surface and band colors across dark theme switches', async (t) => {
+  const { dom } = installTestDom(t, { actEnvironment: false });
+  let osDark = true;
+  dom.window.matchMedia = (query) => ({
+    matches: query === '(prefers-color-scheme: dark)' ? osDark : !osDark,
+    addEventListener() {},
+    removeEventListener() {},
+  });
+  const androidMessages = [];
+  const iosMessages = [];
+  dom.window.MixdogNativeTheme = {
+    postMessage(message) {
+      androidMessages.push(JSON.parse(message));
+    },
+  };
+  dom.window.webkit = {
+    messageHandlers: {
+      mixdogTheme: {
+        postMessage(payload) {
+          iosMessages.push(payload);
+        },
+      },
+    },
+  };
+  const [theme, userTheme] = await Promise.all([import('./desktop-theme.ts'), import('./appearance/user-theme.ts')]);
+  theme.setDesktopThemePreference('dark');
+  userTheme.applyStoredUserTheme();
+
+  const midnight = userTheme.importUserTheme(
+    JSON.stringify({
+      name: 'Midnight',
+      appearance: 'dark',
+      roles: { background: '#0d1117', sidebar: '#161b22' },
+    })
+  );
+  assert.equal(midnight.ok, true);
+  assert.deepEqual(androidMessages.at(-1), { surface: '#0d1117', band: '#161b22', followSystem: false });
+  assert.deepEqual(iosMessages.at(-1), { surface: '#0d1117', band: '#161b22', followSystem: false });
+
+  // Switching to a second dark custom theme must send its distinct surface & band colors.
+  const tokyo = userTheme.importUserTheme(
+    JSON.stringify({
+      name: 'Tokyo',
+      appearance: 'dark',
+      roles: { background: '#1a1b26', sidebar: '#24283b' },
+    })
+  );
+  assert.equal(tokyo.ok, true);
+  assert.deepEqual(androidMessages.at(-1), { surface: '#1a1b26', band: '#24283b', followSystem: false });
+  assert.deepEqual(iosMessages.at(-1), { surface: '#1a1b26', band: '#24283b', followSystem: false });
+
+  // Switching back to the first dark theme sends its pair again.
+  userTheme.setActiveUserTheme(midnight.id);
+  assert.deepEqual(androidMessages.at(-1), { surface: '#0d1117', band: '#161b22', followSystem: false });
+  assert.deepEqual(iosMessages.at(-1), { surface: '#0d1117', band: '#161b22', followSystem: false });
+
+  // A dual-appearance custom theme under System still sends concrete custom colors (never built-in DayNight).
+  const dual = userTheme.importUserTheme(
+    JSON.stringify({
+      name: 'Dual',
+      roles: {
+        background: { dark: '#10141c', light: '#faf6ef' },
+        sidebar: { dark: '#181e29', light: '#efe9dc' },
+      },
+    })
+  );
+  assert.equal(dual.ok, true);
+  theme.setDesktopThemePreference('system');
+  assert.deepEqual(androidMessages.at(-1), { surface: '#10141c', band: '#181e29', followSystem: false });
+  assert.deepEqual(iosMessages.at(-1), { surface: '#10141c', band: '#181e29', followSystem: false });
+
+  osDark = false;
+  theme.applyDesktopThemePreference('system');
+  assert.deepEqual(androidMessages.at(-1), { surface: '#faf6ef', band: '#efe9dc', followSystem: false });
+  assert.deepEqual(iosMessages.at(-1), { surface: '#faf6ef', band: '#efe9dc', followSystem: false });
+
+  // Turning off the custom theme restores built-in System tracking.
+  userTheme.setActiveUserTheme(null);
+  assert.deepEqual(androidMessages.at(-1), { surface: '#fcfcfc', band: '#f7f7f7', followSystem: true });
+  assert.deepEqual(iosMessages.at(-1), { surface: '#fcfcfc', band: '#f7f7f7', followSystem: true });
+});
+
+test('translucent sidebar composites over resolved background and skin selection resyncs native bridges', async (t) => {
+  const { dom } = installTestDom(t, { actEnvironment: false });
+  dom.window.matchMedia = (query) => ({
+    matches: query === '(prefers-color-scheme: dark)',
+    addEventListener() {},
+    removeEventListener() {},
+  });
+  const androidMessages = [];
+  const iosMessages = [];
+  dom.window.MixdogNativeTheme = {
+    postMessage(message) {
+      androidMessages.push(JSON.parse(message));
+    },
+  };
+  dom.window.webkit = {
+    messageHandlers: {
+      mixdogTheme: {
+        postMessage(payload) {
+          iosMessages.push(payload);
+        },
+      },
+    },
+  };
+  const [theme, userTheme, skin] = await Promise.all([
+    import('./desktop-theme.ts'),
+    import('./appearance/user-theme.ts'),
+    import('./desktop-skin.ts'),
+  ]);
+  theme.setDesktopThemePreference('dark');
+  userTheme.applyStoredUserTheme();
+  skin.applyStoredSkin();
+
+  // Translucent sidebar (#0000ff80) over red background (#ff0000) must composite
+  // over resolved background (#7f0080), not black (#000080).
+  const crimson = userTheme.importUserTheme(
+    JSON.stringify({
+      name: 'Crimson',
+      appearance: 'dark',
+      roles: { background: '#ff0000', sidebar: '#0000ff80' },
+    })
+  );
+  assert.equal(crimson.ok, true);
+  assert.deepEqual(androidMessages.at(-1), { surface: '#ff0000', band: '#7f0080', followSystem: false });
+  assert.deepEqual(iosMessages.at(-1), { surface: '#ff0000', band: '#7f0080', followSystem: false });
+
+  // Selecting a skin overrides custom JSON background/sidebar tokens and must
+  // immediately notify both native bridges with the updated built-in backing.
+  const androidCountBeforeSkin = androidMessages.length;
+  const iosCountBeforeSkin = iosMessages.length;
+  skin.setSkin('glass-flow');
+  assert.ok(androidMessages.length > androidCountBeforeSkin, 'selecting a skin notifies Android bridge');
+  assert.ok(iosMessages.length > iosCountBeforeSkin, 'selecting a skin notifies iOS bridge');
+  assert.deepEqual(androidMessages.at(-1), { surface: '#111111', band: '#181818', followSystem: false });
+  assert.deepEqual(iosMessages.at(-1), { surface: '#111111', band: '#181818', followSystem: false });
+
+  // Clearing the skin restores the active JSON theme's backing colors immediately.
+  skin.setSkin('none');
+  assert.deepEqual(androidMessages.at(-1), { surface: '#ff0000', band: '#7f0080', followSystem: false });
+  assert.deepEqual(iosMessages.at(-1), { surface: '#ff0000', band: '#7f0080', followSystem: false });
+});

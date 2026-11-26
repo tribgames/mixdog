@@ -1,4 +1,5 @@
 import type { Snapshot } from './desktop-types';
+import { carriedFrom } from './list-carry';
 import { estimateRetainedChars } from './renderer-value-weight';
 
 /** No row or field of a shown lane is measured past this many characters. */
@@ -9,22 +10,45 @@ const COUNTED_ELSEWHERE = new Set(['failedTurnKeys', 'transcriptTurnKeys']);
  *  no row hands the same list on: a lane is measured by the lists and rows it gained, each once. */
 const listChars = new WeakMap<readonly unknown[], number>();
 const rowChars = new WeakMap<object, number>();
+const fieldChars = new WeakMap<object, number>();
+const snapshotChars = new WeakMap<Snapshot, number>();
+
+function rowWeight(row: unknown): number {
+  if (!row || typeof row !== 'object') return estimateRetainedChars(row, MEASURE_LIMIT);
+  let own = rowChars.get(row);
+  if (own === undefined) {
+    own = estimateRetainedChars(row, MEASURE_LIMIT);
+    rowChars.set(row, own);
+  }
+  return own;
+}
+
+function fieldWeight(value: unknown): number {
+  if (!value || typeof value !== 'object') return estimateRetainedChars(value, MEASURE_LIMIT);
+  let own = fieldChars.get(value);
+  if (own === undefined) {
+    own = estimateRetainedChars(value, MEASURE_LIMIT);
+    fieldChars.set(value, own);
+  }
+  return own;
+}
 
 function rowsChars(rows: readonly unknown[]): number {
   let chars = listChars.get(rows);
   if (chars !== undefined) return chars;
-  chars = 16 + 4 * rows.length;
-  for (const row of rows) {
-    if (!row || typeof row !== 'object') {
-      chars += estimateRetainedChars(row, MEASURE_LIMIT);
-      continue;
+  const made = carriedFrom(rows);
+  const priorChars = made ? listChars.get(made.prior) : undefined;
+  if (made && priorChars !== undefined) {
+    chars = priorChars + 4 * (rows.length - made.prior.length);
+    for (let index = made.kept; index < made.prior.length; index += 1) {
+      chars -= rowWeight(made.prior[index]);
     }
-    let own = rowChars.get(row);
-    if (own === undefined) {
-      own = estimateRetainedChars(row, MEASURE_LIMIT);
-      rowChars.set(row, own);
+    for (let index = made.kept; index < rows.length; index += 1) {
+      chars += rowWeight(rows[index]);
     }
-    chars += own;
+  } else {
+    chars = 16 + 4 * rows.length;
+    for (const row of rows) chars += rowWeight(row);
   }
   listChars.set(rows, chars);
   return chars;
@@ -33,6 +57,8 @@ function rowsChars(rows: readonly unknown[]): number {
 /** The characters a lane's state holds (`estimateRetainedChars` units): its rows, by the lists that hold them (a list shown
  *  twice counts once), and its other fields. */
 function laneChars(snapshot: Snapshot): number {
+  const cached = snapshotChars.get(snapshot);
+  if (cached !== undefined) return cached;
   const record = snapshot as Record<string, unknown>;
   const lists = new Set<readonly unknown[]>();
   let chars = 32;
@@ -47,9 +73,10 @@ function laneChars(snapshot: Snapshot): number {
         const items = (view as { items?: unknown } | null)?.items;
         if (Array.isArray(items)) lists.add(items);
       }
-    } else chars += estimateRetainedChars(value, MEASURE_LIMIT);
+    } else chars += fieldWeight(value);
   }
   for (const list of lists) chars += rowsChars(list);
+  snapshotChars.set(snapshot, chars);
   return chars;
 }
 
@@ -84,8 +111,15 @@ export class SessionLaneCache {
       subscribed(sessionId: string): boolean;
       /** The lane is never let go: a pane reads it, shows it, or is about to. */
       kept(sessionId: string): boolean;
+      /** Runs whenever a lane is evicted from the cache. */
+      onEvict?(sessionId: string): void;
     }
   ) {}
+
+  private evict(sessionId: string): void {
+    if (!this.entries.delete(sessionId)) return;
+    this.options.onEvict?.(sessionId);
+  }
 
   get size(): number {
     return this.entries.size;
@@ -127,7 +161,7 @@ export class SessionLaneCache {
     for (const [sessionId, entry] of [...this.entries]) {
       if (total <= target) break;
       if (this.options.kept(sessionId)) continue;
-      this.entries.delete(sessionId);
+      this.evict(sessionId);
       total -= entry.bytes / 2;
       gone.push(sessionId);
     }
@@ -161,7 +195,7 @@ export class SessionLaneCache {
       // budget. No need to traverse the rest of an already oversized frame.
       const bytes = Math.min(limit + 1, 2 * estimateRetainedChars(entry.snapshot, limit / 2));
       if (bytes > limit && !this.options.kept(sessionId)) {
-        this.delete(sessionId);
+        this.evict(sessionId);
         this.prune();
         return;
       }
@@ -181,7 +215,7 @@ export class SessionLaneCache {
     for (const [sessionId, entry] of this.entries) {
       if (this.entries.size <= maxEntries && inactive <= maxBytes) break;
       if (this.options.kept(sessionId)) continue;
-      this.entries.delete(sessionId);
+      this.evict(sessionId);
       inactive -= entry.bytes;
     }
   }
@@ -192,7 +226,7 @@ export class SessionLaneCache {
     for (const [sessionId, entry] of [...this.entries]) {
       if (this.options.kept(sessionId) || entry.swept) continue;
       const kept = trim(sessionId, entry.snapshot);
-      if (!kept) this.entries.delete(sessionId);
+      if (!kept) this.evict(sessionId);
       else if (kept === entry.snapshot) entry.swept = true;
       else {
         this.entries.set(sessionId, {
@@ -218,8 +252,8 @@ export class SessionLaneCache {
   }
 
   evictInactive(): void {
-    for (const sessionId of this.entries.keys()) {
-      if (!this.options.subscribed(sessionId)) this.delete(sessionId);
+    for (const sessionId of [...this.entries.keys()]) {
+      if (!this.options.subscribed(sessionId)) this.evict(sessionId);
     }
   }
 

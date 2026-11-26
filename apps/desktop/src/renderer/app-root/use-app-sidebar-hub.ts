@@ -1,12 +1,14 @@
 import type React from 'react';
-import { useEffect, useLayoutEffect, useMemo } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { SHOW_IMPORTED_CHATS_EVENT } from '../import-conversation-events';
 import { pruneExplorerRoots, setCurrentExplorerProject } from '../explorer-root-cache';
 import { useAppSidebarSurface } from '../use-app-sidebar-surface';
-import { useAppMobileBack, useAppMobileInitialClose } from '../app-shell-mobile-back';
+import { isConversationTabSelection, useAppMobileBack, useAppMobileInitialClose } from '../app-shell-mobile-back';
 import { useSideViewPrefetch, useSideViewSelection, useSideViewReordering } from '../app-shell-side-views';
 import { createAppSideViewDescriptors } from '../app-side-view-descriptors';
+import { navigationKey } from '../text-format';
 import { useStableEvent } from '../use-stable-event';
+import type { WorkspaceSelection, WorkspaceTab } from '../navigation';
 import type { useAppShellPanels } from '../use-app-shell-panels';
 import type { useAppSideDocks } from '../use-app-side-docks';
 import type { useSessionPaneSurfaces } from '../use-session-pane-surfaces';
@@ -60,6 +62,10 @@ export interface UseAppSidebarHubOptions {
   paneLeavesRef: React.MutableRefObject<PaneLeaf[]>;
   paneLeaves: readonly PaneLeaf[];
   focusedLeafId: string;
+  focusedPaneSelection?: WorkspaceSelection | null;
+  activatePaneTab?: (leafId: string, key: string) => void;
+  navigateTab?: (tab: WorkspaceTab, leafId?: string) => void;
+  closeTab?: (leafId: string, tab: WorkspaceTab) => void;
 
   settingsOpen: boolean;
   setSettingsOpen: (open: boolean) => void;
@@ -124,6 +130,10 @@ export function useAppSidebarHub({
   paneLeavesRef,
   paneLeaves,
   focusedLeafId,
+  focusedPaneSelection,
+  activatePaneTab,
+  navigateTab,
+  closeTab,
   settingsOpen,
   setSettingsOpen,
   commandSurface,
@@ -185,9 +195,40 @@ export function useAppSidebarHub({
     removeProject,
   });
 
+  const lastConversationKeyRef = useRef('');
+  if (focusedPaneSelection && isConversationTabSelection(focusedPaneSelection)) {
+    lastConversationKeyRef.current = navigationKey(focusedPaneSelection);
+  }
+  const nonConversationTabOpen = Boolean(focusedPaneSelection && !isConversationTabSelection(focusedPaneSelection));
+  const returnFromNonConversationTab = (): boolean | undefined => {
+    const leaf = paneLeavesRef.current.find((candidate) => candidate.id === focusedLeafIdRef.current);
+    if (!leaf) return false;
+    const active = leaf.tabs.find((tab) => navigationKey(tab) === leaf.activeKey);
+    if (!active || isConversationTabSelection(active)) return undefined;
+    const preferredKey = lastConversationKeyRef.current;
+    const target =
+      (preferredKey
+        ? leaf.tabs.find((tab) => navigationKey(tab) === preferredKey && isConversationTabSelection(tab))
+        : undefined) ?? [...leaf.tabs].reverse().find((tab) => isConversationTabSelection(tab));
+    if (target && activatePaneTab && navigateTab) {
+      const key = navigationKey(target);
+      activatePaneTab(leaf.id, key);
+      navigateTab({ key, title: '', selection: target }, leaf.id);
+      return undefined;
+    }
+    if (closeTab) closeTab(leaf.id, { key: navigationKey(active), title: '', selection: active });
+    // Keep armed until nonConversationTabOpen actually flips false (closeTab
+    // may open an unsaved-changes confirm or focus another utility tab).
+    return false;
+  };
+
   useAppMobileBack({
+    nonConversationTabOpen,
+    returnFromNonConversationTab,
     sidebarOpen,
     applySidebarOpen,
+    sidebarSubPanelOpen: schedulesOpen || webhooksOpen || projectsOpen,
+    closeSidebarSubPanel: closeSidebarPanels,
     bottomPanelOpen: bottomPanel.open,
     setBottomPanelOpen: bottomPanel.setOpen,
     focusedPaneDockOpen,

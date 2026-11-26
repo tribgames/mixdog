@@ -94,12 +94,18 @@ interface NativeMarker {
   endColumn: number;
 }
 
+interface LspDiagnosticEntry {
+  projectPath: string;
+  relPath: string;
+  server: string;
+  problems: EditorProblem[];
+}
+
 let revision = 0;
 let active: ActiveEditorDocument | null = null;
 let activeLine = 1;
 let activeColumn = 1;
-const lspProblems = new Map<string, EditorProblem[]>();
-const lspServers = new Map<string, { projectPath: string; relPath: string; server: string }>();
+const lspDiagnostics = new Map<string, Map<string, LspDiagnosticEntry>>();
 const nativeProblems = new Map<string, EditorProblem[]>();
 const outlines = new Map<string, EditorOutlineItem[]>();
 const statuses = new Map<string, DesktopLspStatusEvent>();
@@ -131,11 +137,41 @@ function commandCapabilitiesOf(capabilities: DesktopLspCapabilities): EditorComm
   return next;
 }
 
+const WINDOWS_PATH_SHAPE = /^(?:[A-Za-z]:[\\/]|(?:\\\\|\/\/)[^\\/])/;
+
+function isCaseInsensitiveProject(projectPath: string): boolean {
+  return WINDOWS_PATH_SHAPE.test(projectPath);
+}
+
+export function normalizeProjectPath(projectPath: string): string {
+  if (!projectPath) return '';
+  if (isCaseInsensitiveProject(projectPath)) {
+    const slashed = projectPath.replace(/\\/g, '/');
+    if (/^[A-Za-z]:\/+$/.test(slashed)) return `${slashed.slice(0, 2).toLowerCase()}/`;
+    return slashed.replace(/\/+$/, '').toLowerCase();
+  }
+  if (/^\/+$/.test(projectPath)) return '/';
+  return projectPath.replace(/\/+$/, '');
+}
+
+export function lspMarkerOwner(projectPath: string): string {
+  return `mixdog-lsp:${normalizeProjectPath(projectPath)}`;
+}
+
+export function isLspMarkerOwner(owner: string): boolean {
+  return owner === 'mixdog-lsp' || owner.startsWith('mixdog-lsp:');
+}
+
+function comparableRelPath(projectPath: string, relPath: string): string {
+  const normalized = relPath.replace(/\\/g, '/');
+  return isCaseInsensitiveProject(projectPath) ? normalized.toLowerCase() : normalized;
+}
+
 /** A server's status is keyed by project and language, and by file too when
  *  the server answered for one document. */
 function statusKey(projectPath: string, languageId: string, relPath?: string): string {
-  const suffix = relPath ? `\0${relPath.replace(/\\/g, '/').toLocaleLowerCase()}` : '';
-  return `${projectPath}\0${languageId}${suffix}`;
+  const suffix = relPath ? `\0${comparableRelPath(projectPath, relPath)}` : '';
+  return `${normalizeProjectPath(projectPath)}\0${languageId}${suffix}`;
 }
 
 function publish(): void {
@@ -148,23 +184,54 @@ function publish(): void {
   if (COMMAND_CAPABILITY_KEYS.some((key) => commandCapabilities[key] !== nextCommandCapabilities[key])) {
     commandCapabilities = nextCommandCapabilities;
   }
+  const lspProblemLists: EditorProblem[][] = [];
+  for (const byProject of lspDiagnostics.values()) {
+    for (const entry of byProject.values()) lspProblemLists.push(entry.problems);
+  }
   revision += 1;
   snapshot = {
     revision,
     active,
     activeLine,
     activeColumn,
-    problems: [...lspProblems.values(), ...nativeProblems.values()].flat(),
+    problems: [...lspProblemLists, ...nativeProblems.values()].flat(),
     outline: active ? (outlines.get(active.uri) ?? []) : [],
     statuses: [...statuses.values()],
   };
   for (const listener of listeners) listener();
 }
 
+function sameProblems(left: readonly EditorProblem[] | undefined, right: readonly EditorProblem[]): boolean {
+  if (!left || left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    const a = left[index];
+    const b = right[index];
+    if (
+      a.key !== b.key ||
+      a.projectPath !== b.projectPath ||
+      a.relPath !== b.relPath ||
+      a.uri !== b.uri ||
+      a.origin !== b.origin ||
+      a.severity !== b.severity ||
+      a.message !== b.message ||
+      a.source !== b.source ||
+      a.code !== b.code ||
+      a.startLineNumber !== b.startLineNumber ||
+      a.startColumn !== b.startColumn ||
+      a.endLineNumber !== b.endLineNumber ||
+      a.endColumn !== b.endColumn
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function acceptLspDiagnostics(event: DesktopLspDiagnosticEvent): void {
-  const rows = event.diagnostics.map(
+  const projectKey = normalizeProjectPath(event.projectPath);
+  const rows = (Array.isArray(event.diagnostics) ? event.diagnostics : []).map(
     (diagnostic, index): EditorProblem => ({
-      key: `lsp:${event.uri}:${index}:${diagnostic.range.start.line}:${diagnostic.range.start.character}`,
+      key: `lsp:${projectKey}:${event.uri}:${index}:${diagnostic.range.start.line}:${diagnostic.range.start.character}`,
       projectPath: event.projectPath,
       relPath: event.relPath,
       uri: event.uri,
@@ -180,11 +247,31 @@ function acceptLspDiagnostics(event: DesktopLspDiagnosticEvent): void {
     })
   );
   if (rows.length) {
-    lspProblems.set(event.uri, rows);
-    lspServers.set(event.uri, { projectPath: event.projectPath, relPath: event.relPath, server: event.server });
+    let byProject = lspDiagnostics.get(event.uri);
+    const previous = byProject?.get(projectKey);
+    if (
+      previous &&
+      sameProblems(previous.problems, rows) &&
+      previous.projectPath === event.projectPath &&
+      previous.relPath === event.relPath &&
+      previous.server === event.server
+    ) {
+      return;
+    }
+    if (!byProject) {
+      byProject = new Map();
+      lspDiagnostics.set(event.uri, byProject);
+    }
+    byProject.set(projectKey, {
+      projectPath: event.projectPath,
+      relPath: event.relPath,
+      server: event.server,
+      problems: rows,
+    });
   } else {
-    lspProblems.delete(event.uri);
-    lspServers.delete(event.uri);
+    const byProject = lspDiagnostics.get(event.uri);
+    if (!byProject?.delete(projectKey)) return;
+    if (byProject.size === 0) lspDiagnostics.delete(event.uri);
   }
   publish();
 }
@@ -192,10 +279,12 @@ function acceptLspDiagnostics(event: DesktopLspDiagnosticEvent): void {
 /** A stopped server publishes nothing more: what it last reported goes with it. */
 function dropStoppedServerDiagnostics(event: DesktopLspStatusEvent): void {
   if (event.status !== 'stopped') return;
-  for (const [uri, owner] of lspServers) {
-    if (owner.projectPath !== event.projectPath || owner.server !== event.server) continue;
-    lspServers.delete(uri);
-    lspProblems.delete(uri);
+  const projectKey = normalizeProjectPath(event.projectPath);
+  for (const [uri, byProject] of lspDiagnostics) {
+    const owner = byProject.get(projectKey);
+    if (!owner || owner.server !== event.server) continue;
+    byProject.delete(projectKey);
+    if (byProject.size === 0) lspDiagnostics.delete(uri);
   }
 }
 
@@ -279,42 +368,143 @@ export function setActiveEditorPosition(uri: string, line: number, column = 1): 
   publish();
 }
 
-const documentOwners = new Map<string, { projectPath: string; relPath: string; count: number }>();
-
-function comparableRelPath(relPath: string): string {
-  return relPath.replace(/\\/g, '/').toLocaleLowerCase();
-}
+const documentOwners = new Map<string, Map<string, { projectPath: string; relPath: string; count: number }>>();
 
 /** Register one owner (pane/editor) of a document. Pair with releaseEditorDocument. */
 export function acquireEditorDocument(projectPath: string, relPath: string, uri: string): void {
-  const owner = documentOwners.get(uri);
+  const projectKey = normalizeProjectPath(projectPath);
+  let byProject = documentOwners.get(uri);
+  if (!byProject) {
+    byProject = new Map();
+    documentOwners.set(uri, byProject);
+  }
+  const owner = byProject.get(projectKey);
   if (owner) owner.count += 1;
-  else documentOwners.set(uri, { projectPath, relPath, count: 1 });
+  else byProject.set(projectKey, { projectPath, relPath, count: 1 });
 }
 
-/** Drop one owner; the last release removes the document's statuses, native
- *  problems and outline and publishes once. */
-export function releaseEditorDocument(uri: string): void {
-  const owner = documentOwners.get(uri);
-  if (!owner) return;
+/** Drop one owner; when an owner's last reference releases, removes that project's
+ *  document statuses and diagnostics, clears shared native problems/outline once
+ *  no project still holds the URI, and returns true. */
+export function releaseEditorDocument(uri: string, projectPath?: string): boolean {
+  const byProject = documentOwners.get(uri);
+  if (!byProject) return false;
+  const projectKey =
+    projectPath !== undefined ? normalizeProjectPath(projectPath) : (byProject.keys().next().value as string);
+  const owner = byProject.get(projectKey);
+  if (!owner) return false;
   owner.count -= 1;
-  if (owner.count > 0) return;
-  documentOwners.delete(uri);
-  const rel = comparableRelPath(owner.relPath);
+  if (owner.count > 0) return false;
+  byProject.delete(projectKey);
+  const rel = comparableRelPath(owner.projectPath, owner.relPath);
   for (const [key, status] of statuses) {
-    if (status.relPath && status.projectPath === owner.projectPath && comparableRelPath(status.relPath) === rel) {
+    if (
+      status.relPath &&
+      normalizeProjectPath(status.projectPath) === projectKey &&
+      comparableRelPath(status.projectPath, status.relPath) === rel
+    ) {
       statuses.delete(key);
     }
   }
-  nativeProblems.delete(uri);
-  for (const [lspUri, from] of lspServers) {
-    if (from.projectPath === owner.projectPath && comparableRelPath(from.relPath) === rel) {
-      lspServers.delete(lspUri);
-      lspProblems.delete(lspUri);
+  for (const [lspUri, diagByProject] of lspDiagnostics) {
+    const from = diagByProject.get(projectKey);
+    if (from && comparableRelPath(from.projectPath, from.relPath) === rel) {
+      diagByProject.delete(projectKey);
+      if (diagByProject.size === 0) lspDiagnostics.delete(lspUri);
     }
   }
-  outlines.delete(uri);
+  if (byProject.size === 0) {
+    documentOwners.delete(uri);
+    nativeProblems.delete(uri);
+    outlines.delete(uri);
+  }
   publish();
+  return true;
+}
+
+/** Binds one editor pane's model to the language store with per-project marker ownership
+ *  and safe teardown ordering (unsubscribe before releasing so publish cannot re-enter). */
+export function bindEditorModelLanguageStore({
+  projectPath,
+  relPath,
+  uri,
+  getLanguageId,
+  isDisposed,
+  acceptLspState,
+  lspMarkerSignature,
+  setMarkers,
+}: {
+  projectPath: string;
+  relPath: string;
+  uri: string;
+  getLanguageId(): string;
+  isDisposed(): boolean;
+  acceptLspState(state: DesktopLspServerState, languageId: string): void;
+  lspMarkerSignature: { current: string };
+  setMarkers(owner: string, problems: readonly EditorProblem[]): void;
+}): { dispose(): void } {
+  ensureEditorLanguageStore();
+  const markerOwner = lspMarkerOwner(projectPath);
+  const projectKey = normalizeProjectPath(projectPath);
+  const relKey = comparableRelPath(projectPath, relPath);
+  acquireEditorDocument(projectPath, relPath, uri);
+  let disposed = false;
+
+  const syncLanguageState = (): void => {
+    if (disposed || isDisposed()) return;
+    const languageSnapshot = getEditorLanguageSnapshot();
+    const languageId = getLanguageId();
+    const status =
+      languageSnapshot.statuses.find(
+        (candidate) =>
+          normalizeProjectPath(candidate.projectPath) === projectKey &&
+          candidate.languageId === languageId &&
+          candidate.relPath !== undefined &&
+          comparableRelPath(candidate.projectPath, candidate.relPath) === relKey
+      ) ??
+      languageSnapshot.statuses.find(
+        (candidate) =>
+          normalizeProjectPath(candidate.projectPath) === projectKey &&
+          candidate.languageId === languageId &&
+          !candidate.relPath
+      );
+    if (status) acceptLspState(status, languageId);
+    const problems = languageSnapshot.problems.filter(
+      (problem) =>
+        problem.origin === 'lsp' &&
+        normalizeProjectPath(problem.projectPath) === projectKey &&
+        comparableRelPath(problem.projectPath, problem.relPath) === relKey
+    );
+    const signature = JSON.stringify(
+      problems.map((problem) => [
+        problem.severity,
+        problem.message,
+        problem.startLineNumber,
+        problem.startColumn,
+        problem.endLineNumber,
+        problem.endColumn,
+      ])
+    );
+    if (signature === lspMarkerSignature.current) return;
+    lspMarkerSignature.current = signature;
+    setMarkers(markerOwner, problems);
+  };
+
+  const unsubscribeStore = subscribeEditorLanguageStore(syncLanguageState);
+  syncLanguageState();
+
+  return {
+    dispose(): void {
+      if (disposed) return;
+      disposed = true;
+      unsubscribeStore();
+      const releasedOwner = releaseEditorDocument(uri, projectPath);
+      if (releasedOwner && !isDisposed()) {
+        lspMarkerSignature.current = '';
+        setMarkers(markerOwner, []);
+      }
+    },
+  };
 }
 
 export function clearActiveEditorDocument(uri: string): void {

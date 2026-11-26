@@ -249,6 +249,7 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
     actions.composerQueuedRestored
   );
   const reviewSessionId = draftMode ? '' : String(sessionAddress || routeSnapshot.sessionId || '');
+  const railSessionId = draftMode ? '' : reviewSessionId || String(snapshot.sessionId || '');
   const pendingInput = !draftMode && submission.steerItems.length > 0;
   const reviewBusy = Boolean(snapshot.busy || routeSnapshot.commandBusy);
   // The pane's session panel draws the session or draft the pane shows, from
@@ -260,7 +261,7 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
   const SessionRail = useDeferredModule(sessionRailModule, { load: Boolean(railSlot.element) })?.default;
   const railPlace = SessionRail
     ? sessionRailPlace(railSlot, {
-        sessionId: draftMode ? '' : reviewSessionId,
+        sessionId: railSessionId,
         draftId: draftMode ? draftId : '',
         onScreen,
         handOver,
@@ -280,8 +281,8 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
           <Activity mode={railHeld ? 'hidden' : 'visible'}>
             <SurfaceActiveContext.Provider value={railShown}>
               <SessionRail
-                sessionId={draftMode ? '' : String(snapshot.sessionId || '')}
-                reviewSessionId={reviewSessionId}
+                sessionId={railSessionId}
+                reviewSessionId={railSessionId}
                 workspace={routeSnapshot.workspace ?? null}
                 projectPath={activeProjectPath}
                 projectLabel={props.activeProjectLabel}
@@ -295,7 +296,7 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
                 pendingInput={pendingInput}
                 model={{
                   ...route,
-                  sessionId: routeSessionId,
+                  sessionId: railSessionId || routeSessionId,
                   modelDisabled: transitioning,
                   tuningDisabled: Boolean(routeSnapshot.commandBusy) || transitioning,
                   invokeResult: actions.composerInvokeResult,
@@ -361,7 +362,9 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
           laneUnavailable={held && props.selectedUnavailable === true}
           focusRequest={composerFocusRequest}
           historyScope={draftMode ? `new-task:${activeProjectPath || 'local'}` : heldSessionId || routeScope}
-          identityScope={draftMode ? `draft:${draftId || 'default'}` : selectedSessionId || sessionAddress || routeScope}
+          identityScope={
+            draftMode ? `draft:${draftId || 'default'}` : selectedSessionId || sessionAddress || routeScope
+          }
           recoveryScope={held ? transcriptRowNamespace(heldSessionId) : props.recoveryScope}
           projectScope={draftMode ? activeProjectPath : held ? '' : routeProject}
           sessionId={heldSessionId || routeSessionId}

@@ -1,3 +1,4 @@
+import { registerIdleReclaim } from './idle-reclaim';
 import { RendererLruCache } from './renderer-lru-cache';
 
 export const imagePreviewCache = new RendererLruCache<string, string>({
@@ -25,6 +26,11 @@ const sentImageKeys = new RendererLruCache<string, readonly string[]>({
   maxEntries: 48,
   maxChars: 48 * 1024,
   measure: (keys) => keys.reduce((sum, key) => sum + key.length, 0),
+});
+
+registerIdleReclaim(() => {
+  imagePreviewCache.clear();
+  sentImageKeys.clear();
 });
 
 /** Registers the pictures of a send, `images` in the order of its content. */

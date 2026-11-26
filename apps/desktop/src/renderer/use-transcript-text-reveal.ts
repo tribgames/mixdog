@@ -17,6 +17,9 @@ const REVEAL_MAX_STEP_MS = 150;
 const REVEAL_CATCH_UP_RAMP_MS = 75;
 /** Paced: a first text longer than this shows at once, unfaded (streamFadeTimeline's `primed`). */
 export const REVEAL_JOIN_CHARS = 400;
+/** Paced: residual buffered backlogs larger than this drain smoothly across frames on live -> settled instead of snapping in one frame. */
+export const REVEAL_SETTLE_SNAP_MAX_CHARS = 220;
+const REVEAL_DRAIN_MAX_STEP_CHARS = 180;
 /** Paced: one delivery this large over a backlog this large shows at once. */
 const REVEAL_REJOIN_CHARS = 600;
 /** The backlog the fastest cadence drains within the target lag. */
@@ -58,6 +61,8 @@ interface RevealEntry {
   steppedAt: number;
   /** Paced: the backlog drained and the chain stopped. */
   idle: boolean;
+  /** Paced: live ended with a large buffered backlog that is draining smoothly. */
+  draining: boolean;
   timer: ReturnType<typeof setTimeout> | null;
   /** Set on every paint, unique across entries: the store version rows
    *  subscribe to. */
@@ -154,6 +159,7 @@ function paint(entry: RevealEntry, now: number): void {
  *  (markdown-stream-fade). */
 function showUnpaced(entry: RevealEntry): void {
   entry.shown = entry.ceiling;
+  entry.draining = false;
   revisions += 1;
   entry.revision = revisions;
 }
@@ -171,7 +177,7 @@ function tick(entry: RevealEntry): void {
     return;
   }
   if (documentHidden()) {
-    if (entry.shown > 0 && backlog > REVEAL_REJOIN_CHARS) {
+    if (entry.draining || (entry.shown > 0 && backlog > REVEAL_REJOIN_CHARS)) {
       showUnpaced(entry);
       notify(entry);
     }
@@ -180,10 +186,14 @@ function tick(entry: RevealEntry): void {
   if (backlog <= 0) {
     entry.steppedAt = now;
     entry.idle = true;
+    if (entry.draining) {
+      entry.draining = false;
+      notify(entry);
+    }
     return;
   }
   const elapsed = now - entry.steppedAt;
-  const interval = revealStepInterval(backlog);
+  const interval = entry.draining ? REVEAL_MIN_STEP_MS : revealStepInterval(backlog);
   if (elapsed < interval) {
     wake(entry, interval - elapsed);
     return;
@@ -192,14 +202,26 @@ function tick(entry: RevealEntry): void {
   const first = entry.text.search(/\S/);
   if (first === -1 || first >= entry.ceiling) {
     entry.idle = true;
+    if (entry.draining) {
+      entry.shown = entry.ceiling;
+      entry.draining = false;
+      notify(entry);
+    }
     return;
   }
-  const end = pacedRevealStep(
-    entry.text,
-    Math.max(entry.shown, first),
-    entry.ceiling,
-    revealStepChars(backlog, elapsed)
-  );
+  const stepChars = entry.draining
+    ? backlog <= REVEAL_STEP_CHARS * 4
+      ? backlog
+      : Math.min(REVEAL_DRAIN_MAX_STEP_CHARS, Math.max(REVEAL_STEP_CHARS * 3, Math.ceil(backlog / 4)))
+    : revealStepChars(backlog, elapsed);
+  const end = pacedRevealStep(entry.text, Math.max(entry.shown, first), entry.ceiling, stepChars);
+  if (entry.draining && (end >= entry.ceiling || end <= entry.shown)) {
+    entry.shown = entry.ceiling;
+    entry.draining = false;
+    entry.idle = true;
+    notify(entry);
+    return;
+  }
   if (end > entry.shown) {
     entry.shown = end;
     notify(entry);
@@ -244,10 +266,13 @@ interface RevealView {
   ceiling: number;
   /** The last revision of what shows. */
   revision: number;
+  /** True while draining a large residual backlog after live -> settled. */
+  draining: boolean;
 }
 
 /** What a render of the row whose committed reveal is `entry` shows of
- *  `text` at `now` (`live`: the part still streams; ended, all of it shows).
+ *  `text` at `now` (`live`: the part still streams; ended, small tails settle
+ *  at once while large buffered backlogs drain smoothly across frames).
  *  Worked out from the committed reveal; nothing is recorded. */
 function revealView(
   entry: RevealEntry | undefined,
@@ -259,25 +284,38 @@ function revealView(
   // Text that does not continue what showed is a rewrite: a new revision.
   const rewritten = entry !== undefined && !text.startsWith(entry.text.slice(0, entry.shown));
   const revision = rewritten ? revisions + 1 : (entry?.revision ?? 0);
-  if (!live) return { shown: text.length, ceiling: text.length, revision };
+  if (!live) {
+    const shouldDrain =
+      paced &&
+      !rewritten &&
+      !documentHidden() &&
+      entry !== undefined &&
+      entry.shown > 0 &&
+      entry.shown < text.length &&
+      (entry.draining || entry.text.length - entry.shown > REVEAL_SETTLE_SNAP_MAX_CHARS);
+    if (shouldDrain) return { shown: entry.shown, ceiling: text.length, revision, draining: true };
+    return { shown: text.length, ceiling: text.length, revision, draining: false };
+  }
   const held = paced ? pacedRevealCeiling(text) : revealHold(text, text.length, true);
-  if (!entry) return { shown: paced ? firstShown(text, held) : held, ceiling: held, revision };
-  if (text === entry.text && paced === entry.paced) return { shown: entry.shown, ceiling: entry.ceiling, revision };
+  if (!entry) return { shown: paced ? firstShown(text, held) : held, ceiling: held, revision, draining: false };
+  if (text === entry.text && paced === entry.paced) {
+    return { shown: entry.shown, ceiling: entry.ceiling, revision, draining: false };
+  }
   let shown = rewritten ? commonPrefix(entry.text, text, Math.min(entry.shown, text.length)) : entry.shown;
   const ceiling = Math.max(held, shown);
   if (!paced) {
     const paints = rewritten || shown === 0 || paced !== entry.paced || now >= entry.nextAt;
-    return { shown: paints ? ceiling : shown, ceiling, revision };
+    return { shown: paints ? ceiling : shown, ceiling, revision, draining: false };
   }
   const growth = text.length - entry.text.length;
   if (shown > 0 && ceiling - shown > REVEAL_REJOIN_CHARS && growth > REVEAL_REJOIN_CHARS) shown = ceiling;
   if (shown === 0) shown = firstShown(text, ceiling);
-  return { shown, ceiling, revision };
+  return { shown, ceiling, revision, draining: false };
 }
 
 /** A render of row `key` showing `view` of `text` committed at `now`: the
  *  reveal goes on from there (a mode change keeps what shows), or, the part
- *  ended (`live` false), it rests. */
+ *  ended (`live` false), it drains any large residual backlog before resting. */
 function recordReveal(key: string, text: string, view: RevealView, paced: boolean, live: boolean, now: number): void {
   let entry = registry.get(key);
   if (
@@ -285,7 +323,8 @@ function recordReveal(key: string, text: string, view: RevealView, paced: boolea
     entry.shown === view.shown &&
     entry.ceiling === view.ceiling &&
     entry.revision === view.revision &&
-    entry.paced === paced
+    entry.paced === paced &&
+    entry.draining === view.draining
   ) {
     return;
   }
@@ -299,6 +338,7 @@ function recordReveal(key: string, text: string, view: RevealView, paced: boolea
       nextAt: now,
       steppedAt: now,
       idle: false,
+      draining: false,
       timer: null,
       version: 0,
       revision: 0,
@@ -321,28 +361,32 @@ function recordReveal(key: string, text: string, view: RevealView, paced: boolea
   entry.shown = view.shown;
   entry.ceiling = view.ceiling;
   entry.revision = view.revision;
+  entry.draining = view.draining;
   revisions = Math.max(revisions, view.revision);
-  if (!live) {
+  if (!live && !view.draining) {
     entry.idle = true;
     pause(entry);
     return;
   }
   if (entry.ceiling <= entry.shown) {
     // Drained: the next arrival restarts the chain, timed from then.
+    entry.draining = false;
     entry.idle = true;
     return;
   }
   if (!subscribed(key)) return;
-  if (paced) wake(entry, 0);
+  if (view.draining) wake(entry, Math.max(0, REVEAL_MIN_STEP_MS - (now - entry.steppedAt)));
+  else if (paced) wake(entry, 0);
   else if (entry.timer === null) wake(entry, entry.nextAt - now);
 }
 
 /** The painted text of one transcript row. A live assistant part (`key`,
  *  `streaming`) shows what it received, paced in steps when `paced`, else
- *  coalesced; anything else shows `text` whole. `revision` names the last
- *  change of the painted text that was not paced in (a rewrite, or what
- *  showed while the document was hidden; a later one is larger; 0: none
- *  known): text shown by it shows unfaded. */
+ *  coalesced; anything else shows `text` whole (draining large residual paced
+ *  backlogs smoothly across frames). `revision` names the last change of the
+ *  painted text that was not paced in (a rewrite, or what showed while the
+ *  document was hidden; a later one is larger; 0: none known): text shown by
+ *  it shows unfaded. */
 export function useTranscriptTextReveal({
   key,
   text,
@@ -353,17 +397,35 @@ export function useTranscriptTextReveal({
   text: string;
   streaming: boolean;
   paced?: boolean;
-}): { text: string; revision: number } {
-  const live = Boolean(key) && streaming;
-  const subscribeRow = useCallback((listener: () => void) => (live ? subscribe(key, listener) : () => {}), [key, live]);
-  const version = useCallback(() => (live ? (registry.get(key)?.version ?? 0) : 0), [key, live]);
-  useSyncExternalStore(subscribeRow, version, version);
+}): { text: string; revision: number; draining: boolean } {
   const mode = paced && !reducedMotion();
   const entry = key ? registry.get(key) : undefined;
   const view = key && (streaming || entry) ? revealView(entry, text, performance.now(), mode, streaming) : null;
+  const active = Boolean(key) && (streaming || Boolean(view?.draining));
+  const subscribeRow = useCallback(
+    (listener: () => void) => (active ? subscribe(key, listener) : () => {}),
+    [key, active]
+  );
+  const version = useCallback(() => (active ? (registry.get(key)?.version ?? 0) : 0), [key, active]);
+  useSyncExternalStore(subscribeRow, version, version);
+  const committed = key ? registry.get(key) : undefined;
+  const latest =
+    committed !== entry && key && (streaming || committed)
+      ? revealView(committed, text, performance.now(), mode, streaming)
+      : view;
   useLayoutEffect(() => {
-    if (view) recordReveal(key, text, view, mode, streaming, performance.now());
+    if (latest) recordReveal(key, text, latest, mode, streaming, performance.now());
   });
-  if (!view) return { text: streaming ? text.slice(0, revealHold(text, text.length, true)) : text, revision: 0 };
-  return { text: view.shown >= text.length ? text : text.slice(0, view.shown), revision: view.revision };
+  if (!latest)
+    return {
+      text: streaming ? text.slice(0, revealHold(text, text.length, true)) : text,
+      revision: 0,
+      draining: false,
+    };
+  const full = latest.shown >= text.length;
+  return {
+    text: full ? text : text.slice(0, latest.shown),
+    revision: latest.revision,
+    draining: !full && latest.draining,
+  };
 }

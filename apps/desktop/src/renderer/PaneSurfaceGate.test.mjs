@@ -102,3 +102,79 @@ test('a warm revisit that reveals inside the grace never flashes the cover', asy
   await view.wait(view.grace + 40);
   assert.equal(view.document.querySelector('.pane-surface-cover'), null, 'the released hold never fires late');
 });
+
+test('cold surface commit waits for layout frame before checking document.fonts.ready even if fonts status was initially loaded', async (t) => {
+  const { window, document } = installTestDom(t, { rootId: false, globals: {} });
+  const frames = new Map();
+  let nextFrameId = 1;
+  window.requestAnimationFrame = (callback) => {
+    const id = nextFrameId++;
+    frames.set(id, callback);
+    return id;
+  };
+  window.cancelAnimationFrame = (id) => {
+    frames.delete(id);
+  };
+  let fontsStatus = 'loaded';
+  let fontsReadyRead = 0;
+  let resolveFonts;
+  Object.defineProperty(document, 'fonts', {
+    configurable: true,
+    value: {
+      get status() {
+        return fontsStatus;
+      },
+      get ready() {
+        fontsReadyRead += 1;
+        return new Promise((resolve) => {
+          resolveFonts = resolve;
+        });
+      },
+    },
+  });
+  const { scheduleStableSurfaceCommit } = await import('./PaneSurfaceGate.tsx');
+
+  let committed = 0;
+  const cancel = scheduleStableSurfaceCommit(() => {
+    committed += 1;
+  });
+  assert.equal(frames.size, 1, 'waits for an initial layout frame first');
+  assert.equal(fontsReadyRead, 0, 'does not read document.fonts.ready before layout runs');
+  assert.equal(committed, 0);
+
+  // Incoming cold surface requests a new font subset during that first layout frame.
+  fontsStatus = 'loading';
+  const [[firstId, firstCb]] = [...frames.entries()];
+  frames.delete(firstId);
+  firstCb(16);
+  await Promise.resolve();
+  assert.equal(fontsReadyRead, 1, 'checks document.fonts.ready after layout has run');
+  assert.equal(committed, 0, 'does not commit before newly requested fonts settle');
+  assert.equal(frames.size, 0);
+
+  resolveFonts();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(frames.size, 1, 'waits for first composed frame after fonts settle');
+  const [[secondId, secondCb]] = [...frames.entries()];
+  frames.delete(secondId);
+  secondCb(32);
+  await Promise.resolve();
+  assert.equal(committed, 0);
+  assert.equal(frames.size, 1, 'waits for second composed frame before reveal');
+  const [[thirdId, thirdCb]] = [...frames.entries()];
+  frames.delete(thirdId);
+  thirdCb(48);
+  await Promise.resolve();
+  assert.equal(committed, 1);
+  cancel();
+
+  // Cancellation aborts any pending commit cleanly.
+  let cancelledCommit = 0;
+  const abort = scheduleStableSurfaceCommit(() => {
+    cancelledCommit += 1;
+  });
+  assert.equal(frames.size, 1);
+  abort();
+  assert.equal(frames.size, 0);
+  assert.equal(cancelledCommit, 0);
+});

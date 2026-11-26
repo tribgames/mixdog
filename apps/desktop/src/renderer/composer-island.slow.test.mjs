@@ -185,6 +185,7 @@ test('background jobs show as one segment, expand to rows, collapse on Escape an
   await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
   assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'pill');
   await publish({ shellJobs: { count: 0, jobs: [] } });
+  await act(() => sleep(40));
   // Finished work leaves quietly: no flash notice.
   assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'pill');
   assert.equal(document.querySelector('.composer-island-flash'), null);
@@ -298,7 +299,7 @@ test('an agent blocked on a user approval reads as needing the user, not working
   assert.equal(state('ask-b').textContent, translate('Waiting for approval'));
 });
 
-test('the pill counts the working agents, as shells; finished ones stay listed after them; the Lead row is not listed', async (t) => {
+test('the pill counts the working agents, as shells; finished ones stay listed in their place; the Lead row is not listed', async (t) => {
   const { root, document, publishPool } = mount(t);
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
   const segment = () => document.querySelector('.composer-island-seg-agents');
@@ -316,14 +317,14 @@ test('the pill counts the working agents, as shells; finished ones stay listed a
   assert.ok(segment().querySelector('.composer-island-pulse'));
   await act(async () => segment().click());
   const rows = [...document.querySelectorAll('.agent-pool-row')];
-  // The active subtree (parent waiting on its running child) leads, whole and indented.
+  // In the order they were listed, work or none; a subtree (parent waiting on its running child) whole and indented.
   assert.deepEqual(
     rows.map((row) => row.dataset.agentTag),
-    ['parent-d', 'child-e', 'idle-a', 'done-b', 'stop-c']
+    ['idle-a', 'done-b', 'stop-c', 'parent-d', 'child-e']
   );
-  assert.equal(rows[1].dataset.agentDepth, String(Number(rows[0].dataset.agentDepth) + 1));
-  assert.equal(rows[0].querySelector('.agent-activity-elapsed').dataset.state, 'waiting');
-  assert.equal(rows[4].querySelector('.agent-activity-elapsed').dataset.state, 'cancelled');
+  assert.equal(rows[4].dataset.agentDepth, String(Number(rows[3].dataset.agentDepth) + 1));
+  assert.equal(rows[3].querySelector('.agent-activity-elapsed').dataset.state, 'waiting');
+  assert.equal(rows[2].querySelector('.agent-activity-elapsed').dataset.state, 'cancelled');
   // Everything finished: the word without a number, the idle mark, no pulse.
   await publishPool([
     poolAgent('idle-a', { sessionId: 's-idle', stage: 'idle', status: 'idle' }),
@@ -365,15 +366,21 @@ test('a working agent stays listed through a transient idle/done phase and an un
     [...document.querySelectorAll('.agent-pool-row')].map((row) => row.dataset.agentTag),
     ['between-a', 'between-b', 'between-c', 'lease-d', 'settled-e']
   );
-  // Only an actual idle moves a row below the active ones.
+  // An actual idle settles a row in its place.
   await publishPool([
     lead,
     poolAgent('between-a', { sessionId: 's-a', status: 'idle', stage: 'idle' }),
     poolAgent('between-b', { sessionId: 's-b', status: 'running', stage: 'streaming' }),
   ]);
   assert.deepEqual(
-    [...document.querySelectorAll('.agent-pool-row')].map((row) => row.dataset.agentTag),
-    ['between-b', 'between-a']
+    [...document.querySelectorAll('.agent-pool-row')].map((row) => [
+      row.dataset.agentTag,
+      row.querySelector('.agent-activity-elapsed').dataset.state,
+    ]),
+    [
+      ['between-a', 'idle'],
+      ['between-b', 'running'],
+    ]
   );
 });
 
@@ -396,6 +403,7 @@ test('the shell segment counts running shells only; finished ones leave a muted 
   assert.equal(seg().getAttribute('title'), translate('Shell {{shell}}', { shell: 1 }));
   assert.ok(seg().querySelector('.composer-island-mark-slot .composer-island-pulse'));
   await publish({ shellJobs: { count: 0, jobs: [], finished: [failed('count-a'), failed('count-b')] } });
+  await act(() => sleep(40));
   assert.equal(seg().textContent, translate('Shell'), 'the label alone, no number');
   assert.equal(seg().querySelector('.composer-island-seg-num'), null);
   assert.equal(seg().dataset.finished, 'true', 'muted');
@@ -641,6 +649,7 @@ test('Stop calls stopShellJob once; a refused stop keeps the row running with a 
       finished: [{ taskId: 'j1', command: 'npm test', status: 'cancelled', exitCode: 1, startedAt: 1, finishedAt: 2 }],
     },
   });
+  await act(() => sleep(40));
   assert.equal(
     document.querySelector('.composer-island-row .agent-activity-elapsed').textContent,
     translate('Island: Stopped')
@@ -3206,6 +3215,7 @@ test('a shell finishing never drops out of the segment between the running and f
   assert.equal(segment().textContent, '2 shells', 'running shells only');
   // The host drops "b" from the running list before it lists it as finished.
   await publish({ shellJobs: { count: 1, jobs: [job('a', 1000)], finished: [done('z', 500)] } });
+  await act(() => sleep(40));
   assert.equal(segment().textContent, '2 shells', 'the count does not dip');
   assert.ok(segment().querySelector('.composer-island-pulse'), 'still running');
   await publish({ shellJobs: { count: 1, jobs: [job('a', 1000)], finished: [done('b', 2000), done('z', 500)] } });
@@ -3220,6 +3230,7 @@ test('a shell whose finished record never comes leaves the segment after the gra
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
   await publish({ shellJobs: { count: 1, jobs: [{ taskId: 'a', command: 'x', startedAt: 1000 }] } });
   await publish({ shellJobs: { count: 0, jobs: [] } });
+  await act(async () => t.mock.timers.tick(20));
   assert.ok(document.querySelector('.composer-island-seg-shell'), 'kept during the grace');
   await act(async () => t.mock.timers.tick(2100));
   assert.equal(document.querySelector('.composer-island-seg-shell'), null);
@@ -3948,11 +3959,14 @@ test('the fit holds its form near the threshold: updates never flip it, and it e
  *  shells, a worktree branch, files with line counts, the git action) on one
  *  page the cases below share; reduced motion, so nothing glides. */
 let fullPill;
-function fullPillPage() {
-  fullPill ??= (async () => {
+/** `dock`: the island inside a composer region and its pane, as the app
+ *  mounts it (the pill and gap heights, the panel's room); scoped to `t` so
+ *  no second persistent tab backgrounds the shared page. */
+function fullPillPage({ dock = false, t } = {}) {
+  const create = async () => {
     const page = await realPage(
-      // The page closes with the shared browser.
-      { after() {} },
+      // The shared page closes with the shared browser; a dock page closes with its test.
+      dock ? t : { after() {} },
       `
         import React from 'react';
         import { flushSync } from 'react-dom';
@@ -3972,25 +3986,35 @@ function fullPillPage() {
         const h = React.createElement;
         const glyph = () => h('svg', { className: 'composer-island-seg-icon', width: 14, height: 14 });
         const root = createRoot(document.getElementById('root'));
-        window.__render = ({ all = true, approval = false } = {}) =>
+        const resumeAt = Date.now() + (4 * 60 + 54) * 60000;
+        window.__render = ({
+          all = true,
+          approval = false,
+          resume = false,
+          session = 'full',
+          parts = all ? ['goal', 'branch', 'files', 'git'] : [],
+        } = {}) =>
           flushSync(() =>
             root.render(
               h(ComposerIsland, {
-                sessionId: 'full',
-                goal: all ? h('div', { className: 'session-goal-island', 'data-state': 'running' },
+                sessionId: session,
+                quotaResume: resume
+                  ? { model: typeof resume === 'string' ? resume : 'GPT-6.2-Astra', resetAt: resumeAt, onCancel() {} }
+                  : null,
+                goal: parts.includes('goal') ? h('div', { className: 'session-goal-island', 'data-state': 'running' },
                   h('button', { type: 'button', className: 'session-goal-trigger' },
                     h('svg', { className: 'session-goal-ring', width: 16, height: 16 }),
                     h('span', { className: 'session-goal-meta' },
                       h('span', { className: 'session-goal-progress' }, '1/5'),
                       h('span', { className: 'session-goal-trigger-time' }, '1h 4m')))) : null,
-                branch: all ? () => h('button', { type: 'button', className: 'composer-island-seg composer-island-seg-branch' }, glyph(),
+                branch: parts.includes('branch') ? () => h('button', { type: 'button', className: 'composer-island-seg composer-island-seg-branch' }, glyph(),
                   h('span', { className: 'composer-island-seg-text' },
                     h('span', { className: 'composer-island-seg-label' }, h('span', { className: 'composer-island-seg-prefix' }, 'feature/'), 'island-fits-every-room')),
                   h('span', { className: 'composer-island-seg-sub' }, 'main')) : undefined,
-                files: all ? h('button', { type: 'button', className: 'composer-island-seg turn-review-segment' },
+                files: parts.includes('files') ? h('button', { type: 'button', className: 'composer-island-seg turn-review-segment' },
                   h(IslandSegLabel, { text: '1041 files', count: 1041, icon: 'file-diff' }),
                   h('span', { className: 'diff-stats' }, h('i', null, '+76424'), ' ', h('em', null, '-13245'))) : null,
-                git: all ? h('span', { className: 'composer-island-seg composer-island-git' },
+                git: parts.includes('git') ? h('span', { className: 'composer-island-seg composer-island-git' },
                   h('button', { type: 'button', className: 'composer-island-git-main' }, glyph(), h('span', null, 'Git'))) : null,
                 approval: approval ? h('div', { className: 'approval-prompt' }, 'Allow npm test?') : undefined,
               })
@@ -4012,9 +4036,18 @@ function fullPillPage() {
     );
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     await page.setViewport({ width: 1200, height: 800 });
+    if (dock) {
+      await page.evaluate(() => {
+        document.body.classList.add('conversation');
+        document.getElementById('root').classList.add('composer-region');
+      });
+    }
     return page;
-  })();
-  return fullPill;
+  };
+  if (dock) return create();
+  // A background tab runs no frames or resize deliveries.
+  fullPill ??= create();
+  return fullPill.then(async (page) => (await page.bringToFront(), page));
 }
 
 /** The pill's labels, least needed first. */
@@ -4079,7 +4112,6 @@ test('the pill gives way one label at a time, least needed first, and takes them
       ];
     });
   const down = changes(sweep.down);
-  const last = down.at(-1).to.form;
   assert.deepEqual(sweep.down[0].labels, names, 'every label shows with room');
   // One label per step in the order given, then the segments' spacing tightens.
   assert.deepEqual(
@@ -4110,7 +4142,318 @@ test('the pill gives way one label at a time, least needed first, and takes them
     assert.ok(sample.figures, `a count or mark gave way at ${sample.room}px`);
     // Only the capped name squeezes toward its glyph: the full name is never cut.
     if (sample.labels.includes('branch prefix')) assert.equal(sample.nameCut, false, `name cut at ${sample.room}px`);
-    if (sample.form !== last) assert.equal(sample.overflow, false, `overflows at ${sample.room}px`);
+    assert.equal(sample.overflow, false, `overflows at ${sample.room}px`);
+  }
+});
+
+test('a quota resume gives way to its time, then its clock, and no segment is cut off at any width', async () => {
+  const page = await fullPillPage();
+  const scenes = await page.evaluate(async () => {
+    const widths = [];
+    for (let width = 1160; width >= 120; width -= 10) widths.push(width);
+    const sweep = async (options) => {
+      window.__render(options);
+      const island = document.querySelector('.composer-island');
+      const pill = island.querySelector('.composer-island-pill');
+      const resume = pill.querySelector('.composer-island-seg-warning');
+      const shown = (node) => Boolean(node) && node.getClientRects().length > 0;
+      const parts = ['.composer-island-seg-text', '.composer-island-seg-time', '.composer-island-seg-sub'];
+      const samples = [];
+      for (const width of [...widths, ...widths.slice(0, -1).reverse()]) {
+        await window.__room(width);
+        const room = island.parentElement.getBoundingClientRect();
+        const box = island.getBoundingClientRect();
+        const outside = (rect) =>
+          rect.left < box.left - 0.5 ||
+          rect.right > box.right + 0.5 ||
+          rect.top < box.top - 0.5 ||
+          rect.bottom > box.bottom + 0.5;
+        samples.push({
+          room: Math.round(room.width),
+          form: island.getAttribute('data-fit'),
+          overflow: pill.scrollWidth > pill.clientWidth || box.left < room.left - 0.5 || box.right > room.right + 0.5,
+          cut: [...pill.querySelectorAll(':scope > :is(.composer-island-seg, .session-goal-island), svg')]
+            .filter(shown)
+            .some((node) => outside(node.getBoundingClientRect())),
+          clock: shown(resume.querySelector('svg')),
+          resume: parts.filter((selector) => shown(resume.querySelector(selector))),
+          text: resume.querySelector('.composer-island-seg-text').textContent,
+          time: resume.querySelector('.composer-island-seg-time')?.textContent ?? '',
+        });
+      }
+      return samples;
+    };
+    return {
+      // The reported pane: the resume beside a Goal and the branch, nothing else.
+      reported: await sweep({ resume: true, session: 'quota-stopped', parts: ['goal', 'branch'] }),
+      every: await sweep({ resume: true }),
+    };
+  });
+  for (const [scene, samples] of Object.entries(scenes)) {
+    for (const sample of samples) {
+      assert.equal(
+        sample.overflow || sample.cut,
+        false,
+        `${scene}: cut off at ${sample.room}px: ${JSON.stringify(sample)}`
+      );
+      assert.ok(sample.clock, `${scene}: the resume's clock gave way at ${sample.room}px`);
+    }
+  }
+  const forms = scenes.reported
+    .map((sample) => sample.resume.join(' '))
+    .filter((form, index, all) => form !== all[index - 1]);
+  const sentence = '.composer-island-seg-text .composer-island-seg-sub';
+  const time = '.composer-island-seg-time';
+  assert.deepEqual(forms, [sentence, time, '', time, sentence], 'the sentence, the time alone, the clock, and back');
+  const timed = scenes.reported.find((sample) => sample.resume.join(' ') === time);
+  assert.ok(timed.time !== '' && timed.text.includes(timed.time), JSON.stringify(timed));
+});
+
+/** The full pill with a resume, wrapped onto more than one line. */
+const WRAPPED_ROOM = 260;
+
+test('a pill that first reaches its last step in one move leaves measuring and wraps inside its room', async () => {
+  const page = await fullPillPage();
+  const read = await page.evaluate(async (room) => {
+    // A model name no earlier case read, so no width of its forms is remembered.
+    window.__render({ resume: 'First-Wrap-Model' });
+    await window.__room(1160);
+    await window.__room(room);
+    const island = document.querySelector('.composer-island');
+    const pill = island.querySelector('.composer-island-pill');
+    return {
+      measuring: island.getAttribute('data-measuring'),
+      tight: island.getAttribute('data-fit').split(' ').includes('tight'),
+      overflow: pill.scrollWidth > pill.clientWidth,
+      height: pill.getBoundingClientRect().height,
+      line: Number.parseFloat(getComputedStyle(pill).minHeight),
+    };
+  }, WRAPPED_ROOM);
+  assert.equal(read.measuring, null, JSON.stringify(read));
+  assert.ok(read.tight, JSON.stringify(read));
+  assert.equal(read.overflow, false, JSON.stringify(read));
+  assert.ok(read.height > read.line + 10, `the pill did not wrap: ${JSON.stringify(read)}`);
+});
+
+test("a wrapped pill's later lines open without a separator, and no group divider stands at a line's end", async () => {
+  const page = await fullPillPage();
+  const lines = await page.evaluate(async (room) => {
+    window.__render({ resume: true });
+    await window.__room(1160);
+    await window.__room(room);
+    const pill = document.querySelector('.composer-island-pill');
+    const shown = [...pill.children].filter((child) => child.getClientRects().length > 0);
+    const rows = [];
+    for (const child of shown) {
+      const rect = child.getBoundingClientRect();
+      const row = rows.find((each) => rect.top < each.bottom - 0.5 && rect.bottom > each.top + 0.5);
+      const item = {
+        name: child.className,
+        separator: getComputedStyle(child, '::before').content !== 'none',
+        margin: Number.parseFloat(getComputedStyle(child).marginInlineStart) || 0,
+      };
+      if (row) row.items.push(item);
+      else rows.push({ top: rect.top, bottom: rect.bottom, items: [item] });
+    }
+    return rows.map((row) => row.items);
+  }, WRAPPED_ROOM);
+  assert.ok(lines.length > 1, `one line only: ${JSON.stringify(lines)}`);
+  assert.ok(
+    lines.flat().every((item) => !item.name.includes('composer-island-divider')),
+    JSON.stringify(lines)
+  );
+  for (const line of lines) {
+    assert.deepEqual(
+      [line[0].separator, line[0].margin],
+      [false, 0],
+      `a line opens with a gap: ${JSON.stringify(line)}`
+    );
+    for (const item of line.slice(1)) assert.ok(item.separator, `a separator went missing: ${JSON.stringify(line)}`);
+  }
+});
+
+test('a panel opened from a wrapped pill rises from its resting floor and keeps the slot height', async (t) => {
+  const page = await fullPillPage({ dock: true, t });
+  const read = await page.evaluate(async (room) => {
+    window.__render({ resume: true });
+    await window.__room(1160);
+    await window.__room(room);
+    await window.__frame();
+    const slot = document.querySelector('.composer-island-slot');
+    const island = document.querySelector('.composer-island');
+    const rest = {
+      slot: slot.getBoundingClientRect().height,
+      bottom: island.getBoundingClientRect().bottom,
+      pill: island.querySelector('.composer-island-pill').getBoundingClientRect().height,
+    };
+    document.querySelector('.composer-island-seg-shell').click();
+    await window.__frame();
+    await window.__frame();
+    const open = {
+      mode: island.getAttribute('data-mode'),
+      slot: slot.getBoundingClientRect().height,
+      bottom: island.getBoundingClientRect().bottom,
+    };
+    document.querySelector('.composer-island-close').click();
+    await window.__frame();
+    return { rest, open };
+  }, WRAPPED_ROOM);
+  assert.equal(read.open.mode, 'panel');
+  assert.ok(read.rest.pill > 40, `the pill did not wrap: ${JSON.stringify(read)}`);
+  assert.ok(Math.abs(read.open.slot - read.rest.slot) < 0.5, `the slot moved: ${JSON.stringify(read)}`);
+  assert.ok(Math.abs(read.open.bottom - read.rest.bottom) < 0.5, `the panel left the floor: ${JSON.stringify(read)}`);
+});
+
+test('a shortened resume keeps the whole sentence and the time left in its accessible name', async () => {
+  const page = await fullPillPage();
+  const shown = await page.evaluate(async (room) => {
+    window.__render({ resume: true });
+    await window.__room(1160);
+    await window.__room(room);
+    const resume = document.querySelector('.composer-island-seg-resume');
+    return {
+      text: resume.querySelector('.composer-island-seg-text').textContent,
+      remaining: resume.querySelector('.composer-island-seg-sub').textContent,
+      sentence: resume.querySelector('.composer-island-seg-text').getClientRects().length > 0,
+    };
+  }, WRAPPED_ROOM);
+  assert.equal(shown.sentence, false, 'the sentence gave way at this width');
+  const button = await page.$('.composer-island-seg-resume');
+  let node;
+  try {
+    node = await page.accessibility.snapshot({ root: button });
+  } finally {
+    await button.dispose();
+  }
+  assert.ok(shown.remaining !== '', JSON.stringify(shown));
+  assert.equal(node.name, `${shown.text}, ${shown.remaining}`);
+});
+
+test('a pill that wraps glides its segments and frame down to their lines, not only sideways', async () => {
+  const page = await fullPillPage();
+  await page.evaluate(async () => {
+    window.__render({ resume: true });
+    await window.__room(1160);
+    await window.__frame();
+  });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
+  try {
+    const read = await page.evaluate(async (room) => {
+      const island = document.querySelector('.composer-island');
+      const segments = [...island.querySelector('.composer-island-pill').children].filter(
+        (child) => child.getClientRects().length > 0
+      );
+      const before = new Map(segments.map((segment) => [segment, segment.getBoundingClientRect().top]));
+      await window.__room(room);
+      const firstFrame = (element) =>
+        element
+          .getAnimations({ subtree: true })
+          .filter((animation) => animation.id === 'island-glide' && animation.effect.target === element)
+          .map((animation) => ({
+            pseudo: animation.effect.pseudoElement,
+            from: animation.effect.getKeyframes()[0],
+          }));
+      // Laid out: the painted box less the glide's own offset.
+      const laidOutTop = (segment) =>
+        segment.getBoundingClientRect().top - new DOMMatrixReadOnly(getComputedStyle(segment).transform).m42;
+      const dropped = segments
+        .filter((segment) => segment.isConnected && segment.getClientRects().length > 0)
+        .map((segment) => ({
+          dy: before.get(segment) - laidOutTop(segment),
+          from: firstFrame(segment).map((glide) => glide.from.transform),
+        }))
+        .filter((segment) => Math.abs(segment.dy) > 1);
+      return { dropped, frame: firstFrame(island).find((glide) => glide.pseudo === '::before')?.from ?? null };
+    }, WRAPPED_ROOM);
+    assert.ok(read.dropped.length > 0, `nothing moved to another line: ${JSON.stringify(read)}`);
+    for (const segment of read.dropped) {
+      const y = Number(/translate\([^,]+,\s*(-?[\d.]+)px\)/.exec(segment.from[0] ?? '')?.[1]);
+      assert.ok(Math.abs(y - segment.dy) < 1, `the glide misses the drop: ${JSON.stringify(segment)}`);
+    }
+    assert.ok(
+      read.frame && Number.parseFloat(read.frame.top) !== 0,
+      `the frame's top did not ease: ${JSON.stringify(read)}`
+    );
+  } finally {
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  }
+});
+
+test('resizing a tight pill across a line-wrap boundary refreshes glide positions without jumping on the next text tick', async () => {
+  const page = await fullPillPage();
+  const pair = await page.evaluate(async () => {
+    window.__render({ resume: true });
+    const island = document.querySelector('.composer-island');
+    const pill = island.querySelector('.composer-island-pill');
+    const lineCount = () => {
+      const tops = [];
+      for (const child of pill.children) {
+        if (child.getClientRects().length === 0) continue;
+        const rect = child.getBoundingClientRect();
+        if (!tops.some((each) => rect.top < each.bottom - 0.5 && rect.bottom > each.top + 0.5)) {
+          tops.push({ top: rect.top, bottom: rect.bottom });
+        }
+      }
+      return tops.length;
+    };
+    let prev = null;
+    for (let width = 460; width >= 140; width -= 20) {
+      await window.__room(width);
+      const fit = island.getAttribute('data-fit') ?? '';
+      const lines = lineCount();
+      if (prev && prev.fit === fit && fit.split(' ').includes('tight') && lines > prev.lines) {
+        return { from: prev.width, to: width, fit, linesBefore: prev.lines, linesAfter: lines };
+      }
+      prev = { width, fit, lines };
+    }
+    return null;
+  });
+  assert.ok(pair, 'expected two widths sharing data-fit~="tight" across a wrap boundary');
+  await page.evaluate(async (width) => {
+    await window.__room(width);
+    await window.__frame();
+  }, pair.from);
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
+  try {
+    const read = await page.evaluate(async (toWidth) => {
+      const island = document.querySelector('.composer-island');
+      const fitBefore = island.getAttribute('data-fit');
+      const activeGlides = () =>
+        island
+          .getAnimations({ subtree: true })
+          .filter((animation) => animation.id === 'island-glide')
+          .map((animation) => ({
+            pseudo: animation.effect?.pseudoElement ?? null,
+            from: animation.effect?.getKeyframes?.()[0] ?? null,
+          }));
+      await window.__room(toWidth);
+      const fitAfter = island.getAttribute('data-fit');
+      const resizeGlides = activeGlides();
+      const sub = island.querySelector('.composer-island-seg-resume .composer-island-seg-sub');
+      const original = sub.textContent;
+      sub.firstChild.data = original === '4h 53m' ? '4h 52m' : '4h 53m';
+      await Promise.resolve();
+      await Promise.resolve();
+      const tickGlides = activeGlides();
+      sub.firstChild.data = original;
+      return { fitBefore, fitAfter, resizeGlides, tickGlides };
+    }, pair.to);
+    assert.equal(read.fitAfter, read.fitBefore, `data-fit changed unexpectedly: ${JSON.stringify(read)}`);
+    assert.deepEqual(read.resizeGlides, [], `spurious glides fired on tight resize: ${JSON.stringify(read)}`);
+    for (const glide of read.tickGlides) {
+      if (glide.pseudo === '::before') {
+        assert.ok(
+          Math.abs(Number.parseFloat(glide.from?.top ?? '0')) <= 0.5 &&
+            Math.abs(Number.parseFloat(glide.from?.bottom ?? '0')) <= 0.5,
+          `stale frame vertical jump on text tick: ${JSON.stringify(read)}`
+        );
+      } else if (glide.from?.transform) {
+        const y = Number(/translate\([^,]+,\s*(-?[\d.]+)px\)/.exec(glide.from.transform)?.[1] ?? 0);
+        assert.ok(Math.abs(y) <= 0.5, `stale segment vertical jump on text tick: ${JSON.stringify(read)}`);
+      }
+    }
+  } finally {
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   }
 });
 
@@ -4265,4 +4608,71 @@ test("the approval card keeps its width whatever the pill's, and the session pan
     return { card, popup };
   });
   assert.deepEqual(widths, { card: 560, popup: 300 });
+});
+
+test('wrapped tight mode keeps group hairline past an intervening reserve and recomputes --island-rest-pill-height on panel resize', async () => {
+  const page = await fullPillPage();
+  const result = await page.evaluate(async () => {
+    window.__render({ all: true, resume: true });
+    // Narrow enough to force tight wrapped multi-line pill.
+    await window.__room(220);
+    await window.__frame();
+    const stage = document.querySelector('.composer-island-stage');
+    const island = document.querySelector('.composer-island');
+    const pill = island.querySelector('.composer-island-pill');
+    const divider = pill.querySelector('.composer-island-divider');
+    // Insert a reserve placeholder right after the divider before the first git-group segment.
+    const reserve = document.createElement('span');
+    reserve.className = 'composer-island-reserve';
+    reserve.setAttribute('data-island-pending', 'branch');
+    reserve.style.width = '12px';
+    divider.after(reserve);
+    const segAfterReserve = reserve.nextElementSibling;
+    const hadLineStart = segAfterReserve?.hasAttribute('data-line-start') ?? false;
+    segAfterReserve?.removeAttribute('data-line-start');
+    const beforeContent = segAfterReserve ? getComputedStyle(segAfterReserve, '::before').content : '';
+    if (hadLineStart) segAfterReserve?.setAttribute('data-line-start', '');
+    reserve.remove();
+
+    // Post-refit --island-rest-pill-height matches the wrapped pill height immediately (no 1-frame lag).
+    const wrappedPillHeight = pill.getBoundingClientRect().height;
+    const wrappedRestHeight = Number.parseFloat(stage.style.getPropertyValue('--island-rest-pill-height'));
+
+    // Open an own panel (shells) while wrapped, then widen the pane to a single-line width while panel stays open.
+    island.querySelector('.composer-island-seg-shell').click();
+    await window.__frame();
+    const modeWhileOpen = island.getAttribute('data-mode');
+    await window.__room(900);
+    await window.__frame();
+    const widenedRestHeight = Number.parseFloat(stage.style.getPropertyValue('--island-rest-pill-height'));
+    // Narrow back while the panel stays open to confirm wrapped height recomputes in both directions.
+    await window.__room(220);
+    await window.__frame();
+    const renarrowedRestHeight = Number.parseFloat(stage.style.getPropertyValue('--island-rest-pill-height'));
+    island.querySelector('.composer-island-close')?.click();
+    await window.__frame();
+    return {
+      tight: (island.getAttribute('data-fit') ?? '').split(' ').includes('tight'),
+      beforeContent,
+      wrappedPillHeight,
+      wrappedRestHeight,
+      modeWhileOpen,
+      widenedRestHeight,
+      renarrowedRestHeight,
+    };
+  });
+  assert.equal(result.beforeContent, '""', `expected hairline ::before past reserve: ${JSON.stringify(result)}`);
+  assert.ok(
+    Math.abs(result.wrappedRestHeight - result.wrappedPillHeight) < 1,
+    `expected post-refit rest height to match wrapped pill: ${JSON.stringify(result)}`
+  );
+  assert.equal(result.modeWhileOpen, 'panel');
+  assert.ok(
+    result.widenedRestHeight < result.wrappedRestHeight - 10,
+    `expected --island-rest-pill-height to shrink when widened while panel is open: ${JSON.stringify(result)}`
+  );
+  assert.ok(
+    Math.abs(result.renarrowedRestHeight - result.wrappedPillHeight) < 1,
+    `expected --island-rest-pill-height to grow back when narrowed while panel is open: ${JSON.stringify(result)}`
+  );
 });

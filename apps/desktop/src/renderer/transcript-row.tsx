@@ -23,10 +23,15 @@ import { stripAgentMessageEnvelope } from '../shared/core-src/runtime/shared/age
 import { localizeHeartbeatBreakerNotice, localizeRouteFallbackNotice } from './error-notice-copy';
 import MarkdownBody from './MarkdownBody';
 import { MarkdownResponse } from './MarkdownResponse';
+import type { MarkdownAstRoot } from './markdown-ast';
 import { dropStreamFadeTimeline, type StreamFadeTimeline, streamFadeTimeline } from './markdown-stream-fade';
 import {
+  canSyncParseMarkdown,
+  parseStreamingMarkdownAst,
   preloadSyncMarkdownParser,
+  readCachedStreamingMarkdownAst,
   subscribeSyncMarkdownParser,
+  SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS,
   syncMarkdownParserLoad,
 } from './markdown-worker-client';
 import { CopyControl } from './transcript-primitives';
@@ -116,16 +121,17 @@ function useStreamFade(
   const now = performance.now();
   const pass = timeline ? timeline.read(text, now, revision, !streaming) : null;
   const live = streaming || (timeline ? timeline.owes(text.length) || timeline.visibleUntil(now) > 0 : false);
-  const [, fadeEnded] = useState(0);
+  const [fadeTick, fadeEnded] = useState(0);
+  const visibleUntil = timeline && !streaming && live ? timeline.visibleUntil(now) : 0;
   useLayoutEffect(() => {
     if (timeline && pass) timeline.commit(pass);
-  });
+  }, [timeline, pass]);
   useEffect(() => {
-    const until = timeline && !streaming && live ? timeline.visibleUntil(performance.now()) : 0;
-    if (!until) return;
-    const timer = setTimeout(() => fadeEnded((count) => count + 1), Math.max(0, until - performance.now()));
+    if (!timeline || streaming || !live || !visibleUntil) return undefined;
+    const delay = Math.max(0, Math.ceil(visibleUntil - performance.now()));
+    const timer = setTimeout(() => fadeEnded(fadeTick + 1), delay);
     return () => clearTimeout(timer);
-  });
+  }, [timeline, streaming, live, visibleUntil, fadeTick]);
   useEffect(() => {
     if (timeline && !live) dropStreamFadeTimeline(key);
   }, [timeline, live, key]);
@@ -272,6 +278,31 @@ export const TranscriptDevicesContext = createContext(false);
  *  sent from this device is never labelled "from <this device>". */
 export const TranscriptViewerDeviceContext = createContext<string | null>('');
 
+const streamingRowCounts = new Map<string, number>();
+const streamingRowListeners = new Map<string, Set<() => void>>();
+
+function notifyRowStreaming(key: string): void {
+  for (const listener of [...(streamingRowListeners.get(key) ?? [])]) listener();
+}
+
+function subscribeRowStreaming(key: string, listener: () => void): () => void {
+  if (!key) return () => {};
+  let bucket = streamingRowListeners.get(key);
+  if (!bucket) {
+    bucket = new Set();
+    streamingRowListeners.set(key, bucket);
+  }
+  bucket.add(listener);
+  return () => {
+    bucket.delete(listener);
+    if (bucket.size === 0 && streamingRowListeners.get(key) === bucket) streamingRowListeners.delete(key);
+  };
+}
+
+function isRowVisuallyStreaming(key: string): boolean {
+  return Boolean(key && (streamingRowCounts.get(key) ?? 0) > 0);
+}
+
 /** Whether a settled reply carries a response footer (status line + copy). */
 export function showsResponseFooter(item: TranscriptItem, completion?: TranscriptItem): boolean {
   return item.kind === 'assistant' && !item.streaming && Boolean(completion) && isVisibleTranscriptItem(item);
@@ -286,6 +317,7 @@ export function TranscriptResponseFooter({
   completionActivityKey,
   backgroundWork,
   trailing = false,
+  revealKey = '',
 }: {
   item: TranscriptItem;
   completion: TranscriptItem;
@@ -294,7 +326,20 @@ export function TranscriptResponseFooter({
   backgroundWork?: BackgroundWorkCounts;
   /** Rendered after the turn's cards rather than inside the message. */
   trailing?: boolean;
+  /** Row reveal key of the closing assistant part so a trailing footer waits
+   *  until paced text drain / final parse finishes before showing Completed. */
+  revealKey?: string;
 }) {
+  const subscribe = useCallback(
+    (listener: () => void) => (trailing && revealKey ? subscribeRowStreaming(revealKey, listener) : () => {}),
+    [trailing, revealKey]
+  );
+  const getStreaming = useCallback(
+    () => (trailing && revealKey ? isRowVisuallyStreaming(revealKey) : false),
+    [trailing, revealKey]
+  );
+  const rowStreaming = useSyncExternalStore(subscribe, getStreaming, () => false);
+  if (rowStreaming) return null;
   // Only the footer shows the time. Formatting it per render cost the live
   // row a locale lookup on every streamed commit.
   const metadata = messageMetadata(item);
@@ -347,21 +392,87 @@ function NoticeRow({ item, sessionId }: { item: TranscriptItem; sessionId: strin
 
 function useRowStreaming(item: TranscriptItem, revealKey: string, paced: boolean) {
   const assistant = item.kind === 'assistant';
+  const rawText = assistant ? String(item.text || '') : '';
   const streamedHere = useRef(false);
-  if (assistant && item.streaming) streamedHere.current = true;
+  const lastStreamingText = useRef('');
+  const cachedFinal = useRef<{ text: string; root: MarkdownAstRoot } | null>(null);
+  if (assistant && item.streaming) {
+    streamedHere.current = true;
+    lastStreamingText.current = rawText;
+    cachedFinal.current = null;
+  }
   const parserLoad = useSyncExternalStore(subscribeSyncMarkdownParser, syncMarkdownParserLoad, syncMarkdownParserLoad);
   const ending = streamedHere.current && !item.streaming;
   if (ending && typeof parserLoad === 'object') throw parserLoad.error;
-  const streaming = Boolean(item.streaming) || (ending && parserLoad !== 'ready');
+  const [resolvedFinal, setResolvedFinal] = useState<{ text: string; root: MarkdownAstRoot } | null>(null);
+  const waitingForParser = ending && parserLoad !== 'ready';
+  const knownFinalRoot =
+    ending && parserLoad === 'ready' && rawText
+      ? resolvedFinal?.text === rawText
+        ? resolvedFinal.root
+        : cachedFinal.current?.text === rawText
+          ? cachedFinal.current.root
+          : readCachedStreamingMarkdownAst(rawText)
+      : null;
+  // Long or math-bearing endings parse off-thread before leaving streaming so
+  // the tail, its fade, and settlement commit together.
+  const waitingForFinalParse =
+    ending &&
+    parserLoad === 'ready' &&
+    Boolean(rawText) &&
+    !knownFinalRoot &&
+    (rawText.length > SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS || !canSyncParseMarkdown(rawText));
+  const holdPreEndText = waitingForParser || waitingForFinalParse;
+  const revealStreaming = Boolean(item.streaming) || holdPreEndText;
   useEffect(() => {
-    if (streaming && !item.streaming) void preloadSyncMarkdownParser();
-  }, [streaming, item.streaming]);
+    if (waitingForParser) void preloadSyncMarkdownParser();
+  }, [waitingForParser]);
+  useEffect(() => {
+    if (!waitingForFinalParse) return undefined;
+    let active = true;
+    void parseStreamingMarkdownAst(rawText).then((root) => {
+      if (active) setResolvedFinal({ text: rawText, root });
+    });
+    return () => {
+      active = false;
+    };
+  }, [waitingForFinalParse, rawText]);
   const revealed = useTranscriptTextReveal({
     key: assistant ? revealKey : '',
-    text: assistant ? String(item.text || '') : '',
-    streaming,
+    text: holdPreEndText ? lastStreamingText.current : rawText,
+    streaming: revealStreaming,
     paced,
   });
+  const streaming = revealStreaming || revealed.draining;
+  // Once settled, end the streaming-to-settled handoff so later AST cache
+  // reclaim + rerender cannot revert the row to stale `lastStreamingText`.
+  useLayoutEffect(() => {
+    if (!assistant) return;
+    if (!streaming) {
+      streamedHere.current = false;
+      lastStreamingText.current = '';
+      cachedFinal.current = null;
+    } else if (ending && knownFinalRoot) {
+      cachedFinal.current = { text: rawText, root: knownFinalRoot };
+    }
+  }, [assistant, streaming, ending, knownFinalRoot, rawText]);
+  const visualStreaming = assistant && Boolean(revealKey) && streaming;
+  useLayoutEffect(() => {
+    if (!visualStreaming) return undefined;
+    const prior = streamingRowCounts.get(revealKey) ?? 0;
+    streamingRowCounts.set(revealKey, prior + 1);
+    if (prior === 0) notifyRowStreaming(revealKey);
+    return () => {
+      const next = (streamingRowCounts.get(revealKey) ?? 0) - 1;
+      if (next > 0) {
+        streamingRowCounts.set(revealKey, next);
+      } else {
+        streamingRowCounts.delete(revealKey);
+        notifyRowStreaming(revealKey);
+      }
+    };
+  }, [visualStreaming, revealKey]);
+  const finalRoot = !streaming && knownFinalRoot && revealed.text === rawText ? knownFinalRoot : null;
   const fade = useStreamFade(assistant && paced ? revealKey : '', revealed.text, streaming, revealed.revision);
   const live = assistant && fade.live;
   const previousStreaming = useRef(streaming);
@@ -369,7 +480,7 @@ function useRowStreaming(item: TranscriptItem, revealKey: string, paced: boolean
   useEffect(() => {
     previousStreaming.current = streaming;
   }, [streaming]);
-  return { streaming, revealed, fade, live, announceSettled };
+  return { streaming, revealed, finalRoot, fade, live, announceSettled };
 }
 
 function foldUserContent(item: TranscriptItem, text: string, pastedTexts: readonly (string | undefined)[]) {
@@ -426,7 +537,7 @@ export const TranscriptRow = memo(
     const viewerDevice = useContext(TranscriptViewerDeviceContext);
     const sessionScope = useContext(MarkdownSessionContext);
     const { texts: pastedTexts, records: pastedTokenRecords } = useSentPastedTexts(item, sessionScope);
-    const { streaming, revealed, fade, live, announceSettled } = useRowStreaming(item, revealKey, paced);
+    const { streaming, revealed, finalRoot, fade, live, announceSettled } = useRowStreaming(item, revealKey, paced);
     const { menuProps, menuElement } = useAttachmentContextMenu(useContext(MarkdownOpenFileContext));
     if (item.kind === 'tool') {
       if (shouldSuppressFullyFailedToolItem(item)) return null;
@@ -524,6 +635,7 @@ export const TranscriptRow = memo(
                     // Ended, its text parses as final even while the row
                     // stays live for a parse to land or a fade to run.
                     streaming={streaming}
+                    preparsedRoot={finalRoot}
                     fadeTimeline={fade.timeline}
                   />
                 </MarkdownTranscriptItemContext.Provider>

@@ -11,6 +11,9 @@ installTestDom(null, {
   expose: ['Element', 'HTMLElement', 'MouseEvent', 'Event'],
 });
 
+const { _runIdleReclaimForTest } = await import('./idle-reclaim.ts');
+const { enforceRendererCacheBudget, totalBudgetedChars } = await import('./renderer-cache-budget.ts');
+const { SurfaceActiveContext } = await import('./surface-activity.ts');
 const {
   FullToolOutputButton,
   heldToolOutputReads,
@@ -18,9 +21,7 @@ const {
   releaseToolOutputPrefetch,
   resetFullToolOutputs,
   useFullToolOutput,
-} = await import(
-  './tool-full-output.tsx'
-);
+} = await import('./tool-full-output.tsx');
 
 const FULL = 'full output '.repeat(2_000);
 const CUT = {
@@ -381,9 +382,104 @@ test('a row the core sent cut is read when the person asks, never ahead of that'
   };
   const onRequest = { ...CUT, id: 'core-cut', remoteOutputOnRequest: true };
   await act(async () => prefetchToolOutputs('session-1', [onRequest, { ...CUT, id: 'phone-cut' }], {}));
-  assert.deepEqual(reads, [['session-1', 'phone-cut']], 'the phone-cut row is prefetched from its own state, the core-cut one is not');
+  assert.deepEqual(
+    reads,
+    [['session-1', 'phone-cut']],
+    'the phone-cut row is prefetched from its own state, the core-cut one is not'
+  );
   const view = await mount(onRequest);
   await view.click();
   assert.deepEqual(reads.at(-1), ['session-1', 'core-cut'], 'pressing "Show full output" reads it');
   await view.unmount();
+});
+
+test('observed tool outputs count in the shared budget, release heavy payloads when hidden while preserving viewed receipts, and drop unobserved failures', async (t) => {
+  resetFullToolOutputs();
+  const originalApi = window.mixdogDesktop;
+  const bigOutput = 'Z'.repeat(120_000);
+  let shouldFail = false;
+  const readCalls = [];
+  t.after(() => {
+    resetFullToolOutputs();
+    window.mixdogDesktop = originalApi;
+  });
+  window.mixdogDesktop = {
+    readTranscriptItem: async (_sessionId, id, replayToken) => {
+      readCalls.push({ id, replayToken });
+      if (shouldFail) throw new Error('boom');
+      return { id, result: bigOutput, replayToken: 'tok-1' };
+    },
+  };
+  const cut = { ...CUT, id: 'call-hidden-pane', remoteOutputTruncated: bigOutput.length };
+  const failCut = { ...CUT, id: 'call-fail-pane', remoteOutputTruncated: bigOutput.length };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = (active, item = cut, wanted = true) =>
+    act(async () =>
+      root.render(
+        React.createElement(
+          SurfaceActiveContext.Provider,
+          { value: active },
+          React.createElement(Harness, { item, wanted })
+        )
+      )
+    );
+  try {
+    const before = totalBudgetedChars();
+    await render(true);
+    await act(async () =>
+      host.querySelector('button').dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+    );
+    await act(async () => Promise.resolve());
+    assert.equal(heldToolOutputReads(), 1);
+    assert.ok(totalBudgetedChars() - before >= 120_000, 'observed read is accounted in the shared cache budget');
+
+    // Hiding the retained pane drops the heavy loaded payload immediately.
+    await render(false);
+    assert.equal(heldToolOutputReads(), 0, 'hiding a retained pane releases its loaded read');
+    assert.ok(totalBudgetedChars() - before < 120_000, 'hidden pane no longer holds observed read chars in budget');
+
+    // Idle reclaim and budget trim preserve the tiny viewed receipt + replayToken so returning re-fetches seamlessly.
+    _runIdleReclaimForTest();
+    enforceRendererCacheBudget(0);
+    await render(true);
+    await act(async () => Promise.resolve());
+    assert.equal(readCalls.length, 2, 'returning to an expanded row auto-reloads after reclaim/trim');
+    assert.equal(readCalls[1].replayToken, 'tok-1', 'viewed receipt preserves replayToken across reclaim/trim');
+
+    // An unobserved failure is cleared by idle reclaim (and budget trim), never lingering until session delete.
+    shouldFail = true;
+    await render(true, failCut, false);
+    await act(async () =>
+      host.querySelector('button').dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+    );
+    await act(async () => Promise.resolve());
+    assert.equal(host.querySelector('button')?.textContent, 'Retry');
+    await render(false, failCut, false);
+    _runIdleReclaimForTest();
+    await render(true, failCut, false);
+    assert.equal(
+      host.querySelector('button')?.textContent,
+      'Show full output',
+      'unobserved failure cleared on idle reclaim'
+    );
+
+    // Budget trim also drops unobserved failure metadata.
+    await act(async () =>
+      host.querySelector('button').dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+    );
+    await act(async () => Promise.resolve());
+    await render(false, failCut, false);
+    enforceRendererCacheBudget(0);
+    await render(true, failCut, false);
+    assert.equal(
+      host.querySelector('button')?.textContent,
+      'Show full output',
+      'unobserved failure cleared on budget trim'
+    );
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
 });

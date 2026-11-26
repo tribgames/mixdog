@@ -4,6 +4,7 @@ import { useCallback, useId, useMemo, useRef, useState, useSyncExternalStore } f
 import type { DesktopModelOption } from '../../shared/contract';
 import { errorMessage } from '../editor-pane-session-errors';
 import { t } from '../i18n';
+import { useMobileBack } from '../mobile-back';
 import { scrimDismiss } from '../scrim-dismiss';
 import { ErrorNotice, errorSummary } from '../ErrorNotice';
 import {
@@ -314,6 +315,14 @@ export function ModelManagementCard({
       setSaving(false);
     }
   };
+  useMobileBack(
+    true,
+    () => {
+      if (saving) return false;
+      onClose();
+    },
+    'modal'
+  );
   return (
     // Scrim click-to-dismiss; keyboard dismissal is the close button and Escape.
     <div

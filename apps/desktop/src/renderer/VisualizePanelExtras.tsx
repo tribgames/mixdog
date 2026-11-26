@@ -6,6 +6,7 @@ import { dismissDesktopToast, showDesktopToast } from './desktop-toasts';
 import { fileDownloadFailureMessage } from './file-download-transfer';
 import { confirmAction } from './app-confirm';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import type { DockAction } from './pane-dock-chrome';
 import { downloadBlob, visualizePaneHasSource, visualizeSourceFileName } from './visualize-source';
 import { readVisualizeInlineBody } from './visualize-inline-body';
@@ -112,7 +113,11 @@ export function visualizeVersionActions(
   const position = visualizeVersionPosition(tab);
   if (!position) return null;
   const snapshot = tab.version ?? null;
+  const liveUnkept = tab.liveUnkept === true;
   const refused = (reason: unknown) => setNotice({ error: true, text: visualizeFailureMessage(reason) });
+  const showLive = () => {
+    void requestVisualizeVersion(sessionId, tab.id, null).catch(refused);
+  };
   const show = (version: number | null) => {
     // Comparing stays on: the newest version then sits beside live.
     const step = tab.compare
@@ -142,16 +147,19 @@ export function visualizeVersionActions(
   const list = [...(tab.versions ?? [])].reverse();
   const items: DockAction[] = [];
   if (snapshot !== null) {
-    items.push({ id: 'version-live', label: t('Back to current version'), icon: Undo2, onSelect: () => show(null) });
+    items.push({ id: 'version-live', label: t('Back to current version'), icon: Undo2, onSelect: showLive });
+  } else if (liveUnkept) {
+    items.push({ id: 'version-live', label: t('Current version'), checked: true, onSelect: showLive });
   }
   list.forEach((version, index) => {
+    const isCurrentKept = version.n === position.newest && !liveUnkept;
     items.push({
       id: `version-${version.n}`,
-      label: version.n === position.newest ? t('v{{n}} · current', { n: version.n }) : versionTag(version.n),
+      label: isCurrentKept ? t('v{{n}} · current', { n: version.n }) : versionTag(version.n),
       detail: visualizeHistoryTime(version.at),
       checked: version.n === position.shown,
-      separatorBefore: index === 0 && snapshot !== null,
-      onSelect: () => (version.n === position.newest && !tab.compare ? show(null) : show(version.n)),
+      separatorBefore: index === 0 && (snapshot !== null || liveUnkept),
+      onSelect: () => (isCurrentKept && !tab.compare ? show(null) : show(version.n)),
     });
   });
   items.push({
@@ -199,11 +207,13 @@ export function useVisualizePanelExtras(
   sessionId: string,
   state: VisualizeSessionState,
   tab: Tab | null,
-  remote: boolean
+  remote: boolean,
+  active = true
 ): { actions: DockAction[]; strips: ReactNode; sourceOn: boolean } {
   const tabId = tab?.id ?? '';
   const [sourceTabs, setSourceTabs] = useState<ReadonlySet<string>>(new Set());
   const [historyOpen, setHistoryOpen] = useState(false);
+  useMobileBack(active && historyOpen && tab !== null && Boolean(state.history), () => setHistoryOpen(false));
   // One toast at a time per panel; a newer outcome replaces the previous one.
   const toast = useRef<string | undefined>(undefined);
   const setNotice = useCallback((notice: Notice | null) => {

@@ -1675,7 +1675,7 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   display: flex;
   align-items: center;
   margin: 0;
-  padding: 0 8px;
+  padding: 0;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-label);
@@ -1696,9 +1696,10 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   display: flex;
   align-items: center;
   gap: 4px;
-  width: 100%;
+  width: calc(100% + 12px);
   min-height: 28px;
-  padding: 0 8px;
+  margin-inline: -6px;
+  padding: 0 6px;
   border: 0;
   border-radius: 9px;
   background: transparent;
@@ -1772,7 +1773,7 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   grid-template-columns: var(--mx-icon-md) minmax(0, 1fr);
   align-items: start;
   column-gap: 10px;
-  padding: 7px 8px;
+  padding: 7px 0;
   border-radius: 9px;
   background: transparent;
 }
@@ -1787,7 +1788,7 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 }
 .session-goal-tasks li.session-goal-phase {
   display: block;
-  padding: 5px 8px;
+  padding: 5px 0;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-label);
@@ -1827,6 +1828,7 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   height: var(--mx-line-ui);
   display: grid;
   place-items: center;
+  transform: translateX(-2px);
   /* A waiting step's ring is quieter than any text beside it. */
   color: color-mix(in srgb, var(--mx-text) 30%, transparent);
 }
@@ -1950,8 +1952,13 @@ html[data-mixdog-mobile-tabs] .session-goal-fold,
 html[data-mixdog-mobile-tabs] .session-goal-link {
   min-height: var(--mx-touch, 44px);
 }
+html[data-mixdog-mobile-tabs] .session-goal-fold {
+  width: 100%;
+  margin-inline: 0;
+}
 /* The phone's rows have no inline inset: its headings start with them. */
-html[data-mixdog-mobile-tabs] :is(.session-goal-group-label, .session-goal-fold, .session-goal-tasks li.session-goal-phase) {
+html[data-mixdog-mobile-tabs]
+  :is(.session-goal-group-label, .session-goal-fold, .session-goal-tasks li.session-goal-phase) {
   padding-inline: 0;
 }
 html[data-mixdog-mobile-tabs] .session-goal-tasks li {

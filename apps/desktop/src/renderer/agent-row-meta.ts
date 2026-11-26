@@ -2,6 +2,7 @@ import type { DesktopAgentActivityState } from '../shared/agent-activity';
 import type { DesktopAgentPoolRow } from '../shared/contract';
 import { t } from './i18n';
 import { formatWorkElapsed, timeMs } from './transcript-primitives';
+import { uiTimeUnit } from './ui-format';
 
 /** The right-column text of an agent row, shared by the Agents pane and the
  *  composer island: time while running (in `format`), otherwise the state in
@@ -16,7 +17,7 @@ export function agentElapsedText(
   // rests. Time belongs to work.
   if (state === 'running' || state === 'waiting') {
     const base = timeMs(agent.turnStartedAt);
-    if (base) return format(clock - base) || '0s';
+    if (base) return format(clock - base) || uiTimeUnit(0, 'second');
     return state === 'waiting' ? agentStateWord(state) : '';
   }
   // Blocked on the user: what it waits for, never a running timer.

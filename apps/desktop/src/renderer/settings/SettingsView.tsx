@@ -96,16 +96,105 @@ const CATEGORY_ICONS = {
   delegation: ScrollText,
 } satisfies Record<SettingsCategory, typeof Settings>;
 
-/** Warms the Connection pairing card and the status caches as soon as the dialog opens (one cached IPC each):
- *  entering Connection later paints the complete QR card instead of flashing the empty placeholder first. */
-function useSettingsWarmup(api: NonNullable<SettingsViewProps['api']>, open: boolean) {
+/** Warms the active tab's cache immediately and defers non-active tab IPC
+ *  warmups to idle time after first paint so opening Settings stays responsive. */
+function useSettingsWarmup(api: NonNullable<SettingsViewProps['api']>, open: boolean, category: SettingsCategory) {
+  const warmedRef = useRef<{ api: NonNullable<SettingsViewProps['api']>; keys: Set<string> } | null>(null);
   useEffect(() => {
-    if (!open) return;
-    void preloadGitPanelInfo(api);
-    if (!isSshConnectionWindow()) void preloadConnectionInfo(api, undefined, { activate: false });
-    void preloadDesktopStatus(api);
-    void preloadProviderPanel(api).catch(() => undefined);
-  }, [open, api]);
+    if (!open) return undefined;
+    if (!warmedRef.current || warmedRef.current.api !== api) {
+      warmedRef.current = { api, keys: new Set() };
+    }
+    const warmed = warmedRef.current.keys;
+    const warm = (key: string, run: () => void) => {
+      if (warmed.has(key)) return;
+      warmed.add(key);
+      run();
+    };
+    const canWarmConnection = !isSshConnectionWindow();
+    const warmGit = () => warm('git', () => void preloadGitPanelInfo(api));
+    const warmConnection = () => {
+      if (canWarmConnection) warm('connection', () => void preloadConnectionInfo(api, undefined, { activate: false }));
+    };
+    const warmDesktopStatus = () => warm('desktop-status', () => void preloadDesktopStatus(api));
+    const warmProviders = () => warm('providers', () => void preloadProviderPanel(api).catch(() => undefined));
+
+    if (category === 'git' || category === 'worktrees') warmGit();
+    if (category === 'connection') warmConnection();
+    if (
+      category === 'general' ||
+      category === 'notifications' ||
+      category === 'bots' ||
+      category === 'auth' ||
+      category === 'system' ||
+      category === 'work'
+    ) {
+      warmDesktopStatus();
+    }
+    if (category === 'providers' || category === 'models') warmProviders();
+
+    const targetCount = canWarmConnection ? 4 : 3;
+    if (warmed.size >= targetCount) return undefined;
+
+    let cancelled = false;
+    let idleHandle: number | null = null;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    const runDeferred = () => {
+      if (cancelled) return;
+      warmGit();
+      warmConnection();
+      warmDesktopStatus();
+      warmProviders();
+    };
+    const scheduleIdle = () => {
+      if (cancelled) return;
+      const ric =
+        typeof window.requestIdleCallback === 'function'
+          ? window.requestIdleCallback.bind(window)
+          : typeof globalThis.requestIdleCallback === 'function'
+            ? globalThis.requestIdleCallback
+            : null;
+      if (ric) {
+        idleHandle = ric(runDeferred, { timeout: 500 });
+      } else {
+        idleTimer = setTimeout(runDeferred, 0);
+      }
+    };
+    const raf =
+      typeof window.requestAnimationFrame === 'function'
+        ? window.requestAnimationFrame.bind(window)
+        : typeof globalThis.requestAnimationFrame === 'function'
+          ? globalThis.requestAnimationFrame
+          : null;
+    const cancelRaf =
+      typeof window.cancelAnimationFrame === 'function'
+        ? window.cancelAnimationFrame.bind(window)
+        : typeof globalThis.cancelAnimationFrame === 'function'
+          ? globalThis.cancelAnimationFrame
+          : null;
+    let frame: number | null = null;
+    let frameTimer: ReturnType<typeof setTimeout> | null = null;
+    if (raf) {
+      frame = raf(scheduleIdle);
+    } else {
+      frameTimer = setTimeout(scheduleIdle, 0);
+    }
+    return () => {
+      cancelled = true;
+      if (frame !== null && cancelRaf) cancelRaf(frame);
+      if (frameTimer !== null) clearTimeout(frameTimer);
+      if (idleHandle !== null) {
+        const cancelRic =
+          typeof window.cancelIdleCallback === 'function'
+            ? window.cancelIdleCallback.bind(window)
+            : typeof globalThis.cancelIdleCallback === 'function'
+              ? globalThis.cancelIdleCallback
+              : null;
+        cancelRic?.(idleHandle);
+      }
+      if (idleTimer !== null) clearTimeout(idleTimer);
+    };
+  }, [open, api, category]);
 }
 
 /** Perf diagnostics: request→first-paint for the settings dialog (the opener stamps __mixdogSettingsOpenAt; main
@@ -198,7 +287,7 @@ export const SettingsView = memo(function SettingsView({
     if (!open) return;
     refreshTitleBarDim();
   }, [open]);
-  useSettingsWarmup(api, open);
+  useSettingsWarmup(api, open, category);
   // biome-ignore lint/correctness/useExhaustiveDependencies: category is the trigger: scroll to the top on every page change.
   useLayoutEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = 0;

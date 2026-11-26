@@ -86,7 +86,7 @@ export function DeferredPersistentSurface({
   return startupReady ? children : fallback;
 }
 
-function scheduleStableSurfaceCommit(commit: () => void): () => void {
+export function scheduleStableSurfaceCommit(commit: () => void): () => void {
   let cancelled = false;
   let frame = 0;
   let fontTimer = 0;
@@ -497,11 +497,7 @@ export class PersistentScrollOffsets {
  * the subtree atomically where available; the explicit restore covers the
  * fallback path and anything the atomic move does not carry.
  */
-function movePersistentPaneHost(
-  host: HTMLElement,
-  target: HTMLElement,
-  scrollOffsets: PersistentScrollOffsets
-): void {
+function movePersistentPaneHost(host: HTMLElement, target: HTMLElement, scrollOffsets: PersistentScrollOffsets): void {
   const focused = document.activeElement;
   const refocus = focused instanceof HTMLElement && host.contains(focused) ? focused : null;
   const mover = target as HTMLElement & {

@@ -11,6 +11,7 @@ import type {
 } from '../../shared/contract';
 import { ErrorNotice } from '../ErrorNotice';
 import { t } from '../i18n';
+import { useMobileBack } from '../mobile-back';
 import { scrimDismiss } from '../scrim-dismiss';
 import { ScmContextMenu, type ScmContextMenuState } from '../ScmContextMenu';
 import { BrowserImportDialog } from '../BrowserImportDialog';
@@ -447,6 +448,14 @@ function LoginDialog({
   const [totpSecret, setTotpSecret] = useState('');
   const [totpCleared, setTotpCleared] = useState(false);
   const [note, setNote] = useState(login?.note ?? '');
+  useMobileBack(
+    true,
+    () => {
+      if (busy) return false;
+      onClose();
+    },
+    'modal'
+  );
 
   const submit = () => {
     onSave(

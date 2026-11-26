@@ -45,6 +45,43 @@ test('a positioned pane following a tail grown long asks the core for nothing; a
   }
 });
 
+test('a positioned pane with a short initial tail triggers older-page backfill as soon as the snapshot folds, without waiting for reveal', async () => {
+  const { restore } = installTestDom(null, {
+    html: '<!doctype html><main></main>',
+    jsdom: { url: 'https://mixdog.test/' },
+  });
+  const { createRoot } = await import('react-dom/client');
+  const { useTranscriptWindow } = await import('./use-transcript-history.ts');
+  const moves = [];
+  window.mixdogDesktop = {
+    moveTranscriptWindow: async (_sessionId, move) => {
+      moves.push(move);
+      return true;
+    },
+  };
+  const shortTail = Array.from({ length: 12 }, (_, index) => ({ id: `r${index}` }));
+  const fullTail = Array.from({ length: 108 }, (_, index) => ({ id: `r${index}` }));
+  function Pane({ items, hasOlder, version }) {
+    useTranscriptWindow('s-short', items, hasOlder, true, undefined, undefined, { views: [], version });
+    return null;
+  }
+  const root = createRoot(document.querySelector('main'));
+  try {
+    await act(async () => root.render(React.createElement(Pane, { items: shortTail, hasOlder: true, version: 1 })));
+    assert.deepEqual(
+      moves,
+      [{ kind: 'read', first: 'r11', last: 'r11', end: true, reader: '' }],
+      'short positioned tail triggers backfill immediately on snapshot fold'
+    );
+    // Once backfill brings the tail up to WINDOW_LEAD_ROWS, no second backfill fires.
+    await act(async () => root.render(React.createElement(Pane, { items: fullTail, hasOlder: true, version: 2 })));
+    assert.equal(moves.length, 1, 'no extra backfill once tail reaches WINDOW_LEAD_ROWS');
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
 test('a positioned pane tells the window where its reader is, and that the view follows the end when it does', async () => {
   const { restore } = installTestDom(null, {
     html: '<!doctype html><main></main>',

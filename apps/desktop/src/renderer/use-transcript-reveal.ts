@@ -34,10 +34,15 @@ function chromeUnsettled(scope: Element | null | undefined, entry: boolean): boo
   return false;
 }
 
-/** Whether a row under `root` that is not streaming still holds a pending body or card. */
-function settlingPending(root: Element, selector = ROW_PENDING): boolean {
+/** Whether a visible row (or a marker outside any row) under `root` that is not streaming still holds a pending body or card. */
+function settlingPending(root: Element, visibleRows: ReadonlySet<HTMLElement>, selector = ROW_PENDING): boolean {
   for (const marker of root.querySelectorAll(selector)) {
-    if (!marker.closest(ROW)?.querySelector(STREAMING)) return true;
+    const row = marker.closest<HTMLElement>(ROW);
+    if (row) {
+      if (!visibleRows.has(row)) continue;
+      if (row.querySelector(STREAMING)) continue;
+    }
+    return true;
   }
   return false;
 }
@@ -147,8 +152,8 @@ export function useTranscriptReveal({
       // The list's own end padding: the spacer below the last row, and the dock's height floating over it.
       const endPadding = TRANSCRIPT_BOTTOM_SPACER + transcriptDockInset(root);
       let visible = 0;
-      let visiblePending = false;
       const visibleRows: HTMLElement[] = [];
+      const visibleRowSet = new Set<HTMLElement>();
       const closedEnds: number[] = [];
       rows.forEach((row, index) => {
         const start = Number.parseFloat(row.style.top) || 0;
@@ -157,18 +162,17 @@ export function useTranscriptReveal({
         if (end <= top || start >= bottom) return;
         visible++;
         visibleRows.push(row);
+        visibleRowSet.add(row);
         closedEnds.push(next ? end : end - endPadding);
         if (row.querySelector(STREAMING)) return;
-        if (warm && !visiblePending) visiblePending = Boolean(row.querySelector(ROW_PENDING));
         signature.push(Number(row.dataset.index), start, end);
       });
-      // An entry waits on every mounted row. A revisit's offscreen rows hold
-      // their remembered boxes, so only a row on screen can still paint empty.
-      const rowsPending = warm ? visiblePending : settlingPending(space);
+      const rowsPending = settlingPending(space, visibleRowSet, ROW_PENDING);
       return {
         position,
         visible,
         visibleRows,
+        visibleRowSet,
         closedEnds,
         rowsPending,
         current: JSON.stringify(signature),
@@ -178,13 +182,13 @@ export function useTranscriptReveal({
       const root = viewport.current;
       const space = content.current;
       if (!root || !space) return;
-      const { position, visible, rowsPending, current } = measure(root, space);
+      const { position, visible, visibleRowSet, rowsPending, current } = measure(root, space);
       const chromePending = chromePendingNow();
       const pending = rowsPending || chromePending || document.fonts?.status === 'loading';
       const readerOwnsPosition = hasScrollGesture();
       const set = readerSet(root, position) || readerOwnsPosition;
       const settled = visible > 0 && !pending && set && current === previous;
-      if (eager && eagerReady(space, visible)) {
+      if (eager && eagerReady(root, space, visible, visibleRowSet, set)) {
         reveal();
         return;
       }
@@ -199,8 +203,8 @@ export function useTranscriptReveal({
       const root = viewport.current;
       const space = content.current;
       if (cancelled || !root || !space) return;
-      const { position, visible, visibleRows, closedEnds, rowsPending, current } = measure(root, space);
-      if (eager && eagerReady(space, visible)) {
+      const { position, visible, visibleRows, visibleRowSet, closedEnds, rowsPending, current } = measure(root, space);
+      if (eager && eagerReady(root, space, visible, visibleRowSet, readerSet(root, position))) {
         cancelled = true;
         cancelAnimationFrame(frame);
         reveal();
@@ -254,8 +258,20 @@ function isExact(root: HTMLElement, rows: readonly HTMLElement[], ends: readonly
   );
 }
 
-/** An eager reveal needs real rows only: a visible row and no suspended
- *  Markdown body, which would paint an empty row that grows a frame later. */
-function eagerReady(space: HTMLDivElement, visible: number): boolean {
-  return visible > 0 && !settlingPending(space, BODY_PENDING);
+/** An eager reveal needs its reader placed, no estimate relearn pending, and
+ *  no visible suspended Markdown body (skipping slow remote read cards and
+ *  offscreen overscan rows). */
+function eagerReady(
+  root: HTMLDivElement,
+  space: HTMLDivElement,
+  visible: number,
+  visibleRows: ReadonlySet<HTMLElement>,
+  set: boolean
+): boolean {
+  return (
+    visible > 0 &&
+    set &&
+    !root.hasAttribute(TRANSCRIPT_RELEARN_ATTRIBUTE) &&
+    !settlingPending(space, visibleRows, BODY_PENDING)
+  );
 }

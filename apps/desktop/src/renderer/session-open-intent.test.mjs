@@ -10,9 +10,8 @@ const { restore } = installTestDom(null, {
 });
 test.after(restore);
 const { createRoot } = await import('react-dom/client');
-const { prepareSessionOpen, finalizeSessionOpen, currentOpenToken, rowsMountedAtEnd } = await import(
-  './session-open-intent.ts'
-);
+const { confirmSessionOpen, prepareSessionOpen, finalizeSessionOpen, currentOpenToken, rowsMountedAtEnd } =
+  await import('./session-open-intent.ts');
 const { defaultSessionLaneStore } = await import('./session-lane-store.ts');
 const { useTurnChanges, resetTurnChangesCache, bumpTurnChangesEpoch } = await import('./turn-changes-model.ts');
 const { leadReviewSnapshotKindCache } = await import('./turn-review-cache.ts');
@@ -62,46 +61,161 @@ async function firstCommit(sessionId, checkpointId, boundary) {
   return seen[0];
 }
 
-test('an abandoned core-direct intent only previews stored rows, and that preview cannot extend the live transcript', async (t) => {
-  const sessionId = 'preview-only';
-  const answer = Promise.withResolvers();
+test('core-direct open intent skips redundant preview reads and still prepares tail cards/reviews when confirmed', async (t) => {
+  resetTurnChangesCache();
+  const sessionId = 'direct-intent';
   const calls = [];
   const items = turns(2);
   window.mixdogDesktop = {
-    previewSession: (id) => {
+    previewSession: async (id) => {
       calls.push(['preview', id]);
-      return answer.promise;
+      return { sessionId: id, items };
     },
     prefetchSession: async (id) => calls.push(['activate', id]) > 0,
-    invokeCapability: async (request) => calls.push(['capability', request.capability]),
+    invokeCapability: async (request) => {
+      calls.push(['capability', request.capability, request.args?.[0]?.checkpointId ?? '']);
+      if (request.capability === 'getTurnReviewDiff') {
+        return { value: { authoritative: true, snapshotKind: 'turn', checkpointId: '', files: [{ path: 'a.txt' }] } };
+      }
+      return {
+        value: { status: 'none', checkpointId: request.args[0].checkpointId, revision: 1, root: '', files: [] },
+      };
+    },
   };
   t.after(() => {
     defaultSessionLaneStore.clear();
     defaultSessionLaneStore.setShownSessionIds([]);
+    resetTurnChangesCache();
     delete window.mixdogDesktop;
   });
-  const preview = prepareSessionOpen(sessionId);
-  assert.equal(prepareSessionOpen(sessionId), preview, 'press and focus join the preview');
+  // Abandoned intent sends no preview read and unsubscribes without running capability prefetches.
+  const abandoned = prepareSessionOpen('abandoned-direct');
+  assert.equal(prepareSessionOpen('abandoned-direct'), abandoned, 'press and focus join the same intent');
+  finalizeSessionOpen(currentOpenToken('abandoned-direct'));
+  assert.equal(await abandoned, true);
+  defaultSessionLaneStore.apply({
+    sessionId: 'abandoned-direct',
+    frameSource: 'live',
+    snapshot: { sessionId: 'abandoned-direct', items },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(calls, [], 'no redundant preview read or capability work for an abandoned intent');
+
+  // Confirmed intent sends no preview read and runs prepareSessionRows as soon as positioned resume delivers the lane.
+  const confirmed = prepareSessionOpen(sessionId);
+  confirmSessionOpen(sessionId);
   finalizeSessionOpen(currentOpenToken(sessionId));
+  assert.equal(await confirmed, true);
+  assert.deepEqual(calls, [], 'no redundant thread/items/list preview read before positioned resume');
   defaultSessionLaneStore.setShownSessionIds([sessionId]);
-  answer.resolve({ sessionId, items });
-  assert.equal(await preview, true);
-  assert.deepEqual(calls, [['preview', sessionId]]);
-  assert.deepEqual(
-    defaultSessionLaneStore.get(sessionId).items.map(({ id }) => id),
-    items.map(({ id }) => id)
-  );
-  assert.equal(defaultSessionLaneStore.liveSessionIds().has(sessionId), false);
   defaultSessionLaneStore.apply({
     sessionId,
     frameSource: 'live',
-    snapshot: { sessionId, items: items.slice(3) },
+    snapshot: { sessionId, items, transcriptPositioned: true, transcriptWindowVersion: 1 },
   });
-  assert.deepEqual(
-    defaultSessionLaneStore.get(sessionId).items.map(({ id }) => id),
-    ['u1', 'a1', 't1']
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(
+    calls.some(([kind]) => kind === 'preview' || kind === 'activate'),
+    false,
+    'never issues previewSession or prefetchSession on core-direct visible activation'
   );
-  assert.equal(defaultSessionLaneStore.liveSessionIds().has(sessionId), true);
+  assert.deepEqual(
+    calls
+      .filter(([, cap]) => cap === 'getTurnChanges')
+      .map(([, , cp]) => cp)
+      .sort(),
+    ['cp0', 'cp1'],
+    'prefetches tail TurnChangesCard reads as soon as the positioned lane lands'
+  );
+  assert.equal(
+    calls.filter(([, cap]) => cap === 'getTurnReviewDiff').length,
+    1,
+    'prefetches tail turn review as soon as the positioned lane lands'
+  );
+});
+
+test('core-direct speculative hover without finalize never leaves a dangling store listener or prepares an unopened lane', async (t) => {
+  resetTurnChangesCache();
+  defaultSessionLaneStore.clear();
+  const calls = [];
+  const items = turns(2);
+  let subscribed = 0;
+  let released = 0;
+  const subscribe = defaultSessionLaneStore.subscribe;
+  defaultSessionLaneStore.subscribe = (sessionId, listener) => {
+    subscribed += 1;
+    const stop = subscribe.call(defaultSessionLaneStore, sessionId, listener);
+    return () => {
+      released += 1;
+      stop();
+    };
+  };
+  window.mixdogDesktop = {
+    previewSession: async (id) => {
+      calls.push(['preview', id]);
+      return { sessionId: id, items };
+    },
+    invokeCapability: async (request) => {
+      calls.push(['capability', request.capability, request.args?.[0]?.checkpointId ?? '']);
+      if (request.capability === 'getTurnReviewDiff') {
+        return { value: { authoritative: true, snapshotKind: 'turn', checkpointId: '', files: [{ path: 'a.txt' }] } };
+      }
+      return {
+        value: { status: 'none', checkpointId: request.args[0].checkpointId, revision: 1, root: '', files: [] },
+      };
+    },
+  };
+  t.after(() => {
+    defaultSessionLaneStore.subscribe = subscribe;
+    finalizeSessionOpen(currentOpenToken('hovered-agent'));
+    finalizeSessionOpen(currentOpenToken('clicked-agent'));
+    defaultSessionLaneStore.clear();
+    resetTurnChangesCache();
+    delete window.mixdogDesktop;
+  });
+
+  // Hovering an uncached agent row (no confirm, no finalize) attaches zero store listeners.
+  assert.equal(await prepareSessionOpen('hovered-agent'), true);
+  assert.equal(subscribed, 0, 'speculative hover on uncached lane does not subscribe to the store');
+  defaultSessionLaneStore.apply({
+    sessionId: 'hovered-agent',
+    frameSource: 'live',
+    snapshot: { sessionId: 'hovered-agent', items },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(calls, [], 'late lane arrival for an unconfirmed hovered row triggers no row preparation');
+
+  // Hovering an already-cached lane prepares its tail rows immediately without leaving a listener.
+  assert.equal(await prepareSessionOpen('hovered-agent'), true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(subscribed, 0, 'cached lane preparation attaches no store listener');
+  assert.equal(
+    calls.filter(([, cap]) => cap === 'getTurnChanges').length,
+    2,
+    'cached lane hover still warms tail TurnChangesCard reads'
+  );
+  calls.length = 0;
+
+  // Clicking an uncached row confirms the intent, attaches the wait, prepares on delivery, and unsubscribes.
+  assert.equal(await prepareSessionOpen('clicked-agent'), true);
+  assert.equal(subscribed, 0, 'still no store listener before confirmation');
+  confirmSessionOpen('clicked-agent');
+  assert.equal(subscribed, 1, 'confirmSessionOpen attaches the lane wait');
+  assert.equal(subscribed - released, 1);
+  defaultSessionLaneStore.apply({
+    sessionId: 'clicked-agent',
+    frameSource: 'live',
+    snapshot: { sessionId: 'clicked-agent', items, transcriptPositioned: true, transcriptWindowVersion: 1 },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(subscribed - released, 0, 'lane delivery unsubscribes cleanly');
+  assert.deepEqual(
+    calls
+      .filter(([, cap]) => cap === 'getTurnChanges')
+      .map(([, , cp]) => cp)
+      .sort(),
+    ['cp0', 'cp1']
+  );
 });
 
 test('the intent to open a session reads its rows changed-files cards once, before the click commits', async (t) => {

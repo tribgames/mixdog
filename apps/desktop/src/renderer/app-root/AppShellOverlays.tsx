@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, type ComponentProps } from 'react';
+import { lazy, Suspense, useCallback, useEffect, type ComponentProps } from 'react';
 import { OPEN_DOCTOR_EVENT } from '../command-surface-doctor-event';
 import { OPEN_TASK_SESSION_EVENT } from '../agent-task-events';
 import { NEW_TASK_IN_WORKTREE_EVENT } from '../worktree-session-events';
@@ -122,11 +122,6 @@ export function AppShellOverlays({
   setError,
   snapshot,
 }: AppShellOverlaysProps) {
-  const settingsMounted = useRef(false);
-  if (settingsOpen) settingsMounted.current = true;
-  const mountedCommandSurfaces = useRef(new Set<string>());
-  if (commandSurface) mountedCommandSurfaces.current.add(commandSurface);
-
   // Settings → System → Doctor opens the same /doctor dialog instead of
   // running the checks where their result has nowhere to show.
   useEffect(() => {
@@ -227,7 +222,7 @@ export function AppShellOverlays({
           ) : null
         }
       >
-        {(settingsOpen || settingsMounted.current) && (
+        {settingsOpen && (
           <SettingsView
             open={settingsOpen}
             initialSection={settingsSection}
@@ -236,8 +231,7 @@ export function AppShellOverlays({
           />
         )}
         {(['context', 'doctor', 'inherit', 'stats'] as const).map((surface) => {
-          const isMounted = commandSurface === surface || mountedCommandSurfaces.current.has(surface);
-          if (!isMounted) return null;
+          if (commandSurface !== surface) return null;
 
           const isSessionScoped = surface === 'context' || surface === 'inherit';
           const key = isSessionScoped ? `${surface}:${commandSurfaceSessionId}` : surface;
@@ -248,7 +242,7 @@ export function AppShellOverlays({
             <CommandSurface
               key={key}
               surface={surface}
-              open={commandSurface === surface}
+              open
               sessionId={sessionId}
               snapshot={surfaceSnapshot}
               onInherit={surface === 'inherit' ? replaceWithInheritedSession : undefined}

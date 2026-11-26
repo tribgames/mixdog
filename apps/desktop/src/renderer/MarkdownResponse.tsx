@@ -4,9 +4,12 @@ import type { MarkdownAstRoot } from './markdown-ast';
 import { createBlockParking, MarkdownBlockParkingContext } from './markdown-block-parking';
 import { finishDocument, LiveMarkdownDocument, type MarkdownPage } from './markdown-document';
 import type { StreamFadeTimeline } from './markdown-stream-fade';
+import { containsMarkdownMath } from './markdown-math-detect';
 import {
+  canSyncParseMarkdown,
   parseSettledMarkdownAstNow,
   parseStreamingMarkdownAst,
+  preloadMarkdownMath,
   preloadSyncMarkdownParser,
   readCachedStreamingMarkdownAst,
   SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS,
@@ -19,13 +22,16 @@ import { noteStreamCommit } from './transcript-stream-metrics';
 const EMPTY_AST: MarkdownAstRoot = { type: 'root', children: [] };
 
 /** The parse of a finished reply's whole `text`, if it can be had now. One
- *  that `ended` here parses whatever its length, so the rest of it shows in
- *  the commit that ends it; one read from history parses within the frame's
- *  allowance. */
+ *  that `ended` here parses synchronously up to SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS
+ *  so short replies finish in the same commit; longer replies keep their
+ *  streamed render while resolving off-thread. */
 function wholeParse(text: string, ended: boolean): MarkdownAstRoot | null {
   if (!text) return EMPTY_AST;
   if (!ended) return parseSettledMarkdownAstNow(text, SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS);
-  return readCachedStreamingMarkdownAst(text) ?? syncMarkdownParser()?.(text) ?? null;
+  const cached = readCachedStreamingMarkdownAst(text);
+  if (cached) return cached;
+  if (text.length > SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS) return null;
+  return canSyncParseMarkdown(text) ? (syncMarkdownParser()?.(text) ?? null) : null;
 }
 
 /** A reply is Live while it streams and Finished after: Finished shows the
@@ -41,11 +47,14 @@ export const MarkdownResponse = memo(function MarkdownResponse({
   text,
   streaming,
   fadeTimeline = null,
+  preparsedRoot = null,
 }: {
   text: string;
   streaming: boolean;
   /** The reply's fade timeline (useStreamFade); null: nothing fades. */
   fadeTimeline?: StreamFadeTimeline | null;
+  /** Final AST already parsed off-thread by the caller (e.g. replies past the AST cache bound). */
+  preparsedRoot?: MarkdownAstRoot | null;
 }) {
   const [, landed] = useReducer((count: number) => count + 1, 0);
   const reply = useRef<ReplyDocument>({ live: null, finished: null, text: '' });
@@ -76,6 +85,10 @@ export const MarkdownResponse = memo(function MarkdownResponse({
   useEffect(() => {
     void preloadSyncMarkdownParser();
   }, []);
+  const hasMath = containsMarkdownMath(text);
+  useEffect(() => {
+    if (hasMath) void preloadMarkdownMath();
+  }, [hasMath]);
 
   const state = reply.current;
   let pages: MarkdownPage | null = null;
@@ -84,13 +97,17 @@ export const MarkdownResponse = memo(function MarkdownResponse({
   // bound, an eviction before this commit).
   const ended = useRef<{ text: string; root: MarkdownAstRoot } | null>(null);
   if (streaming) {
+    ended.current = null;
     state.finished = null;
     state.live ??= new LiveMarkdownDocument(landed);
     pages = state.live.update(text);
   } else if (state.finished && state.text === text) {
     pages = state.finished;
   } else {
-    const root = wholeParse(text, Boolean(state.live)) ?? (ended.current?.text === text ? ended.current.root : null);
+    const root =
+      preparsedRoot ??
+      wholeParse(text, Boolean(state.live)) ??
+      (ended.current?.text === text ? ended.current.root : null);
     if (root) {
       // Built from what shows, so what the parse keeps keeps its elements;
       // then nothing of the live reply is kept.
@@ -99,6 +116,7 @@ export const MarkdownResponse = memo(function MarkdownResponse({
       state.live = null;
       state.finished = pages;
       state.text = text;
+      ended.current = null;
     } else {
       // What showed stays until the parse lands.
       pages = state.live?.current() ?? state.finished;
@@ -106,7 +124,7 @@ export const MarkdownResponse = memo(function MarkdownResponse({
     }
   }
   useEffect(() => {
-    reply.current.live?.flush();
+    if (streaming) reply.current.live?.flush();
   });
   useEffect(() => {
     if (!awaitingWhole) return;

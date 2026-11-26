@@ -72,8 +72,8 @@ function UnitBody({ unit, node, scope }: { unit: MarkdownUnit; node: MarkdownAst
   );
 }
 
-/** Text whose parse is still to land: fenced code shows as source, which
- *  holds its place; the rest shows nothing. */
+/** Text whose parse is still to land: fenced code shows as source and prose
+ *  shows as a height-preserving plain-text fallback while the async parse settles. */
 function UnitWaiting({
   text,
   pending,
@@ -84,7 +84,15 @@ function UnitWaiting({
   copyControl: MarkdownCopyControl;
 }) {
   const marker = pending ? <span hidden data-transcript-pending /> : null;
-  if (!containsFencedCodeMarkdown(text)) return marker;
+  if (!text.trim()) return marker;
+  if (!containsFencedCodeMarkdown(text)) {
+    return (
+      <p className="markdown-plain">
+        {text}
+        {marker}
+      </p>
+    );
+  }
   return (
     <>
       <MarkdownSourceFallback text={text} copyControl={copyControl} />

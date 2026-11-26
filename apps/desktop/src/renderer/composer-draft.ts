@@ -1,4 +1,5 @@
 import type { ComposerAttachment } from './composer-support';
+import { enforceRendererCacheBudget, registerBudgetedCache } from './renderer-cache-budget';
 import { sha256Hex } from './sha256';
 
 let submissionSequence = 0;
@@ -123,31 +124,95 @@ export function dropComposerDraft(scope: string): void {
 }
 
 const composerAttachmentsByScope = new Map<string, ComposerAttachment[]>();
+const composerAttachmentCharsByScope = new Map<string, number>();
+let parkedAttachmentChars = 0;
 const PARKED_ATTACHMENT_SCOPES_LIMIT = 20;
 
-export function stashComposerAttachments(scope: string, attachments: readonly ComposerAttachment[]): void {
-  composerAttachmentsByScope.delete(scope);
-  if (!attachments.length || forgottenComposerScopes.has(scope)) return;
-  composerAttachmentsByScope.set(scope, [...attachments]);
-  if (composerAttachmentsByScope.size > PARKED_ATTACHMENT_SCOPES_LIMIT) {
-    composerAttachmentsByScope.delete(composerAttachmentsByScope.keys().next().value as string);
+function measureComposerAttachments(scope: string, attachments: readonly ComposerAttachment[]): number {
+  let total = scope.length;
+  for (const attachment of attachments) {
+    total +=
+      attachment.data.length +
+      attachment.name.length +
+      attachment.mimeType.length +
+      (attachment.token?.length ?? 0) +
+      (attachment.metadataText?.length ?? 0) +
+      (attachment.originalRef?.length ?? 0) +
+      (attachment.originalMimeType?.length ?? 0);
   }
+  return total;
+}
+
+function dropParkedAttachments(scope: string): void {
+  const chars = composerAttachmentCharsByScope.get(scope) ?? 0;
+  composerAttachmentCharsByScope.delete(scope);
+  parkedAttachmentChars -= chars;
+  composerAttachmentsByScope.delete(scope);
+}
+
+registerBudgetedCache({
+  name: 'composer-parked-attachments',
+  chars: () => parkedAttachmentChars,
+  pinned: () => parkedAttachmentChars,
+  trim: () => {},
+});
+
+export function stashComposerAttachments(scope: string, attachments: readonly ComposerAttachment[]): void {
+  dropParkedAttachments(scope);
+  if (!attachments.length || forgottenComposerScopes.has(scope)) return;
+  const copy = [...attachments];
+  const chars = measureComposerAttachments(scope, copy);
+  composerAttachmentsByScope.set(scope, copy);
+  composerAttachmentCharsByScope.set(scope, chars);
+  parkedAttachmentChars += chars;
+  while (composerAttachmentsByScope.size > PARKED_ATTACHMENT_SCOPES_LIMIT) {
+    dropParkedAttachments(composerAttachmentsByScope.keys().next().value as string);
+  }
+  enforceRendererCacheBudget();
 }
 
 /** Hands the parked chips back once; the live composer owns them again. */
 export function takeStashedComposerAttachments(scope: string): ComposerAttachment[] {
   const parked = composerAttachmentsByScope.get(scope) ?? [];
-  composerAttachmentsByScope.delete(scope);
+  dropParkedAttachments(scope);
   return parked;
 }
 
 /** Room members tagged with `@` per composer identity, parked the same way
  *  so returning to an agent room keeps who answers the unsent message. */
 const composerTagsByScope = new Map<string, string[]>();
+const composerTagCharsByScope = new Map<string, number>();
+let parkedTagChars = 0;
+
+function measureComposerTags(scope: string, memberIds: readonly string[]): number {
+  let total = scope.length;
+  for (const id of memberIds) total += id.length;
+  return total;
+}
+
+function dropParkedTags(scope: string): void {
+  const chars = composerTagCharsByScope.get(scope) ?? 0;
+  composerTagCharsByScope.delete(scope);
+  parkedTagChars -= chars;
+  composerTagsByScope.delete(scope);
+}
+
+registerBudgetedCache({
+  name: 'composer-parked-tags',
+  chars: () => parkedTagChars,
+  pinned: () => parkedTagChars,
+  trim: () => {},
+});
 
 export function stashComposerTags(scope: string, memberIds: readonly string[]): void {
-  composerTagsByScope.delete(scope);
-  if (memberIds.length && !forgottenComposerScopes.has(scope)) composerTagsByScope.set(scope, [...memberIds]);
+  dropParkedTags(scope);
+  if (!memberIds.length || forgottenComposerScopes.has(scope)) return;
+  const copy = [...memberIds];
+  const chars = measureComposerTags(scope, copy);
+  composerTagsByScope.set(scope, copy);
+  composerTagCharsByScope.set(scope, chars);
+  parkedTagChars += chars;
+  enforceRendererCacheBudget();
 }
 
 /** The prompt hand-backs each session's composer applied, by session id, one id per source because their lifetimes differ:
@@ -155,6 +220,61 @@ export function stashComposerTags(scope: string, memberIds: readonly string[]): 
  *  or reconnect; the next offer replaces it), `reply` the id last applied from a Stop reply (the next reply replaces it).
  *  An id equal to either was applied. The session's deletion drops both (forgetComposerScope). */
 export const appliedPromptRestores = new Map<string, { offer?: string; reply?: string }>();
+const appliedPromptRestoreSubmissionIds = new WeakMap<
+  typeof appliedPromptRestores,
+  Map<string, { offer?: string[]; reply?: string[] }>
+>();
+
+/** Records which local submission ids backed an applied restore so its dedup entry leaves once none of those ids remain in `ownSubmissionIds`. */
+export function noteAppliedPromptRestoreIds(
+  sessionId: string,
+  slot: 'offer' | 'reply',
+  ids: readonly string[],
+  applied: typeof appliedPromptRestores = appliedPromptRestores
+): void {
+  if (!ids.length) return;
+  let bySession = appliedPromptRestoreSubmissionIds.get(applied);
+  if (!bySession) {
+    bySession = new Map();
+    appliedPromptRestoreSubmissionIds.set(applied, bySession);
+  }
+  const current = bySession.get(sessionId) ?? {};
+  bySession.set(sessionId, { ...current, [slot]: [...ids] });
+}
+
+function pruneAppliedPromptRestores(): void {
+  const bySession = appliedPromptRestoreSubmissionIds.get(appliedPromptRestores);
+  if (!bySession?.size) return;
+  for (const [sessionId, tracked] of [...bySession]) {
+    const entry = appliedPromptRestores.get(sessionId);
+    if (!entry) {
+      bySession.delete(sessionId);
+      continue;
+    }
+    const nextEntry = { ...entry };
+    const nextTracked = { ...tracked };
+    let changed = false;
+    if (tracked.offer && !tracked.offer.some(wasSubmittedHere)) {
+      delete nextEntry.offer;
+      delete nextTracked.offer;
+      changed = true;
+    }
+    if (tracked.reply && !tracked.reply.some(wasSubmittedHere)) {
+      delete nextEntry.reply;
+      delete nextTracked.reply;
+      changed = true;
+    }
+    if (!changed) continue;
+    if (!nextEntry.offer && !nextEntry.reply) {
+      appliedPromptRestores.delete(sessionId);
+      bySession.delete(sessionId);
+    } else {
+      appliedPromptRestores.set(sessionId, nextEntry);
+      if (!nextTracked.offer && !nextTracked.reply) bySession.delete(sessionId);
+      else bySession.set(sessionId, nextTracked);
+    }
+  }
+}
 
 /** A conversation whose deletion the host CONFIRMED never comes back: drop
  *  everything parked for it. Call it only from the delete action — a session
@@ -163,9 +283,10 @@ export function forgetComposerScope(scope: string): void {
   if (!scope) return;
   loadPersistedDrafts();
   composerDraftsByScope.delete(scope);
-  composerAttachmentsByScope.delete(scope);
-  composerTagsByScope.delete(scope);
+  dropParkedAttachments(scope);
+  dropParkedTags(scope);
   appliedPromptRestores.delete(scope);
+  appliedPromptRestoreSubmissionIds.get(appliedPromptRestores)?.delete(scope);
   forgottenComposerScopes.add(scope);
   if (forgottenComposerScopes.size > FORGOTTEN_SCOPES_LIMIT) {
     forgottenComposerScopes.delete(forgottenComposerScopes.values().next().value as string);
@@ -174,7 +295,7 @@ export function forgetComposerScope(scope: string): void {
 
 export function takeStashedComposerTags(scope: string): string[] {
   const parked = composerTagsByScope.get(scope) ?? [];
-  composerTagsByScope.delete(scope);
+  dropParkedTags(scope);
   return parked;
 }
 
@@ -289,6 +410,7 @@ export function nextComposerSubmissionId(): string {
   ownSubmissionIds.add(id);
   if (ownSubmissionIds.size > OWN_SUBMISSION_LIMIT) {
     ownSubmissionIds.delete(ownSubmissionIds.values().next().value as string);
+    pruneAppliedPromptRestores();
   }
   return id;
 }

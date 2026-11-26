@@ -124,7 +124,7 @@
     transition: none;
   }
 }
-.composer-island-slot:is([data-motion], [data-measuring]) > .composer-island-stage {
+.composer-island-slot:is([data-motion], [data-measuring], [data-mode="pill"]) > .composer-island-stage {
   flex-shrink: 0;
 }
 /* An expanded panel overlays the transcript instead of taking dock room. The
@@ -142,7 +142,7 @@
   inset-inline: 0;
   top: 0;
   box-sizing: border-box;
-  height: var(--island-rest-height);
+  height: calc(var(--island-rest-pill-height, var(--island-pill-height)) + var(--island-stage-gap));
 }
 .composer-island-slot[data-mode="panel"] > .composer-island-stage > .composer-island {
   position: absolute;
@@ -150,7 +150,7 @@
   top: 0;
   margin-inline: auto;
   width: fit-content;
-  transform: translateY(calc(-100% + var(--island-pill-height)));
+  transform: translateY(calc(-100% + var(--island-rest-pill-height, var(--island-pill-height))));
 }
 .composer-island-stage {
   flex: 0 1 auto;
@@ -286,7 +286,7 @@
 @keyframes composer-island-pop-panel {
   from {
     opacity: 0;
-    transform: translateY(calc(-100% + var(--island-pill-height) + 12px));
+    transform: translateY(calc(-100% + var(--island-rest-pill-height, var(--island-pill-height)) + 12px));
   }
 }
 @keyframes composer-island-pop-approval {
@@ -483,7 +483,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 6px 4px 0;
+  margin-inline: -6px;
+  padding: 4px 6px;
   /* The left sidebar's row wash: its radius and its ink step. */
   border-radius: var(--mx-radius-lg);
   transition: background-color var(--mx-motion-ink);
@@ -500,7 +501,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 6px;
+  padding: 0;
   color: var(--mx-row-title-ink);
   font-weight: var(--mx-weight-regular);
 }
@@ -629,11 +630,25 @@
 }
 /* The pill's labels give way one step at a time (useIslandFit): data-fit
    lists the steps taken, in its order (git-word, files-word, files-lines,
-   shell-word, agents-word, goal-time, branch-cap, branch-glyph, tight). A
-   fit reads a form under data-measuring instead, which names that form's
-   steps and lays the pill out at its natural width over the form shown. */
+   shell-word, agents-word, resume-time, goal-time, branch-cap, branch-glyph,
+   resume-glyph, tight). A fit reads a form under data-measuring instead,
+   which names that form's steps and lays the pill out at its natural width
+   over the form shown. */
 .composer-island[data-measuring] > .composer-island-pill {
   width: max-content;
+}
+.composer-island[data-mode="panel"][data-measuring-rest] > .composer-island-pill {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  position: fixed;
+  visibility: hidden;
+  pointer-events: none;
+  max-width: var(--island-measure-room, 100%);
+}
+.composer-island[data-mode="panel"][data-measuring-rest][data-measuring] > .composer-island-pill {
+  width: max-content;
+  max-width: none;
 }
 /* A count segment whose words gave way: its glyph and bare count, closer. */
 .composer-island:is([data-fit~="agents-word"]:where(:not([data-measuring])), [data-measuring~="agents-word"])
@@ -689,12 +704,78 @@
   .composer-island-seg-text {
   display: none;
 }
+/* A waiting quota resume gives way to its time alone, then to its clock. */
+.composer-island-seg-resume > .composer-island-seg-time {
+  display: none;
+}
+.composer-island:is([data-fit~="resume-time"]:where(:not([data-measuring])), [data-measuring~="resume-time"])
+  .composer-island-seg-resume
+  > :is(.composer-island-seg-text, .composer-island-seg-sub) {
+  display: none;
+}
+.composer-island:is([data-fit~="resume-time"]:where(:not([data-measuring])), [data-measuring~="resume-time"])
+  .composer-island-seg-resume
+  > .composer-island-seg-time {
+  display: inline;
+}
+.composer-island:is([data-fit~="resume-glyph"]:where(:not([data-measuring])), [data-measuring~="resume-glyph"])
+  .composer-island-seg-resume
+  > .composer-island-seg-time {
+  display: none;
+}
 /* The last step: every segment tightens (the git segment's spacing lives on
-   its buttons, never its container). */
+   its buttons, never its container), and a pill still wider than its room
+   takes another line instead of running past the pane's edge. */
 .composer-island:is([data-fit~="tight"]:where(:not([data-measuring])), [data-measuring~="tight"])
   :is(.composer-island-seg:not(.composer-island-git), .session-goal-trigger) {
   gap: 4px;
   padding-inline: 6px;
+}
+.composer-island[data-mode="pill"]:is([data-fit~="tight"]:where(:not([data-measuring])), [data-measuring~="tight"]) {
+  border-radius: 18px;
+}
+.composer-island:is([data-mode="pill"], [data-measuring-rest]):is(
+    [data-fit~="tight"]:where(:not([data-measuring])),
+    [data-measuring~="tight"]
+  )
+  > .composer-island-pill {
+  height: auto;
+  min-height: var(--island-pill-height);
+  flex-wrap: wrap;
+  justify-content: center;
+  column-gap: 5px;
+  padding-block: 4px;
+}
+/* A wrapped pill spaces its segments with the flex gap, which no line starts
+   with; the group divider is a plain hairline there, and a segment that opens
+   a line (data-line-start, useIslandFit) draws none. */
+.composer-island:is([data-mode="pill"], [data-measuring-rest]):is(
+    [data-fit~="tight"]:where(:not([data-measuring])),
+    [data-measuring~="tight"]
+  )
+  > .composer-island-pill
+  > :is(.composer-island-seg, .session-goal-island) {
+  margin-inline-start: 0;
+}
+.composer-island:is([data-mode="pill"], [data-measuring-rest]):is(
+    [data-fit~="tight"]:where(:not([data-measuring])),
+    [data-measuring~="tight"]
+  )
+  > .composer-island-pill
+  > .composer-island-divider {
+  display: none;
+}
+.composer-island[data-mode="pill"]:is([data-fit~="tight"]:where(:not([data-measuring])), [data-measuring~="tight"])
+  > .composer-island-pill
+  > :is(.composer-island-seg, .session-goal-island)
+  ~ .composer-island-divider
+  ~ :is(.composer-island-seg, .session-goal-island):not([data-line-start])::before {
+  content: "";
+}
+.composer-island[data-mode="pill"]:is([data-fit~="tight"]:where(:not([data-measuring])), [data-measuring~="tight"])
+  > .composer-island-pill
+  > [data-line-start]::before {
+  content: none;
 }
 /* The files menu: every changed file in one scrolling list (dir muted, name,
    +/− counts), with Delete history and View changes fixed below. */
@@ -703,7 +784,8 @@
   max-height: min(240px, 36dvh);
   /* The rows' wash reaches past the text by their own inset; the scrollbar
      keeps a gutter of its own, so it never sits on the +/− counts. */
-  margin-inline: -8px;
+  margin-inline-start: -6px;
+  margin-inline-end: calc(-6px - var(--mx-scrollbar-gutter, 8px));
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
@@ -719,7 +801,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 3px 8px;
+  padding: 3px 6px;
   border: 0;
   /* The left sidebar's rows: their radius, title ink at rest and active
      pointed at, the neutral inner line for keyboard focus. */
@@ -1119,7 +1201,7 @@ ul.composer-island-jobs > .composer-island-row {
 .composer-island-jobs.composer-island-agents.agent-pool-list {
   --island-agent-row: 32px;
   --island-kind-row: var(--mx-control-sm);
-  --island-row-bleed: calc(var(--island-panel-inset) - var(--mx-scrollbar-size, 8px));
+  --island-row-bleed: min(6px, calc(var(--island-panel-inset) - var(--mx-scrollbar-gutter, 8px)));
   --island-row-bleed-end: var(--island-row-bleed);
   grid-template-columns: var(--mx-icon-md) minmax(0, 1fr) auto auto;
   /* The rows' 6px (the left sidebar's slot-to-name gap), over the list's own. */
@@ -1534,13 +1616,14 @@ ul.composer-island-jobs > .composer-island-row {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable both-edges;
-  padding-inline: calc(var(--island-panel-inset) - var(--mx-scrollbar-size, 8px));
+  padding-inline: calc(var(--island-panel-inset) - var(--mx-scrollbar-gutter, 8px));
 }
 /* The Goal drawer's scrolling content keeps the panel's text inset with its
    scrollbar in a gutter of its own. */
 .composer-island .session-goal-content {
   scrollbar-gutter: stable both-edges;
-  margin-inline: calc(-1 * var(--mx-scrollbar-size, 8px));
+  margin-inline: calc(-6px - var(--mx-scrollbar-gutter, 8px));
+  padding-inline: 6px;
 }
 /* The usage line takes the footer's free room on the action's row, never a
    row of its own: it starts from nothing (a basis of 0, so the row never
@@ -2056,7 +2139,12 @@ html[data-mixdog-mobile-tabs] :is(.composer-island-panel-foot, .composer-island 
 }
 /* The scrollbars are hidden here: no gutter to make up for. */
 html[data-mixdog-mobile-tabs] .composer-island .session-goal-content {
-  margin-inline: 0;
+  margin-inline: -6px;
+  padding-inline: 6px;
+}
+html[data-mixdog-mobile-tabs] .turn-review-files-list {
+  margin-inline-end: -6px;
+  scrollbar-gutter: auto;
 }
 /* Long shell names read whole on a narrow panel: two lines before the
    ellipsis. An agent's row stays one line, its name giving way. */

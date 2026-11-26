@@ -18,25 +18,26 @@ const isSection = (node: Node | null): node is HTMLElement =>
 interface RailMotion {
   /** Everything stands as it is now: no section opens or closes for the changes made so far. */
   stand(): void;
+  /** While settling (initial async hydration after a switch), arrivals/departures stand without animating. */
+  setSettling(next: boolean): void;
   end(): void;
 }
 
-/** Nothing: no height and none of the padding that frames the section's head and body, and below it, given back,
- *  the room the sections beside it take more for standing next to it (`shift`). */
-const closed = (shift: number): Keyframe => ({
+/** Nothing: no height and none of the padding that frames the section's head and body. */
+const CLOSED: Keyframe = {
   height: '0px',
   paddingTop: '0px',
   paddingBottom: '0px',
-  marginBottom: `${-shift}px`,
   opacity: 0,
-});
+};
 
-function railMotion(root: HTMLElement): RailMotion {
+function railMotion(root: HTMLElement, initialSettling: boolean): RailMotion {
   const view = root.ownerDocument.defaultView as Window & typeof globalThis;
   const reduced = view.matchMedia?.('(prefers-reduced-motion: reduce)');
   // A fold runs to the section's own height (`auto`), whatever it becomes meanwhile; without that the sections stand at once.
   const folds = view.CSS?.supports?.('interpolate-size', 'allow-keywords') === true;
-  const still = () => !folds || reduced?.matches === true;
+  let isSettling = initialSettling;
+  const still = () => !folds || reduced?.matches === true || isSettling;
   const present = new Set<HTMLElement>();
   const moving = new Map<HTMLElement, Animation>();
   const leaving = new Set<HTMLElement>();
@@ -48,7 +49,6 @@ function railMotion(root: HTMLElement): RailMotion {
       height: style.height,
       paddingTop: style.paddingTop,
       paddingBottom: style.paddingBottom,
-      marginBottom: style.marginBottom,
       opacity: style.opacity,
     };
   };
@@ -59,27 +59,8 @@ function railMotion(root: HTMLElement): RailMotion {
       height: 'auto',
       paddingTop: style.paddingTop,
       paddingBottom: style.paddingBottom,
-      marginBottom: '0px',
       opacity: 1,
     };
-  };
-  const padding = (sections: readonly HTMLElement[]) =>
-    sections.reduce((sum, node) => {
-      const style = view.getComputedStyle(node);
-      return sum + (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0);
-    }, 0);
-  /** How much more padding the sections beside `section` have with it between them than without it (the spacing
-   *  rules read a section's neighbours: the first one, folded ones in a row). Its fold gives that room back below
-   *  it, so as it comes or goes those sections glide and never jump at its first or last frame. */
-  const shiftOf = (section: HTMLElement): number => {
-    const beside = [section.previousElementSibling, section.nextElementSibling].filter(isSection);
-    if (beside.length === 0) return 0;
-    const withIt = padding(beside);
-    const place = section.nextSibling;
-    section.remove();
-    const without = padding(beside);
-    root.insertBefore(section, place);
-    return withIt - without;
   };
 
   const settle = (section: HTMLElement) => {
@@ -115,7 +96,7 @@ function railMotion(root: HTMLElement): RailMotion {
     section.setAttribute('aria-hidden', 'true');
     section.inert = true;
     root.insertBefore(section, next ?? after);
-    fold(section, standing(section), closed(shiftOf(section)));
+    fold(section, standing(section), CLOSED);
   };
 
   const adjoins = (closing: HTMLElement, section: HTMLElement) => {
@@ -139,7 +120,7 @@ function railMotion(root: HTMLElement): RailMotion {
       fold(section, from, open(section));
       return;
     }
-    if (!still()) fold(section, closed(shiftOf(section)), open(section));
+    if (!still()) fold(section, CLOSED, open(section));
   };
 
   const observer = new view.MutationObserver((records) => {
@@ -163,6 +144,14 @@ function railMotion(root: HTMLElement): RailMotion {
     present.clear();
     for (const node of root.children) if (isSection(node)) present.add(node);
   };
+  const setSettling = (next: boolean) => {
+    if (isSettling === next) {
+      if (next) stand();
+      return;
+    }
+    isSettling = next;
+    stand();
+  };
   const onReduced = () => {
     if (reduced?.matches) for (const section of [...moving.keys()]) settle(section);
   };
@@ -172,6 +161,7 @@ function railMotion(root: HTMLElement): RailMotion {
   reduced?.addEventListener('change', onReduced);
   return {
     stand,
+    setSettling,
     end() {
       observer.disconnect();
       reduced?.removeEventListener('change', onReduced);
@@ -180,18 +170,21 @@ function railMotion(root: HTMLElement): RailMotion {
   };
 }
 
-export function useSessionRailMotion(content: RefObject<HTMLElement | null>, session: string): void {
+export function useSessionRailMotion(content: RefObject<HTMLElement | null>, session: string, settling = false): void {
   const motion = useRef<RailMotion | null>(null);
+  const settlingRef = useRef(settling);
+  settlingRef.current = settling;
   useLayoutEffect(() => {
     const root = content.current;
     if (!root) return;
-    const made = railMotion(root);
+    const made = railMotion(root, settlingRef.current);
     motion.current = made;
     return () => {
       made.end();
       motion.current = null;
     };
   }, [content]);
+  useLayoutEffect(() => motion.current?.setSettling(settling), [settling]);
   // Another session's sections are drawn in the commit this follows: they stand at once.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the session is the trigger, not a value read
   useLayoutEffect(() => motion.current?.stand(), [session]);

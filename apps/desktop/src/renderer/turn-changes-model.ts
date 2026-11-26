@@ -53,9 +53,16 @@ export type TurnChangesRef = {
 };
 
 /** A card is held back while its turn runs only when it is new with the transcript's last end: one that stood on an
- *  earlier end of the same checkpoint stays, read again at the newer end. */
-export function turnCardHeld(ref: TurnChangesRef | undefined, turnRunning: boolean | undefined): boolean {
-  return Boolean(ref?.trailing && !ref.reclosed && turnRunning);
+ *  earlier end of the same checkpoint stays, read again at the newer end. When `checkpointShown` is false (the
+ *  checkpoint never stood while idle), a reclosed end still stays held until the loop finishes. */
+export function turnCardHeld(
+  ref: TurnChangesRef | undefined,
+  turnRunning: boolean | undefined,
+  checkpointShown?: boolean
+): boolean {
+  if (!ref?.trailing || !turnRunning) return false;
+  if (ref.reclosed && checkpointShown !== false) return false;
+  return true;
 }
 
 const TURN_CHANGES_CAPABILITY = 'getTurnChanges' satisfies DesktopCapability;
@@ -548,18 +555,37 @@ export function turnRecordOf(
     const checkpoints = new Map<string, string>();
     const boundaries = new Map<string, string>();
     const prompts = new Map<string, string>();
+    let openKeys: string[] = [];
+    let openPromptCheckpoint = '';
     items.forEach((item, index) => {
       const key = turnKeys[index] || '';
       if (item?.kind === 'user') {
+        const steered = item.steered === true || Boolean(item.steer);
         const id = item.checkpointId ?? item.id;
-        if (!prompts.has(key) && id !== undefined && id !== null && id !== '') prompts.set(key, String(id));
-      } else if (item?.kind === 'turndone' && item.archived !== true) {
-        const checkpointId =
-          typeof item.checkpointId === 'string' && item.checkpointId ? item.checkpointId : prompts.get(key);
-        if (!checkpointId) return;
-        checkpoints.set(key, checkpointId);
-        const id = item.id;
-        boundaries.set(checkpointId, id !== undefined && id !== null ? String(id) : `${checkpointId}:${index}`);
+        const promptId = id !== undefined && id !== null && id !== '' ? String(id) : '';
+        if (!steered) {
+          if (key && !prompts.has(key) && promptId) prompts.set(key, promptId);
+          openKeys = key ? [key] : [];
+          openPromptCheckpoint = promptId;
+        } else {
+          if (key && !openKeys.includes(key)) openKeys.push(key);
+          if (!openPromptCheckpoint && promptId) openPromptCheckpoint = promptId;
+        }
+      } else {
+        if (key && !openKeys.includes(key)) openKeys.push(key);
+        if (item?.kind === 'turndone' && item.archived !== true) {
+          const checkpointId =
+            typeof item.checkpointId === 'string' && item.checkpointId
+              ? item.checkpointId
+              : openPromptCheckpoint || prompts.get(key);
+          if (checkpointId) {
+            for (const openKey of openKeys) checkpoints.set(openKey, checkpointId);
+            const id = item.id;
+            boundaries.set(checkpointId, id !== undefined && id !== null ? String(id) : `${checkpointId}:${index}`);
+          }
+          openKeys = [];
+          openPromptCheckpoint = '';
+        }
       }
     });
     records = new Map(

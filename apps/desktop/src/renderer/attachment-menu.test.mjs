@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { _runIdleReclaimForTest } from './idle-reclaim.ts';
+import { enforceRendererCacheBudget, totalBudgetedChars } from './renderer-cache-budget.ts';
 import {
   attachmentMenuItems,
   composerAttachmentSource,
@@ -207,4 +209,32 @@ test('a never-accepted submission registers nothing (registration is explicit)',
 test('sentAttachmentData skips images and tokenless attachments', () => {
   const image = { ...pending, kind: 'image', token: '' };
   assert.deepEqual(sentAttachmentData([image, { ...pending, token: '' }]), []);
+});
+
+test('sent PDF/office attachments count in the shared cache budget and release on trim or idle reclaim', () => {
+  const pdf = {
+    id: 2,
+    name: 'report.pdf',
+    kind: 'pdf',
+    mimeType: 'application/pdf',
+    data: 'A'.repeat(200_000),
+    token: '[PDF #1: report.pdf]',
+  };
+  const chip = { token: pdf.token, tokenKind: 'PDF', name: pdf.name };
+  const before = totalBudgetedChars();
+  registerSentAttachments('msg-pdf-budget', sentAttachmentData([pdf]));
+  assert.ok(totalBudgetedChars() - before >= 200_000, 'sent base64 is counted in the shared renderer cache budget');
+  assert.ok(sentFileSource(chip, 'msg-pdf-budget').dataUrl?.includes(pdf.data));
+
+  enforceRendererCacheBudget(0);
+  assert.equal(sentFileSource(chip, 'msg-pdf-budget').dataUrl, undefined, 'budget trim drops sent attachment payloads');
+
+  registerSentAttachments('msg-pdf-idle', sentAttachmentData([pdf]));
+  assert.ok(sentFileSource(chip, 'msg-pdf-idle').dataUrl);
+  _runIdleReclaimForTest();
+  assert.equal(
+    sentFileSource(chip, 'msg-pdf-idle').dataUrl,
+    undefined,
+    'idle reclaim releases sent attachment payloads'
+  );
 });

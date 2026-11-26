@@ -6,6 +6,7 @@ import { t } from './i18n';
 import { StepRing } from './AgentTodoMark';
 import { MxIcon } from './MxIcon';
 import { useComposerIslandTab } from './composer-island-state';
+import { useMobileBack } from './mobile-back';
 import { useSurfaceActive } from './surface-activity';
 import { useGoalAfterSubmission } from './session-goal-submission';
 import {
@@ -574,6 +575,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
 
   const surfaceActive = useSurfaceActive();
   useDismissOnOutsideInteraction(rootRef, open && !editing && surfaceActive, () => setOpen(false));
+  useMobileBack(open, () => setOpen(false));
 
   // A refused control opens the tab, where its reason shows.
   const control = async (action: string, values: Record<string, unknown> = {}): Promise<boolean> => {

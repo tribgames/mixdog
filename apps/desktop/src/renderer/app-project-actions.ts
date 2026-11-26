@@ -3,6 +3,7 @@ import type { NavigationSelection } from './navigation';
 import type { Project, Snapshot } from './desktop-types';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { displayProject } from './text-format';
+import { purgeDockGitState } from './utility-dock-git-state';
 
 interface ProjectActionDeps {
   projects: DesktopProjectSummary[];
@@ -92,6 +93,7 @@ export function createProjectActions(deps: ProjectActionDeps) {
     removeProject(project: Project) {
       return invoke(async () => {
         await window.mixdogDesktop.removeProject(project);
+        purgeDockGitState(project);
         await refreshProjects();
       });
     },

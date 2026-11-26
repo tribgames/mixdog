@@ -2,6 +2,7 @@
 // provider module shares. Kept apart from editor-monaco-providers so the LSP and
 // code-graph provider modules can use them without importing their own registrar.
 import { monaco } from './monaco-setup';
+import { ensureMonacoLanguage } from './monaco-language-loader';
 import type { DesktopApi, DesktopLspCapabilities, DesktopLspRequestMethod } from '../shared/contract';
 import type { EditorCodeGraphMode } from './editor-code-graph';
 import { lspSymbolKind, lspUriInProject, monacoRange, projectRelativePath, recordOf } from './editor-lsp-conversion';
@@ -112,6 +113,16 @@ function prunePeekPreviewModels(): void {
   }
 }
 
+/** Disposes every cached peek preview model not currently attached to an editor. */
+export function releaseUnattachedPeekPreviewModels(): void {
+  for (const key of [...peekPreviewModels.keys()]) {
+    const model = monaco.editor.getModel(monaco.Uri.parse(key));
+    if (model?.isAttachedToEditor()) continue;
+    peekPreviewModels.delete(key);
+    model?.dispose();
+  }
+}
+
 /** Standalone Monaco's peek widgets (Peek Definition/References/…) resolve
  *  result URIs against already-created text models only, so a target file
  *  without one rendered as an empty preview. Open tabs never match either:
@@ -154,7 +165,8 @@ export async function preparePeekModels<T extends { uri: import('monaco-editor')
           existing.setValue(content);
         }
       } else {
-        monaco.editor.createModel(content, languageId, location.uri);
+        const created = monaco.editor.createModel(content, languageId, location.uri);
+        void ensureMonacoLanguage(languageId ?? created.getLanguageId()).catch(() => {});
       }
       peekPreviewModels.set(key, Date.now());
     } catch {

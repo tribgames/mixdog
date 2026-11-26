@@ -297,7 +297,7 @@ export function ContextInspector({
   const [hovered, setHovered] = useState('');
   const [bubble, setBubble] = useState<{ x: number; y: number; flip: boolean; text: string } | null>(null);
   const { preview, openPreview, closePreview } = useEntryPreview(inspection, request);
-  if (category && !inspection.categories.some((row) => row.key === category)) setCategory('');
+  if (category && !inspection.categories.some((row) => row.key === category && row.key !== 'host')) setCategory('');
   const map = buildContextMap(inspection.categories, { windowTokens });
   const selectCategory = (key: string) => {
     closePreview();
@@ -329,7 +329,7 @@ export function ContextInspector({
     if (!row) return '';
     return [
       t(row.label),
-      t('{{count}} items', { count: row.count }),
+      row.key === 'host' ? '' : t('{{count}} items', { count: row.count }),
       percentLabel(row.tokens),
       `≈${uiNumber(row.tokens)}`,
     ]
@@ -372,7 +372,7 @@ export function ContextInspector({
   ]
     .filter(Boolean)
     .join(' ');
-  const selected = inspection.categories.find((row) => row.key === category);
+  const selected = inspection.categories.find((row) => row.key === category && row.key !== 'host');
   const previewEntry = preview ? entries.find((item) => item.id === preview.id) : undefined;
   let detail: ReactNode;
   if (!selected) {
@@ -421,7 +421,7 @@ export function ContextInspector({
           }}
           onClick={(event) => {
             const key = cellKey(event.target);
-            if (key && key !== 'free') selectCategory(key);
+            if (key && key !== 'free' && key !== 'host') selectCategory(key);
           }}
         >
           {map.cells.map((key: string, index: number) => (
@@ -440,27 +440,42 @@ export function ContextInspector({
           )}
         </div>
         <div className="context-mix-list">
-          {rankedCategories.map((row) => (
-            <button
-              type="button"
-              className="context-mix-row"
-              key={row.key}
-              data-context-key={row.key}
-              data-empty={row.tokens > 0 ? undefined : 'true'}
-              data-hot={hovered === row.key ? 'true' : undefined}
-              aria-pressed={category === row.key}
-              onClick={() => selectCategory(row.key)}
-              aria-label={`${t(row.label)} · ${t('{{count}} items', { count: row.count })} · ≈${uiNumber(row.tokens)}`}
-            >
-              <i aria-hidden="true" />
-              <span>
-                {t(row.label)}
-                <small>{t('{{count}} items', { count: row.count })}</small>
-              </span>
-              <em>{percentLabel(row.tokens)}</em>
-              <strong title={tokenTitle(row)}>≈{uiNumber(row.tokens)}</strong>
-            </button>
-          ))}
+          {rankedCategories.map((row) =>
+            row.key === 'host' ? (
+              <div
+                className="context-mix-row"
+                key={row.key}
+                data-context-key={row.key}
+                data-empty={row.tokens > 0 ? undefined : 'true'}
+                data-hot={hovered === row.key ? 'true' : undefined}
+              >
+                <i aria-hidden="true" />
+                <span>{t(row.label)}</span>
+                <em>{percentLabel(row.tokens)}</em>
+                <strong title={tokenTitle(row)}>≈{uiNumber(row.tokens)}</strong>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="context-mix-row"
+                key={row.key}
+                data-context-key={row.key}
+                data-empty={row.tokens > 0 ? undefined : 'true'}
+                data-hot={hovered === row.key ? 'true' : undefined}
+                aria-pressed={category === row.key}
+                onClick={() => selectCategory(row.key)}
+                aria-label={`${t(row.label)} · ${t('{{count}} items', { count: row.count })} · ≈${uiNumber(row.tokens)}`}
+              >
+                <i aria-hidden="true" />
+                <span>
+                  {t(row.label)}
+                  <small>{t('{{count}} items', { count: row.count })}</small>
+                </span>
+                <em>{percentLabel(row.tokens)}</em>
+                <strong title={tokenTitle(row)}>≈{uiNumber(row.tokens)}</strong>
+              </button>
+            )
+          )}
           <div className="context-mix-remainder">
             <div className="context-mix-row" data-context-key="free" data-hot={hovered === 'free' ? 'true' : undefined}>
               <i aria-hidden="true" />

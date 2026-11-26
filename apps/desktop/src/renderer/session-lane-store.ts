@@ -4,11 +4,10 @@
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 
 import type { DesktopSessionStateUpdate, DesktopStreamPosition } from '../shared/contract';
-import { desktopAgentIdentity } from '../shared/agent-activity';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import { estimateSessionSnapshotBytes } from './app-session-snapshots';
 import { SessionLaneCache } from './session-lane-cache';
-import { registerBudgetedCache } from './renderer-cache-budget';
+import { enforceRendererCacheBudget, registerBudgetedCache } from './renderer-cache-budget';
 import { reportSessionReadFrame } from './session-read-diagnostics';
 import { sharedTranscriptSnapshotDecorator, type TranscriptSnapshotDecorator } from './snapshot-transcript-decoration';
 import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
@@ -84,7 +83,23 @@ interface SessionLaneStore {
 const SESSION_LANE_CACHE_LIMIT = 64;
 const SESSION_LANE_CACHE_BYTE_LIMIT = 24 * 1024 * 1024;
 const SESSION_LANE_ESTIMATE_INTERVAL_MS = 1_000;
+const SESSION_LANE_BUDGET_IDLE_TIMEOUT_MS = 250;
+const SESSION_LANE_BUDGET_FALLBACK_MS = 32;
 let laneStoreSequence = 0;
+
+type IdleScheduleHost = {
+  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
+
+function idleScheduleHost(): IdleScheduleHost {
+  const globalHost = globalThis as IdleScheduleHost;
+  if (typeof globalHost.requestIdleCallback === 'function') return globalHost;
+  if (typeof window !== 'undefined' && typeof (window as IdleScheduleHost).requestIdleCallback === 'function') {
+    return window as IdleScheduleHost;
+  }
+  return globalHost;
+}
 /** The rows kept of a session no pane shows (its lane is the state it had when the core let it go: a return reads the
  *  session again, and rows that come back equal keep the objects, and so the rendered bodies, held here). */
 export const HIDDEN_SESSION_ROW_BUDGET = 512;
@@ -124,45 +139,85 @@ function queuedIdentity(snapshot: Snapshot): string {
     .join('\0');
 }
 
-function agentActivityIdentity(snapshot: Snapshot): string {
-  return (['agentWorkers', 'agentJobs'] as const)
-    .flatMap((field) => {
-      const entries = Array.isArray(snapshot[field]) ? snapshot[field] : [];
-      return entries.map((entry, index) =>
-        [field, desktopAgentIdentity(entry) || index, String(entry?.stage || ''), String(entry?.status || '')].join(':')
-      );
-    })
-    .join('\0');
+const MAX_GONE_TOMBSTONES = 512;
+
+function streamingTailTransitioned(previous: Snapshot['streamingTail'], next: Snapshot['streamingTail']): boolean {
+  if (previous === next) return false;
+  if (!previous || !next) return true;
+  return previous.id !== next.id || Boolean(previous.streaming) !== Boolean(next.streaming);
 }
 
-function shellActivityCount(snapshot: Snapshot): number {
-  return Math.max(
-    Math.max(0, Number(snapshot.shellJobs?.count) || 0),
-    Math.max(0, Number(snapshot.activeTools?.shell?.count) || 0)
+function spinnerTransitioned(previous: Snapshot['spinner'], next: Snapshot['spinner']): boolean {
+  if (previous === next) return false;
+  const prevActive = Boolean(previous && previous.active !== false);
+  const nextActive = Boolean(next && next.active !== false);
+  if (prevActive !== nextActive) return true;
+  if (!prevActive || !nextActive) return false;
+  return (
+    String(previous?.mode || '') !== String(next?.mode || '') ||
+    Boolean(previous?.stopping) !== Boolean(next?.stopping) ||
+    String(previous?.verb || '') !== String(next?.verb || '')
   );
 }
 
-function surfacedToolActivityIdentity(snapshot: Snapshot): string {
-  return (['agent', 'web_search', 'shell'] as const)
-    .map((field) => {
-      const activity = snapshot.activeTools?.[field];
-      return `${field}:${Math.max(0, Number(activity?.count) || 0)}:${Number(activity?.startedAt) || 0}`;
-    })
-    .join('\0');
+function toolItemStateKey(item: TranscriptItem): string {
+  const calls = Array.isArray(item.calls) ? item.calls : null;
+  let callsDone = 0;
+  if (calls) {
+    for (const call of calls) {
+      if (call && typeof call === 'object' && 'result' in call) callsDone += 1;
+    }
+  }
+  return [
+    String(item.id ?? ''),
+    String(item.count ?? ''),
+    String(item.completedCount ?? ''),
+    'result' in item ? '1' : '0',
+    item.isError ? '1' : '0',
+    item.stopped ? '1' : '0',
+    String(item.status ?? ''),
+    calls ? `${calls.length}:${callsDone}` : '',
+  ].join('\0');
 }
 
-function laneUpdateIsUrgent(previous: Snapshot | null, next: Snapshot | null): boolean {
+function toolItemsTransitioned(previous: Snapshot['items'], next: Snapshot['items']): boolean {
+  if (previous === next) return false;
+  const prevItems = Array.isArray(previous) ? previous : [];
+  const nextItems = Array.isArray(next) ? next : [];
+  for (let index = prevItems.length; index < nextItems.length; index += 1) {
+    if (nextItems[index]?.kind === 'tool') return true;
+  }
+  for (let index = nextItems.length; index < prevItems.length; index += 1) {
+    if (prevItems[index]?.kind === 'tool') return true;
+  }
+  const overlap = Math.min(prevItems.length, nextItems.length);
+  for (let index = 0; index < overlap; index += 1) {
+    const prevItem = prevItems[index];
+    const nextItem = nextItems[index];
+    if (prevItem === nextItem) continue;
+    const prevTool = prevItem?.kind === 'tool';
+    const nextTool = nextItem?.kind === 'tool';
+    if (!prevTool && !nextTool) continue;
+    if (prevTool !== nextTool) return true;
+    if (prevItem && nextItem && toolItemStateKey(prevItem) !== toolItemStateKey(nextItem)) return true;
+  }
+  return false;
+}
+
+export function laneUpdateIsUrgent(previous: Snapshot | null, next: Snapshot | null): boolean {
   if (!previous || !next) return true;
   return (
     previous.sessionId !== next.sessionId ||
+    previous.snapshotRevision !== next.snapshotRevision ||
+    previous.replayPending !== next.replayPending ||
     previous.busy !== next.busy ||
     previous.commandBusy !== next.commandBusy ||
     previous.commandStatus !== next.commandStatus ||
     previous.toolApproval !== next.toolApproval ||
     queuedIdentity(previous) !== queuedIdentity(next) ||
-    agentActivityIdentity(previous) !== agentActivityIdentity(next) ||
-    surfacedToolActivityIdentity(previous) !== surfacedToolActivityIdentity(next) ||
-    shellActivityCount(previous) !== shellActivityCount(next)
+    streamingTailTransitioned(previous.streamingTail, next.streamingTail) ||
+    spinnerTransitioned(previous.spinner, next.spinner) ||
+    toolItemsTransitioned(previous.items, next.items)
   );
 }
 
@@ -505,15 +560,9 @@ export function createSessionLaneStore({
    *  pane shows them. */
   const seeded = new Set<string>();
   const subscribed = (sessionId: string): boolean => (listeners.get(sessionId)?.size || 0) > 0;
-  const snapshots = new SessionLaneCache({
-    maxEntries,
-    maxBytes,
-    subscribed,
-    // A pane shows a session before it subscribes to its lane (its shown ids are set first), and the pane of a seeded
-    // session shows it after the seed.
-    kept: (sessionId) => subscribed(sessionId) || shown.has(sessionId) || seeded.has(sessionId),
-  });
-  const notificationKeys = new Map<string, object>();
+  // A pane shows a session before it subscribes to its lane (its shown ids are set first), and the pane of a seeded
+  // session shows it after the seed.
+  const kept = (sessionId: string): boolean => subscribed(sessionId) || shown.has(sessionId) || seeded.has(sessionId);
   /** Each session's shown feed position and who hears it move, and the sessions whose lane ended as gone. */
   const positions = new Map<string, DesktopStreamPosition>();
   const positionListeners = new Map<string, Set<() => void>>();
@@ -526,7 +575,60 @@ export function createSessionLaneStore({
   /** The position of an accepted state whose notification is still scheduled. */
   const notifiedAt = new Map<string, DesktopStreamPosition>();
   const ended = new Set<string>();
+  // Bounded tombstones for deleted lanes; survive pane close and idle sweeps so
+  // late in-flight previews cannot recreate a gone session.
+  const gone = new Set<string>();
+  const markGone = (sessionId: string): void => {
+    gone.delete(sessionId);
+    gone.add(sessionId);
+    if (gone.size > MAX_GONE_TOMBSTONES) {
+      const oldest = gone.values().next().value;
+      if (oldest !== undefined) gone.delete(oldest);
+    }
+  };
+  const dropLaneMetadata = (sessionId: string): void => {
+    decorator.forget?.(sessionId);
+    positions.delete(sessionId);
+    notifiedAt.delete(sessionId);
+  };
+  const pruneEnded = (): void => {
+    for (const sessionId of [...ended]) {
+      if (!kept(sessionId)) ended.delete(sessionId);
+    }
+  };
+  const snapshots = new SessionLaneCache({
+    maxEntries,
+    maxBytes,
+    subscribed,
+    kept,
+    onEvict: dropLaneMetadata,
+  });
+  const notificationKeys = new Map<string, object>();
   let stop: (() => void) | null = null;
+  let pendingBudgetCancel: (() => void) | null = null;
+  const cancelBudgetEnforcement = (): void => {
+    const cancel = pendingBudgetCancel;
+    pendingBudgetCancel = null;
+    cancel?.();
+  };
+  const scheduleBudgetEnforcement = (): void => {
+    if (pendingBudgetCancel) return;
+    const run = (): void => {
+      pendingBudgetCancel = null;
+      enforceRendererCacheBudget();
+    };
+    const host = idleScheduleHost();
+    if (typeof host.requestIdleCallback === 'function') {
+      const handle = host.requestIdleCallback(run, { timeout: SESSION_LANE_BUDGET_IDLE_TIMEOUT_MS });
+      pendingBudgetCancel = () => host.cancelIdleCallback?.(handle);
+      return;
+    }
+    const timer = setTimeout(run, SESSION_LANE_BUDGET_FALLBACK_MS);
+    if (typeof timer === 'object' && timer !== null && 'unref' in timer && typeof timer.unref === 'function') {
+      timer.unref();
+    }
+    pendingBudgetCancel = () => clearTimeout(timer);
+  };
   let approvals: ReadonlySet<string> = new Set();
   let questions: ReadonlySet<string> = new Set();
   const approvalListeners = new Set<() => void>();
@@ -638,6 +740,17 @@ export function createSessionLaneStore({
       reportSessionReadFrame(update, 'rejected');
       return;
     }
+    // A deleted lane ignores stale non-live frames (e.g. an in-flight prefetchSession
+    // replay that finished after `laneEnd: 'gone'`). Only a genuine live owner
+    // publication can clear a deletion tombstone and reopen the session id.
+    if (
+      update.snapshot &&
+      (gone.has(sessionId) || ended.has(sessionId)) &&
+      (update.frameSource !== 'live' || (update.snapshot as Snapshot).transcriptPreview)
+    ) {
+      reportSessionReadFrame(update, 'rejected');
+      return;
+    }
     if (prior) snapshots.delete(sessionId);
     // A genuine teardown ends the session's identity baseline and failure scope, and no answer seeds it again.
     if (!update.snapshot && update.laneEnd === 'gone') {
@@ -645,12 +758,15 @@ export function createSessionLaneStore({
       seeded.delete(sessionId);
       positions.delete(sessionId);
       notifiedAt.delete(sessionId);
+      markGone(sessionId);
       if (!ended.has(sessionId)) {
         ended.add(sessionId);
         for (const listener of [...approvalListeners]) listener();
       }
     }
     if (update.snapshot) {
+      ended.delete(sessionId);
+      gone.delete(sessionId);
       // A stored preview may predate a rewind. Reuse equal row objects below, but never retain its rows or fields over a real frame.
       const baseline = priorSnapshot?.transcriptPreview ? null : priorSnapshot;
       const raw = laneTranscript(update.snapshot as Snapshot);
@@ -721,8 +837,27 @@ export function createSessionLaneStore({
       }
       const now = Date.now();
       const subscribed = (listeners.get(sessionId)?.size || 0) > 0;
-      const refreshEstimate = !prior || (!subscribed && now - prior.estimatedAt >= SESSION_LANE_ESTIMATE_INTERVAL_MS);
+      const priorViews = priorSnapshot as { transcriptViews?: unknown; transcriptViewItems?: unknown } | null;
+      const nextViews = snapshot as { transcriptViews?: unknown; transcriptViewItems?: unknown };
+      const viewsChanged =
+        priorViews?.transcriptViews !== nextViews.transcriptViews ||
+        priorViews?.transcriptViewItems !== nextViews.transcriptViewItems;
+      const itemsChanged = priorSnapshot?.items !== snapshot.items;
+      const streamingFrame =
+        Boolean(snapshot.streamingTail) || (Array.isArray(snapshot.items) && snapshot.items.at(-1)?.streaming === true);
+      const priorStreaming =
+        Boolean(priorSnapshot?.streamingTail) ||
+        (Array.isArray(priorSnapshot?.items) && priorSnapshot.items.at(-1)?.streaming === true);
+      const streamingEnded = priorStreaming && !streamingFrame;
+      const refreshEstimate =
+        !prior || viewsChanged || (!subscribed && now - prior.estimatedAt >= SESSION_LANE_ESTIMATE_INTERVAL_MS);
       const bytes = refreshEstimate ? estimateSessionSnapshotBytes(snapshot) : prior.bytes;
+      const enforceBudget =
+        !prior ||
+        viewsChanged ||
+        streamingEnded ||
+        (!streamingFrame && itemsChanged) ||
+        (!subscribed && refreshEstimate);
       // What the next frame is carried on from: the list handed over, only when the rows shown from `rawOffset` on are
       // its rows one for one under their own ids. A generation's own rows are not, and neither are rows shown under
       // other ids (`decorated.items !== raw`): which rows adopt which ids is decided over the whole of both lists and
@@ -747,6 +882,7 @@ export function createSessionLaneStore({
         ...anchorFields,
       });
       if (decision.accept && update.streamPosition) notifiedAt.set(sessionId, update.streamPosition);
+      if (budget && enforceBudget) scheduleBudgetEnforcement();
     }
     snapshots.prune();
     const nextSnapshot = snapshots.get(sessionId)?.snapshot ?? null;
@@ -781,18 +917,15 @@ export function createSessionLaneStore({
       pinned: () => snapshots.keptChars,
       trim(target) {
         const gone = snapshots.trimTo(target);
-        for (const sessionId of gone) decorator.forget?.(sessionId);
         if (gone.length > 0) syncApprovals();
       },
     });
   }
   const sweepHidden = (): void => {
-    snapshots.sweep((sessionId, snapshot) => {
-      const kept = keptOfHiddenLane(sessionId, snapshot);
-      if (!kept) decorator.forget?.(sessionId);
-      return kept;
-    });
+    snapshots.sweep((sessionId, snapshot) => keptOfHiddenLane(sessionId, snapshot));
+    pruneEnded();
     syncApprovals();
+    if (budget) enforceRendererCacheBudget();
   };
   return {
     get(sessionId) {
@@ -829,7 +962,10 @@ export function createSessionLaneStore({
           syncApprovals();
           // An unmounted lane that is no longer cached has nothing displayed
           // to keep stable; a cached one keeps its baseline for re-entry.
-          if (!snapshots.get(sessionId)) decorator.forget?.(sessionId);
+          if (!snapshots.get(sessionId)) {
+            dropLaneMetadata(sessionId);
+            if (!shown.has(sessionId)) ended.delete(sessionId);
+          }
         }
       };
     },
@@ -840,6 +976,7 @@ export function createSessionLaneStore({
       shown = new Set(sessionIds);
       // Every seed is settled: one a pane shows is kept as shown, one none shows may go like any such lane.
       seeded.clear();
+      pruneEnded();
       // A newly shown session waits for its first frame; one no longer shown leaves.
       setLive(new Set([...live].filter((id) => shown.has(id))));
     },
@@ -853,6 +990,7 @@ export function createSessionLaneStore({
     },
     evictInactive() {
       snapshots.evictInactive();
+      pruneEnded();
       syncApprovals();
     },
     start(source = window.mixdogDesktop?.subscribeSessionState?.bind(window.mixdogDesktop)) {
@@ -868,6 +1006,7 @@ export function createSessionLaneStore({
       const halt = (): void => {
         if (stop !== halt) return;
         stop = null;
+        cancelBudgetEnforcement();
         window.clearInterval(timer);
         document.removeEventListener('visibilitychange', onHidden);
         offReclaim();
@@ -882,12 +1021,12 @@ export function createSessionLaneStore({
     },
     apply,
     seedPreview(sessionId, snapshot) {
-      if (ended.has(sessionId) || snapshots.get(sessionId)) return;
+      if (ended.has(sessionId) || gone.has(sessionId) || snapshots.get(sessionId)) return;
       seeded.add(sessionId);
       apply({ sessionId, snapshot: { ...snapshot, transcriptPreview: true }, frameSource: 'replay' });
     },
     seedCreatedSession(sessionId, snapshot) {
-      if (ended.has(sessionId) || snapshots.get(sessionId)) return;
+      if (ended.has(sessionId) || gone.has(sessionId) || snapshots.get(sessionId)) return;
       seeded.add(sessionId);
       apply({ sessionId, snapshot, frameSource: 'live' });
     },
@@ -917,6 +1056,7 @@ export function createSessionLaneStore({
       notificationKeys: notificationKeys.size,
     }),
     clear() {
+      cancelBudgetEnforcement();
       for (const key of notificationKeys.values()) cancelLayoutFrame(key);
       notificationKeys.clear();
       snapshots.clear();
@@ -924,6 +1064,7 @@ export function createSessionLaneStore({
       positions.clear();
       notifiedAt.clear();
       ended.clear();
+      gone.clear();
       decorator.clear();
       if (approvals.size > 0) {
         approvals = new Set();

@@ -145,3 +145,25 @@ test('a pane that fails its own read is not retried again', async (t) => {
   assert.equal(await requestSessionRead('plain'), false);
   assert.equal(calls.length, 3);
 });
+
+test('an in-flight preview returns false and does not recreate a lane deleted and closed before it resolves', async (t) => {
+  let resolvePreview;
+  fixture(t, {
+    previewSession: () =>
+      new Promise((resolve) => {
+        resolvePreview = resolve;
+      }),
+  });
+  defaultSessionLaneStore.setShownSessionIds(['gone-preview']);
+  const off = defaultSessionLaneStore.subscribe('gone-preview', () => {});
+  const pending = previewSessionTranscript('gone-preview');
+  await Promise.resolve();
+  defaultSessionLaneStore.apply({ sessionId: 'gone-preview', snapshot: null, laneEnd: 'gone' });
+  defaultSessionLaneStore.setShownSessionIds([]);
+  off();
+  defaultSessionLaneStore.sweepHidden();
+
+  resolvePreview({ sessionId: 'gone-preview', items: [{ id: 'u1', kind: 'user', text: 'late' }] });
+  assert.equal(await pending, false, 'rejected preview reports false');
+  assert.equal(defaultSessionLaneStore.get('gone-preview'), null, 'deleted lane stays absent');
+});

@@ -3,7 +3,7 @@ import test from 'node:test';
 import v8 from 'node:v8';
 import vm from 'node:vm';
 
-import { createSessionLaneStore } from './session-lane-store.ts';
+import { createSessionLaneStore, laneUpdateIsUrgent } from './session-lane-store.ts';
 import { createTranscriptIdentityReconciler } from './transcript-identity.ts';
 import { mergeToolRows, rowsOf } from '../../../../packages/protocol-client/src/rows.ts';
 import { prependHistoryPage, appendHistoryPage } from './transcript-history.ts';
@@ -787,6 +787,56 @@ test('a streaming update after a reconnect to a shorter window keeps the rows, t
   }
 });
 
+test('commandBusy and commandStatus transitions notify synchronously even when busy stays false', () => {
+  const store = createSessionLaneStore({ decorator });
+  let notifications = 0;
+  const off = store.subscribe('cmd', () => {
+    notifications += 1;
+  });
+  store.apply({
+    sessionId: 'cmd',
+    frameSource: 'live',
+    snapshot: { sessionId: 'cmd', items: [], busy: false, commandBusy: false, commandStatus: null },
+  });
+  assert.equal(notifications, 1);
+
+  store.apply({
+    sessionId: 'cmd',
+    frameSource: 'live',
+    snapshot: {
+      sessionId: 'cmd',
+      items: [],
+      busy: false,
+      commandBusy: true,
+      commandStatus: { active: true, mode: 'compacting', startedAt: 1 },
+    },
+  });
+  assert.equal(notifications, 2, 'commandBusy start notifies synchronously');
+
+  store.apply({
+    sessionId: 'cmd',
+    frameSource: 'live',
+    snapshot: {
+      sessionId: 'cmd',
+      items: [],
+      busy: false,
+      commandBusy: true,
+      commandStatus: { active: true, mode: 'compacting', detail: 'halfway', startedAt: 1 },
+    },
+  });
+  assert.equal(notifications, 3, 'commandStatus change notifies synchronously');
+
+  store.apply({
+    sessionId: 'cmd',
+    frameSource: 'live',
+    snapshot: { sessionId: 'cmd', items: [], busy: false, commandBusy: false, commandStatus: null },
+  });
+  assert.equal(notifications, 4, 'commandBusy completion notifies synchronously');
+
+  off();
+  store.clear();
+});
+
 test('unsubscribing releases a lane notification key', () => {
   const store = createSessionLaneStore({ decorator });
   const unsubscribe = store.subscribe('session', () => {});
@@ -822,4 +872,163 @@ test('an identity record of a long row does not keep the row text alive', async 
   const held = (await settledHeap()) - before;
   assert.ok(held < 1_000_000, `the record keeps the whole row text: ${held} bytes`);
   identity.forget('long');
+});
+
+test('tool arrivals/completions and live streamingTail/spinner transitions notify synchronously while text/token ticks batch', async () => {
+  const store = createSessionLaneStore({ decorator });
+  let notifications = 0;
+  const off = store.subscribe('urgent-live', () => {
+    notifications += 1;
+  });
+  const base = {
+    sessionId: 'urgent-live',
+    busy: true,
+    items: [{ id: 'u1', kind: 'user', text: 'hi' }],
+    streamingTail: null,
+    spinner: { active: true, mode: 'thinking', outputTokens: 0 },
+  };
+  store.apply({ sessionId: 'urgent-live', frameSource: 'live', snapshot: base });
+  assert.equal(notifications, 1, 'initial frame is urgent');
+
+  // Pure spinner token tick is non-urgent (batched).
+  const tickSnap = { ...base, spinner: { active: true, mode: 'thinking', outputTokens: 42 } };
+  store.apply({ sessionId: 'urgent-live', frameSource: 'live', snapshot: tickSnap });
+  assert.equal(notifications, 1, 'token tick batches');
+  await nextFrame();
+  assert.equal(notifications, 2);
+
+  // Spinner mode change is urgent.
+  const toolModeSnap = { ...tickSnap, spinner: { active: true, mode: 'tool-use', outputTokens: 42 } };
+  store.apply({ sessionId: 'urgent-live', frameSource: 'live', snapshot: toolModeSnap });
+  assert.equal(notifications, 3, 'spinner mode transition notifies synchronously');
+
+  // Tool item arrival at tail is urgent.
+  const toolStart = { id: 'tc1', kind: 'tool', name: 'read', count: 1, completedCount: 0 };
+  const toolArrivedSnap = { ...toolModeSnap, items: [...toolModeSnap.items, toolStart] };
+  store.apply({ sessionId: 'urgent-live', frameSource: 'live', snapshot: toolArrivedSnap });
+  assert.equal(notifications, 4, 'tool arrival notifies synchronously');
+
+  // Tool item completion is urgent.
+  const toolDone = { ...toolStart, completedCount: 1, result: 'ok' };
+  const toolDoneSnap = { ...toolArrivedSnap, items: [toolArrivedSnap.items[0], toolDone] };
+  store.apply({ sessionId: 'urgent-live', frameSource: 'live', snapshot: toolDoneSnap });
+  assert.equal(notifications, 5, 'tool completion notifies synchronously');
+
+  // Live streamingTail start is urgent.
+  const tailStart = { ...toolDoneSnap, streamingTail: { id: 'a1', kind: 'assistant', streaming: true, text: 'He' } };
+  store.apply({ sessionId: 'urgent-live', frameSource: 'live', snapshot: tailStart });
+  assert.equal(notifications, 6, 'streamingTail start notifies synchronously');
+
+  // Pure text growth on same streamingTail id stays non-urgent (batched).
+  const tailGrow = { ...tailStart, streamingTail: { id: 'a1', kind: 'assistant', streaming: true, text: 'Hello' } };
+  store.apply({ sessionId: 'urgent-live', frameSource: 'live', snapshot: tailGrow });
+  assert.equal(notifications, 6, 'same-id streaming text delta batches');
+  await nextFrame();
+  assert.equal(notifications, 7);
+
+  off();
+  store.clear();
+});
+
+test('completing a long-running shell tool more than 16 items back notifies urgently', () => {
+  const store = createSessionLaneStore({ decorator });
+  let notifications = 0;
+  const off = store.subscribe('deep-shell', () => {
+    notifications += 1;
+  });
+  const runningShell = { id: 'sh1', kind: 'tool', name: 'shell', count: 1, completedCount: 0, status: 'running' };
+  const newerItems = Array.from({ length: 18 }, (_, index) => ({
+    id: `m${index}`,
+    kind: 'assistant',
+    text: `step ${index}`,
+  }));
+  const before = {
+    sessionId: 'deep-shell',
+    busy: true,
+    activeTools: { shell: { count: 1 } },
+    items: [{ id: 'u1', kind: 'user', text: 'run' }, runningShell, ...newerItems],
+  };
+  store.apply({ sessionId: 'deep-shell', frameSource: 'live', snapshot: before });
+  assert.equal(notifications, 1);
+
+  const finishedShell = { ...runningShell, completedCount: 1, status: 'done', result: 'ok' };
+  const after = {
+    ...before,
+    activeTools: {},
+    items: [before.items[0], finishedShell, ...newerItems],
+  };
+  assert.equal(laneUpdateIsUrgent(before, after), true, 'deep shell completion is urgent');
+  store.apply({ sessionId: 'deep-shell', frameSource: 'live', snapshot: after });
+  assert.equal(notifications, 2, 'subscriber notifies synchronously without waiting for next frame');
+
+  off();
+  store.clear();
+});
+
+test('closing and unsubscribing a deleted lane still rejects late previews', () => {
+  const store = createSessionLaneStore({ decorator });
+  store.setShownSessionIds(['gone-1']);
+  const off = store.subscribe('gone-1', () => {});
+  store.apply({
+    sessionId: 'gone-1',
+    frameSource: 'live',
+    snapshot: { sessionId: 'gone-1', items: [{ id: 'u1', kind: 'user', text: 'hello' }] },
+  });
+  store.apply({ sessionId: 'gone-1', snapshot: null, laneEnd: 'gone' });
+  assert.equal(store.get('gone-1'), null);
+
+  // Close the pane and sweep idle metadata: the deleted-lane tombstone still blocks late previews.
+  store.setShownSessionIds([]);
+  off();
+  store.sweepHidden();
+
+  store.seedPreview('gone-1', {
+    sessionId: 'gone-1',
+    items: [{ id: 'u1', kind: 'user', text: 'late preview' }],
+  });
+  assert.equal(store.get('gone-1'), null, 'late preview cannot recreate a deleted lane after pane close');
+  store.clear();
+});
+
+test('a stale in-flight prefetch replay after laneEnd gone is rejected and preserves the deletion tombstone', () => {
+  const store = createSessionLaneStore({ decorator });
+  store.setShownSessionIds(['gone-replay']);
+  const off = store.subscribe('gone-replay', () => {});
+  store.apply({
+    sessionId: 'gone-replay',
+    frameSource: 'live',
+    snapshot: { sessionId: 'gone-replay', items: [{ id: 'u1', kind: 'user', text: 'hello' }] },
+  });
+  store.apply({ sessionId: 'gone-replay', frameSource: 'live', snapshot: null, laneEnd: 'gone' });
+  store.setShownSessionIds([]);
+  off();
+  store.sweepHidden();
+
+  // An in-flight prefetchSession replay finishes after deletion: must be rejected without clearing the tombstone.
+  store.apply({
+    sessionId: 'gone-replay',
+    frameSource: 'replay',
+    snapshot: { sessionId: 'gone-replay', items: [{ id: 'u1', kind: 'user', text: 'stale prefetch' }] },
+  });
+  assert.equal(store.get('gone-replay'), null, 'stale replay does not recreate deleted lane');
+
+  // A subsequent preview must still see the session as deleted.
+  store.seedPreview('gone-replay', {
+    sessionId: 'gone-replay',
+    items: [{ id: 'u1', kind: 'user', text: 'later preview' }],
+  });
+  assert.equal(
+    store.get('gone-replay'),
+    null,
+    'deletion tombstone survives stale replay and blocks subsequent preview'
+  );
+
+  // Only a genuine live owner publication can reopen a tombstoned session id.
+  store.apply({
+    sessionId: 'gone-replay',
+    frameSource: 'live',
+    snapshot: { sessionId: 'gone-replay', items: [{ id: 'u2', kind: 'user', text: 'fresh live' }] },
+  });
+  assert.equal(store.get('gone-replay')?.items?.[0]?.id, 'u2', 'genuine live frame reopens lane');
+  store.clear();
 });

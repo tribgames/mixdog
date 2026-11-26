@@ -13,6 +13,7 @@ import { confirmAction } from './app-confirm';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 import { formatWorkElapsed } from './transcript-primitives';
+import { uiTimeUnit } from './ui-format';
 
 type ShellKind = 'stop' | 'release';
 // `held`: the stop was asked of a row already reported unconfirmed (it ends
@@ -101,7 +102,8 @@ export function ShellJobContent({
   stop: ShellStopState;
   releasing?: boolean;
 }) {
-  const elapsed = row.startedAt > 0 ? formatWorkElapsed(clock - row.startedAt) || '0s' : '0s';
+  const zero = uiTimeUnit(0, 'second');
+  const elapsed = row.startedAt > 0 ? formatWorkElapsed(clock - row.startedAt) || zero : zero;
   return (
     <>
       <span className="sidebar-resource-icon" aria-hidden="true">

@@ -2,7 +2,13 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, 
 import { isAgentHomeSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { isOtherDevice } from '../shared/session-devices';
 import type { ToolApprovalDecision } from '../shared/contract';
-import { ApprovalCard, approvalRecordLabel, publishHeldSettlements } from './ApprovalCard';
+import {
+  ApprovalCard,
+  approvalRecordLabel,
+  publishHeldSettlements,
+  releaseApprovalCardState,
+  retainHeldSettlements,
+} from './ApprovalCard';
 import { BrowserApprovalCard, useBrowserApprovals } from './BrowserApprovalHost';
 import { QuestionCard } from './QuestionCard';
 import { useAgentChatSession } from './agent-chat-mode';
@@ -112,9 +118,19 @@ export function useConversationApprovals(
   // Agent mode (agent-chat-mode.ts) narrows both cards to the bubble column together.
   const agentMode = useAgentChatSession(decidedSessionId);
   // Held requests in an agent's home thread fold away once their settling row arrives.
+  useEffect(() => {
+    if (!isAgentHomeSessionId(decidedSessionId)) return;
+    return retainHeldSettlements(decidedSessionId);
+  }, [decidedSessionId]);
   useLayoutEffect(() => {
     if (isAgentHomeSessionId(decidedSessionId)) publishHeldSettlements(decidedSessionId, snapshot.items ?? NO_ITEMS);
   }, [decidedSessionId, snapshot.items]);
+  const resolvedApprovalId = String(snapshot.toolApprovalResult?.id ?? '');
+  useEffect(() => {
+    if (resolvedApprovalId && resolvedApprovalId !== pendingApprovalId) {
+      releaseApprovalCardState(resolvedApprovalId);
+    }
+  }, [resolvedApprovalId, pendingApprovalId]);
 
   const browserPrompts = useBrowserApprovals(docked ? decidedSessionId : '');
   let approvalDock: ReactNode = null;
@@ -147,6 +163,7 @@ export function useConversationApprovals(
       const sameSession = decidedLocally.current.sessionId === decidedSessionId;
       if (accepted === true && sameSession) decidedLocally.current.ids.add(approvalId);
       if (accepted === true) {
+        releaseApprovalCardState(approvalId);
         answeredHere.current = approvalId;
         if (sameSession && pendingApproval.kind !== 'question') {
           setLocalDecided({

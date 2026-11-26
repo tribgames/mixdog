@@ -5,6 +5,7 @@ import { registerIdleReclaim } from './idle-reclaim';
 import { currentRemoteConnectionState, isRemoteDesktopOffline } from './remote-connection-state';
 import { enforceRendererCacheBudget, registerBudgetedCache } from './renderer-cache-budget';
 import { estimateRetainedChars } from './renderer-value-weight';
+import { useSurfaceActive } from './surface-activity';
 import { toolRowRevision, uiDiffDigest } from './transcript-tool-core';
 
 interface LoadedToolOutput {
@@ -19,20 +20,28 @@ type ReadState =
   { status: 'loading'; background: boolean } | SettledReadState;
 const FULL_TOOL_OUTPUT_LIMIT = 64;
 const FULL_TOOL_OUTPUT_MAX_CHARS = 8 * 1024 * 1024;
+const FULL_TOOL_OUTPUT_MEASURE_LIMIT = 64 * 1024 * 1024;
 /** Backoff for unattended prefetch failures; an observed failure takes an explicit Retry. */
 export const TOOL_OUTPUT_PREFETCH_RETRY_MS = 60_000;
 /** Reads by session, row and row revision (a text read for one revision of a
  *  row is never shown for another): in flight, failed, or done. */
 const reads = new Map<string, ReadState>();
+/** Active observed payloads: counted against the shared budget and pinned while shown. */
+const observedReads = new Map<string, number>();
+let observedChars = 0;
 /** Only unobserved, exactly replayable payloads and lightweight failures are evictable. */
 const retainedReads = new Map<string, number>();
 let retainedChars = 0;
 /** Receipts survive payload eviction: no second prefetch, and an opened row
  *  can reload only the exact revision the host promised to replay. */
 const readKeys = new Map<string, { viewed: boolean; replayToken?: string }>();
+const readKeySizes = new Map<string, number>();
+let readKeysChars = 0;
 /** Preserve Retry even when the read leaves the cache. Backoff affects
  *  speculative reads only; it does not erase a failure from the UI. */
 const failedReads = new Map<string, FailedRead>();
+const failedReadSizes = new Map<string, number>();
+let failedReadsChars = 0;
 /** The one request per key allowed to write its answer: a request still in
  *  flight when its session was released (or reset) settles without effect. */
 const requests = new Map<string, object>();
@@ -49,6 +58,47 @@ function publish(key: string): void {
   for (const listener of [...(listeners.get(key) ?? [])]) listener();
 }
 
+function setReadKey(key: string, receipt: { viewed: boolean; replayToken?: string }): void {
+  deleteReadKey(key);
+  const size = key.length + (receipt.replayToken?.length ?? 0) + 16;
+  readKeys.set(key, receipt);
+  readKeySizes.set(key, size);
+  readKeysChars += size;
+}
+
+function deleteReadKey(key: string): void {
+  const size = readKeySizes.get(key) ?? 0;
+  readKeySizes.delete(key);
+  readKeysChars -= size;
+  readKeys.delete(key);
+}
+
+function setFailedRead(key: string, failed: FailedRead): void {
+  deleteFailedRead(key);
+  const size = key.length + 16;
+  failedReads.set(key, failed);
+  failedReadSizes.set(key, size);
+  failedReadsChars += size;
+}
+
+function deleteFailedRead(key: string): void {
+  const size = failedReadSizes.get(key) ?? 0;
+  failedReadSizes.delete(key);
+  failedReadsChars -= size;
+  failedReads.delete(key);
+}
+
+function untrackObservedRead(key: string): void {
+  observedChars -= observedReads.get(key) ?? 0;
+  observedReads.delete(key);
+}
+
+function trackObservedRead(key: string, chars: number): void {
+  untrackObservedRead(key);
+  observedReads.set(key, chars);
+  observedChars += chars;
+}
+
 function untrackRead(key: string): void {
   retainedChars -= retainedReads.get(key) ?? 0;
   retainedReads.delete(key);
@@ -56,7 +106,27 @@ function untrackRead(key: string): void {
 
 function dropRead(key: string): void {
   untrackRead(key);
+  untrackObservedRead(key);
   reads.delete(key);
+}
+
+function totalToolOutputChars(): number {
+  return observedChars + retainedChars + readKeysChars + failedReadsChars;
+}
+
+function readKeyPinned(key: string): boolean {
+  return listeners.has(key) || holders.has(key) || readKeys.get(key)?.viewed === true;
+}
+
+function pinnedToolOutputChars(): number {
+  let pinned = observedChars;
+  for (const [key, size] of readKeySizes) {
+    if (readKeyPinned(key)) pinned += size;
+  }
+  for (const [key, size] of failedReadSizes) {
+    if (listeners.has(key)) pinned += size;
+  }
+  return pinned;
 }
 
 /** A loaded read leaves with nothing left behind that blocks reading it again
@@ -64,20 +134,45 @@ function dropRead(key: string): void {
 function evictRead(key: string): void {
   const done = reads.get(key)?.status === 'done';
   dropRead(key);
-  if (done && !readKeys.get(key)?.viewed) readKeys.delete(key);
+  if (done && !readKeys.get(key)?.viewed) deleteReadKey(key);
 }
 
 function trimSettledReads(target: number): void {
-  while (retainedReads.size > FULL_TOOL_OUTPUT_LIMIT || retainedChars > target) {
+  while (retainedReads.size > FULL_TOOL_OUTPUT_LIMIT || (retainedReads.size > 0 && totalToolOutputChars() > target)) {
     const oldest = retainedReads.keys().next();
     if (oldest.done) break;
     evictRead(oldest.value);
   }
+  if (totalToolOutputChars() > target) {
+    for (const key of [...failedReads.keys()]) {
+      if (totalToolOutputChars() <= target) break;
+      if (listeners.has(key)) continue;
+      deleteFailedRead(key);
+    }
+  }
+  if (totalToolOutputChars() > target) {
+    for (const key of [...readKeys.keys()]) {
+      if (totalToolOutputChars() <= target) break;
+      if (readKeyPinned(key)) continue;
+      deleteReadKey(key);
+    }
+  }
 }
 
-registerBudgetedCache({ name: 'full-tool-output', chars: () => retainedChars, trim: trimSettledReads });
+registerBudgetedCache({
+  name: 'full-tool-output',
+  chars: totalToolOutputChars,
+  pinned: pinnedToolOutputChars,
+  trim: trimSettledReads,
+});
 registerIdleReclaim(() => {
   for (const key of [...retainedReads.keys()]) evictRead(key);
+  for (const key of [...failedReads.keys()]) {
+    if (!listeners.has(key)) deleteFailedRead(key);
+  }
+  for (const key of [...readKeys.keys()]) {
+    if (!readKeyPinned(key)) deleteReadKey(key);
+  }
 });
 
 function retainUnobservedRead(key: string, state: SettledReadState): void {
@@ -95,19 +190,32 @@ function retainUnobservedRead(key: string, state: SettledReadState): void {
   }
   retainedReads.set(key, chars);
   retainedChars += chars;
-  trimSettledReads(FULL_TOOL_OUTPUT_MAX_CHARS);
+  while (retainedReads.size > FULL_TOOL_OUTPUT_LIMIT || retainedChars > FULL_TOOL_OUTPUT_MAX_CHARS) {
+    const oldest = retainedReads.keys().next();
+    if (oldest.done) break;
+    evictRead(oldest.value);
+  }
   enforceRendererCacheBudget();
 }
 
 function subscribeKey(key: string, listener: () => void): () => void {
+  const wasObserved = listeners.has(key);
   const set = listeners.get(key) ?? new Set<() => void>();
   listeners.set(key, set);
   set.add(listener);
-  untrackRead(key);
+  if (!wasObserved) {
+    const keptChars = retainedReads.get(key);
+    untrackRead(key);
+    const state = reads.get(key);
+    if (state?.status === 'done') {
+      trackObservedRead(key, keptChars ?? estimateRetainedChars(state.output, FULL_TOOL_OUTPUT_MEASURE_LIMIT));
+    }
+  }
   return () => {
     set.delete(listener);
     if (!set.size && listeners.get(key) === set) {
       listeners.delete(key);
+      untrackObservedRead(key);
       const state = reads.get(key);
       if (state && state.status !== 'loading') retainUnobservedRead(key, state);
     }
@@ -116,10 +224,16 @@ function subscribeKey(key: string, listener: () => void): () => void {
 
 export function resetFullToolOutputs(): void {
   reads.clear();
+  observedReads.clear();
+  observedChars = 0;
   retainedReads.clear();
   retainedChars = 0;
   readKeys.clear();
+  readKeySizes.clear();
+  readKeysChars = 0;
   failedReads.clear();
+  failedReadSizes.clear();
+  failedReadsChars = 0;
   requests.clear();
   holders.clear();
   queued.length = 0;
@@ -138,12 +252,15 @@ export function releaseFullToolOutputs(sessionId: string): void {
     dropRead(key);
     gone.add(key);
   }
-  for (const map of [readKeys, failedReads]) {
-    for (const key of map.keys()) {
-      if (!key.startsWith(prefix)) continue;
-      map.delete(key);
-      gone.add(key);
-    }
+  for (const key of [...readKeys.keys()]) {
+    if (!key.startsWith(prefix)) continue;
+    deleteReadKey(key);
+    gone.add(key);
+  }
+  for (const key of [...failedReads.keys()]) {
+    if (!key.startsWith(prefix)) continue;
+    deleteFailedRead(key);
+    gone.add(key);
   }
   for (const key of requests.keys()) if (key.startsWith(prefix)) requests.delete(key);
   for (const key of holders.keys()) if (key.startsWith(prefix)) holders.delete(key);
@@ -203,15 +320,23 @@ function startRead(key: string, sessionId: string, id: string, prefetch: boolean
     const current = reads.get(key);
     reads.set(key, state);
     if (state.status === 'failed') {
-      failedReads.set(key, state);
+      setFailedRead(key, state);
     } else {
-      failedReads.delete(key);
-      readKeys.set(key, {
+      deleteFailedRead(key);
+      setReadKey(key, {
         viewed: receipt?.viewed === true || (current?.status === 'loading' && !current.background),
         ...(token ? { replayToken: token } : {}),
       });
     }
-    if (!listeners.has(key)) retainUnobservedRead(key, state);
+    if (!listeners.has(key)) {
+      untrackObservedRead(key);
+      retainUnobservedRead(key, state);
+    } else if (state.status === 'done') {
+      trackObservedRead(key, estimateRetainedChars(state.output, FULL_TOOL_OUTPUT_MEASURE_LIMIT));
+      enforceRendererCacheBudget();
+    } else {
+      untrackObservedRead(key);
+    }
     publish(key);
     pumpPrefetches();
   };
@@ -246,7 +371,12 @@ function prefetchDue(key: string): boolean {
   const state = reads.get(key);
   if (state && state.status !== 'failed') return false;
   const failed = failedReads.get(key);
-  return !failed || (!failed.manual && Date.now() - failed.at >= TOOL_OUTPUT_PREFETCH_RETRY_MS);
+  if (!failed) return true;
+  if (!failed.manual && Date.now() - failed.at >= TOOL_OUTPUT_PREFETCH_RETRY_MS) {
+    deleteFailedRead(key);
+    return true;
+  }
+  return false;
 }
 
 /** The phone's link to the host is up (a desktop window has no remote state). */
@@ -367,16 +497,20 @@ function mergeFullOutput(item: TranscriptItem, loaded: LoadedToolOutput, memberR
  *  output reload on expansion (`wanted`); an unread cut output waits for the
  *  button unless the idle prefetch already filled it. */
 export function useFullToolOutput(sessionId: string, item: TranscriptItem, wanted: boolean): FullToolOutput {
+  const surfaceActive = useSurfaceActive();
   const outputCut = toolOutputCut(item);
   const diffCut = uiDiffDigest(item) !== null;
   const id = fullReadId(item);
   // Read by a member's id, the answer is that member's: only its diff belongs to this card.
   const memberRead = item.id != null && id !== String(item.id);
   const key = fullToolOutputKey(sessionId, item);
-  const subscribe = useCallback((listener: () => void) => subscribeKey(key, listener), [key]);
+  const subscribe = useCallback(
+    (listener: () => void) => (surfaceActive ? subscribeKey(key, listener) : () => {}),
+    [key, surfaceActive]
+  );
   const state = useSyncExternalStore(
     subscribe,
-    () => reads.get(key) ?? failedReads.get(key),
+    () => (surfaceActive ? (reads.get(key) ?? failedReads.get(key)) : undefined),
     () => undefined
   );
   const status =
@@ -391,7 +525,7 @@ export function useFullToolOutput(sessionId: string, item: TranscriptItem, wante
   const loadRef = useRef(load);
   loadRef.current = load;
   useEffect(() => {
-    if (!wanted) return;
+    if (!wanted || !surfaceActive) return;
     if (loaded) {
       const receipt = readKeys.get(key);
       if (receipt) receipt.viewed = true;
@@ -400,8 +534,9 @@ export function useFullToolOutput(sessionId: string, item: TranscriptItem, wante
       const failure = failedReads.get(key);
       if (failure) failure.manual = true;
     }
-  }, [key, loaded, status, wanted]);
-  const autoLoad = wanted && (diffCut || readKeys.get(key)?.viewed === true) && load !== null && status === 'idle';
+  }, [key, loaded, status, wanted, surfaceActive]);
+  const autoLoad =
+    surfaceActive && wanted && (diffCut || readKeys.get(key)?.viewed === true) && load !== null && status === 'idle';
   // \key\ re-arms the load when the row changes while it stays open.
   // biome-ignore lint/correctness/useExhaustiveDependencies: \key\ is the trigger, not a value the effect reads
   useEffect(() => {

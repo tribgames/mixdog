@@ -34,9 +34,9 @@ async function mountPanel(t) {
     own.show = setShown;
     return shown ? h('section', { className: 'session-rail-sec', 'data-category': 'git' }) : null;
   }
-  function Panel({ session, cards }) {
+  function Panel({ session, cards, settling = false }) {
     const content = useRef(null);
-    useSessionRailMotion(content, session);
+    useSessionRailMotion(content, session, settling);
     return h(
       'div',
       { ref: content, className: 'session-rail-content' },
@@ -47,14 +47,23 @@ async function mountPanel(t) {
       )
     );
   }
-  const render = (session, cards) => act(async () => view.root.render(h(Panel, { session, cards })));
+  const render = (session, cards, settling = false) =>
+    act(async () => view.root.render(h(Panel, { session, cards, settling })));
   const shown = () =>
     [...view.document.querySelectorAll('.session-rail-sec')].map(
       (card) => `${card.dataset.category}${card.hasAttribute('data-leaving') ? ' (leaving)' : ''}`
     );
   const running = () => animations.filter((animation) => !animation.cancelled);
   const card = (category) => view.document.querySelector(`.session-rail-sec[data-category="${category}"]`);
-  return { animations, running, render, shown, card, showOwn: (value) => act(async () => own.show(value)) };
+  return {
+    animations,
+    running,
+    render,
+    shown,
+    card,
+    content: () => view.document.querySelector('.session-rail-content'),
+    showOwn: (value) => act(async () => own.show(value)),
+  };
 }
 
 test('a card that arrives while the panel is shown opens from nothing to its own height; the cards drawn with the panel stand at once', async (t) => {
@@ -172,4 +181,47 @@ test('another session’s cards stand at once: nothing opens or closes across a 
   await panel.render('s2', ['info', 'context', 'agents']);
   assert.deepEqual(panel.running(), []);
   assert.deepEqual(panel.shown(), ['info', 'context', 'agents']);
+});
+
+test('arriving and leaving cards never detach surviving sections or reset inner scrollTop', async (t) => {
+  const panel = await mountPanel(t);
+  await panel.render('s1', ['info', 'context']);
+  const info = panel.card('info');
+  info.scrollTop = 140;
+  let infoDetached = 0;
+  const origRemove = info.remove.bind(info);
+  info.remove = () => {
+    infoDetached += 1;
+    return origRemove();
+  };
+  const root = panel.content();
+  const origInsertBefore = root.insertBefore.bind(root);
+  root.insertBefore = (node, ref) => {
+    if (node === info) infoDetached += 1;
+    return origInsertBefore(node, ref);
+  };
+  await panel.render('s1', ['todo', 'info', 'context']);
+  assert.equal(infoDetached, 0, 'surviving section is never detached or re-inserted on sibling arrival');
+  assert.equal(info.scrollTop, 140, 'inner scroll position is preserved');
+  assert.equal(panel.animations.at(-1)?.frames[0]?.marginBottom, undefined, 'no marginBottom shift');
+  await panel.render('s1', ['info', 'context']);
+  assert.equal(infoDetached, 0, 'surviving section is never detached or re-inserted on sibling leave');
+  assert.equal(info.scrollTop, 140);
+});
+
+test('async hydration arrivals while settling stand without animating; live arrivals after settling animate', async (t) => {
+  const panel = await mountPanel(t);
+  await panel.render('s1', ['info', 'context'], false);
+  await panel.render('s2', ['info'], true);
+  assert.deepEqual(panel.animations, [], 'initial switch render does not animate');
+  await panel.render('s2', ['info', 'context', 'changes'], true);
+  assert.deepEqual(panel.animations, [], 'async hydration arrivals while settling do not animate');
+  await panel.render('s2', ['info', 'context', 'changes'], false);
+  assert.deepEqual(panel.animations, [], 'completing settlement does not animate');
+  await panel.render('s2', ['info', 'context', 'changes', 'shells'], false);
+  assert.deepEqual(
+    panel.animations.map((animation) => animation.card),
+    ['shells'],
+    'live arrivals after hydration settled animate normally'
+  );
 });

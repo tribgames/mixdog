@@ -7,6 +7,7 @@ import type { Snapshot } from './desktop-types';
 import {
   appliedPromptRestores,
   draftWithRestoredPrompt,
+  noteAppliedPromptRestoreIds,
   stashComposerDraft,
   stashedComposerDraft,
   wasSubmittedHere,
@@ -28,10 +29,12 @@ export function applyPromptRestore(
   if (seen.offer === restore.id) return null;
   if (seen.reply === restore.id) {
     applied.set(sessionId, { ...seen, offer: restore.id });
+    noteAppliedPromptRestoreIds(sessionId, 'offer', restore.ids, applied);
     return null;
   }
   if (!restore.ids.some(wasSubmittedHere)) return null;
   applied.set(sessionId, { ...seen, offer: restore.id });
+  noteAppliedPromptRestoreIds(sessionId, 'offer', restore.ids, applied);
   return draftWithRestoredPrompt(currentDraft, restore.text);
 }
 
@@ -40,11 +43,13 @@ export function applyPromptRestore(
 export function replyRestoreApplied(
   id: string,
   sessionId: string,
-  applied: AppliedRestores = appliedPromptRestores
+  applied: AppliedRestores = appliedPromptRestores,
+  ids?: readonly string[]
 ): boolean {
   const seen = applied.get(sessionId) ?? {};
   if (seen.offer === id || seen.reply === id) return true;
   applied.set(sessionId, { ...seen, reply: id });
+  if (ids?.length) noteAppliedPromptRestoreIds(sessionId, 'reply', ids, applied);
   return false;
 }
 

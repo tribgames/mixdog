@@ -11,12 +11,18 @@ installTestDom(null, {
   expose: ['sessionStorage', 'navigator'],
 });
 
+const { _runIdleReclaimForTest } = await import('./idle-reclaim.ts');
+const { enforceRendererCacheBudget, totalBudgetedChars } = await import('./renderer-cache-budget.ts');
 const { applyPromptRestore, useComposerPromptRestore } = await import('./use-composer-prompt-restore.ts');
 const {
   appliedPromptRestores,
   forgetComposerScope,
   nextComposerSubmissionId,
+  stashComposerAttachments,
+  stashComposerTags,
   takeRejectedComposerSubmissionRecoveries,
+  takeStashedComposerAttachments,
+  takeStashedComposerTags,
   wasSubmittedHere,
 } = await import('./composer-draft.ts');
 const { restoreAlreadyApplied, useComposerSubmission } = await import('./use-composer-submission.ts');
@@ -200,4 +206,55 @@ test('a Stop of a submission whose input read is pending puts the prompt back on
     await act(async () => root.unmount());
     forgetComposerScope('s1');
   }
+});
+
+test('parked attachments and tags count as pinned in the shared budget without evicting unsent user input; appliedPromptRestores prunes once its submissions leave ownSubmissionIds', () => {
+  const big = {
+    id: 1,
+    name: 'doc.pdf',
+    kind: 'pdf',
+    mimeType: 'application/pdf',
+    data: 'B'.repeat(150_000),
+    token: '[PDF #1: doc.pdf]',
+  };
+  const before = totalBudgetedChars();
+  stashComposerAttachments('scope-budget-a', [big]);
+  stashComposerTags('scope-tags-a', ['agent-one', 'agent-two']);
+  assert.ok(totalBudgetedChars() - before >= 150_000, 'parked attachment base64 is counted in the shared budget');
+
+  // Neither idle reclaim nor cache budget pressure may destroy unsent user attachments or @ tags.
+  _runIdleReclaimForTest();
+  enforceRendererCacheBudget(0);
+  assert.equal(
+    takeStashedComposerAttachments('scope-budget-a').length,
+    1,
+    'idle reclaim and budget trim keep parked draft attachments'
+  );
+  assert.deepEqual(
+    takeStashedComposerTags('scope-tags-a'),
+    ['agent-one', 'agent-two'],
+    'idle reclaim and budget trim keep parked @ tags'
+  );
+  assert.equal(totalBudgetedChars(), before, 'taking stashed attachments and tags releases their budget chars');
+
+  // Forgetting a deleted session releases its parked attachments and tags.
+  stashComposerAttachments('scope-budget-b', [big]);
+  stashComposerTags('scope-budget-b', ['agent-three']);
+  assert.ok(totalBudgetedChars() - before >= 150_000);
+  forgetComposerScope('scope-budget-b');
+  assert.deepEqual(takeStashedComposerAttachments('scope-budget-b'), []);
+  assert.deepEqual(takeStashedComposerTags('scope-budget-b'), []);
+  assert.equal(totalBudgetedChars(), before);
+
+  // Applied restores tied to local submissions are pruned once those submission ids age out of ownSubmissionIds.
+  const oldSub = nextComposerSubmissionId();
+  const oldReplySub = nextComposerSubmissionId();
+  applyPromptRestore({ id: 'old-offer', ids: [oldSub], text: 'hi' }, '', 's-old-offer');
+  restoreAlreadyApplied({ restoreId: 'old-reply', restoredSubmissionIds: [oldReplySub] }, 's-old-reply');
+  assert.equal(appliedPromptRestores.has('s-old-offer'), true);
+  assert.equal(appliedPromptRestores.has('s-old-reply'), true);
+  for (let index = 0; index < 130; index += 1) nextComposerSubmissionId();
+  assert.equal(wasSubmittedHere(oldSub), false);
+  assert.equal(appliedPromptRestores.has('s-old-offer'), false, 'aged-out offer restore is pruned');
+  assert.equal(appliedPromptRestores.has('s-old-reply'), false, 'aged-out reply restore is pruned');
 });

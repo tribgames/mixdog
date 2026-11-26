@@ -9,7 +9,7 @@ installTestDom(null, {
   jsdom: { pretendToBeVisual: true },
   expose: ['HTMLElement', 'MutationObserver', 'navigator', 'requestAnimationFrame', 'cancelAnimationFrame'],
 });
-const { TranscriptRow } = await import('./transcript-row.tsx');
+const { TranscriptResponseFooter, TranscriptRow } = await import('./transcript-row.tsx');
 const { MarkdownSessionContext } = await import('./MarkdownLink.tsx');
 const { appendLiveTranscriptRows, projectSettledTranscriptRows } = await import('./transcript-rows.ts');
 const { REVEAL_INTERVAL_MS } = await import('./use-transcript-text-reveal.ts');
@@ -372,4 +372,135 @@ test('a streaming reply opens no row until text shows; the band stays under the 
   assert.deepEqual(rows(''), ['UserMessage', 'Thinking']);
   assert.deepEqual(rows('**'), ['UserMessage', 'Thinking'], 'markers alone open nothing');
   assert.deepEqual(rows('Aft'), ['UserMessage', 'AssistantPart', 'Thinking']);
+});
+
+test('coding: a large buffered backlog drains smoothly across ticks when live transitions true -> false', async (t) => {
+  const { view, tick } = await pane(t, 'drain-large');
+  const mid = `Hi ${'word '.repeat(50)}`;
+  const full = `Hi ${'word '.repeat(100)}`;
+  const completion = { id: 'td1', kind: 'turndone', status: 'complete', elapsedMs: 1_200 };
+  await view.render([prompt('u1'), live('drain-large', 'd1', 'Hi ')]);
+  await view.render([prompt('u1'), live('drain-large', 'd1', mid)]);
+  await view.render([prompt('u1'), live('drain-large', 'd1', full)]);
+  const beforeEnd = painted(view.host);
+  assert.ok(full.trim().length - beforeEnd > 220, 'large buffered backlog before stream end');
+  tick(80);
+  await view.render([prompt('u1'), { ...live('drain-large', 'd1', full, false), completion }]);
+  const rightAfterEnd = painted(view.host);
+  assert.ok(
+    rightAfterEnd < full.trim().length,
+    `did not dump entire backlog in one frame (${rightAfterEnd}/${full.trim().length})`
+  );
+  assert.equal(
+    view.host.querySelector('.response-footer'),
+    null,
+    'completion footer waits until the drained body reveals its full text'
+  );
+  assert.equal(
+    view.host.querySelector('.markdown')?.classList.contains('streaming'),
+    true,
+    'MarkdownResponse stays streaming while draining a buffered prefix'
+  );
+  for (let i = 0; i < 30 && painted(view.host) < full.trim().length; i += 1) {
+    await step(view, tick, REVEAL_INTERVAL_MS);
+  }
+  assert.equal(view.host.querySelector('.markdown').textContent, full.trim(), 'drains cleanly to full text');
+  assert.equal(
+    view.host.querySelector('.markdown')?.classList.contains('streaming'),
+    false,
+    'MarkdownResponse settles once full text is revealed'
+  );
+  assert.ok(view.host.querySelector('.response-footer'), 'completion footer appears once full text is revealed');
+  await view.cleanup();
+});
+
+test('coding: a trailing footer after a changes card waits until paced backlog finishes draining', async (t) => {
+  const { tick } = await pane(t, 'drain-trailing-init');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  t.after(() => act(async () => root.unmount()));
+
+  const mid = `Hi ${'word '.repeat(50)}`;
+  const full = `Hi ${'word '.repeat(100)}`;
+  const completion = { id: 'td-card', kind: 'turndone', status: 'complete', elapsedMs: 1_200 };
+  const revealKey = 'drain-trailing:d1';
+
+  const renderTurn = async (text, streaming, withCompletion) => {
+    const item = { id: 'd1', kind: 'assistant', text, streaming };
+    await act(async () =>
+      root.render(
+        React.createElement(
+          MarkdownSessionContext.Provider,
+          { value: 'drain-trailing' },
+          React.createElement(TranscriptRow, {
+            item,
+            revealKey,
+            paced: true,
+            completion: withCompletion ? completion : undefined,
+            footerAfterCards: true,
+          }),
+          withCompletion && !streaming
+            ? React.createElement(TranscriptResponseFooter, {
+                trailing: true,
+                revealKey,
+                item,
+                completion,
+              })
+            : null
+        )
+      )
+    );
+    await parsed(host);
+  };
+
+  await renderTurn('Hi ', true, false);
+  await renderTurn(mid, true, false);
+  await renderTurn(full, true, false);
+  assert.ok(full.trim().length - painted(host) > 220, 'large buffered backlog before stream end');
+
+  tick(80);
+  await renderTurn(full, false, true);
+  assert.ok(painted(host) < full.trim().length, 'still draining prefix after stream end');
+  assert.equal(
+    host.querySelector('.response-footer-trailing'),
+    null,
+    'trailing Completed footer waits until paced text finishes draining'
+  );
+
+  for (let i = 0; i < 30 && painted(host) < full.trim().length; i += 1) {
+    tick(REVEAL_INTERVAL_MS);
+    await act(async () => sleep(40));
+    await parsed(host);
+  }
+  assert.equal(host.querySelector('.markdown').textContent, full.trim(), 'drains cleanly to full text');
+  assert.ok(
+    host.querySelector('.response-footer-trailing'),
+    'trailing Completed footer appears once full text is revealed'
+  );
+});
+
+test('MarkdownDocumentView UnitWaiting renders height-preserving plain-text fallback for non-fenced pending prose', async (t) => {
+  const { MarkdownDocumentView } = await import('./MarkdownDocumentView.tsx');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  t.after(() => act(async () => root.unmount()));
+  const prose = 'Waiting for async worker parse to settle.';
+  await act(async () =>
+    root.render(
+      React.createElement(MarkdownDocumentView, {
+        root: {
+          key: 'root',
+          items: [{ key: 'u0', node: null, text: prose, pending: true, base: 0, from: 0, end: 0, held: false }],
+        },
+        fadeTimeline: null,
+        copyControl: () => null,
+      })
+    )
+  );
+  const plain = host.querySelector('p.markdown-plain');
+  assert.ok(plain, 'renders plain-text paragraph fallback while pending');
+  assert.equal(plain.textContent, prose);
+  assert.ok(host.querySelector('[data-transcript-pending]'), 'retains pending marker until parsed');
 });

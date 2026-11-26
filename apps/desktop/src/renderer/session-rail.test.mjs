@@ -460,14 +460,22 @@ test('a category is absent when it has nothing, and its body and Clean up show o
   assert.equal(figures()[0].querySelector('.composer-island-dot-idle'), null, 'a running shell: the mark pulses');
 });
 
-test("each foot's Clean up: Shells' only while an ended shell is listed, Agents' disabled with nothing to clear", async (t) => {
+test("each foot's Clean up: Shells' and Agents' stay mounted and disabled while nothing is clearable", async (t) => {
   const { ShellsSection, AgentsSection } = await import('./session-rail-jobs.tsx');
   const shells = (rows) =>
     React.createElement(ShellsSection, { sessionId: LEAD, shells: rows, shellKeys: null, open: true, onToggle() {} });
   const { document, root } = await mount(t, shells([shell('dev', false)]));
   const tidy = () => document.querySelector('.session-rail-ft > .session-rail-tidy[data-kind]');
-  assert.equal(tidy(), null, 'a running shell has nothing to clear: no Clean up');
-  assert.equal(document.querySelector('[data-category="shells"] .session-rail-ft'), null, 'and no foot');
+  assert.ok(document.querySelector('[data-category="shells"] .session-rail-ft'), 'Shells foot stays stably mounted');
+  assert.equal(tidy().getAttribute('aria-disabled'), 'true', 'a running shell has nothing to clear');
+  const sizerTexts = [...document.querySelectorAll('[data-category="shells"] .composer-island-col-sizer > span')].map(
+    (node) => node.textContent
+  );
+  assert.ok(
+    sizerTexts.some((text) => /\d+:\d+/.test(text) || /\d+[mh]/.test(text)),
+    'sizer covers shell clocks'
+  );
+  assert.ok(sizerTexts.includes('Failed'), 'sizer covers terminal shell state words');
   await act(async () => root.render(shells([shell('dev', false), shell('test', true)])));
   assert.equal(tidy().getAttribute('aria-disabled'), null);
 
@@ -934,6 +942,73 @@ test('kinds stand in the order their first agent started: work starting or endin
   assert.deepEqual(folds(), ['Reviewer', 'Worker']);
   await act(async () => root.render(element([timeless('w', 'worker', false), timeless('r', 'reviewer', true)])));
   assert.deepEqual(folds(), ['Reviewer', 'Worker']);
+});
+
+test('restarting agents moves no row and folds no kind: a follow-up, a stop, a close and a new session on the tag', async (t) => {
+  const { AgentsSection } = await import('./session-rail-jobs.tsx');
+  const now = Date.now();
+  const route = { provider: 'anthropic', model: 'claude-opus' };
+  const element = (pool) =>
+    React.createElement(AgentsSection, {
+      sessionId: LEAD,
+      agents: islandAgentRows(pool, LEAD),
+      poolRows: pool,
+      busy: false,
+      shellKeys: null,
+      open: true,
+      onToggle() {},
+    });
+  const done = (id, createdAt, extra = {}) => ({
+    ...agent(id, 'completed'),
+    ...route,
+    createdAt,
+    settledAt: now - 1_000,
+    ...extra,
+  });
+  // Between turns a restarted row reports no route yet.
+  const restarted = (row) => ({
+    ...row,
+    status: 'running',
+    stage: 'streaming',
+    provider: null,
+    model: null,
+    settledAt: null,
+  });
+  const heavy = done('keep-h', now - 90_000, { agent: 'heavy-worker' });
+  const first = done('keep-w1', now - 60_000);
+  const second = done('keep-w2', now - 30_000);
+  const outline = () =>
+    [...document.querySelectorAll('[data-category="agents"] [role="tree"] > *')]
+      .map((child) => {
+        const fold = child.querySelector('.composer-island-agent-fold');
+        if (fold)
+          return `${fold.querySelector('.composer-island-agent-fold-name').textContent} ${fold.getAttribute('aria-expanded')}`;
+        return child.querySelector('.agent-pool-row')?.dataset.agentTag;
+      })
+      .filter(Boolean);
+  const { document, root } = await mount(t, element([heavy, first, second]));
+  await openKinds(document);
+  const settled = ['Heavy Worker true', 'keep-h', 'Worker true', 'keep-w1', 'keep-w2'];
+  assert.deepEqual(outline(), settled);
+  await act(async () => root.render(element([heavy, restarted(first), second])));
+  assert.deepEqual(outline(), settled, 'a follow-up moves no row and folds no kind');
+  await act(async () =>
+    root.render(element([heavy, { ...first, status: 'error', stage: 'error' }, restarted(second)]))
+  );
+  assert.deepEqual(outline(), settled, 'a stop and another follow-up move nothing');
+  // The heavy worker closed: its kind leaves; the user folds and opens Worker meanwhile.
+  await act(async () => root.render(element([{ ...heavy, released: true }, first, second])));
+  const worker = () =>
+    [...document.querySelectorAll('.composer-island-agent-fold')].find(
+      (fold) => fold.querySelector('.composer-island-agent-fold-name').textContent === 'Worker'
+    );
+  await act(async () => worker().click());
+  await act(async () => worker().click());
+  assert.deepEqual(outline(), ['Worker true', 'keep-w1', 'keep-w2']);
+  // A new session on the tag, created last and with no route yet, comes back in its place, open as it was left.
+  const respawned = restarted({ ...heavy, sessionId: 'keep-h-2', createdAt: now, startedAt: now });
+  await act(async () => root.render(element([{ ...heavy, released: true }, first, second, respawned])));
+  assert.deepEqual(outline(), settled);
 });
 
 test("a kind's line carries the route its agents with a known route share as its tooltip, not on the line; one whose route is not known yet changes nothing", async (t) => {
@@ -1768,11 +1843,11 @@ test("Context is a category of its own: the share, a bar and the two actions; ab
   const reading = { currentContextTokens: 80000, currentContextSource: 'last_api_request' };
   await act(async () => root.render(element({ sessionId: LEAD, contextTokens: 200000, stats: reading })));
   const section = document.querySelector('[data-category="context"]');
-  // What the window holds, by kind and largest first: a segment each in the bar, a row each, then the free space.
+  // What the window holds in stable canonical order: a segment per non-zero kind, every canonical row, then free space.
   assert.deepEqual(asked, [{ capability: 'contextStatus', sessionId: LEAD }]);
   assert.deepEqual(
     [...section.querySelectorAll('[role="meter"] b')].map((part) => part.dataset.contextKey),
-    ['messages', 'system', 'tools']
+    ['system', 'tools', 'messages']
   );
   assert.deepEqual(
     [...section.querySelectorAll('.session-rail-part')].map((row) => [
@@ -1780,18 +1855,21 @@ test("Context is a category of its own: the share, a bar and the two actions; ab
       row.querySelector('.session-rail-share').textContent,
     ]),
     [
-      ['messages', '25.0%'],
       ['system', '10.0%'],
       ['tools', '5.0%'],
-      // MCP tools keep their row with nothing loaded.
       ['mcp', '0.0%'],
+      ['agents', '0.0%'],
+      ['memory', '0.0%'],
+      ['skills', '0.0%'],
+      ['messages', '25.0%'],
+      ['reasoning', '0.0%'],
       ['free', '60.0%'],
     ]
   );
-  // A kind holding nothing is marked so (its figure reads muted).
+  // Kinds holding nothing stay mounted and marked so (their figure reads muted).
   assert.deepEqual(
     [...section.querySelectorAll('.session-rail-part[data-zero]')].map((row) => row.dataset.contextKey),
-    ['mcp']
+    ['mcp', 'agents', 'memory', 'skills', 'reasoning']
   );
   assert.equal(section.querySelector('.session-rail-sm').textContent, '80k / 200k · 40.0%');
   // 40% is not toned: the percent stands in the text ink.
@@ -1835,51 +1913,67 @@ test("Context's kinds divide the head's reading in their estimated proportions, 
   const filled = () => Number.parseFloat(section().querySelector('.session-rail-meter-held').style.width);
   assert.equal(section().querySelector('.session-rail-sm').textContent, '480k / 500k · 96.0%');
   // A reading twice the estimates: every kind's figure and segment doubles, the rows add up to the reading, and the
-  // free space is what the reading leaves.
+  // free space is what the reading leaves, in stable canonical order.
   assert.deepEqual(rows(), [
-    ['messages', '440k', '88.0%'],
     ['system', '20k', '4.0%'],
     ['tools', '20k', '4.0%'],
     ['mcp', '0', '0.0%'],
+    ['agents', '0', '0.0%'],
+    ['memory', '0', '0.0%'],
+    ['skills', '0', '0.0%'],
+    ['messages', '440k', '88.0%'],
+    ['reasoning', '0', '0.0%'],
     ['free', '20k', '4.0%'],
   ]);
   assert.deepEqual(
     [...section().querySelectorAll('[role="meter"] b')].map((part) => part.dataset.contextKey),
-    ['messages', 'system', 'tools']
+    ['system', 'tools', 'messages']
   );
   assert.ok(Math.abs(filled() - 96) < 0.01, `the bar is filled to the reading: ${filled()}`);
-  // A reading half the estimates: the same proportions of the smaller figure.
+  // A reading half the estimates: the same proportions of the smaller figure, with identical canonical row order.
   await act(async () => root.render(element(120000)));
   assert.deepEqual(rows(), [
-    ['messages', '110k', '22.0%'],
     ['system', '5.0k', '1.0%'],
     ['tools', '5.0k', '1.0%'],
     ['mcp', '0', '0.0%'],
+    ['agents', '0', '0.0%'],
+    ['memory', '0', '0.0%'],
+    ['skills', '0', '0.0%'],
+    ['messages', '110k', '22.0%'],
+    ['reasoning', '0', '0.0%'],
     ['free', '380k', '76.0%'],
   ]);
   assert.ok(Math.abs(filled() - 24) < 0.01, `the bar is filled to the reading: ${filled()}`);
 });
 
-test("An external agent's context shows Mixdog's own parts as they are, and the rest of the reading as what the agent holds", async () => {
+test("An external agent's context uses the same categories as a provider session and adds what the agent holds", async () => {
   const { contextMix, ContextBody } = await import('./ContextBody.tsx');
   const status = {
     messages: { semantic: { system: { tokens: 100 }, chat: { tokens: 50 } } },
-    request: { toolSchemaBreakdown: { code: { tokens: 30 }, skills: { tokens: 20 }, mcp: { tokens: 10 } }, requestOverheadTokens: 7 },
+    request: {
+      toolSchemaBreakdown: { code: { tokens: 30 }, skills: { tokens: 20 }, mcp: { tokens: 10 } },
+      requestOverheadTokens: 7,
+    },
   };
   const rows = (mix) => Object.fromEntries(mix.categories.map((category) => [category.key, category.tokens]));
+  // External agent sessions omit provider HTTP requestOverheadTokens (charged only on provider sessions).
   assert.deepEqual(rows(contextMix(status, 1000, 900, true)), {
     system: 100,
-    mcp: 60,
+    tools: 30,
+    mcp: 10,
+    agents: 0,
     memory: 0,
+    skills: 20,
     messages: 50,
     reasoning: 0,
     host: 690,
   });
+  assert.equal(rows(contextMix(status, 1000, null, false)).tools, 37, 'provider sessions still include HTTP overhead');
   const mix = contextMix(status, 1000, 900, true);
   assert.equal(mix.held, 900);
   assert.equal(mix.free, 100);
   assert.equal(rows(contextMix(status, 1000, null, true)).host, 0, 'no reading, nothing to say the agent holds');
-  // An estimate (210) above the agent's own count (100): the count is the measurement, the parts divide within it, and
+  // An estimate (217) above the agent's own count (100): the count is the measurement, the parts divide within it, and
   // parts plus free space never pass the window.
   const over = contextMix(status, 1000, 100, true);
   const sum = (mix) => mix.categories.reduce((total, category) => total + category.tokens, 0);
@@ -1888,10 +1982,48 @@ test("An external agent's context shows Mixdog's own parts as they are, and the 
   assert.equal(sum(over) + over.free, 1000);
   const tight = contextMix(status, 120, 120, true);
   assert.ok(sum(tight) + tight.free <= 120, 'a window the reading fills has no free space and no overflow');
+  // When an external ACP CLI compacts its own history while Mixdog's local transcript stays uncompacted, standing
+  // inputs keep their unscaled token counts instead of being crushed by uncompacted message bloat.
+  const compactedCli = contextMix(
+    {
+      messages: { semantic: { system: { tokens: 18500 }, chat: { tokens: 3450000 } } },
+      request: { toolSchemaBreakdown: { code: { tokens: 14000 }, mcp: { tokens: 7500 } } },
+    },
+    1000000,
+    208000,
+    true
+  );
+  assert.deepEqual(rows(compactedCli), {
+    system: 18500,
+    tools: 14000,
+    mcp: 7500,
+    agents: 0,
+    memory: 0,
+    skills: 0,
+    messages: 168000,
+    reasoning: 0,
+    host: 0,
+  });
+  assert.equal(compactedCli.free, 792000);
+  const tinyCli = contextMix(
+    {
+      messages: { semantic: { system: { tokens: 18500 }, chat: { tokens: 3450000 } } },
+      request: { toolSchemaBreakdown: { code: { tokens: 14000 }, mcp: { tokens: 7500 } } },
+    },
+    1000000,
+    20000,
+    true
+  );
+  assert.equal(rows(tinyCli).messages, 0);
+  assert.equal(rows(tinyCli).system + rows(tinyCli).tools + rows(tinyCli).mcp, 20000);
   // A reading with no local estimate yet is all the agent's, and its rows show.
   const bare = contextMix({}, 1000, 300, true);
   assert.deepEqual([rows(bare).host, bare.categorized, bare.free], [300, 300, 700]);
-  assert.equal(rows(contextMix(status, 1000, 900, false)).host, undefined, 'a provider session has no row for the agent');
+  assert.equal(
+    rows(contextMix(status, 1000, 900, false)).host,
+    undefined,
+    'a provider session has no row for the agent'
+  );
 
   const { renderToStaticMarkup } = await import('react-dom/server');
   const label = (provider) =>
@@ -1901,7 +2033,8 @@ test("An external agent's context shows Mixdog's own parts as they are, and the 
         snapshot: { provider },
       })
     );
-  // The dialog reads `contextStatus` with an inspection attached: an agent's session still shows the rail's composition.
+  // The dialog reads `contextStatus` with an inspection attached: an agent's session renders ContextInspector with the
+  // same categories plus the unattributed host remainder.
   const inspected = renderToStaticMarkup(
     React.createElement(ContextBody, {
       status: {
@@ -1920,7 +2053,7 @@ test("An external agent's context shows Mixdog's own parts as they are, and the 
     })
   );
   assert.match(inspected, /context-mix-row[^>]*data-context-key="host"/);
-  assert.doesNotMatch(inspected, /<button[^>]*data-context-key/);
+  assert.match(inspected, /<button[^>]*data-context-key="system"/);
   assert.match(label('acp-antigravity'), /Last call, prompt and output/);
   assert.doesNotMatch(label('acp-antigravity'), /Last measured input/);
   assert.match(label('openai'), /Last measured input/);
@@ -2279,7 +2412,7 @@ test("the Changes head reads the island's files head: Files N and the lines adde
   );
   assert.equal(viewChanges.textContent, t('Island: View changes'));
   await act(async () => viewChanges.click());
-  // The island's file rows, most changed first: the folder, the name, then the line counts.
+  // The island's file rows, sorted deterministically by path so line-count updates never reshuffle rows.
   const rows = [...section.querySelectorAll('.session-rail-bd > .session-rail-row')];
   assert.deepEqual(
     rows.map((row) => [
@@ -2288,9 +2421,9 @@ test("the Changes head reads the island's files head: Files N and the lines adde
       row.querySelector('.diff-stats').textContent,
     ]),
     [
+      ['', 'README.md', '+1'],
       ['src/app/', 'main.ts', '+9 −3'],
       ['src/app/', 'util.ts', '+2 −1'],
-      ['', 'README.md', '+1'],
     ]
   );
   // Each row starts with the plain file mark (14px, the rows' mark), then the path.
@@ -2303,7 +2436,7 @@ test("the Changes head reads the island's files head: Files N and the lines adde
     assert.equal(mark.nextElementSibling.className, 'turn-review-files-path');
   }
   await act(async () => rows[0].click());
-  assert.deepEqual(opened, ['changes', 'src/app/main.ts']);
+  assert.deepEqual(opened, ['changes', 'README.md']);
 });
 
 test('a clean branch with commits not pushed keeps Git and its actions', async (context) => {
@@ -2798,4 +2931,277 @@ test('a panel a dock covers runs nothing: no observer or read while covered; sho
   assert.equal(body.querySelector('[data-category="info"]'), info, 'the same rows');
   assert.equal(body.scrollTop, 180, 'where its reader left them');
   await act(async () => view.root.render(null));
+});
+
+test('TodoSection keeps Done collapsed when remaining reaches 0 and preserves DOM identity for surviving tasks', async (t) => {
+  const { useSessionGoal } = await import('./SessionGoalIsland.tsx');
+  const { TodoSection } = await import('./session-rail-goal.tsx');
+  const { useSessionRailFolds } = await import('./session-rail-folds.ts');
+  function Host({ snapshot }) {
+    const model = useSessionGoal(snapshot);
+    const folds = useSessionRailFolds(LEAD);
+    return React.createElement(TodoSection, { model, folds, open: true, onToggle() {} });
+  }
+  const snap = (tasks) =>
+    goalSnapshot(goalOf('active'), {
+      phases: [{ name: 'Ship', tasks }],
+      completed: tasks.filter((item) => item.status === 'completed').length,
+      abandoned: 0,
+      total: tasks.length,
+    });
+  const { document, root } = await mount(
+    t,
+    React.createElement(Host, {
+      snapshot: snap([
+        { content: 'first', status: 'in_progress' },
+        { content: 'second', status: 'pending' },
+      ]),
+    })
+  );
+  const secondNode = [...document.querySelectorAll('[data-group="remaining"] .session-rail-row')].find(
+    (node) => node.textContent === 'second'
+  );
+  assert.ok(secondNode);
+  await act(async () =>
+    root.render(
+      React.createElement(Host, {
+        snapshot: snap([
+          { content: 'first', status: 'completed' },
+          { content: 'second', status: 'in_progress' },
+        ]),
+      })
+    )
+  );
+  const survivingNode = [...document.querySelectorAll('[data-group="remaining"] .session-rail-row')].find(
+    (node) => node.textContent === 'second'
+  );
+  assert.equal(survivingNode, secondNode, 'surviving task keeps its DOM node when an earlier task finishes');
+  await act(async () =>
+    root.render(
+      React.createElement(Host, {
+        snapshot: snap([
+          { content: 'first', status: 'completed' },
+          { content: 'second', status: 'completed' },
+        ]),
+      })
+    )
+  );
+  assert.equal(document.querySelector('[data-group="remaining"]'), null);
+  const doneFold = document.querySelector('[data-category="todo"] [data-fold="done"]');
+  assert.equal(doneFold.getAttribute('aria-expanded'), 'false', 'Done stays collapsed when remaining reaches 0');
+  assert.equal(document.querySelectorAll('[data-group="done"] .session-rail-row').length, 0);
+});
+
+test('TurnReviewBar rail segment keeps cached ChangesSection visible while entryPending revalidates', async (t) => {
+  const { TurnReviewBar } = await import('./TurnReview.tsx');
+  const { ChangesSection } = await import('./session-rail-changes.tsx');
+  const { setSessionChangesSource } = await import('./session-changes-store.ts');
+  setSessionChangesSource('uncommitted');
+  const cwd = 'C:/work/rail-swr';
+  const turnReviewGate = Promise.withResolvers();
+  let calls = 0;
+  let turnReviewCalls = 0;
+  const activeItems = [
+    { id: 'u1', kind: 'user', text: 'update alpha' },
+    { id: 't1', kind: 'tool', label: 'edit', completedAt: 1 },
+  ];
+  const renderBar = (busy) =>
+    React.createElement(TurnReviewBar, {
+      cwd,
+      sessionId: 'sess-rail-swr',
+      items: activeItems,
+      active: true,
+      busy,
+      variant: 'segment',
+      onOpen() {},
+      renderSegment: (view) =>
+        React.createElement(ChangesSection, { view, open: true, onToggle() {}, onOpenFile() {} }),
+    });
+  const { document, root } = await mount(t, renderBar(false), {
+    gitStatus: async () => ({ repository: true, root: cwd, files: [] }),
+    gitReview: async () => {
+      calls += 1;
+      return {
+        repository: true,
+        root: cwd,
+        base: 'HEAD',
+        files: [{ path: 'alpha.ts', status: 'M', additions: 3, deletions: 1, untracked: false, revision: `r${calls}` }],
+      };
+    },
+    invokeCapability: async ({ capability }) => {
+      if (capability === 'getTurnReviewDiff') {
+        turnReviewCalls += 1;
+        return turnReviewGate.promise;
+      }
+      return { value: null };
+    },
+  });
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+  // getTurnReviewDiff is genuinely in flight (reviewScope.hasActivity && entryPending === true), yet cached Changes stays visible.
+  assert.equal(turnReviewCalls, 1, 'getTurnReviewDiff was requested for the active turn');
+  assert.ok(
+    document.querySelector('[data-category="changes"]'),
+    'Changes section stays mounted while entryPending revalidates'
+  );
+  await act(async () => {
+    turnReviewGate.resolve({ value: { files: [], historyTurns: [] } });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  });
+  assert.ok(document.querySelector('[data-category="changes"]'), 'Changes section remains mounted after settle');
+  await act(async () => root.render(null));
+});
+
+test('ContextSection keeps Compact stably mounted and disabled when compaction does not apply, and rail CSS keeps footers and transient shell stops single-row', async (t) => {
+  const { ContextSection } = await import('./session-rail-info.tsx');
+  const { document } = await mount(
+    t,
+    React.createElement(ContextSection, {
+      open: true,
+      onToggle() {},
+      snapshot: {
+        sessionId: 'sess-no-compact',
+        busy: true,
+        contextTokens: 200000,
+        stats: { currentContextTokens: 40000, currentContextSource: 'last_api_request' },
+      },
+      onViewDetails() {},
+    }),
+    {
+      invokeCapability: async () => ({
+        value: {
+          messages: { semantic: { system: { tokens: 10000 }, chat: { tokens: 30000 } } },
+          request: { toolSchemaBreakdown: {} },
+        },
+      }),
+    }
+  );
+  const buttons = [...document.querySelectorAll('[data-category="context"] .session-rail-ft button')];
+  assert.equal(buttons.length, 2, 'Compact remains mounted even when compaction does not apply');
+  assert.equal(buttons[0].disabled, true, 'Compact is disabled while unavailable');
+
+  const { readFileSync } = await import('node:fs');
+  const css = readFileSync(new URL('./session-rail.css', import.meta.url), 'utf8');
+  assert.match(css, /\.session-rail-ft\s*\{[^}]*flex-wrap:\s*nowrap;/, 'footers stay single-row without wrapping');
+  assert.match(
+    css,
+    /:has\(\[data-state="unconfirmed"\]\)/,
+    'shell 2-row grid expansion is narrowed to unconfirmed termination rows'
+  );
+  assert.doesNotMatch(
+    css,
+    /:has\(> \.composer-island-row-actions > :not\(\[data-icon\]\)\)/,
+    'transient Stopping/Retry buttons do not trigger 2-row shell expansion'
+  );
+});
+
+test('SessionRail attaches its motion observer on initial mount and animates subsequent section arrivals and departures', async (t) => {
+  const { default: SessionRail } = await import('./SessionRail.tsx');
+  const { defaultSessionLaneStore: store } = await import('./session-lane-store.ts');
+  const sessionId = 'rail-initial-motion';
+  const observedTargets = new Set();
+  const animations = [];
+  const noop = () => {};
+
+  const { document, root } = await mount(
+    t,
+    null,
+    {
+      invokeCapability: async () => ({ value: null }),
+    },
+    (win) => {
+      win.CSS = { supports: () => true };
+      const BaseObserver = win.MutationObserver;
+      win.MutationObserver = class extends BaseObserver {
+        observe(target, options) {
+          observedTargets.add(target);
+          return super.observe(target, options);
+        }
+      };
+      win.HTMLElement.prototype.animate = function animate(frames) {
+        const animation = {
+          card: this.dataset.category,
+          frames,
+          cancelled: false,
+          onfinish: null,
+          cancel() {
+            this.cancelled = true;
+          },
+          end() {
+            this.onfinish?.();
+          },
+        };
+        animations.push(animation);
+        return animation;
+      };
+    }
+  );
+
+  store.setShownSessionIds([sessionId]);
+  t.after(() => store.setShownSessionIds([]));
+  const pushSnapshot = (tasks) =>
+    store.apply({
+      sessionId,
+      snapshot: {
+        sessionId,
+        todo: tasks.length
+          ? { phases: [{ name: 'Ship', tasks }], completed: 0, abandoned: 0, total: tasks.length }
+          : null,
+      },
+      frameSource: 'live',
+    });
+  pushSnapshot([]);
+
+  await act(async () =>
+    root.render(
+      React.createElement(SessionRail, {
+        sessionId,
+        reviewSessionId: sessionId,
+        workspace: null,
+        projectPath: '',
+        projectLabel: '',
+        routeProject: '',
+        projects: [],
+        agentMode: false,
+        goalSubmissionId: '',
+        reviewItems: [],
+        reviewActive: false,
+        reviewBusy: false,
+        pendingInput: false,
+        model: {
+          available: false,
+          selected: null,
+          options: [],
+          onSelect: noop,
+        },
+        sessionChoices: [],
+        onOpenCommandSurface: noop,
+      })
+    )
+  );
+
+  const content = document.querySelector('.session-rail-content');
+  assert.ok(content, 'SessionRail renders .session-rail-content');
+  assert.equal(observedTargets.has(content), true, 'motion MutationObserver must attach on initial mount');
+  assert.deepEqual(animations, [], 'initial sections stand without animating');
+
+  await act(async () => {
+    pushSnapshot([{ content: 'Ship fix', status: 'in_progress' }]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  assert.ok(document.querySelector('[data-category="todo"]'), 'todo section mounted');
+  assert.ok(
+    animations.some((a) => a.card === 'todo' && a.frames[0].height === '0px' && a.frames[1].height === 'auto'),
+    'subsequent section arrival animates after initial mount'
+  );
+
+  await act(async () => {
+    for (const animation of animations) animation.end();
+    pushSnapshot([]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  assert.ok(
+    animations.some((a) => a.card === 'todo' && a.frames[1].height === '0px'),
+    'subsequent section departure animates after initial mount'
+  );
+  await act(async () => root.render(null));
 });

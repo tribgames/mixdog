@@ -15,6 +15,8 @@ import { type VisualizePaneSource, type VisualizePaneView, visualizeProblemLocat
 import { postToPage, visualizeFeedbackPageMessage, withVisualizeFeedbackScript } from '../shared/visualize-feedback';
 import { visualizePaneMarks, withVisualizeOverlay } from '../shared/visualize-annotations';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
+import { SurfaceActiveContext, useSurfaceActive } from './surface-activity';
 import { VisualizeIcon } from './visualize-icon';
 import { visualizeCommentKind } from '../shared/visualize-comment-kinds';
 import { announceVisualizeCommentMode, useVisualizeFeedbackBridge, VisualizeCommentLayer } from './VisualizeFeedback';
@@ -869,6 +871,7 @@ function VisualizePaneCell({
   pane,
   index,
   live,
+  panelActive,
   solo,
   content,
   showSource,
@@ -881,6 +884,7 @@ function VisualizePaneCell({
   pane: VisualizePaneView;
   index: number;
   live: boolean;
+  panelActive: boolean;
   solo: number | null;
   content: ReactNode;
   showSource: boolean;
@@ -938,7 +942,14 @@ function VisualizePaneCell({
           {content}
         </div>
         {live && visualizeCommentKind(pane.kind) && !showSource && (
-          <VisualizeCommentLayer sessionId={sessionId} tab={shown} pane={pane} index={index} comment={commenting} />
+          <VisualizeCommentLayer
+            sessionId={sessionId}
+            tab={shown}
+            pane={pane}
+            index={index}
+            comment={commenting}
+            active={panelActive && live && (solo === null || solo === index)}
+          />
         )}
       </div>
     </div>
@@ -1285,6 +1296,7 @@ function useVisualizeSoloKeys({
   tabId: string;
   paneCount: number;
 }) {
+  useMobileBack(active && solo !== null, () => setVisualizeSoloPane(sessionId, tabId, null));
   useEffect(() => {
     if (!active || solo === null) return undefined;
     const onKey = (event: KeyboardEvent) => {
@@ -1309,6 +1321,7 @@ function VisualizeBodies({
   sessionId,
   keptTabs,
   activeId,
+  panelActive,
   solo,
   stacked,
   bodyWidth,
@@ -1322,6 +1335,7 @@ function VisualizeBodies({
   sessionId: string;
   keptTabs: VisualizeTab[];
   activeId: string;
+  panelActive: boolean;
   solo: number | null;
   stacked: boolean;
   bodyWidth: number;
@@ -1372,6 +1386,7 @@ function VisualizeBodies({
                   pane={pane}
                   index={index}
                   live={live}
+                  panelActive={panelActive}
                   solo={shownSolo}
                   content={content}
                   showSource={showSource}
@@ -1507,7 +1522,12 @@ export function VisualizePane({ sessionId, active, onClose }: { sessionId: strin
   } = useVisualizeDrawers(sessionId, tab, body);
 
   // "All visuals", the source toggle and the export menu.
-  const extras = useVisualizePanelExtras(sessionId, state, tab, Boolean(remoteSource));
+  const extras = useVisualizePanelExtras(sessionId, state, tab, Boolean(remoteSource), active);
+
+  useMobileBack(active && Boolean(tab?.problems?.length && problemsOpen === tab.id), () => setProblemsOpen(''));
+  useMobileBack(active && Boolean(tab && hasTweaks && tweaksOpen), () => setTweaksOpen(false));
+  useMobileBack(active && Boolean(tab && hasHtml && elementsOpen), () => setElementsOpen(false));
+  useMobileBack(active && commenting, () => setComment(false));
 
   const left = (
     <VisualizeTabStrip
@@ -1520,59 +1540,63 @@ export function VisualizePane({ sessionId, active, onClose }: { sessionId: strin
       onToggleProblems={toggleProblems}
     />
   );
+  const parentSurfaceActive = useSurfaceActive();
   return (
-    <section ref={setPanel} className="visualize-pane" aria-label={t('Visualize')} hidden={!active || undefined}>
-      <DockHeaderRow
-        className="session-diff-header"
-        ariaLabel={t('Visualize')}
-        left={left}
-        actions={visualizeHeaderActions([
-          ...extras.actions,
-          ...elementsAction,
-          ...tweaksAction,
-          ...commentAction,
-          zoomBarAction(),
-        ])}
-        onClose={onClose}
-      />
-      {tab?.problems?.length && problemsOpen === tab.id ? <VisualizeProblemList tab={tab} /> : null}
-      {tab && hasTweaks && tweaksOpen ? (
-        <VisualizeTweaksDrawer sessionId={sessionId} tab={tab} onHide={() => setTweaksOpen(false)} />
-      ) : null}
-      {extras.strips}
-      {tab && hasHtml && elementsOpen ? (
-        <VisualizeElements
-          tab={tab}
-          readings={inspection.readings}
-          refresh={inspection.refresh}
-          highlight={inspection.highlight}
-          onClose={() => setElementsOpen(false)}
-          onPin={(pane, selector) => startElementPin(tab.id, pane, selector, setComment)}
+    <SurfaceActiveContext.Provider value={parentSurfaceActive && active}>
+      <section ref={setPanel} className="visualize-pane" aria-label={t('Visualize')} hidden={!active || undefined}>
+        <DockHeaderRow
+          className="session-diff-header"
+          ariaLabel={t('Visualize')}
+          left={left}
+          actions={visualizeHeaderActions([
+            ...extras.actions,
+            ...elementsAction,
+            ...tweaksAction,
+            ...commentAction,
+            zoomBarAction(),
+          ])}
+          onClose={onClose}
         />
-      ) : null}
-      {tab ? (
-        <VisualizeBodies
-          sessionId={sessionId}
-          keptTabs={keptTabs}
-          activeId={tab.id}
-          solo={solo}
-          stacked={stacked}
-          bodyWidth={bodyWidth}
-          setBody={setBody}
-          sourceOn={extras.sourceOn}
-          remoteSource={remoteSource}
-          commenting={commenting}
-          zoom={zoomControl}
-          showSolo={showSolo}
-        />
-      ) : (
-        <div className="visualize-empty mx-empty-state" ref={emptyStateHost}>
-          {t('Results the agent shows will appear here.')}
-        </div>
-      )}
-      {((zoomable && zoomBarVisible) || paneCount > 1) && (
-        <VisualizeZoomPill tab={tab} solo={solo} zoom={zoom} setZoom={setZoom} showSolo={showSolo} />
-      )}
-    </section>
+        {tab?.problems?.length && problemsOpen === tab.id ? <VisualizeProblemList tab={tab} /> : null}
+        {tab && hasTweaks && tweaksOpen ? (
+          <VisualizeTweaksDrawer sessionId={sessionId} tab={tab} onHide={() => setTweaksOpen(false)} />
+        ) : null}
+        {extras.strips}
+        {tab && hasHtml && elementsOpen ? (
+          <VisualizeElements
+            tab={tab}
+            readings={inspection.readings}
+            refresh={inspection.refresh}
+            highlight={inspection.highlight}
+            onClose={() => setElementsOpen(false)}
+            onPin={(pane, selector) => startElementPin(tab.id, pane, selector, setComment)}
+          />
+        ) : null}
+        {tab ? (
+          <VisualizeBodies
+            sessionId={sessionId}
+            keptTabs={keptTabs}
+            activeId={tab.id}
+            panelActive={active}
+            solo={solo}
+            stacked={stacked}
+            bodyWidth={bodyWidth}
+            setBody={setBody}
+            sourceOn={extras.sourceOn}
+            remoteSource={remoteSource}
+            commenting={commenting}
+            zoom={zoomControl}
+            showSolo={showSolo}
+          />
+        ) : (
+          <div className="visualize-empty mx-empty-state" ref={emptyStateHost}>
+            {t('Results the agent shows will appear here.')}
+          </div>
+        )}
+        {((zoomable && zoomBarVisible) || paneCount > 1) && (
+          <VisualizeZoomPill tab={tab} solo={solo} zoom={zoom} setZoom={setZoom} showSolo={showSolo} />
+        )}
+      </section>
+    </SurfaceActiveContext.Provider>
   );
 }

@@ -53,3 +53,38 @@ test('split panes have independent surfaces and unused panes have none', async (
   await Promise.resolve();
   assert.equal(disposed, 2);
 });
+
+test('pool notifies onActive on first mount, ignores tab switches, and notifies onEmpty only when the last surface releases', async () => {
+  const events = [];
+  const pool = new EditorSurfacePool({
+    onActive: () => events.push('active'),
+    onEmpty: () => events.push('empty'),
+  });
+  const create = () => ({ editor: { dispose() {} }, element: { remove() {} } });
+  const a = {};
+  const b = {};
+  const c = {};
+
+  pool.acquire('left', a, create, () => {});
+  assert.deepEqual(events, ['active']);
+
+  // Tab switch within the same pane keeps the pool active.
+  pool.release('left', a);
+  pool.acquire('left', b, create, () => {});
+  await Promise.resolve();
+  assert.deepEqual(events, ['active']);
+
+  // Second split pane does not re-trigger onActive, and closing one pane does not trigger onEmpty.
+  pool.acquire('right', c, create, () => {});
+  pool.release('right', c);
+  await Promise.resolve();
+  assert.deepEqual(events, ['active']);
+
+  // Releasing the last surface fires onEmpty; acquiring again fires onActive.
+  pool.release('left', b);
+  await Promise.resolve();
+  assert.deepEqual(events, ['active', 'empty']);
+
+  pool.acquire('left', a, create, () => {});
+  assert.deepEqual(events, ['active', 'empty', 'active']);
+});

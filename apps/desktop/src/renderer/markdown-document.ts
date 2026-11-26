@@ -1,5 +1,6 @@
 import type { MarkdownAstRoot } from './markdown-ast';
 import {
+  canSyncParseMarkdown,
   LatestMarkdownAstQueue,
   parseLiveMarkdownAst,
   parseStreamingMarkdownAst,
@@ -341,7 +342,7 @@ export class LiveMarkdownDocument {
   private parseNow(text: string, open: boolean): MarkdownAstRoot | null {
     const cached = readCachedStreamingMarkdownAst(text);
     if (cached) return cached;
-    const parser = syncMarkdownParser();
+    const parser = canSyncParseMarkdown(text) ? syncMarkdownParser() : null;
     if (!parser || text.length > SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS || (open && text.length >= this.slowAt)) {
       return null;
     }

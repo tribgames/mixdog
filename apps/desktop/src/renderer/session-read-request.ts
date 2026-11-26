@@ -35,7 +35,7 @@ export function previewSessionTranscript(sessionId: string): Promise<boolean> {
       (snapshot) => {
         if (!snapshot) return false;
         defaultSessionLaneStore.seedPreview(sessionId, snapshot);
-        return true;
+        return Boolean(defaultSessionLaneStore.get(sessionId));
       },
       () => false
     )

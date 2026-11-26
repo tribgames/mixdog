@@ -160,3 +160,18 @@ test('a deferred height pin cannot reclaim a released or replacement viewport', 
     assert.equal(state.frames.size, 0);
   }
 });
+
+test('passive or at-bottom gesture does not defer end-pinning when viewport is already at the bottom', async () => {
+  const state = fixture();
+  // First pin establishes bottom at 800.
+  state.pin.request();
+  await Promise.resolve();
+  assert.equal(state.viewport.scrollTop, 800);
+  // Reader has passive/at-bottom gesture active while new content grows total height.
+  state.gesture(true);
+  state.viewport.scrollHeight = 1400;
+  state.pin.request();
+  await Promise.resolve();
+  assert.equal(state.viewport.scrollTop, 1000, 'at-bottom gesture pins immediately without deferring across frames');
+  assert.equal(state.frames.size, 0);
+});

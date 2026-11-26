@@ -21,6 +21,8 @@ export class TerminalDataBufferer {
   private readonly pending = new Map<string, PendingTerminalData>();
   private readonly inFlightChars = new Map<string, number>();
   private readonly pausedProducers = new Set<string>();
+  private readonly generations = new Map<string, number>();
+  private nextGeneration = 0;
   private readonly delayMs: number;
   private readonly highWatermarkChars: number;
   private readonly lowWatermarkChars: number;
@@ -28,11 +30,12 @@ export class TerminalDataBufferer {
   private readonly lastDeliveredAt = new Map<string, number>();
 
   constructor(
-    private readonly deliver: (event: TerminalDataEvent) => void,
+    private readonly deliver: (event: TerminalDataEvent, gen: number) => void,
     delayMs: number | { delayMs?: number; leadingEdge?: boolean } = 5,
     highWatermarkChars = 256 * 1024,
     private readonly producerFlow?: TerminalProducerFlowControl,
-    lowWatermarkChars = Math.max(1, Math.floor(highWatermarkChars / 8))
+    lowWatermarkChars = Math.max(1, Math.floor(highWatermarkChars / 8)),
+    private readonly hasConsumer?: (id: string) => boolean
   ) {
     this.leadingEdge = typeof delayMs === 'object' && delayMs.leadingEdge === true;
     this.delayMs = Math.max(0, Math.round(typeof delayMs === 'number' ? delayMs : (delayMs.delayMs ?? 5)));
@@ -40,14 +43,33 @@ export class TerminalDataBufferer {
     this.lowWatermarkChars = Math.max(0, Math.min(this.highWatermarkChars - 1, Math.round(lowWatermarkChars)));
   }
 
+  private canDeliver(id: string): boolean {
+    return this.hasConsumer ? this.hasConsumer(id) : true;
+  }
+
+  private ensureGeneration(id: string): number {
+    let gen = this.generations.get(id);
+    if (gen === undefined) {
+      gen = ++this.nextGeneration;
+      this.generations.set(id, gen);
+    }
+    return gen;
+  }
+
   push(event: TerminalDataEvent): void {
     const id = String(event?.id || '');
     const data = String(event?.data || '');
     if (!id || !data) return;
+    this.ensureGeneration(id);
     const existing = this.pending.get(id);
     if (existing) {
       existing.chunks.push(data);
       existing.charCount += data.length;
+      this.updateProducerFlow(id);
+      return;
+    }
+    if (!this.canDeliver(id)) {
+      this.pending.set(id, { chunks: [data], charCount: data.length, timer: null });
       this.updateProducerFlow(id);
       return;
     }
@@ -65,6 +87,11 @@ export class TerminalDataBufferer {
   flush(id: string, force = false): void {
     const buffered = this.pending.get(id);
     if (!buffered) return;
+    if (!this.canDeliver(id)) {
+      if (buffered.timer) clearTimeout(buffered.timer);
+      buffered.timer = null;
+      return;
+    }
     const inFlight = this.inFlightChars.get(id) || 0;
     const available = this.highWatermarkChars - inFlight;
     if (!force && available <= 0) {
@@ -82,18 +109,24 @@ export class TerminalDataBufferer {
       this.pending.delete(id);
     }
     if (!data) return;
+    const gen = this.ensureGeneration(id);
     if (!force) {
       this.inFlightChars.set(id, inFlight + data.length);
     }
     if (this.leadingEdge) this.lastDeliveredAt.set(id, performance.now());
-    this.deliver({ id, data });
+    this.deliver({ id, data }, gen);
   }
 
-  /** Release IPC pressure only after xterm has parsed the corresponding data. */
-  acknowledge(id: string, charCount: number): void {
+  flushAll(): void {
+    for (const id of [...this.pending.keys()]) this.flush(id);
+  }
+
+  /** Release IPC pressure only after xterm has parsed the corresponding data for the active buffer generation. */
+  acknowledge(id: string, charCount: number, gen?: number): void {
     const terminalId = String(id || '');
     const count = Math.floor(Number(charCount));
     if (!terminalId || !Number.isFinite(count) || count <= 0) return;
+    if (gen !== undefined && gen !== this.generations.get(terminalId)) return;
     const current = this.inFlightChars.get(terminalId) || 0;
     if (current <= 0) return;
     const next = Math.max(0, current - count);
@@ -105,18 +138,26 @@ export class TerminalDataBufferer {
     this.updateProducerFlow(terminalId);
   }
 
-  /** Replaces what the window shows of the tab: the output not yet sent is dropped, and `data` goes out at once as a reset, counted
-   * as in flight until the window acknowledges it. */
+  /** Replaces what the window shows of the tab: the output not yet sent is dropped, and `data` goes out at once as a reset
+   * when a consumer is subscribed, counted as in flight until acknowledged. */
   reset(id: string, data: string): void {
     const terminalId = String(id || '');
     if (!terminalId) return;
     const buffered = this.pending.get(terminalId);
     if (buffered?.timer) clearTimeout(buffered.timer);
     this.pending.delete(terminalId);
+    const gen = ++this.nextGeneration;
+    this.generations.set(terminalId, gen);
+    if (!this.canDeliver(terminalId)) {
+      this.inFlightChars.delete(terminalId);
+      this.lastDeliveredAt.delete(terminalId);
+      this.updateProducerFlow(terminalId);
+      return;
+    }
     if (data) this.inFlightChars.set(terminalId, data.length);
     else this.inFlightChars.delete(terminalId);
     if (this.leadingEdge) this.lastDeliveredAt.set(terminalId, performance.now());
-    this.deliver({ id: terminalId, data, reset: true });
+    this.deliver({ id: terminalId, data, reset: true }, gen);
     this.updateProducerFlow(terminalId);
   }
 
@@ -130,6 +171,7 @@ export class TerminalDataBufferer {
     this.pending.delete(terminalId);
     this.inFlightChars.delete(terminalId);
     this.lastDeliveredAt.delete(terminalId);
+    this.generations.delete(terminalId);
     this.resumeProducer(terminalId);
   }
 
@@ -168,5 +210,6 @@ export class TerminalDataBufferer {
     for (const id of [...this.pausedProducers]) this.resumeProducer(id);
     this.inFlightChars.clear();
     this.lastDeliveredAt.clear();
+    this.generations.clear();
   }
 }

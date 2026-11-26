@@ -164,7 +164,14 @@ function optimisticPromptFor(
   };
 }
 
+export type AcceptSnapshotContext = {
+  snapshotRevision?: string | number | null;
+  restoring?: boolean;
+  snapshotPreview?: boolean;
+};
+
 export function useConversationComposerActions({
+  acceptSnapshotContextRef,
   armFollowOnSubmitRef,
   composerActions,
   draftModeRef,
@@ -175,6 +182,7 @@ export function useConversationComposerActions({
   setOptimisticPrompts,
   suppressDraftSubmitPaintHandoff,
 }: {
+  acceptSnapshotContextRef?: { current: AcceptSnapshotContext };
   armFollowOnSubmitRef: { current: () => void };
   composerActions: { current: ConversationComposerActions };
   draftModeRef: { current: boolean };
@@ -251,10 +259,21 @@ export function useConversationComposerActions({
       suppressDraftSubmitPaintHandoff.current = false;
     }
     if (accepted !== true && goalSubmission.current?.id === submissionId) goalSubmission.current = null;
+    const acceptContext = acceptSnapshotContextRef?.current;
+    const acceptedSnapshotRevision = acceptContext?.snapshotRevision;
+    const acceptedWhileRestoring = Boolean(acceptContext?.restoring || acceptContext?.snapshotPreview);
     setOptimisticPrompts((current) =>
       current.flatMap((item) => {
         if (String(item.id) !== submissionId) return [item];
-        return accepted === true ? [{ ...item, accepted: true }] : [];
+        if (accepted !== true) return [];
+        return [
+          {
+            ...item,
+            accepted: true,
+            ...(acceptedSnapshotRevision !== undefined ? { acceptedSnapshotRevision } : {}),
+            ...(acceptedWhileRestoring ? { acceptedWhileRestoring: true } : {}),
+          },
+        ];
       })
     );
     window.mixdogDesktop?.perfLog?.(
@@ -604,6 +623,7 @@ export function transcriptRowNode(
       {footerAfterCards && row.item && row.completion && (
         <TranscriptResponseFooter
           trailing
+          revealKey={assistantProps.revealKey}
           item={row.item}
           completion={row.completion}
           animateComplete={assistantProps.animateComplete}

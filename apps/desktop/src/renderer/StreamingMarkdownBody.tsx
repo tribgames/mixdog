@@ -3,6 +3,7 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { MarkdownAstRoot } from './markdown-ast';
 import type { MarkdownCopyControl } from './markdown-components';
 import {
+  canSyncParseMarkdown,
   LatestMarkdownAstQueue,
   parseLiveMarkdownAst,
   parseSettledMarkdownAstNow,
@@ -59,7 +60,11 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   const slowAt = useRef(Number.POSITIVE_INFINITY);
   const lastSync = useRef<RenderedMarkdownAst | null>(null);
   const parser =
-    sync && parse && parseText.length <= SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS && parseText.length < slowAt.current
+    sync &&
+    parse &&
+    parseText.length <= SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS &&
+    parseText.length < slowAt.current &&
+    canSyncParseMarkdown(parseText)
       ? syncMarkdownParser()
       : null;
   const syncRoot = useMemo(() => {

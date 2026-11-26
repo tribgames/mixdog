@@ -354,6 +354,26 @@ html[data-mixdog-mobile-tabs] .composer-island-panel-foot.branch-menu-foot .comp
   overflow-x: hidden;
   overscroll-behavior: contain;
 }
+/* Its list scrolls itself: the panel body holds the search and list at the
+   shared inset, while the list's end margin absorbs its scrollbar gutter so
+   rows stay flush with the header and footer whether overflowing or not. */
+.composer-island .composer-island-branch-panel > .composer-island-pbody {
+  scrollbar-gutter: auto;
+  padding-inline: var(--island-panel-inset);
+}
+.composer-island .composer-island-branch-panel .branch-menu-body > .branch-menu-list {
+  margin-inline-start: -6px;
+  margin-inline-end: calc(-6px - var(--mx-scrollbar-gutter, 8px));
+  padding-inline: 0;
+  scrollbar-gutter: stable;
+}
+html[data-mixdog-mobile-tabs] .composer-island .composer-island-branch-panel .branch-menu-body > .branch-menu-list {
+  margin-inline-end: -6px;
+  scrollbar-gutter: auto;
+}
+.composer-island .composer-island-branch-panel :is(.branch-menu-label, .branch-menu-item) {
+  padding-inline: 6px;
+}
 /* No list read yet (the segment reads it ahead, so this is rare): the list
    holds its full height while loading rather than growing from one line. The
    height its rows had when it was last open (inline, useStableMenuList)
@@ -390,7 +410,8 @@ html[data-mixdog-mobile-tabs] .composer-island-panel-foot.branch-menu-foot .comp
   width: 14px;
   height: 14px;
 }
-.composer-island-branch-panel .branch-menu-item:is(:hover:not([aria-disabled="true"]), :focus-visible, [data-mark="current"]),
+.composer-island-branch-panel
+  .branch-menu-item:is(:hover:not([aria-disabled="true"]), :focus-visible, [data-mark="current"]),
 .composer-island-branch-panel .branch-row-shell:hover > .branch-menu-item:not([aria-disabled="true"]) {
   color: var(--mx-row-title-ink-active);
 }

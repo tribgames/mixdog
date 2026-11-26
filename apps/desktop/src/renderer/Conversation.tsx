@@ -143,6 +143,7 @@ export function Conversation(props: ConversationProps) {
     turnChangesSessionId: draftMode || readOnly ? '' : routeSessionId,
     turnChangesBusy: Boolean(snapshot.busy || snapshot.commandBusy),
     turnChangesRunning: trailingTurnRuns(snapshot.busy, pendingItems.length, timeline.pastLastEnd),
+    trailingCheckpointShown: timeline.trailingCheckpointShown,
     // With no prompt pending, the last settled item is the running turn's, unless it is the end of the turn before.
     runningTurnKey: trailingTurnRuns(snapshot.busy, pendingItems.length, timeline.turnPastEnd)
       ? runningTurnKeyOf(settledItems, timeline.liveTurnKeys, timeline.liveTurnKeys.at(-1) ?? '')

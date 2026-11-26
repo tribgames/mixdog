@@ -11,7 +11,14 @@ installTestDom(null, {
 const { default: React, act } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { useTranscriptRowEstimates, transcriptRowVariant } = await import('./transcript-list-estimates.ts');
-const { TRANSCRIPT_ROW_ESTIMATE } = await import('./transcript-virtual-cache.ts');
+const {
+  TRANSCRIPT_BAND_LEAD_PX,
+  TRANSCRIPT_COLLAPSED_TOOL_ROW_PX,
+  TRANSCRIPT_LIVE_ASSISTANT_ROW_PX,
+  TRANSCRIPT_PART_STEP_PX,
+  TRANSCRIPT_ROW_ESTIMATE,
+  TRANSCRIPT_THINKING_ROW_PX,
+} = await import('./transcript-virtual-cache.ts');
 const { transcriptRowHeightStore } = await import('./transcript-row-estimates.ts');
 
 const WIDTH = 733;
@@ -75,7 +82,7 @@ test('an agent chat learns a blank tool round as 0px; a coding list does not inh
   assert.equal(agent.estimates.estimateRow(1), 0, 'the next hidden round is estimated at 0px');
   await agent.unmount();
   const coding = await mountEstimates([tools(3)], 'coding');
-  assert.equal(coding.estimates.estimateRow(0), TRANSCRIPT_ROW_ESTIMATE, 'coding estimates are unaffected');
+  assert.equal(coding.estimates.estimateRow(0), TRANSCRIPT_COLLAPSED_TOOL_ROW_PX, 'coding estimates are unaffected');
   await coding.unmount();
 });
 
@@ -240,4 +247,27 @@ test('a row that paints content is never learned at 0px', async () => {
   agent.measure(0, false);
   assert.equal(agent.estimates.estimateRow(1), TRANSCRIPT_ROW_ESTIMATE);
   await agent.unmount();
+});
+
+test('coding live rows use deterministic priors without enqueueing fallbackEstimates', async () => {
+  const user = { _tag: 'UserMessage', key: 'est:u', turnKey: 't', item: { id: 'u', kind: 'user', text: 'q' } };
+  const livePart = {
+    _tag: 'AssistantPart',
+    key: 'est:live-part',
+    turnKey: 't',
+    live: true,
+    item: { id: 'lp', kind: 'assistant', text: 'hi', streaming: true },
+  };
+  const tool = tools(99);
+  const thinking = { _tag: 'Thinking', key: 'est:live-think', turnKey: 't', active: true };
+  const coding = await mountEstimates([user, livePart, tool, thinking], 'coding');
+  assert.equal(coding.estimates.estimateRow(1), TRANSCRIPT_LIVE_ASSISTANT_ROW_PX);
+  assert.equal(coding.estimates.estimateRow(2), TRANSCRIPT_COLLAPSED_TOOL_ROW_PX + TRANSCRIPT_PART_STEP_PX);
+  assert.equal(coding.estimates.estimateRow(3), TRANSCRIPT_THINKING_ROW_PX + TRANSCRIPT_BAND_LEAD_PX);
+  assert.equal(
+    coding.estimates.fallbackEstimates.current.size,
+    0,
+    'deterministic priors do not enqueue fallback relearn'
+  );
+  await coding.unmount();
 });

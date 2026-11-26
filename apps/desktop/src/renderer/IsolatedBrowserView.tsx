@@ -349,6 +349,7 @@ export const IsolatedBrowserView = forwardRef<
           key={`${frame.documentId}:${frame.dialog?.id ?? frame.fileChooser?.id ?? ''}`}
           frame={frame}
           control={client.control}
+          active={active}
         />
       )}
       {(failure || metadataFailure || actionFailure || unconfirmedText) && (

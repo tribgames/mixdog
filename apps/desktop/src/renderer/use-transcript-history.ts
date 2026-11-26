@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useSyncExternalStore, type RefObject } from 'react';
 import { historyPositionOf } from '../../../../packages/protocol-client/src/rows.ts';
+import { WINDOW_LEAD_ROWS } from '../../../../packages/protocol-client/src/transcript-window.ts';
 import type { DesktopTranscriptMove } from '../shared/contract-session';
 import type { TranscriptItem } from './desktop-types';
 import { usePaneKey } from './pane-key-context';
@@ -497,6 +498,28 @@ function usePositionedTranscriptWindow<T extends { readonly id?: unknown }>(
   useEffect(() => {
     if (loose) move({ kind: 'follow' });
   }, [loose, move, facts?.version]);
+  const historyActive = items !== liveItems;
+  const hasOlder = inView ? inView.older : !historyActive && liveHasOlder;
+  const lastId = items.at(-1)?.id;
+  const initialBackfillId =
+    active &&
+    sessionId &&
+    facts &&
+    following &&
+    !opening &&
+    !historyActive &&
+    hasOlder === true &&
+    items.length > 0 &&
+    items.length < WINDOW_LEAD_ROWS &&
+    lastId !== undefined &&
+    lastId !== null
+      ? String(lastId)
+      : '';
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-trigger when the session goes live or the window advances.
+  useEffect(() => {
+    if (!initialBackfillId) return;
+    move({ kind: 'read', first: initialBackfillId, last: initialBackfillId, end: true });
+  }, [initialBackfillId, live, move, sessionId, facts?.version]);
   // The window around a record the pane is to open at and has no rows of.
   const wanted = opening && detached && live && facts ? opening.position : '';
   const version = facts?.version;
@@ -540,8 +563,6 @@ function usePositionedTranscriptWindow<T extends { readonly id?: unknown }>(
     [following, lost, move, placing]
   );
   const resetToLive = useCallback(() => move({ kind: 'follow' }), [move]);
-  const historyActive = items !== liveItems;
-  const hasOlder = inView ? inView.older : !historyActive && liveHasOlder;
   return {
     items,
     hasOlder,

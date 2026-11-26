@@ -27,17 +27,15 @@ async function mount(sessionId) {
   return { latest, unmount: () => act(async () => root.unmount()) };
 }
 
-test('a viewed session with no folds stores nothing; stale agent groups leave when groups are written', async () => {
+test('a viewed session with no folds stores nothing; a written fold stays as set', async () => {
   window.localStorage.removeItem(KEY);
   const view = await mount('viewed');
   assert.equal(view.latest.groupOpen('agents:x', true), true);
   assert.equal(window.localStorage.getItem(KEY), null, 'viewing writes nothing');
-  await act(async () => view.latest.setGroups({ 'agents:a': false, 'agents:gone': false }));
-  await act(async () =>
-    view.latest.setGroups({ 'agents:b': false }, { prefix: 'agents:', keys: ['agents:a', 'agents:b'] })
-  );
+  await act(async () => view.latest.setGroups({ 'agents:a': false, 'agents:gone': true }));
+  await act(async () => view.latest.setGroups({ 'agents:b': false }));
   const stored = JSON.parse(window.localStorage.getItem(KEY)).viewed.groups;
-  assert.deepEqual(Object.keys(stored).sort(), ['agents:a', 'agents:b']);
+  assert.deepEqual(stored, { 'agents:a': false, 'agents:gone': true, 'agents:b': false });
   await view.unmount();
 });
 

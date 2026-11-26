@@ -3,13 +3,10 @@ import * as monaco from 'monaco-editor';
 import type { DesktopLspServerState } from '../shared/contract';
 import { explicitEditorLanguageIdForPath } from '../shared/editor-languages';
 import {
-  acquireEditorDocument,
-  releaseEditorDocument,
-  getEditorLanguageSnapshot,
-  ensureEditorLanguageStore,
+  bindEditorModelLanguageStore,
+  isLspMarkerOwner,
   setActiveEditorPosition,
   setNativeEditorProblems,
-  subscribeEditorLanguageStore,
 } from './editor-language-store';
 import {
   ensureGraphProviders,
@@ -18,6 +15,7 @@ import {
   type EditorGraphContextRef,
 } from './editor-monaco-providers';
 import { isAnsiOutputPath, visibleEditorAnsiText } from './editor-ansi';
+import { ensureMonacoLanguage } from './monaco-language-loader';
 
 type Editor = monaco.editor.IStandaloneCodeEditor;
 type EditorModel = monaco.editor.ITextModel;
@@ -28,70 +26,6 @@ function markerSeverity(severity: number): monaco.MarkerSeverity {
   if (severity === 2) return monaco.MarkerSeverity.Warning;
   if (severity === 4) return monaco.MarkerSeverity.Hint;
   return monaco.MarkerSeverity.Info;
-}
-
-/** Takes the language store's server state and LSP problems for this file into
- *  the model: the LSP state, and the `mixdog-lsp` markers when they changed. */
-function applyLanguageStoreToModel({
-  projectPath,
-  relPath,
-  model,
-  acceptLspState,
-  lspMarkerSignature,
-}: {
-  projectPath: string;
-  relPath: string;
-  model: EditorModel;
-  acceptLspState(state: DesktopLspServerState, languageId: string): void;
-  lspMarkerSignature: RefObject<string>;
-}): void {
-  const languageSnapshot = getEditorLanguageSnapshot();
-  const comparableRelPath = relPath.replace(/\\/g, '/').toLocaleLowerCase();
-  const comparableProjectPath = projectPath.replace(/[\\/]+/g, '/').toLocaleLowerCase();
-  const status =
-    languageSnapshot.statuses.find(
-      (candidate) =>
-        candidate.projectPath === projectPath &&
-        candidate.languageId === model.getLanguageId() &&
-        candidate.relPath?.replace(/\\/g, '/').toLocaleLowerCase() === comparableRelPath
-    ) ??
-    languageSnapshot.statuses.find(
-      (candidate) =>
-        candidate.projectPath === projectPath && candidate.languageId === model.getLanguageId() && !candidate.relPath
-    );
-  if (status) acceptLspState(status, model.getLanguageId());
-  const problems = languageSnapshot.problems.filter(
-    (problem) =>
-      problem.origin === 'lsp' &&
-      problem.projectPath.replace(/[\\/]+/g, '/').toLocaleLowerCase() === comparableProjectPath &&
-      problem.relPath.replace(/\\/g, '/').toLocaleLowerCase() === comparableRelPath
-  );
-  const signature = JSON.stringify(
-    problems.map((problem) => [
-      problem.severity,
-      problem.message,
-      problem.startLineNumber,
-      problem.startColumn,
-      problem.endLineNumber,
-      problem.endColumn,
-    ])
-  );
-  if (signature === lspMarkerSignature.current) return;
-  lspMarkerSignature.current = signature;
-  monaco.editor.setModelMarkers(
-    model,
-    'mixdog-lsp',
-    problems.map((problem) => ({
-      severity: markerSeverity(problem.severity),
-      message: problem.message,
-      source: problem.source,
-      code: problem.code || undefined,
-      startLineNumber: problem.startLineNumber,
-      startColumn: problem.startColumn,
-      endLineNumber: problem.endLineNumber,
-      endColumn: problem.endColumn,
-    }))
-  );
 }
 
 /** In an ANSI output file, copying a selection puts its visible text (the
@@ -166,26 +100,53 @@ export function useEditorModelBinding({
       if (expectedLanguageId && model.getLanguageId() !== expectedLanguageId) {
         monaco.editor.setModelLanguage(model, expectedLanguageId);
       }
-      ensureEditorLanguageStore();
+      void ensureMonacoLanguage(model.getLanguageId()).catch(() => {});
       const documentUri = model.uri.toString();
-      acquireEditorDocument(projectPath, relPath, documentUri);
-      languageDisposables.current.push({ dispose: () => releaseEditorDocument(documentUri) });
-      setModelUri(model.uri.toString());
-      graphContextsByModel.set(model.uri.toString(), graphContextRef);
+      let bindingDisposed = false;
+      languageDisposables.current.push({
+        dispose: () => {
+          bindingDisposed = true;
+        },
+      });
+      setModelUri(documentUri);
+      graphContextsByModel.set(documentUri, graphContextRef);
       graphContextsByEditor.set(editor, graphContextRef);
       ensureGraphProviders(model.getLanguageId());
-      const syncLanguageState = () =>
-        applyLanguageStoreToModel({ projectPath, relPath, model, acceptLspState, lspMarkerSignature });
-      const unsubscribeStore = subscribeEditorLanguageStore(syncLanguageState);
-      languageDisposables.current.push({ dispose: unsubscribeStore });
-      syncLanguageState();
-      const publishNative = () =>
+      languageDisposables.current.push(
+        bindEditorModelLanguageStore({
+          projectPath,
+          relPath,
+          uri: documentUri,
+          getLanguageId: () => model.getLanguageId(),
+          isDisposed: () => model.isDisposed(),
+          acceptLspState,
+          lspMarkerSignature,
+          setMarkers: (owner, problems) =>
+            monaco.editor.setModelMarkers(
+              model,
+              owner,
+              problems.map((problem) => ({
+                severity: markerSeverity(problem.severity),
+                message: problem.message,
+                source: problem.source,
+                code: problem.code || undefined,
+                startLineNumber: problem.startLineNumber,
+                startColumn: problem.startColumn,
+                endLineNumber: problem.endLineNumber,
+                endColumn: problem.endColumn,
+              }))
+            ),
+        })
+      );
+      const publishNative = () => {
+        if (bindingDisposed || model.isDisposed()) return;
         setNativeEditorProblems(
           projectPath,
           relPath,
           model.uri.toString(),
-          monaco.editor.getModelMarkers({ resource: model.uri }).filter((marker) => marker.owner !== 'mixdog-lsp')
+          monaco.editor.getModelMarkers({ resource: model.uri }).filter((marker) => !isLspMarkerOwner(marker.owner))
         );
+      };
       languageDisposables.current.push(
         monaco.editor.onDidChangeMarkers((uris) => {
           if (uris.some((uri) => uri.toString() === model.uri.toString())) publishNative();
@@ -227,6 +188,7 @@ export function useEditorModelBinding({
       languageDisposables.current.push(editor.onDidChangeCursorSelection(syncSelection));
       syncSelection();
       const syncProblems = () => {
+        if (bindingDisposed || model.isDisposed()) return;
         const markers = monaco.editor.getModelMarkers({ resource: model.uri });
         setProblemStatus({
           errors: markers.filter((marker) => marker.severity === monaco.MarkerSeverity.Error).length,

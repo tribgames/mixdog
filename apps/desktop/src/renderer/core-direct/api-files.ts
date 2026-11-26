@@ -4,6 +4,7 @@ import { createOperationLane } from '../../shared/core-lanes/desktop-operation-r
 import type { DesktopSectionsPush } from '../../shared/contract-sections.ts';
 import { isSshConnectionWindow } from '../desktop-connection.ts';
 import type { DirectContext } from './context.ts';
+import type { RendererWindow } from './renderer-connection.ts';
 import { sessionLanesOf } from './api-sessions.ts';
 import { withDirectErrors } from './errors.ts';
 import { hostPlatform } from './host-platform.ts';
@@ -134,28 +135,192 @@ export function createFilesApi(ctx: DirectContext, options: FilesApiOptions = {}
     options.host ?? (globalThis as { mixdogDesktopHost?: FilesApiOptions['host'] }).mixdogDesktopHost;
 
   // The language servers publish on the feed `lsp:<project>`; a project's feed is followed from its first document or request.
-  const lspFollowed = new Set<string>();
-  const lspWindow = {
-    push(push: DesktopSectionsPush): void {
-      if (push.kind !== 'sections') return;
-      for (const { section, entry } of push.changes) {
-        if (!entry) continue;
-        if (section !== 'lspDiagnostics' && section !== 'lspStatus') continue;
-        const listeners = section === 'lspDiagnostics' ? diagnosticListeners : statusListeners;
-        for (const listener of [...listeners]) listener(entry.value as never);
-      }
-    },
-    notification(): void {},
-    loginFeedLost(): void {},
+  let nextLspFollowToken = 0;
+  const lspFollowed = new Map<string, { token: number; window: RendererWindow }>();
+  const lspLiveLanguages = new Map<string, Map<string, Set<string>>>();
+  const WINDOWS_PATH_SHAPE = /^(?:[A-Za-z]:[\\/]|(?:\\\\|\/\/)[^\\/])/;
+  const normalizeProjectKey = (path: string): string => {
+    if (!path) return '';
+    if (WINDOWS_PATH_SHAPE.test(path)) {
+      const slashed = path.replace(/\\/g, '/');
+      if (/^[A-Za-z]:\/+$/.test(slashed)) return `${slashed.slice(0, 2).toLowerCase()}/`;
+      return slashed.replace(/\/+$/, '').toLowerCase();
+    }
+    if (/^\/+$/.test(path)) return '/';
+    return path.replace(/\/+$/, '');
   };
-  const followLsp = async (project: string): Promise<void> => {
-    if (lspFollowed.has(project)) return;
-    lspFollowed.add(project);
+  const isSameOrUnderProject = (root: string, candidate: string): boolean => {
+    const r = normalizeProjectKey(root);
+    const c = normalizeProjectKey(candidate);
+    if (!r) return false;
+    if (r === '/') return c.startsWith('/') && !c.startsWith('//');
+    const prefix = r.endsWith('/') ? r : `${r}/`;
+    return c === r || c.startsWith(prefix);
+  };
+  const removeLiveStatusKey = (project: string, languageId: string, statusKey: string): boolean => {
+    const languages = lspLiveLanguages.get(project);
+    const keys = languages?.get(languageId);
+    if (!keys?.delete(statusKey)) return false;
+    if (keys.size === 0) languages?.delete(languageId);
+    if (languages?.size === 0) lspLiveLanguages.delete(project);
+    return true;
+  };
+  const createLspWindow = (project: string): RendererWindow => {
+    const diagnosticsMeta = new Map<string, { projectPath: string; relPath: string; uri: string; server: string }>();
+    const window: RendererWindow = {
+      push(push: DesktopSectionsPush): void {
+        if (push.kind !== 'sections') return;
+        let shouldCheckUnfollow = false;
+        for (const { section, key, entry } of push.changes) {
+          if (section !== 'lspDiagnostics' && section !== 'lspStatus') continue;
+          if (!entry) {
+            if (section === 'lspDiagnostics' && typeof key === 'string' && key) {
+              const previous = diagnosticsMeta.get(key);
+              if (previous) {
+                diagnosticsMeta.delete(key);
+                const cleared = { ...previous, diagnostics: [] };
+                for (const listener of [...diagnosticListeners]) listener(cleared as never);
+              }
+            } else if (section === 'lspStatus' && typeof key === 'string' && key) {
+              const sep = key.indexOf('\0');
+              const languageId = sep >= 0 ? key.slice(0, sep) : key;
+              if (removeLiveStatusKey(project, languageId, key)) {
+                shouldCheckUnfollow = true;
+              }
+            }
+            continue;
+          }
+          if (section === 'lspDiagnostics') {
+            const value = entry.value as {
+              projectPath?: unknown;
+              relPath?: unknown;
+              uri?: unknown;
+              server?: unknown;
+              diagnostics?: unknown;
+            } | null;
+            if (typeof key === 'string' && key) {
+              if (Array.isArray(value?.diagnostics) && value.diagnostics.length > 0) {
+                diagnosticsMeta.set(key, {
+                  projectPath: typeof value.projectPath === 'string' && value.projectPath ? value.projectPath : project,
+                  relPath: typeof value.relPath === 'string' ? value.relPath : '',
+                  uri: typeof value.uri === 'string' && value.uri ? value.uri : key,
+                  server: typeof value.server === 'string' ? value.server : '',
+                });
+              } else {
+                diagnosticsMeta.delete(key);
+              }
+            }
+            for (const listener of [...diagnosticListeners]) listener(entry.value as never);
+            continue;
+          }
+          const status = entry.value as {
+            projectPath?: unknown;
+            languageId?: unknown;
+            status?: unknown;
+          } | null;
+          if (typeof status?.languageId === 'string' && status.languageId) {
+            const statusKey = typeof key === 'string' && key ? key : status.languageId;
+            if (status.status === 'stopped') {
+              const languages = lspLiveLanguages.get(project);
+              languages?.delete(status.languageId);
+              if (languages?.size === 0) lspLiveLanguages.delete(project);
+              shouldCheckUnfollow = true;
+            } else if (status.status === 'ready' || status.status === 'starting') {
+              let languages = lspLiveLanguages.get(project);
+              if (!languages) {
+                languages = new Map();
+                lspLiveLanguages.set(project, languages);
+              }
+              let keys = languages.get(status.languageId);
+              if (!keys) {
+                keys = new Set();
+                languages.set(status.languageId, keys);
+              }
+              keys.add(statusKey);
+            } else {
+              removeLiveStatusKey(project, status.languageId, statusKey);
+            }
+          }
+          for (const listener of [...statusListeners]) listener(entry.value as never);
+        }
+        if (shouldCheckUnfollow && (lspLiveLanguages.get(project)?.size ?? 0) === 0) unfollowLsp(project);
+      },
+      notification(): void {},
+      loginFeedLost(): void {},
+      feedLost(): void {
+        if (lspFollowed.get(project)?.window === window) {
+          lspFollowed.delete(project);
+          lspLiveLanguages.delete(project);
+        }
+      },
+    };
+    return window;
+  };
+  const unfollowLsp = (project: string): void => {
+    lspLiveLanguages.delete(project);
+    const entry = lspFollowed.get(project);
+    if (!entry) return;
+    lspFollowed.delete(project);
+    void ctx.connection.unwatchFeed(entry.window, `lsp:${project}`).catch(() => undefined);
+  };
+  const unfollowLspUnder = (root: string): void => {
+    for (const project of [...lspFollowed.keys()]) {
+      if (isSameOrUnderProject(root, project)) unfollowLsp(project);
+    }
+  };
+  const readProjectPaths = (): Map<string, string> | null => {
+    const raw = ctx.connection.protocolClient()?.store.section('projects', null)?.value;
+    const list = Array.isArray(raw)
+      ? raw
+      : raw && typeof raw === 'object' && Array.isArray((raw as { projects?: unknown }).projects)
+        ? (raw as { projects: unknown[] }).projects
+        : null;
+    if (!list) return null;
+    const paths = new Map<string, string>();
+    for (const item of list) {
+      const path = item && typeof item === 'object' ? (item as { path?: unknown }).path : null;
+      if (typeof path === 'string' && path) paths.set(normalizeProjectKey(path), path);
+    }
+    return paths;
+  };
+  let knownProjects = readProjectPaths();
+  ctx.connection.onStoreChange((change) => {
+    if (change.type !== 'appSnapshot' && !(change.type === 'section' && change.section === 'projects')) return;
+    const next = readProjectPaths();
+    if (knownProjects && next) {
+      for (const [key, path] of knownProjects) {
+        if (!next.has(key)) unfollowLspUnder(path);
+      }
+    }
+    if (next) knownProjects = next;
+  });
+  const followLsp = async (project: string, options?: { refresh?: boolean }): Promise<void> => {
+    const refresh = options?.refresh === true;
+    const existing = lspFollowed.get(project);
+    if (!refresh && existing) return;
+    const token = ++nextLspFollowToken;
+    const window = existing?.window ?? createLspWindow(project);
+    lspFollowed.set(project, { token, window });
     try {
       // A feed the core does not hold yet is followed again by the next call.
-      if ((await ctx.connection.watchFeed(lspWindow, `lsp:${project}`)).absent) lspFollowed.delete(project);
+      const { absent } = await ctx.connection.watchFeed(
+        window,
+        `lsp:${project}`,
+        refresh ? { refresh: true } : undefined
+      );
+      if (absent) {
+        if (lspFollowed.get(project)?.token === token) {
+          lspFollowed.delete(project);
+          lspLiveLanguages.delete(project);
+        }
+      } else if (lspFollowed.get(project)?.token !== token && !lspFollowed.has(project)) {
+        void ctx.connection.unwatchFeed(window, `lsp:${project}`).catch(() => undefined);
+      }
     } catch {
-      lspFollowed.delete(project);
+      if (lspFollowed.get(project)?.token === token) {
+        lspFollowed.delete(project);
+        lspLiveLanguages.delete(project);
+      }
     }
   };
 
@@ -174,7 +339,11 @@ export function createFilesApi(ctx: DirectContext, options: FilesApiOptions = {}
     renameProject: (projectPath, alias) =>
       direct(async () => announceProjectsChanged(await svc('renameProject', [projectPath, alias]))),
     removeProject: (projectPath) =>
-      direct(async () => announceProjectsChanged(await svc('removeProject', [projectPath]))),
+      direct(async () => {
+        const result = await svc('removeProject', [projectPath]);
+        unfollowLspUnder(projectPath);
+        return announceProjectsChanged(result);
+      }),
     searchWorkspaceText: (projectPath, options) =>
       direct(async () => op('searchWorkspaceTextIn', [await projectFolder(projectPath), options])),
     replaceWorkspaceText: (projectPath, options, replacement, relPaths) =>
@@ -305,7 +474,7 @@ export function createFilesApi(ctx: DirectContext, options: FilesApiOptions = {}
     lspDocument: (input) =>
       direct(async () => {
         const state = await op('lspDocument', [input.projectPath, await projectFolder(input.projectPath), input]);
-        void followLsp(input.projectPath);
+        void followLsp(input.projectPath, input.kind === 'open' ? { refresh: true } : undefined);
         return state;
       }),
     lspRequest: (input) =>

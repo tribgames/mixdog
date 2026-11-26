@@ -17,6 +17,10 @@ import { MAX_SECRET_LENGTH, SECRET_REQUEST_ID } from '../shared/secret-slots.ts'
 import { viewIsStale } from '../main/remote-view-staleness.ts';
 import { remoteToolOutput, remoteTranscriptRow, remoteTranscriptSnapshot } from '../main/remote-transcript.ts';
 import { historyPositionOf, rowsOf } from '../../../../packages/protocol-client/src/rows.ts';
+import { registerIdleReclaim } from './idle-reclaim.ts';
+import { readWholeToolOutput, type WholeOutputReader } from './remote-item-output.ts';
+import { enforceRendererCacheBudget, registerBudgetedCache } from './renderer-cache-budget.ts';
+import { estimateRetainedChars } from './renderer-value-weight.ts';
 // Types only: the adapter module (remote-protocol-chat.ts) imports this one, so nothing here may need it loaded first.
 import type { ChatApi, ChatClient, ChatShared } from './remote-protocol-chat.ts';
 
@@ -107,24 +111,142 @@ const reasonOf = (error: unknown): unknown =>
 
 type Send = (method: string, params: unknown) => Promise<unknown>;
 
-/** History pages read from the core; the whole rows handed out are held, by session and row id, because a row outside the live fold has no other place to read its full output from. */
+const REMOTE_HISTORY_ROW_MEASURE_LIMIT = 64 * 1024 * 1024;
+let remoteHistoryCacheSequence = 0;
+
+/** History pages read from the core; whole rows handed out are cached for fast full-output reads and fall back to core `thread/items/read` if evicted. */
 function createTranscriptHistory(send: Send, shared: ChatHostShared) {
-  const heldHistory = new Map<string, Map<string, unknown>>();
+  const name = `remote-chat-history-${++remoteHistoryCacheSequence}`;
+  const heldHistory = new Map<string, Map<string, { row: unknown; chars: number }>>();
+  const coreItemIdsBySession = new Map<string, Map<string, string>>();
+  let retainedChars = 0;
+  let unregisterBudget: (() => void) | null = null;
+  let unregisterReclaim: (() => void) | null = null;
+
+  const unregisterIfEmpty = (): void => {
+    if (heldHistory.size) return;
+    unregisterBudget?.();
+    unregisterBudget = null;
+    unregisterReclaim?.();
+    unregisterReclaim = null;
+  };
+
+  const deleteRow = (sessionId: string, held: Map<string, { row: unknown; chars: number }>, rowId: string): void => {
+    const entry = held.get(rowId);
+    if (!entry) return;
+    retainedChars -= entry.chars;
+    held.delete(rowId);
+    if (!held.size) {
+      heldHistory.delete(sessionId);
+      unregisterIfEmpty();
+    }
+  };
+
+  const forget = (sessionId: string): void => {
+    coreItemIdsBySession.delete(sessionId);
+    const held = heldHistory.get(sessionId);
+    if (!held) return;
+    for (const entry of held.values()) retainedChars -= entry.chars;
+    heldHistory.delete(sessionId);
+    unregisterIfEmpty();
+  };
+
+  const recordCoreItemId = (sessionId: string, row: unknown): void => {
+    if (!row || typeof row !== 'object') return;
+    const record = row as { id?: unknown; coreItemId?: unknown; toolMembers?: unknown };
+    if (record.id != null && typeof record.coreItemId === 'string' && record.coreItemId !== String(record.id)) {
+      let byId = coreItemIdsBySession.get(sessionId);
+      if (!byId) {
+        byId = new Map();
+        coreItemIdsBySession.set(sessionId, byId);
+      }
+      byId.set(String(record.id), record.coreItemId);
+    }
+    if (Array.isArray(record.toolMembers)) {
+      for (const member of record.toolMembers) recordCoreItemId(sessionId, member);
+    }
+  };
+
+  const clear = (): void => {
+    if (!heldHistory.size) return;
+    heldHistory.clear();
+    retainedChars = 0;
+    unregisterIfEmpty();
+  };
+
+  const trim = (target: number): void => {
+    while (retainedChars > target && heldHistory.size > 0) {
+      const oldestSession = heldHistory.keys().next().value as string;
+      const held = heldHistory.get(oldestSession);
+      if (!held?.size) {
+        heldHistory.delete(oldestSession);
+        continue;
+      }
+      const oldestRow = held.keys().next().value as string;
+      deleteRow(oldestSession, held, oldestRow);
+    }
+    unregisterIfEmpty();
+  };
+
+  const ensureRegistered = (): void => {
+    if (!unregisterBudget) {
+      unregisterBudget = registerBudgetedCache({
+        name,
+        chars: () => retainedChars,
+        trim,
+      });
+    }
+    if (!unregisterReclaim) {
+      unregisterReclaim = registerIdleReclaim(clear);
+    }
+  };
+
   const holdHistory = (sessionId: string, rows: readonly unknown[]): void => {
-    const held = heldHistory.get(sessionId) ?? new Map<string, unknown>();
+    const held = heldHistory.get(sessionId) ?? new Map<string, { row: unknown; chars: number }>();
     heldHistory.delete(sessionId);
     heldHistory.set(sessionId, held);
     for (const row of rows) {
+      recordCoreItemId(sessionId, row);
       const id = (row as { id?: unknown } | null)?.id;
       if (id == null) continue;
-      held.delete(String(id));
-      held.set(String(id), row);
+      const rowId = String(id);
+      const existing = held.get(rowId);
+      if (existing) {
+        retainedChars -= existing.chars;
+        held.delete(rowId);
+      }
+      const chars = estimateRetainedChars(row, REMOTE_HISTORY_ROW_MEASURE_LIMIT);
+      held.set(rowId, { row, chars });
+      retainedChars += chars;
     }
-    while (held.size > HELD_HISTORY_ROWS) held.delete(held.keys().next().value as string);
-    while (heldHistory.size > HELD_HISTORY_SESSIONS) heldHistory.delete(heldHistory.keys().next().value as string);
+    while (held.size > HELD_HISTORY_ROWS) {
+      deleteRow(sessionId, held, held.keys().next().value as string);
+    }
+    while (heldHistory.size > HELD_HISTORY_SESSIONS) {
+      const oldestSession = heldHistory.keys().next().value as string;
+      const dropped = heldHistory.get(oldestSession);
+      if (dropped) {
+        for (const entry of dropped.values()) retainedChars -= entry.chars;
+      }
+      heldHistory.delete(oldestSession);
+      unregisterIfEmpty();
+    }
+    if (!held.size) {
+      heldHistory.delete(sessionId);
+      unregisterIfEmpty();
+      return;
+    }
+    ensureRegistered();
+    enforceRendererCacheBudget();
   };
   return {
-    heldRows: (sessionId: string): ReadonlyMap<string, unknown> | undefined => heldHistory.get(sessionId),
+    forget,
+    coreItemId: (sessionId: string, itemId: string): string =>
+      coreItemIdsBySession.get(sessionId)?.get(itemId) ?? itemId,
+    heldRows: (sessionId: string): unknown[] | undefined => {
+      const held = heldHistory.get(sessionId);
+      return held ? [...held.values()].map((entry) => entry.row) : undefined;
+    },
     /** `desktop`: the desktop's own pages keep every row whole; the phone's rows are the capped projection of remoteTranscriptRow. */
     async read(
       sessionId: string,
@@ -196,6 +318,11 @@ export function createChatHostApi(client: ChatClient, shared: ChatHostShared, ba
     client.call(method, params).catch((error: unknown) => {
       throw shared.coreErrorForWindow(error);
     });
+  const readBlob = (client as Partial<WholeOutputReader>).readBlob;
+  const wholeReader: WholeOutputReader = {
+    call: send,
+    ...(readBlob ? { readBlob: (ref) => readBlob.call(client, ref) } : {}),
+  };
   const history = createTranscriptHistory(send, shared);
   const start = async (call: StartCall, projectPath?: string): Promise<SessionSnapshot> => {
     const { cwd, projectPath: project } = await startFolder(
@@ -260,6 +387,11 @@ export function createChatHostApi(client: ChatClient, shared: ChatHostShared, ba
     setModelRoute: async (...args: Parameters<ChatApi['setModelRoute']>) =>
       decorated(await base.setModelRoute(...args)),
     setFast: async (...args: Parameters<ChatApi['setFast']>) => decorated(await base.setFast(...args)),
+    deleteSession: async (sessionId: string) => {
+      const result = await base.deleteSession(sessionId);
+      history.forget(sessionId);
+      return result;
+    },
     readTranscriptHistory: (
       sessionId: string,
       request: DesktopTranscriptHistoryRequest,
@@ -269,9 +401,21 @@ export function createChatHostApi(client: ChatClient, shared: ChatHostShared, ba
       try {
         return await base.readTranscriptItem(sessionId, itemId, replayToken);
       } catch (error) {
-        const held = replayToken === undefined ? history.heldRows(sessionId) : undefined;
-        const output = held ? remoteToolOutput({ items: [...held.values()] }, itemId) : null;
+        if (replayToken !== undefined || !shared.sessionStateOf(sessionId)) throw error;
+        const held = history.heldRows(sessionId);
+        const output = held ? remoteToolOutput({ items: held }, itemId) : null;
         if (output) return output;
+        try {
+          const fetched = await readWholeToolOutput(
+            wholeReader,
+            sessionId,
+            itemId,
+            history.coreItemId(sessionId, itemId)
+          );
+          if (fetched) return fetched;
+        } catch {
+          /* fall back to the original READ_NOT_HELD error */
+        }
         throw error;
       }
     },

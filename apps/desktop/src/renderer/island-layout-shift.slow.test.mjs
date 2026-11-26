@@ -307,28 +307,35 @@ for (const surface of SURFACES) {
     }
   });
 
-  test(`agents panel (${surface.name}): rows arriving, leaving or reordering move nothing in their first frame`, async (t) => {
+  test(`agents panel (${surface.name}): rows arriving or leaving ease from their prior frame while a failing row stays in place`, async (t) => {
     const page = await islandPage(t, surface);
     await page.evaluate(() => window.__pool([window.__agent('first')]));
     await page.click('.composer-island-seg-agents');
     // The panel's height change once settled: one row's height, either way.
     const cases = [
-      ['a row arrives', () => window.__pool([window.__agent('first'), window.__agent('second')]), 1],
+      ['a row arrives', () => window.__pool([window.__agent('first'), window.__agent('second')]), 1, true],
       [
-        'a running row fails and moves below the others',
+        'a running row fails and stays in place',
         () => window.__pool([window.__agent('first', { status: 'failed', stage: 'failed' }), window.__agent('second')]),
         0,
+        false,
       ],
-      ['a row leaves', () => window.__pool([window.__agent('second')]), -1],
+      ['a row leaves', () => window.__pool([window.__agent('second')]), -1, true],
     ];
-    for (const [label, apply, rowsAdded] of cases) {
+    for (const [label, apply, rowsAdded, eases] of cases) {
       const { before, start, end, glides } = await page.evaluate(
         (body) => window.__change(new Function(`return (${body})()`)),
         apply.toString()
       );
       const kept = Object.keys(before).filter((key) => /^(island|head|row:|copy:|mark:)/.test(key) && key in end);
       assert.deepEqual(moved(before, start, kept), [], `${label}: painted where it was`);
-      assert.ok(glides > 0 && moved(before, end, kept).length > 0, `${label}: then eased to its new place`);
+      if (eases) {
+        assert.ok(glides > 0 && moved(before, end, kept).length > 0, `${label}: then eased to its new place`);
+      } else {
+        const rows = Object.keys(before).filter((key) => /^(island|head|row:)/.test(key) && key in end);
+        assert.equal(glides, 0, `${label}: triggers no row glide`);
+        assert.deepEqual(moved(before, end, rows), [], `${label}: keeps every row in place`);
+      }
       assert.deepEqual(moved(before, end, ['composer']), [], `${label}: the composer stays`);
       // One row's stride in the list (its height and the gap after it).
       const both = before['row:first'] && before['row:second'] ? before : end;

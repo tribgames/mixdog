@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from 'react';
+import { useCallback, useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import { documentPreviewFormatForPath, filePreviewTypeForPath } from '../shared/file-preview';
 import {
   normalizeEditorModelText,
@@ -16,7 +16,7 @@ import {
   isOfficePreviewUnavailable,
 } from './editor-pane-session-errors';
 import type { DocumentPasswordPrompt } from './use-editor-document-pages';
-import { useMediaSessionEpoch } from './remote-file-preview';
+import { useBlobPreviewLease, useMediaSessionEpoch } from './remote-file-preview';
 import { reportEditorLoadStage } from './renderer-load-metrics';
 import { t } from './i18n';
 
@@ -238,7 +238,19 @@ export function useEditorSessionLoad({
     setDocumentPassword(null);
   }, [setDocumentPassword]);
 
+  // A new media session (reconnect) kills a streamed preview's URL, and hiding
+  // a retained pane releases its blob lease: fetch the URL again and swap only
+  // the preview. The text model and dirty state (an editable SVG's unsaved source)
+  // are never touched.
+  const mediaSession = useMediaSessionEpoch();
+  const [blobRefreshEpoch, setBlobRefreshEpoch] = useState(0);
+  const refreshRevokedBlob = useCallback(() => {
+    setBlobRefreshEpoch((count) => count + 1);
+  }, []);
+  const blobLease = useBlobPreviewLease(preview?.url ?? '', refreshRevokedBlob);
+
   const reload = useCallback(() => {
+    blobLease.releasePending();
     setError('');
     setSaveError('');
     setRevertError('');
@@ -260,6 +272,7 @@ export function useEditorSessionLoad({
         .previewProjectFile(projectPath, relPath, accessToken)
         .then((result) => {
           if (generation !== documentGeneration.current) return;
+          blobLease.hold(result.url);
           setPreview(result);
           if (!svg) previewOpened(result);
         })
@@ -297,6 +310,7 @@ export function useEditorSessionLoad({
   }, [
     accessToken,
     api,
+    blobLease,
     documentGeneration,
     previewOpened,
     projectPath,
@@ -319,22 +333,38 @@ export function useEditorSessionLoad({
   useEffect(() => {
     reload();
   }, [reload]);
-  // A new media session (reconnect) kills a streamed preview's URL: fetch the
-  // URL again and swap only the preview. The text model and dirty state (an
-  // editable SVG's unsaved source) are never touched.
-  const mediaSession = useMediaSessionEpoch();
-  const shownMediaSession = useRef(mediaSession);
+  const shownRefresh = useRef(`${mediaSession}:${blobRefreshEpoch}`);
   const previewShown = useRef(false);
   previewShown.current = preview !== null;
   useEffect(() => {
-    if (shownMediaSession.current === mediaSession) return;
-    shownMediaSession.current = mediaSession;
+    const token = `${mediaSession}:${blobRefreshEpoch}`;
+    if (shownRefresh.current === token) return;
+    shownRefresh.current = token;
     if (!previewShown.current || !api?.previewProjectFile) return;
+    const generation = documentGeneration.current;
+    let active = true;
     void api
       .previewProjectFile(projectPath, relPath, accessToken)
-      .then(setPreview)
+      .then((result) => {
+        if (!active || generation !== documentGeneration.current) return;
+        blobLease.hold(result.url);
+        setPreview(result);
+      })
       .catch(() => undefined);
-  }, [mediaSession, api, projectPath, relPath, accessToken, setPreview]);
+    return () => {
+      active = false;
+    };
+  }, [
+    mediaSession,
+    blobRefreshEpoch,
+    api,
+    blobLease,
+    documentGeneration,
+    projectPath,
+    relPath,
+    accessToken,
+    setPreview,
+  ]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: documentPreview is read but deliberately not a trigger - reload() clears it while the previous binary load is still present, and re-running then would announce the binary fallback before the new document opens.
   useEffect(() => {
     if ((error && !load) || (load && !preview && !documentPreview && (load.binary || load.tooLarge))) {

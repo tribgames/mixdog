@@ -436,3 +436,46 @@ test('a warm revisit still waits on a visible row body and a moving dock, never 
   assert.equal(entry.revealed(), true, 'a pending row below the viewport holds its remembered box');
   assert.ok(offscreen.querySelector('[data-transcript-pending]'));
 });
+
+test('a mobile eager entry waits for end-pin landing (readerSet) and estimate relearn, while skipping offscreen overscan rows', async (t) => {
+  const entry = mount(t, { eager: true, pinned: true, scrollHeight: 300 });
+  const content = document.getElementById('content');
+  const offscreen = document.createElement('div');
+  offscreen.className = 'transcript-virtual-row';
+  offscreen.dataset.index = '1';
+  offscreen.style.top = '100px';
+  offscreen.append(pendingMarker());
+  content.append(offscreen);
+  const viewport = document.getElementById('viewport');
+  viewport.setAttribute('data-transcript-relearn', '');
+  entry.visit('mobile-pinned');
+  await act(async () => {});
+  entry.tick(16);
+  assert.equal(entry.revealed(), false, 'mobile eager must not reveal while unpinned off the end');
+  entry.scrollToEnd();
+  entry.tick(32);
+  assert.equal(entry.revealed(), false, 'mobile eager must not reveal while estimate relearn is active');
+  viewport.removeAttribute('data-transcript-relearn');
+  entry.tick(48);
+  assert.equal(
+    entry.revealed(),
+    true,
+    'reveals once end-pin landed and relearn cleared, without waiting on offscreen rows'
+  );
+});
+
+test('a desktop cold entry gates reveal on visible rows rather than blocking on offscreen overscan rows', async (t) => {
+  const entry = mount(t);
+  entry.ready();
+  const content = document.getElementById('content');
+  const offscreen = document.createElement('div');
+  offscreen.className = 'transcript-virtual-row';
+  offscreen.dataset.index = '1';
+  offscreen.style.top = '100px';
+  offscreen.append(pendingMarker());
+  content.append(offscreen);
+  await act(async () => {});
+  entry.tick(16);
+  entry.tick(32);
+  assert.equal(entry.revealed(), true, 'cold entry reveals once visible rows settle even with pending offscreen rows');
+});

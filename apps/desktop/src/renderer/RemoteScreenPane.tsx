@@ -11,6 +11,7 @@ import { ProgressSpinner } from './ProgressSpinner';
 import { ErrorNotice } from './ErrorNotice';
 import { ScreenHeaderRow, ScreenStateCard } from './RemoteScreenChrome';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import type { DockAction } from './pane-dock-chrome';
 import { currentDeviceId } from './remote-saved-pcs';
 import { createScreenGestureAdapter, type ScreenInputMode } from './remote-screen-gesture';
@@ -185,6 +186,14 @@ function AccessSheet({
   onCancel(): void;
 }) {
   const wrong = lines.some((line) => line.id === 'bad-credentials');
+  useMobileBack(
+    true,
+    () => {
+      if (busy) return false;
+      onCancel();
+    },
+    'modal'
+  );
   return (
     <>
       <div className="remote-screen-scrim" aria-hidden="true" onClick={busy ? undefined : onCancel} />

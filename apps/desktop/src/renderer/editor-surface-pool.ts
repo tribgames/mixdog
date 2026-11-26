@@ -11,13 +11,25 @@ interface SurfaceEntry {
   detach: (() => void) | null;
 }
 
+export interface EditorSurfacePoolHooks {
+  onActive?(): void;
+  onEmpty?(): void;
+}
+
 /** One visual editor per pane. Documents and their undo stacks belong to tabs. */
 export class EditorSurfacePool {
   private readonly entries = new Map<string, SurfaceEntry>();
 
+  constructor(private readonly hooks?: EditorSurfacePoolHooks) {}
+
+  get isEmpty(): boolean {
+    return this.entries.size === 0;
+  }
+
   acquire(key: string, owner: object, create: () => EditorSurface, detach: () => void): EditorSurface {
     let entry = this.entries.get(key);
     if (!entry) {
+      if (this.entries.size === 0) this.hooks?.onActive?.();
       entry = { surface: create(), owner: null, detach: null };
       this.entries.set(key, entry);
     }
@@ -40,6 +52,7 @@ export class EditorSurfacePool {
       this.entries.delete(key);
       entry.surface.editor.dispose();
       entry.surface.element.remove();
+      if (this.entries.size === 0) this.hooks?.onEmpty?.();
     });
   }
 }

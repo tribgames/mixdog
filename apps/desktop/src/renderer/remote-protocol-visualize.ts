@@ -80,6 +80,9 @@ export function remoteVisualizeEvent(
     ...(state && typeof event.updated === 'string' && event.updated ? { updated: event.updated } : {}),
     ...(state && event.held === true ? { held: true } : {}),
     ...(state && event.held === true && Number.isFinite(event.heldSince) ? { heldSince: event.heldSince } : {}),
+    ...(state && event.held === true && Array.isArray(event.heldCalls) && event.heldCalls.length
+      ? { heldCalls: event.heldCalls.map(String).filter(Boolean) }
+      : {}),
     ...(openUrl ? { openUrl } : {}),
   };
 }

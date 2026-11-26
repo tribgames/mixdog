@@ -3,7 +3,9 @@
 import { DEFAULT_THEME_ID, THEME_ALIASES, THEME_REGISTRY } from '../../../../src/tui/themes/index.mjs';
 
 import { DESKTOP_THEME_PREFERENCE_KEY } from '../shared/host-display-preferences';
+import { parseThemeFile, resolveTheme } from './appearance/theme-file';
 import { hasLocalDisplayChoice, markHostDisplayChoice, markLocalDisplayChoice } from './display-preference-source';
+import { blend } from './skin-color';
 import { refreshTitleBarDim } from './titlebar-dim';
 import { safeLocalStorage } from './local-storage';
 
@@ -97,6 +99,128 @@ function builtinTheme(resolved: string): boolean {
 // theme-color: Android standalone browsers paint both system bars with it and the other-PC Electron window tints its caption buttons from it.
 const THEME_COLOR_DARK = '#181818';
 const THEME_COLOR_LIGHT = '#f7f7f7';
+const NATIVE_SURFACE_DARK = '#111111';
+const NATIVE_SURFACE_LIGHT = '#fcfcfc';
+const USER_THEMES_STORAGE_KEY = 'mixdog.desktop.user-themes.v1';
+const USER_THEME_ACTIVE_STORAGE_KEY = 'mixdog.desktop.user-theme.v1';
+
+function parseHexColor(color: string | undefined): [number, number, number] | null {
+  if (!color) return null;
+  const trimmed = color.trim();
+  if (!/^#[0-9a-f]{6}$/iu.test(trimmed)) return null;
+  return [
+    Number.parseInt(trimmed.slice(1, 3), 16),
+    Number.parseInt(trimmed.slice(3, 5), 16),
+    Number.parseInt(trimmed.slice(5, 7), 16),
+  ];
+}
+
+function normalizeOpaqueHexColor(color: string | undefined, backdrop: string): string | null {
+  if (!color) return null;
+  const trimmed = color.trim();
+  if (/^#[0-9a-f]{6}$/iu.test(trimmed)) return trimmed.toLowerCase();
+  if (/^#[0-9a-f]{8}$/iu.test(trimmed)) {
+    const alpha = Number.parseInt(trimmed.slice(7), 16) / 255;
+    return blend(trimmed.slice(0, 7), backdrop, alpha).toLowerCase();
+  }
+  return null;
+}
+
+function mixHexColor(a: string | undefined, b: string | undefined, weightA: number): string | null {
+  const rgbA = parseHexColor(a);
+  const rgbB = parseHexColor(b);
+  if (!rgbA || !rgbB) return null;
+  const weightB = 1 - weightA;
+  const hex = (index: number) =>
+    Math.round(rgbA[index] * weightA + rgbB[index] * weightB)
+      .toString(16)
+      .padStart(2, '0');
+  return `#${hex(0)}${hex(1)}${hex(2)}`;
+}
+
+function activeUserThemeBacking(resolved: string): { surface: string | null; band: string | null } {
+  // Skins own --mx-workspace-sheet and --mx-window-band (appearance/theme-tokens.ts).
+  if (typeof document !== 'undefined' && document.documentElement.dataset.mixdogSkin) {
+    return { surface: null, band: null };
+  }
+  const storage = safeLocalStorage();
+  const activeId = storage?.getItem(USER_THEME_ACTIVE_STORAGE_KEY) || '';
+  if (!activeId) return { surface: null, band: null };
+  let source = '';
+  try {
+    const parsedList = JSON.parse(storage?.getItem(USER_THEMES_STORAGE_KEY) || '[]') as unknown;
+    if (Array.isArray(parsedList)) {
+      const entry = parsedList.find(
+        (candidate): candidate is { id: string; source: string } =>
+          Boolean(candidate) &&
+          typeof candidate === 'object' &&
+          'id' in candidate &&
+          'source' in candidate &&
+          (candidate as { id?: unknown }).id === activeId &&
+          typeof (candidate as { source?: unknown }).source === 'string'
+      );
+      source = entry?.source ?? '';
+    }
+  } catch {
+    return { surface: null, band: null };
+  }
+  if (!source) return { surface: null, band: null };
+  const parsed = parseThemeFile(source);
+  if (!parsed.ok) return { surface: null, band: null };
+  const resolvedUser = resolveTheme(parsed.theme, resolved === 'light' ? 'light' : 'dark');
+  const base = resolvedUser.mode === 'light' ? '#ffffff' : '#000000';
+  const resolvedBackground =
+    normalizeOpaqueHexColor(resolvedUser.colors.background, base) ??
+    (resolvedUser.mode === 'light' ? NATIVE_SURFACE_LIGHT : NATIVE_SURFACE_DARK);
+  return {
+    surface: resolvedUser.supplied.has('background') ? resolvedBackground : null,
+    band: resolvedUser.supplied.has('sidebar')
+      ? normalizeOpaqueHexColor(resolvedUser.colors.sidebar, resolvedBackground)
+      : null,
+  };
+}
+
+function nativeMobileThemeBacking(resolved: string): { surface: string; band: string; followSystem: boolean } {
+  const override = themeAppearanceOverride?.() ?? null;
+  if (builtinTheme(resolved)) {
+    const defaultSurface = resolved === 'light' ? NATIVE_SURFACE_LIGHT : NATIVE_SURFACE_DARK;
+    const defaultBand = resolved === 'light' ? THEME_COLOR_LIGHT : THEME_COLOR_DARK;
+    const userBacking = activeUserThemeBacking(resolved);
+    const hasCustomBacking = userBacking.surface !== null || userBacking.band !== null;
+    const followSystem = systemPreferenceActive && !hasCustomBacking && override !== 'light' && override !== 'dark';
+    return {
+      surface: userBacking.surface ?? defaultSurface,
+      band: userBacking.band ?? defaultBand,
+      followSystem,
+    };
+  }
+  const palette = registry[resolved]?.palette ?? registry[DEFAULT_THEME_ID].palette;
+  const deep = palette.background === 'transparent' ? palette.inverseText : palette.background;
+  const fallbackSurface = parseHexColor(deep) ? deep.trim().toLowerCase() : NATIVE_SURFACE_DARK;
+  const surface = mixHexColor(palette.mdCodeBlockBg, deep, 0.65) ?? fallbackSurface;
+  const band = mixHexColor(palette.mdCodeBlockBg, deep, 0.3) ?? fallbackSurface;
+  return { surface, band, followSystem: false };
+}
+
+export function syncNativeMobileTheme(resolved?: string): void {
+  if (typeof window === 'undefined') return;
+  const active =
+    resolved ??
+    (typeof document !== 'undefined'
+      ? (resolveRegisteredThemeId(themeId(document.documentElement.dataset.mixdogTheme)) ?? DEFAULT_THEME_ID)
+      : DEFAULT_THEME_ID);
+  const payload = nativeMobileThemeBacking(active);
+  try {
+    const scope = window as unknown as {
+      MixdogNativeTheme?: { postMessage?: (message: string) => void };
+      webkit?: { messageHandlers?: { mixdogTheme?: { postMessage?: (message: unknown) => void } } };
+    };
+    scope.MixdogNativeTheme?.postMessage?.(JSON.stringify(payload));
+    scope.webkit?.messageHandlers?.mixdogTheme?.postMessage?.(payload);
+  } catch {
+    /* theme application must never fail on native bridge absence */
+  }
+}
 
 // 'system' | 'dark' | 'white' are the desktop surface modes; any TUI registry
 // theme id (nord, dracula, …) is also accepted as a desktop-local preference.
@@ -224,6 +348,7 @@ function applyDesktopTheme(value: unknown): string {
       root.style.setProperty(name, color);
     }
   }
+  syncNativeMobileTheme(resolved);
   // A theme swap while a modal is open must recompute the dimmed WCO band.
   refreshTitleBarDim();
   return resolved;

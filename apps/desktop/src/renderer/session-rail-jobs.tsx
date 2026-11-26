@@ -1,7 +1,7 @@
 // The session panel's Agents and Shells categories: the island's own rows and
 // handlers (useSessionJobs), in the panel's sections.
 import type { IslandAgentRow } from './agent-activity-model';
-import type { JobRow } from './background-jobs-model';
+import { type JobRow, shellFinishedLabel } from './background-jobs-model';
 import { agentStateWords } from './agent-row-meta';
 import {
   AgentGroupList,
@@ -23,11 +23,14 @@ import { RailSection } from './session-rail-parts';
 import { useShellStops } from './shell-job-controls';
 import { useClock } from './use-clock';
 
+const shellTerminalStateWords = () => [
+  ...new Set([{ status: 'cancelled' as const }, { exitCode: 0 }, { exitCode: 1 }].map(shellFinishedLabel)),
+];
+
 /** The state column's width, unseen, in its track: its widest clock whole and the widest word of its states
  *  (`words`), whatever the rows show. An agent's state longer than that wraps in the column (session-rail.css), so
- *  it is read whole and takes nothing from the names; a shell's column holds the clock under an hour alone, so its
- *  command keeps the room, and a longer run or an end state shown is as wide as it reads. `element` follows the
- *  list (an item of a `ul`). */
+ *  it is read whole and takes nothing from the names; a shell's column holds both its clocks and terminal state
+ *  words so transitions never shift the command column. `element` follows the list (an item of a `ul`). */
 function StateColumnSizer({
   clocks = widestClocks(),
   words,
@@ -157,17 +160,12 @@ export function ShellsSection({
       open={open}
       onToggle={onToggle}
       scroll
-      // As on the island's panel: Clean up only while an ended shell is listed.
-      tidy={
-        finished.length > 0
-          ? {
-              kind: 'close-all',
-              description: t('Clear ended shells'),
-              disabled: false,
-              onClick: () => dismissShellRows(sessionId, finished, shellKeys),
-            }
-          : undefined
-      }
+      tidy={{
+        kind: 'close-all',
+        description: t('Clear ended shells'),
+        disabled: finished.length === 0,
+        onClick: () => dismissShellRows(sessionId, finished, shellKeys),
+      }}
     >
       <ul className="composer-island-jobs">
         {shells.map((row) => (
@@ -181,8 +179,7 @@ export function ShellsSection({
             onDismiss={(dismissed) => dismissShellRows(sessionId, [dismissed], shellKeys)}
           />
         ))}
-        {/* The clock under an hour: a longer run, or an end state, is as wide as it reads. */}
-        <StateColumnSizer element="li" clocks={widestClocks().slice(0, 1)} words={[]} />
+        <StateColumnSizer element="li" clocks={widestClocks()} words={shellTerminalStateWords()} />
       </ul>
     </RailSection>
   );

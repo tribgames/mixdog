@@ -392,3 +392,39 @@ test("a session's visualize owner comes from its own records, as the host maps i
   assert.ok(other.every((call) => call.ownerSessionId === undefined));
   assert.equal(visualizeOwnerSessionId('sub-1', pool, other), 'lead', 'the live pool still maps it');
 });
+
+test('visualizeCardsShown hides calls named in heldCalls even when call.at precedes heldSince', () => {
+  const earlier = {
+    id: 'o1',
+    callId: 'call-1',
+    pending: false,
+    targets: ['site/a.html'],
+    label: '',
+    tabId: 'v1',
+    at: 900,
+  };
+  const skewed = {
+    id: 'o2',
+    callId: 'call-2',
+    pending: false,
+    targets: ['site/b.html'],
+    label: '',
+    tabId: 'v2',
+    at: 995,
+  };
+  const heldCalls = new Set(['call-2']);
+  assert.deepEqual(
+    visualizeCardsShown([earlier, skewed], 1000, heldCalls).map((call) => call.id),
+    ['o1'],
+    'cross-process clock skew cannot leak a held call mid-turn'
+  );
+  assert.deepEqual(
+    visualizeCardsShown([earlier, skewed], null, heldCalls).map((call) => call.id),
+    ['o1'],
+    'heldCalls holds even without a timestamp floor'
+  );
+  assert.deepEqual(
+    visualizeCardsShown([earlier, skewed], null, undefined).map((call) => call.id),
+    ['o1', 'o2']
+  );
+});

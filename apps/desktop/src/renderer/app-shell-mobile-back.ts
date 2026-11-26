@@ -5,9 +5,19 @@ import { useMobileRemoteSurface } from './mobile-surface';
 import { registerMobileBack, useMobileBack } from './mobile-back';
 import type { WorkbenchQuickAccessMode } from './workbench-overlays-loader';
 
+/** Whether a tab selection is a conversation home surface (where Back with no
+ *  open overlays may background the Android app) vs a non-conversation view. */
+export function isConversationTabSelection(selection: { kind: string } | null | undefined): boolean {
+  return !selection || selection.kind === 'new' || selection.kind === 'session' || selection.kind === 'project';
+}
+
 interface MobileBackProps {
+  nonConversationTabOpen?: boolean;
+  returnFromNonConversationTab?: () => boolean | undefined | void;
   sidebarOpen: boolean;
   applySidebarOpen: (open: boolean, motion?: 'animated' | 'instant') => void;
+  sidebarSubPanelOpen?: boolean;
+  closeSidebarSubPanel?: () => void;
   bottomPanelOpen: boolean;
   setBottomPanelOpen: (open: boolean, motion?: 'animated' | 'instant') => void;
   focusedPaneDockOpen: boolean;
@@ -28,8 +38,12 @@ interface MobileBackProps {
 }
 
 export function useAppMobileBack({
+  nonConversationTabOpen = false,
+  returnFromNonConversationTab,
   sidebarOpen,
   applySidebarOpen,
+  sidebarSubPanelOpen = false,
+  closeSidebarSubPanel,
   bottomPanelOpen,
   setBottomPanelOpen,
   focusedPaneDockOpen,
@@ -59,35 +73,45 @@ export function useAppMobileBack({
     return () => window.removeEventListener('mixdog:mobile-home', onHome);
   }, [sidebarOpen]);
 
-  useMobileBack(sidebarOpen, () => applySidebarOpen(false));
-  useMobileBack(bottomPanelOpen, () => setBottomPanelOpen(false));
-  useMobileBack(focusedPaneDockOpen, closeFocusedPaneDock);
+  // Lowest tier: sits below shell drawers/docks and in-pane overlays even if a
+  // non-conversation tab opens from an open drawer or stays open across closeTab.
+  const returnFromTabRef = useRef(returnFromNonConversationTab);
+  returnFromTabRef.current = returnFromNonConversationTab;
+  useLayoutEffect(() => {
+    if (!nonConversationTabOpen) return undefined;
+    return registerMobileBack(() => returnFromTabRef.current?.(), 'tab');
+  }, [nonConversationTabOpen]);
+
+  useMobileBack(sidebarOpen, () => applySidebarOpen(false), 'shell');
+  useMobileBack(Boolean(sidebarOpen && sidebarSubPanelOpen), () => closeSidebarSubPanel?.(), 'shell-sub');
+  useMobileBack(bottomPanelOpen, () => setBottomPanelOpen(false), 'shell');
+  useMobileBack(focusedPaneDockOpen, closeFocusedPaneDock, 'shell');
 
   const closeSettingsRef = useRef(() => setSettingsOpen(false));
   closeSettingsRef.current = () => setSettingsOpen(false);
   useLayoutEffect(() => {
     if (!settingsOpen) return undefined;
-    return registerMobileBack(() => closeSettingsRef.current());
+    return registerMobileBack(() => closeSettingsRef.current(), 'overlay');
   }, [settingsOpen]);
 
   const closeCommandSurfaceRef = useRef(closeCommandSurface);
   closeCommandSurfaceRef.current = closeCommandSurface;
   useEffect(() => {
     if (!commandSurface) return undefined;
-    return registerMobileBack(() => closeCommandSurfaceRef.current());
+    return registerMobileBack(() => closeCommandSurfaceRef.current(), 'overlay');
   }, [commandSurface]);
 
-  useMobileBack(onboardingOpen, () => setOnboardingOpen(false));
+  useMobileBack(onboardingOpen, () => setOnboardingOpen(false), 'overlay');
 
   const closeQuickAccessRef = useRef(closeQuickAccess);
   closeQuickAccessRef.current = closeQuickAccess;
   useEffect(() => {
     if (!quickAccessMode) return undefined;
-    return registerMobileBack(() => closeQuickAccessRef.current());
+    return registerMobileBack(() => closeQuickAccessRef.current(), 'overlay');
   }, [quickAccessMode]);
 
-  useMobileBack(pendingUnsavedClose, cancelPendingTabClose);
-  useMobileBack(updateDialogOpen && updaterState.status === 'ready', closeDesktopUpdate);
+  useMobileBack(pendingUnsavedClose, cancelPendingTabClose, 'modal');
+  useMobileBack(updateDialogOpen && updaterState.status === 'ready', closeDesktopUpdate, 'modal');
 }
 
 export function useAppMobileInitialClose({

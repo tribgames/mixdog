@@ -10,6 +10,7 @@ import { useSessionDiffOpeners, useTurnReviewBar } from './ComposerDock';
 import type { TranscriptItem } from './desktop-types';
 import { showDesktopToast } from './notifications';
 import type { RouteSessionChoice } from './route-editor-panes';
+import { useSessionChangesSettled } from './session-changes-store';
 import { SessionGoalHost } from './session-goal-submission';
 import { ChangesSection, GitSection } from './session-rail-changes';
 import {
@@ -64,24 +65,58 @@ export type SessionRailProps = {
 
 const flashToast = (flash: ComposerIslandFlash) => showDesktopToast(flash.text, 'info');
 
+function SessionRailContent({
+  session,
+  settling,
+  children,
+}: {
+  session: string;
+  settling: boolean;
+  children: ReactNode;
+}) {
+  const content = useRef<HTMLDivElement>(null);
+  useSessionRailMotion(content, session, settling);
+  return (
+    // A section let go between two sections is still a drop: the order it was dragged to stays.
+    // biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop drop target for rail section reordering
+    <div
+      ref={content}
+      className="session-rail-content"
+      onDragOver={(event) => {
+        if (sessionRailDragging()) event.preventDefault();
+      }}
+      onDrop={(event) => {
+        if (sessionRailDragging()) event.preventDefault();
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 function SessionRailCategories(props: SessionRailProps) {
   const { sessionId, reviewSessionId, workspace, routeProject, agentMode } = props;
-  const jobs = useSessionJobs(sessionId);
+  const activeSessionId = reviewSessionId || sessionId;
+  const jobs = useSessionJobs(activeSessionId);
   const { snapshot } = jobs;
-  const folds = useSessionRailFolds(reviewSessionId || sessionId);
+  const folds = useSessionRailFolds(activeSessionId);
   const goal = useSessionGoal(snapshot);
   const TurnReviewBar = useTurnReviewBar();
-  const { openChanges, openChangeFile } = useSessionDiffOpeners(reviewSessionId, props.onOpenSessionDiff);
+  const { openChanges, openChangeFile } = useSessionDiffOpeners(activeSessionId, props.onOpenSessionDiff);
   // No branch or worktree switch while anything of the session still works (the island's rule).
   const locked =
     props.reviewBusy || props.pendingInput || jobs.shellCount > 0 || jobs.agentRows.some((row) => !row.finished);
   const gitCwd = workspace?.cwd || routeProject;
+  const changesEnabled = !agentMode && Boolean(gitCwd) && props.reviewActive;
+  const changesSettled = useSessionChangesSettled(gitCwd, activeSessionId, changesEnabled);
+  const laneSettled = !activeSessionId || Boolean(snapshot.sessionId);
+  const settling = !laneSettled || (changesEnabled && (!TurnReviewBar || !changesSettled));
   const fold = (category: Parameters<typeof folds.toggle>[0]) => ({
     open: folds.isOpen(category),
     onToggle: () => folds.toggle(category),
   });
   // A group room shows no model and no context (each member runs its own), here as under the composer.
-  const room = Boolean(roomIdOfSession(reviewSessionId || sessionId));
+  const room = Boolean(roomIdOfSession(activeSessionId));
   // The composer beside the panel is bare: the panel's Model row answers requestOpenModelPicker.
   const answersModelPicker = props.reviewActive && !room;
   useFoldedModelPickerRequest(answersModelPicker, folds.isOpen('info'), () => folds.toggle('info'));
@@ -92,7 +127,7 @@ function SessionRailCategories(props: SessionRailProps) {
       <InfoSection
         {...fold('info')}
         snapshot={snapshot}
-        sessionId={reviewSessionId || sessionId}
+        sessionId={activeSessionId}
         workspace={workspace}
         projectPath={props.projectPath}
         projectLabel={props.projectLabel}
@@ -121,7 +156,7 @@ function SessionRailCategories(props: SessionRailProps) {
     agents: (
       <AgentsSection
         {...fold('agents')}
-        sessionId={sessionId}
+        sessionId={activeSessionId}
         agents={jobs.agentRows}
         poolRows={jobs.poolRows}
         busy={Boolean(snapshot.busy)}
@@ -130,16 +165,16 @@ function SessionRailCategories(props: SessionRailProps) {
       />
     ),
     shells: (
-      <ShellsSection {...fold('shells')} sessionId={sessionId} shells={jobs.jobRows} shellKeys={jobs.shellKeys} />
+      <ShellsSection {...fold('shells')} sessionId={activeSessionId} shells={jobs.jobRows} shellKeys={jobs.shellKeys} />
     ),
-    outputs: <OutputsSection {...fold('outputs')} sessionId={sessionId} />,
+    outputs: <OutputsSection {...fold('outputs')} sessionId={activeSessionId} />,
     changes: !agentMode && TurnReviewBar && (
       <TurnReviewBar
         variant="segment"
         items={props.reviewItems}
         active={props.reviewActive}
         busy={props.reviewBusy}
-        sessionId={reviewSessionId}
+        sessionId={activeSessionId}
         cwd={routeProject}
         onOpenChanges={openChanges}
         onOpenChangeFile={openChangeFile}
@@ -154,9 +189,15 @@ function SessionRailCategories(props: SessionRailProps) {
         )}
       />
     ),
-    git: !agentMode && <GitSection {...fold('git')} sessionId={reviewSessionId} cwd={gitCwd} />,
+    git: !agentMode && <GitSection {...fold('git')} sessionId={activeSessionId} cwd={gitCwd} />,
   };
-  return order.map((category) => <Fragment key={category}>{sections[category]}</Fragment>);
+  return (
+    <SessionRailContent session={activeSessionId} settling={settling}>
+      {order.map((category) => (
+        <Fragment key={category}>{sections[category]}</Fragment>
+      ))}
+    </SessionRailContent>
+  );
 }
 
 /** A draft's panel: its Info, folded and asking for the model picker as a session's does. */
@@ -164,40 +205,28 @@ function DraftRailCategories({ draft, ...props }: SessionRailProps & { draft: Dr
   const folds = useSessionRailFolds(SESSION_RAIL_DRAFT_FOLDS);
   useFoldedModelPickerRequest(props.reviewActive, folds.isOpen('info'), () => folds.toggle('info'));
   return (
-    <DraftInfoSection
-      open={folds.isOpen('info')}
-      onToggle={() => folds.toggle('info')}
-      draft={draft}
-      projectPath={props.projectPath}
-      projectLabel={props.projectLabel}
-      projects={props.projects}
-      answersModelPickerRequests={props.reviewActive}
-      model={props.model}
-      onAddProject={props.onAddProject}
-    />
+    <SessionRailContent session={`new:${draft.draftId}`} settling={false}>
+      <DraftInfoSection
+        open={folds.isOpen('info')}
+        onToggle={() => folds.toggle('info')}
+        draft={draft}
+        projectPath={props.projectPath}
+        projectLabel={props.projectLabel}
+        projects={props.projects}
+        answersModelPickerRequests={props.reviewActive}
+        model={props.model}
+        onAddProject={props.onAddProject}
+      />
+    </SessionRailContent>
   );
 }
 
 /** The panel's categories, in order, each absent when it has nothing. */
 export default function SessionRail(props: SessionRailProps) {
-  const content = useRef<HTMLDivElement>(null);
   const { draft } = props;
-  useSessionRailMotion(content, draft ? `new:${draft.draftId}` : props.reviewSessionId || props.sessionId);
   return (
-    // A section let go between two sections is still a drop: the order it was dragged to stays.
-    <div
-      ref={content}
-      className="session-rail-content"
-      onDragOver={(event) => {
-        if (sessionRailDragging()) event.preventDefault();
-      }}
-      onDrop={(event) => {
-        if (sessionRailDragging()) event.preventDefault();
-      }}
-    >
-      <SessionGoalHost submissionId={props.goalSubmissionId}>
-        {draft ? <DraftRailCategories {...props} draft={draft} /> : <SessionRailCategories {...props} />}
-      </SessionGoalHost>
-    </div>
+    <SessionGoalHost submissionId={props.goalSubmissionId}>
+      {draft ? <DraftRailCategories {...props} draft={draft} /> : <SessionRailCategories {...props} />}
+    </SessionGoalHost>
   );
 }

@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 
 import {
   type DesktopVisualizeEvent,
@@ -11,12 +11,16 @@ import {
 } from '../shared/visualize';
 import { browserPageRequestsAvailable, requestBrowserPage } from './browser-page-request';
 import { uiFormatLocale } from './i18n';
+import { registerIdleReclaim } from './idle-reclaim';
 import { linkOpenTarget } from './link-open-target';
 import { isMobileRemoteSurface } from './mobile-surface';
+import { enforceRendererCacheBudget, registerBudgetedCache } from './renderer-cache-budget';
+import { estimateRetainedChars } from './renderer-value-weight';
+import { useSurfaceActive } from './surface-activity';
 import { timeFormatOptions } from './time-format-preference';
 import { livePanes, releaseVisualizeSessionCards, sameTarget } from './visualize-card-model';
-import { releaseVisualizeProposals } from './visualize-feedback-gate';
-import { releaseVisualizeTweaks } from './visualize-tweaks-store';
+import { pruneVisualizeProposals, releaseVisualizeProposals } from './visualize-feedback-gate';
+import { pruneVisualizeTweaks, releaseVisualizeTweaks } from './visualize-tweaks-store';
 import { emitVisualizeZoomInput, emitVisualizeZoomModifier } from './visualize-zoom';
 
 type Listener = () => void;
@@ -24,13 +28,52 @@ type RevealListener = (sessionId: string) => void;
 
 const EMPTY: VisualizeSessionState = Object.freeze({ sessionId: '', tabs: [], active: null });
 
+interface EvictedSessionEntry {
+  active: string | null;
+  versions: Map<string, number>;
+  placeholder: VisualizeSessionState;
+  failed: boolean;
+  retries: number;
+}
+
+const RECENT_READER_LRU_MAX = 4;
+const REHYDRATE_RETRY_DELAY_MS = 1_500;
+const REHYDRATE_MAX_RETRIES = 2;
+
 /** What each session shows. While an agent turn runs that is the result of
  *  the last turn that ended: main keeps the running turn's work until its end. */
 let states = new Map<string, VisualizeSessionState>();
+/** Active hook readers per session (visible surfaces only); pinned along with `onScreen`. */
+const sessionReaders = new Map<string, number>();
+/** Bounded LRU of sessions recently read by a visible `useVisualizeState` hook;
+ *  retained across transient `<Activity mode="hidden">` unmounts to prevent eviction flicker. */
+const recentReaderSessions = new Set<string>();
+/** Sessions dropped from `states` while off screen (budget or idle reclaim), with their last known tab versions. */
+const evictedSessions = new Map<string, EvictedSessionEntry>();
+/** Sessions with missed updates from a reconnect resync, pinned until their deferred reveal runs. */
+const pendingResyncPins = new Map<string, number>();
+const resyncTimers = new Set<ReturnType<typeof setTimeout>>();
+const stateWeights = new WeakMap<VisualizeSessionState, number>();
+let retainedStateChars = 0;
+let rehydrateInFlight: Promise<void> | null = null;
+let rehydrateRetryTimer: ReturnType<typeof setTimeout> | null = null;
 /** The sessions with a turn whose work main keeps back (`held` events and
  *  snapshots), each with when the oldest turn not shown yet started (ms; 0
  *  when the host did not say). */
 const heldSince = new Map<string, number>();
+/** Tool call ids held by the running turn(s) of each held session. */
+const heldCalls = new Map<string, ReadonlySet<string>>();
+
+function setHeldCallsFor(sessionId: string, calls: readonly string[] | undefined): void {
+  const clean = Array.isArray(calls) ? calls.filter((id) => typeof id === 'string' && id.length > 0) : [];
+  if (clean.length === 0) {
+    heldCalls.delete(sessionId);
+    return;
+  }
+  const current = heldCalls.get(sessionId);
+  if (current && current.size === clean.length && clean.every((id) => current.has(id))) return;
+  heldCalls.set(sessionId, new Set(clean));
+}
 const listeners = new Set<Listener>();
 const revealListeners = new Set<RevealListener>();
 const emptiedListeners = new Set<RevealListener>();
@@ -97,15 +140,288 @@ function savePanelMemory(): void {
   }
 }
 
+const VISUALIZE_STATE_MEASURE_LIMIT = 64 * 1024 * 1024;
+
+function stateChars(state: VisualizeSessionState): number {
+  let chars = stateWeights.get(state);
+  if (chars === undefined) {
+    chars = estimateRetainedChars(state, VISUALIZE_STATE_MEASURE_LIMIT);
+    stateWeights.set(state, chars);
+  }
+  return chars;
+}
+
+function evictedPlaceholderFor(state: VisualizeSessionState): VisualizeSessionState {
+  return Object.freeze({
+    sessionId: state.sessionId,
+    tabs: [],
+    active: null,
+    ...(state.goneOpens?.length ? { goneOpens: state.goneOpens } : {}),
+  });
+}
+
+function touchRecentReader(sessionId: string): void {
+  if (!sessionId || (!states.has(sessionId) && !evictedSessions.has(sessionId))) return;
+  recentReaderSessions.delete(sessionId);
+  recentReaderSessions.add(sessionId);
+  while (recentReaderSessions.size > RECENT_READER_LRU_MAX) {
+    const oldest = recentReaderSessions.values().next().value;
+    if (oldest === undefined) break;
+    recentReaderSessions.delete(oldest);
+  }
+}
+
+function clearRehydrateRetryTimer(): void {
+  if (rehydrateRetryTimer !== null) {
+    clearTimeout(rehydrateRetryTimer);
+    rehydrateRetryTimer = null;
+  }
+}
+
+function clearResyncTimers(): void {
+  for (const timer of resyncTimers) clearTimeout(timer);
+  resyncTimers.clear();
+}
+
+function releaseResyncPin(sessionId: string): void {
+  const remaining = (pendingResyncPins.get(sessionId) ?? 0) - 1;
+  if (remaining > 0) pendingResyncPins.set(sessionId, remaining);
+  else pendingResyncPins.delete(sessionId);
+}
+
+function notifyEmptied(sessionId: string): void {
+  for (const listener of emptiedListeners) listener(sessionId);
+}
+
+function pruneSessionPaneState(sessionId: string, state: VisualizeSessionState | undefined): void {
+  const tabs = state?.tabs ?? [];
+  pruneVisualizeTweaks(sessionId, tabs);
+  pruneVisualizeProposals(sessionId, tabs);
+}
+
+function isActiveSession(sessionId: string): boolean {
+  return onScreen.has(sessionId) || (sessionReaders.get(sessionId) ?? 0) > 0;
+}
+
+function isPinnedSession(sessionId: string): boolean {
+  return (
+    isActiveSession(sessionId) || recentReaderSessions.has(sessionId) || (pendingResyncPins.get(sessionId) ?? 0) > 0
+  );
+}
+
+function setStatesMap(next: Map<string, VisualizeSessionState>): void {
+  states = next;
+  let total = 0;
+  for (const [id, state] of states) {
+    evictedSessions.delete(id);
+    total += stateChars(state);
+  }
+  retainedStateChars = total;
+}
+
+function touchState(sessionId: string): void {
+  const current = states.get(sessionId);
+  if (!current) return;
+  states.delete(sessionId);
+  states.set(sessionId, current);
+}
+
+function pinnedStateChars(): number {
+  let total = 0;
+  for (const [id, state] of states) {
+    if (isPinnedSession(id)) total += stateChars(state);
+  }
+  return total;
+}
+
+function evictUnpinnedStates(targetChars: number): void {
+  if (retainedStateChars <= targetChars) return;
+  let next: Map<string, VisualizeSessionState> | null = null;
+  for (const [sessionId, state] of states) {
+    if (retainedStateChars <= targetChars) break;
+    if (isPinnedSession(sessionId)) continue;
+    next ??= new Map(states);
+    next.delete(sessionId);
+    evictedSessions.set(sessionId, {
+      active: state.active,
+      versions: tabVersions(state),
+      placeholder: evictedPlaceholderFor(state),
+      failed: false,
+      retries: 0,
+    });
+    retainedStateChars -= stateChars(state);
+  }
+  if (!next) return;
+  states = next;
+  emit();
+}
+
+function scheduleRehydrateRetry(): void {
+  if (rehydrateRetryTimer !== null) return;
+  rehydrateRetryTimer = setTimeout(() => {
+    rehydrateRetryTimer = null;
+    let cleared = false;
+    let retryActive = false;
+    for (const [sessionId, entry] of evictedSessions) {
+      if (entry.failed && entry.retries <= REHYDRATE_MAX_RETRIES) {
+        entry.failed = false;
+        cleared = true;
+        if (isActiveSession(sessionId)) retryActive = true;
+      }
+    }
+    if (cleared) emit();
+    if (retryActive) rehydrateEvicted();
+  }, REHYDRATE_RETRY_DELAY_MS);
+  if (typeof rehydrateRetryTimer === 'object' && 'unref' in rehydrateRetryTimer) {
+    (rehydrateRetryTimer as { unref?: () => void }).unref?.();
+  }
+}
+
+function failRehydrate(targets: ReadonlyArray<readonly [string, EvictedSessionEntry]>): void {
+  let shouldRetry = false;
+  let updated = false;
+  for (const [sessionId, entry] of targets) {
+    if (evictedSessions.get(sessionId) !== entry) continue;
+    entry.retries += 1;
+    entry.failed = true;
+    updated = true;
+    if (entry.retries <= REHYDRATE_MAX_RETRIES) {
+      shouldRetry = true;
+    }
+  }
+  if (updated) emit();
+  if (shouldRetry) scheduleRehydrateRetry();
+  if ([...evictedSessions.entries()].some(([id, entry]) => isActiveSession(id) && !entry.failed)) {
+    rehydrateEvicted();
+  }
+}
+
+function applyHeldFromRaw(sessionId: string, raw: VisualizeSessionState): VisualizeSessionState {
+  const { held, heldSince: since, heldCalls: calls, ...state } = raw;
+  // Also of a session that shows nothing yet: its running turn's cards wait all the same.
+  if (held === true) {
+    heldSince.set(sessionId, Number.isFinite(since) ? Number(since) : 0);
+    setHeldCallsFor(sessionId, calls);
+  } else {
+    heldSince.delete(sessionId);
+    heldCalls.delete(sessionId);
+  }
+  return state;
+}
+
+function rehydrateEvicted(): void {
+  if (rehydrateInFlight || !evictedSessions.size) return;
+  const targets: Array<readonly [string, EvictedSessionEntry]> = [];
+  for (const [sessionId, entry] of evictedSessions) {
+    if (isActiveSession(sessionId) && !entry.failed) targets.push([sessionId, entry]);
+  }
+  if (!targets.length) return;
+  const api = typeof window === 'undefined' ? undefined : window.mixdogDesktop;
+  if (!api?.visualizeState) {
+    const emptied: string[] = [];
+    for (const [sessionId, entry] of targets) {
+      if (evictedSessions.get(sessionId) !== entry) continue;
+      evictedSessions.delete(sessionId);
+      recentReaderSessions.delete(sessionId);
+      pruneSessionPaneState(sessionId, undefined);
+      if (entry.versions.size > 0) emptied.push(sessionId);
+    }
+    if (!evictedSessions.size) clearRehydrateRetryTimer();
+    emit();
+    for (const sessionId of emptied) notifyEmptied(sessionId);
+    return;
+  }
+  const read = api.visualizeState;
+  const request = Promise.resolve()
+    .then(() => read())
+    .then((snapshot) => {
+      if (rehydrateInFlight === request) rehydrateInFlight = null;
+      if (!snapshot) {
+        failRehydrate(targets);
+        return;
+      }
+      const byId = new Map<string, VisualizeSessionState>();
+      for (const raw of snapshot) {
+        if (raw?.sessionId) byId.set(raw.sessionId, raw);
+      }
+      const beforeHolds = holdKey();
+      const next = new Map(states);
+      let statesChanged = false;
+      let clearedEvicted = false;
+      const emptied: string[] = [];
+      for (const [sessionId, entry] of targets) {
+        if (evictedSessions.get(sessionId) !== entry || entry.failed) continue;
+        const raw = byId.get(sessionId);
+        if (!raw || !raw.tabs.length) {
+          evictedSessions.delete(sessionId);
+          clearedEvicted = true;
+          pruneSessionPaneState(sessionId, undefined);
+          if (entry.versions.size > 0) emptied.push(sessionId);
+          if (raw) {
+            const state = applyHeldFromRaw(sessionId, raw);
+            if (state.history?.length) statesChanged = putState(next, state) || statesChanged;
+            else recentReaderSessions.delete(sessionId);
+          } else {
+            recentReaderSessions.delete(sessionId);
+            heldSince.delete(sessionId);
+            heldCalls.delete(sessionId);
+          }
+          continue;
+        }
+        pruneSessionPaneState(sessionId, raw);
+        if (!isActiveSession(sessionId)) continue;
+        evictedSessions.delete(sessionId);
+        const state = keptLocalActive(applyHeldFromRaw(sessionId, raw), entry.active);
+        statesChanged = putState(next, state) || statesChanged;
+        clearedEvicted = true;
+      }
+      const holdsChanged = holdKey() !== beforeHolds;
+      if (statesChanged) {
+        setStatesMap(next);
+        emit();
+      } else if (holdsChanged || clearedEvicted) {
+        emit();
+      }
+      for (const sessionId of emptied) notifyEmptied(sessionId);
+      if (statesChanged) enforceRendererCacheBudget();
+      if (![...evictedSessions.values()].some((entry) => entry.failed && entry.retries <= REHYDRATE_MAX_RETRIES)) {
+        clearRehydrateRetryTimer();
+      }
+      if ([...evictedSessions.entries()].some(([id, entry]) => isActiveSession(id) && !entry.failed)) {
+        rehydrateEvicted();
+      }
+    })
+    .catch(() => {
+      if (rehydrateInFlight === request) rehydrateInFlight = null;
+      failRehydrate(targets);
+    });
+  rehydrateInFlight = request;
+}
+
+registerBudgetedCache({
+  name: 'visualize-states',
+  chars: () => retainedStateChars,
+  pinned: pinnedStateChars,
+  trim: evictUnpinnedStates,
+});
+registerIdleReclaim(() => evictUnpinnedStates(0));
+
 /** Test seam: forget the in-memory panel memory so storage is re-read. */
 export function resetVisualizePanelMemory(): void {
   panelMemoryCache = null;
   onScreen.clear();
+  recentReaderSessions.clear();
+  evictedSessions.clear();
+  pendingResyncPins.clear();
+  clearResyncTimers();
+  rehydrateInFlight = null;
+  clearRehydrateRetryTimer();
   userPicks.clear();
   userOpens.clear();
   previewOpens.clear();
   updatedTabs = new Map();
   heldSince.clear();
+  heldCalls.clear();
 }
 
 function emit(): void {
@@ -115,10 +431,15 @@ function emit(): void {
 /** A session was deleted: everything the visualize panel holds for it goes. */
 export function releaseVisualizeSession(sessionId: string): void {
   setVisualizePanelOnScreen(sessionId, false);
+  recentReaderSessions.delete(sessionId);
+  pendingResyncPins.delete(sessionId);
+  const hadEvicted = evictedSessions.delete(sessionId);
+  if (!evictedSessions.size) clearRehydrateRetryTimer();
   userPicks.delete(sessionId);
   userOpens.delete(sessionId);
   previewOpens.delete(sessionId);
   heldSince.delete(sessionId);
+  heldCalls.delete(sessionId);
   pendingReveals.delete(sessionId);
   if (updatedTabs.has(sessionId)) {
     updatedTabs = new Map(updatedTabs);
@@ -130,6 +451,8 @@ export function releaseVisualizeSession(sessionId: string): void {
     const next = new Map(states);
     next.delete(sessionId);
     replaceStates(next);
+  } else if (hadEvicted) {
+    emit();
   }
   releaseVisualizeTweaks(sessionId);
   releaseVisualizeProposals(sessionId);
@@ -186,37 +509,61 @@ function shareSession(prev: VisualizeSessionState | undefined, state: VisualizeS
  *  nothing open keeps its "All visuals" list. */
 function putState(map: Map<string, VisualizeSessionState>, state: VisualizeSessionState): boolean {
   const prev = map.get(state.sessionId);
-  if (!(state.tabs.length || state.history?.length)) return map.delete(state.sessionId);
+  if (!(state.tabs.length || state.history?.length)) {
+    const removedEvicted = evictedSessions.delete(state.sessionId);
+    if (removedEvicted && !evictedSessions.size) clearRehydrateRetryTimer();
+    const removedState = map.delete(state.sessionId);
+    if (removedState || removedEvicted) recentReaderSessions.delete(state.sessionId);
+    return removedState || removedEvicted;
+  }
   const shared = shareSession(prev, state);
   if (shared === prev) return false;
+  map.delete(state.sessionId);
   map.set(state.sessionId, shared);
   return true;
 }
 
 function setState(state: VisualizeSessionState): void {
+  const evictedEntry = evictedSessions.get(state.sessionId);
+  const evictedHadTabs = (evictedEntry?.versions.size ?? 0) > 0;
   const next = new Map(states);
   if (!putState(next, state)) return;
-  replaceStates(next);
+  replaceStates(next, evictedEntry ? [state.sessionId] : undefined);
+  if (evictedHadTabs && !next.get(state.sessionId)?.tabs.length) notifyEmptied(state.sessionId);
+  enforceRendererCacheBudget();
 }
 
 /** `next` becomes the state; a session whose last tab went away is told to
  *  the shell (its 'visualize' panel view has nothing left to show). */
-function replaceStates(next: Map<string, VisualizeSessionState>): void {
+function replaceStates(next: Map<string, VisualizeSessionState>, alsoPrune?: Iterable<string>): void {
   const before = states;
-  states = next;
+  setStatesMap(next);
+  for (const sessionId of [...recentReaderSessions]) {
+    if (!next.has(sessionId) && !evictedSessions.has(sessionId)) recentReaderSessions.delete(sessionId);
+  }
+  const pruned = new Set<string>();
   for (const [sessionId, state] of before) {
     const now = next.get(sessionId);
-    for (const tab of state.tabs) {
-      const kept = now?.tabs.find((candidate) => candidate.id === tab.id);
-      if (kept && kept.panes.length >= tab.panes.length) continue;
-      releaseVisualizeTweaks(sessionId, tab.id, kept?.panes.length ?? 0);
-      releaseVisualizeProposals(sessionId, tab.id, kept?.panes.length ?? 0);
+    if (now === state) continue;
+    pruneSessionPaneState(sessionId, now);
+    pruned.add(sessionId);
+  }
+  for (const [sessionId, now] of next) {
+    if (before.has(sessionId) || pruned.has(sessionId)) continue;
+    pruneSessionPaneState(sessionId, now);
+    pruned.add(sessionId);
+  }
+  if (alsoPrune) {
+    for (const sessionId of alsoPrune) {
+      if (pruned.has(sessionId)) continue;
+      pruneSessionPaneState(sessionId, next.get(sessionId));
+      pruned.add(sessionId);
     }
   }
   emit();
   for (const [sessionId, state] of before) {
     if (state.tabs.length && !next.get(sessionId)?.tabs.length) {
-      for (const listener of emptiedListeners) listener(sessionId);
+      notifyEmptied(sessionId);
     }
   }
 }
@@ -280,8 +627,14 @@ export function applyVisualizeEvent(event: DesktopVisualizeEvent): void {
   const held = Boolean(state && event.held);
   const released = Boolean(state && !event.held && before !== undefined);
   const since = Number.isFinite(event.heldSince) ? Number(event.heldSince) : (before ?? 0);
-  if (held) heldSince.set(sessionId, since);
-  if (released) heldSince.delete(sessionId);
+  if (held) {
+    heldSince.set(sessionId, since);
+    setHeldCallsFor(sessionId, event.heldCalls);
+  }
+  if (released) {
+    heldSince.delete(sessionId);
+    heldCalls.delete(sessionId);
+  }
   // A tab the user picked holds the panel no longer than the turn it was
   // picked before or during: not against what a new turn opens, and not
   // against a turn's own opens at its end (also the end of a turn whose
@@ -336,8 +689,9 @@ function phonePanelClosed(sessionId: string): boolean {
 
 /** `incoming` keeping this renderer's selected tab while the phone's panel
  *  is closed (and that tab still exists); otherwise `incoming` as main has it. */
-function keptLocalActive(incoming: VisualizeSessionState): VisualizeSessionState {
-  const local = states.get(incoming.sessionId)?.active;
+function keptLocalActive(incoming: VisualizeSessionState, evictedActive?: string | null): VisualizeSessionState {
+  const local =
+    states.get(incoming.sessionId)?.active ?? evictedActive ?? evictedSessions.get(incoming.sessionId)?.active;
   if (!local || local === incoming.active || !phonePanelClosed(incoming.sessionId)) return incoming;
   return incoming.tabs.some((tab) => tab.id === local) ? { ...incoming, active: local } : incoming;
 }
@@ -384,7 +738,7 @@ function showUpdatedTab(sessionId: string, tabId: string, incoming?: VisualizeSe
   if (preview?.silent) {
     // A preview behind the turn's own opens: the panel stays on what it
     // shows (the agent's tab); the preview's tab only wears the dot.
-    const local = states.get(sessionId)?.active;
+    const local = states.get(sessionId)?.active ?? evictedSessions.get(sessionId)?.active;
     const active = local && base.tabs.some((tab) => tab.id === local) ? local : base.active;
     setState(base.active === active ? base : { ...base, active });
     if (active && base.active !== active) sendActivate(sessionId, active);
@@ -433,14 +787,30 @@ export function useVisualizeUpdatedTabs(sessionId: string): ReadonlySet<string> 
 export function setVisualizePanelOnScreen(sessionId: string, shown: boolean): void {
   if (!sessionId) return;
   const was = onScreen.has(sessionId);
-  if (shown) onScreen.add(sessionId);
-  else {
+  let rehydrateReset = false;
+  if (shown) {
+    onScreen.add(sessionId);
+    if (states.has(sessionId)) {
+      touchState(sessionId);
+    } else {
+      const evicted = evictedSessions.get(sessionId);
+      if (evicted) {
+        if (evicted.failed) {
+          evicted.failed = false;
+          rehydrateReset = true;
+        }
+        evicted.retries = 0;
+        rehydrateEvicted();
+      }
+    }
+  } else {
     onScreen.delete(sessionId);
     userPicks.delete(sessionId);
   }
-  if (was === shown) return;
+  if (was === shown && !rehydrateReset) return;
   // Chat card tiles outline the shown tab only while the panel is on screen.
   emit();
+  if (was === shown) return;
   // A paired device tells the desktop (remote-shim-api.ts): an agent open
   // counts as seen on it only while its panel is on screen.
   const view = globalThis.window;
@@ -473,7 +843,12 @@ function rememberedOpen(state: VisualizeSessionState): boolean {
 }
 
 /** What the holds say, to tell whether a snapshot changed them. */
-const holdKey = (): string => JSON.stringify([...heldSince].sort(([a], [b]) => (a < b ? -1 : 1)));
+const holdKey = (): string =>
+  JSON.stringify(
+    [...heldSince]
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([id, since]) => [id, since, [...(heldCalls.get(id) ?? [])].sort()])
+  );
 
 /** A snapshot as an event tells it: each session's state is what it shows,
  *  and `held` says a turn's work is kept back since `heldSince`. */
@@ -482,15 +857,14 @@ function takeSnapshot(
   replace: boolean
 ): { shown: VisualizeSessionState[]; holdsChanged: boolean } {
   const before = holdKey();
-  if (replace) heldSince.clear();
+  if (replace) {
+    heldSince.clear();
+    heldCalls.clear();
+  }
   const shown: VisualizeSessionState[] = [];
   for (const raw of snapshot ?? []) {
     if (!raw?.sessionId) continue;
-    const { held, heldSince: since, ...state } = raw;
-    // Also of a session that shows nothing yet: its running turn's cards wait all the same.
-    if (held === true) heldSince.set(state.sessionId, Number.isFinite(since) ? Number(since) : 0);
-    else heldSince.delete(state.sessionId);
-    shown.push(state);
+    shown.push(applyHeldFromRaw(raw.sessionId, raw));
   }
   return { shown, holdsChanged: holdKey() !== before };
 }
@@ -499,7 +873,9 @@ export function hydrateVisualizeStates(snapshot: readonly VisualizeSessionState[
   const reopen: string[] = [];
   const next = new Map(states);
   const { shown, holdsChanged } = takeSnapshot(
-    (snapshot ?? []).filter((state) => state?.sessionId && !states.has(state.sessionId)),
+    (snapshot ?? []).filter(
+      (state) => state?.sessionId && !states.has(state.sessionId) && !evictedSessions.has(state.sessionId)
+    ),
     false
   );
   let changed = false;
@@ -507,37 +883,73 @@ export function hydrateVisualizeStates(snapshot: readonly VisualizeSessionState[
     changed = putState(next, state) || changed;
     if (rememberedOpen(state)) reopen.push(state.sessionId);
   }
-  if (changed) states = next;
+  if (changed) setStatesMap(next);
   if (changed || holdsChanged) emit();
+  if (changed) enforceRendererCacheBudget();
   if (reopen.length) setTimeout(() => reopen.forEach(requestReveal), 0);
 }
 
 export function resyncVisualizeStates(snapshot: readonly VisualizeSessionState[] | null | undefined): void {
   // A complete replacement, holds included (takeSnapshot).
   const before = states;
+  const beforeEvicted = new Map(evictedSessions);
+  evictedSessions.clear();
+  rehydrateInFlight = null;
+  clearRehydrateRetryTimer();
   const { shown, holdsChanged } = takeSnapshot(snapshot, true);
   const next = new Map<string, VisualizeSessionState>();
   for (const state of shown) {
     if (state.tabs.length || state.history?.length)
-      next.set(state.sessionId, shareSession(states.get(state.sessionId), keptLocalActive(state)));
+      next.set(
+        state.sessionId,
+        shareSession(states.get(state.sessionId), keptLocalActive(state, beforeEvicted.get(state.sessionId)?.active))
+      );
   }
-  const same = next.size === states.size && [...next].every(([id, state]) => states.get(id) === state);
-  if (!same) replaceStates(next);
-  else if (holdsChanged) emit();
   const missed: Array<[string, string]> = [];
   const reopen: string[] = [];
   for (const [sessionId, state] of next) {
-    const known = tabVersions(before.get(sessionId));
+    const known = before.has(sessionId)
+      ? tabVersions(before.get(sessionId))
+      : (beforeEvicted.get(sessionId)?.versions ?? new Map<string, number>());
     const changed = state.tabs.filter((tab) => known.get(tab.id) !== (tab.versions?.at(-1)?.n ?? 0));
     const tab = changed.find((candidate) => candidate.id === state.active) ?? changed.at(-1);
     if (tab) missed.push([sessionId, tab.id]);
     else if (rememberedOpen(state)) reopen.push(sessionId);
   }
+  for (const [sessionId] of missed) {
+    pendingResyncPins.set(sessionId, (pendingResyncPins.get(sessionId) ?? 0) + 1);
+  }
+  const emptiedEvicted: string[] = [];
+  for (const [sessionId, entry] of beforeEvicted) {
+    const now = next.get(sessionId);
+    if (!now) recentReaderSessions.delete(sessionId);
+    if (!now?.tabs.length && entry.versions.size > 0) emptiedEvicted.push(sessionId);
+  }
+  const same = next.size === states.size && [...next].every(([id, state]) => states.get(id) === state);
+  if (!same) replaceStates(next, beforeEvicted.keys());
+  else {
+    for (const sessionId of beforeEvicted.keys()) pruneSessionPaneState(sessionId, next.get(sessionId));
+    if (holdsChanged || beforeEvicted.size > 0) emit();
+  }
+  for (const sessionId of emptiedEvicted) notifyEmptied(sessionId);
+  if (!same) enforceRendererCacheBudget();
   if (!missed.length && !reopen.length) return;
-  setTimeout(() => {
-    for (const [sessionId, tabId] of missed) showUpdatedTab(sessionId, tabId);
-    reopen.forEach(requestReveal);
+  const timer = setTimeout(() => {
+    resyncTimers.delete(timer);
+    try {
+      for (const [sessionId, tabId] of missed) showUpdatedTab(sessionId, tabId);
+      for (const sessionId of reopen) {
+        if (states.has(sessionId) || evictedSessions.has(sessionId)) requestReveal(sessionId);
+      }
+    } finally {
+      for (const [sessionId] of missed) releaseResyncPin(sessionId);
+    }
+    if (missed.length) enforceRendererCacheBudget();
   }, 0);
+  if (typeof timer === 'object' && 'unref' in timer) {
+    (timer as { unref?: () => void }).unref?.();
+  }
+  resyncTimers.add(timer);
 }
 
 /** Subscribe to main once; a reloaded renderer first reads the current tabs. */
@@ -557,7 +969,15 @@ function connect(): void {
     void api
       .visualizeState?.()
       .then(resyncVisualizeStates)
-      .catch(() => {});
+      .catch(() => {
+        let shouldRetry = false;
+        for (const [, entry] of evictedSessions) {
+          if (!entry.failed) continue;
+          entry.retries = 0;
+          shouldRetry = true;
+        }
+        if (shouldRetry) scheduleRehydrateRetry();
+      });
   };
   window.addEventListener('mixdog:remote-reconnected', resync);
   window.addEventListener('mixdog:remote-state-gap', resync);
@@ -576,12 +996,51 @@ export function subscribe(listener: Listener): () => void {
 }
 
 export function visualizeStateFor(sessionId: string): VisualizeSessionState {
-  return states.get(sessionId) ?? EMPTY;
+  return states.get(sessionId) ?? evictedSessions.get(sessionId)?.placeholder ?? EMPTY;
+}
+
+/** Whether `sessionId`'s visualize state was evicted and is waiting on rehydration from main. */
+export function isVisualizeStateRehydrating(sessionId: string): boolean {
+  const entry = evictedSessions.get(sessionId);
+  return Boolean(entry && !entry.failed);
+}
+
+export function useVisualizeStateRehydrating(sessionId: string): boolean {
+  return useSyncExternalStore(
+    subscribe,
+    () => isVisualizeStateRehydrating(sessionId),
+    () => false
+  );
 }
 
 export function useVisualizeState(sessionId: string): VisualizeSessionState {
+  const surfaceActive = useSurfaceActive();
+  const subscribeSession = useCallback(
+    (listener: Listener) => {
+      const unsubscribe = subscribe(listener);
+      if (!sessionId || !surfaceActive) return unsubscribe;
+      sessionReaders.set(sessionId, (sessionReaders.get(sessionId) ?? 0) + 1);
+      touchRecentReader(sessionId);
+      if (states.has(sessionId)) {
+        touchState(sessionId);
+      } else {
+        const evicted = evictedSessions.get(sessionId);
+        if (evicted && !evicted.failed) rehydrateEvicted();
+      }
+      return () => {
+        unsubscribe();
+        const remaining = (sessionReaders.get(sessionId) ?? 0) - 1;
+        if (remaining > 0) sessionReaders.set(sessionId, remaining);
+        else {
+          sessionReaders.delete(sessionId);
+          touchRecentReader(sessionId);
+        }
+      };
+    },
+    [sessionId, surfaceActive]
+  );
   return useSyncExternalStore(
-    subscribe,
+    subscribeSession,
     () => visualizeStateFor(sessionId),
     () => EMPTY
   );
@@ -603,11 +1062,24 @@ export function useVisualizeHeldSince(sessionId: string): number | null {
   );
 }
 
+/** Tool call ids held by the session's running turn(s), or null when none. */
+export function visualizeHeldCalls(sessionId: string): ReadonlySet<string> | null {
+  return heldCalls.get(sessionId) ?? null;
+}
+
+export function useVisualizeHeldCalls(sessionId: string): ReadonlySet<string> | null {
+  return useSyncExternalStore(
+    subscribe,
+    () => visualizeHeldCalls(sessionId),
+    () => null
+  );
+}
+
 /** True once any session has visualize tabs: the dock toggle appears then. */
 export function useVisualizeAvailable(): boolean {
   return useSyncExternalStore(
     subscribe,
-    () => states.size > 0,
+    () => states.size > 0 || evictedSessions.size > 0,
     () => false
   );
 }
@@ -694,6 +1166,10 @@ export function activateVisualizeTab(sessionId: string, tabId: string): void {
   setUpdated(sessionId, tabId, false);
   const state = states.get(sessionId);
   if (state && state.active !== tabId) setState({ ...state, active: tabId });
+  else {
+    const evicted = evictedSessions.get(sessionId);
+    if (evicted) evicted.active = tabId;
+  }
   sendActivate(sessionId, tabId);
 }
 
@@ -858,7 +1334,11 @@ export function visualizeExportPane(tab: Pick<VisualizeSessionState['tabs'][numb
 /** When a list entry was opened: the time today, else the date and time. */
 export function visualizeHistoryTime(at: number, now: number = Date.now()): string {
   const date = new Date(at);
-  const time = date.toLocaleTimeString(uiFormatLocale(), { hour: '2-digit', minute: '2-digit', ...timeFormatOptions() });
+  const time = date.toLocaleTimeString(uiFormatLocale(), {
+    hour: '2-digit',
+    minute: '2-digit',
+    ...timeFormatOptions(),
+  });
   return date.toDateString() === new Date(now).toDateString()
     ? time
     : `${date.toLocaleDateString(uiFormatLocale(), { month: 'short', day: 'numeric' })} ${time}`;
@@ -870,31 +1350,37 @@ export function closeVisualizeTab(sessionId: string, tabId: string): void {
 
 type VisualizeTabState = VisualizeSessionState['tabs'][number];
 
-/** The version stepper's position: the shown version (the newest when live)
- *  and the newest; null while the tab keeps fewer than two versions. */
-export function visualizeVersionPosition(tab: Pick<VisualizeTabState, 'versions' | 'version'>): {
-  shown: number;
+/** The version stepper's position: the shown version (the newest when live,
+ *  or null when live content was not kept as a version) and the newest; null
+ *  while the tab keeps fewer than two versions and live is kept. */
+export function visualizeVersionPosition(tab: Pick<VisualizeTabState, 'versions' | 'version' | 'liveUnkept'>): {
+  shown: number | null;
   newest: number;
 } | null {
   const list = tab.versions ?? [];
   const newest = list.at(-1)?.n;
-  if (newest === undefined || (list.length < 2 && tab.version == null)) return null;
-  return { shown: tab.version ?? newest, newest };
+  if (newest === undefined || (list.length < 2 && tab.version == null && !tab.liveUnkept)) return null;
+  return { shown: tab.version ?? (tab.liveUnkept ? null : newest), newest };
 }
 
 /** The version one step older (-1) or newer (+1) than the shown one: a kept
- *  version number, null for live (stepping onto the newest), or undefined
- *  when there is none that way. */
+ *  version number, null for live (stepping onto the newest when kept, or past
+ *  the newest when live is unkept), or undefined when there is none that way. */
 export function visualizeVersionStep(
-  tab: Pick<VisualizeTabState, 'versions' | 'version'>,
+  tab: Pick<VisualizeTabState, 'versions' | 'version' | 'liveUnkept'>,
   direction: -1 | 1
 ): number | null | undefined {
   const list = tab.versions ?? [];
   const position = visualizeVersionPosition(tab);
   if (!position) return undefined;
-  const next = list[list.findIndex((version) => version.n === position.shown) + direction];
-  if (!next) return undefined;
-  return next.n === position.newest ? null : next.n;
+  if (position.shown === null) {
+    return direction === -1 ? position.newest : undefined;
+  }
+  const index = list.findIndex((version) => version.n === position.shown);
+  if (index < 0) return undefined;
+  const next = list[index + direction];
+  if (!next) return direction === 1 && tab.liveUnkept ? null : undefined;
+  return !tab.liveUnkept && next.n === position.newest ? null : next.n;
 }
 
 /** Show kept version `version` (null = back to live), beside live when

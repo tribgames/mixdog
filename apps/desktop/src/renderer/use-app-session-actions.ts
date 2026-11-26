@@ -8,6 +8,7 @@ import { forgetComposerScope } from './composer-draft';
 import { errorMessage } from './editor-pane-session-errors';
 import { deleteSessionImagePreviews } from './image-preview-store';
 import type { NavigationSelection, WorkspaceTab } from './navigation';
+import { purgeSessionChanges } from './session-changes-store';
 import type { SessionTabsClosed } from './session-tab-cleanup';
 import { navigationKey } from './text-format';
 import { useStableEvent } from './use-stable-event';
@@ -173,13 +174,14 @@ export function useAppSessionActions({
   );
 
   /** What a deleted session leaves in this window, wherever it was deleted:
-   *  its surfaces, composer draft, image previews, pending rename and tabs. */
+   *  its surfaces, composer draft, image previews, cached changes, pending rename and tabs. */
   const forgetDeletedSession = useCallback(
     (sessionId: string) => {
       onSessionDeleted(sessionId);
       forgetComposerScope(sessionId);
       deleteSessionImagePreviews(sessionId);
       forgetHomeSessionAvatarImages(sessionId);
+      purgeSessionChanges(sessionId);
       pendingRenames.current.delete(sessionId);
       closeTabsAndFollow(sessionId, true);
     },

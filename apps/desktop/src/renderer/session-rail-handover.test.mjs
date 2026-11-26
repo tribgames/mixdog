@@ -453,3 +453,75 @@ test("a New Task's panel rows follow each pick: project, branch, model, workflow
   assert.doesNotMatch(modelText(), /High/);
   await act(async () => view.root.render(null));
 });
+
+test('rail session handover aligns sessionId and reviewSessionId when sessionAddress leads snapshot.sessionId', async (t) => {
+  const view = await setup(t);
+  await import('./SessionRail.tsx');
+  const { defaultSessionLaneStore } = await import('./session-lane-store.ts');
+  defaultSessionLaneStore.setShownSessionIds(['s-prev', 's-next']);
+  t.after(() => defaultSessionLaneStore.setShownSessionIds([]));
+  defaultSessionLaneStore.apply({
+    sessionId: 's-prev',
+    snapshot: {
+      sessionId: 's-prev',
+      provider: MODEL.provider,
+      model: MODEL.model,
+      effort: 'high',
+      contextTokens: 200000,
+      stats: { currentContextTokens: 40000, currentContextSource: 'last_api_request' },
+    },
+    frameSource: 'live',
+  });
+  defaultSessionLaneStore.apply({
+    sessionId: 's-next',
+    snapshot: {
+      sessionId: 's-next',
+      provider: MODEL.provider,
+      model: MODEL.model,
+      effort: 'high',
+      contextTokens: 200000,
+      stats: { currentContextTokens: 50000, currentContextSource: 'last_api_request' },
+    },
+    frameSource: 'live',
+  });
+  const requestedContextSessions = [];
+  const origInvoke = window.mixdogDesktop.invokeCapability;
+  window.mixdogDesktop.invokeCapability = async (request) => {
+    if (request.capability === 'contextStatus') requestedContextSessions.push(request.sessionId);
+    return origInvoke(request);
+  };
+  const selection = { kind: 'session', id: 's-next' };
+  const laggedSnapshot = {
+    sessionId: 's-prev',
+    provider: MODEL.provider,
+    model: MODEL.model,
+    effort: 'high',
+    contextTokens: 200000,
+    stats: { currentContextTokens: 40000, currentContextSource: 'last_api_request' },
+  };
+  await act(async () =>
+    view.root.render(
+      React.createElement(
+        'div',
+        { 'data-leaf': 'align' },
+        view.card('align', selection),
+        view.conversation(selection, 'align', {
+          snapshot: laggedSnapshot,
+          routeSnapshot: laggedSnapshot,
+          sessionAddress: 's-next',
+          activeProjectLabel: 'session s-next',
+        })
+      )
+    )
+  );
+  await view.settle();
+  const body = view.document.querySelector('[data-leaf="align"] .session-rail-body');
+  assert.equal(panelProject(body), 'session s-next', 'rail mounts into the incoming s-next slot without splitting');
+  assert.equal(body.querySelectorAll('[data-category="info"]').length, 1);
+  assert.deepEqual(
+    requestedContextSessions,
+    ['s-next'],
+    'ContextSection queries only the aligned incoming session and never the lagged outgoing session'
+  );
+  await act(async () => view.root.render(null));
+});

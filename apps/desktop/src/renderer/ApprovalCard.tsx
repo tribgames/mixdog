@@ -167,12 +167,32 @@ const laterIds = new Set<string>();
 const controlReadyIds = new Set<string>();
 // How each login takeover's window last ended, across remounts of its card.
 const loginStatuses = new Map<string, DesktopBrowserLoginStatus>();
+// Each remembered approval id's own session id (never a host chat displaying another session's card).
+const approvalOwners = new Map<string, string>();
+
+function noteApprovalOwner(id: string, ownerSessionId: string): void {
+  if (!id || !ownerSessionId) return;
+  approvalOwners.set(id, ownerSessionId);
+}
 
 /** The request was decided: what its card remembered for a remount goes. */
-function releaseApprovalCardState(id: string): void {
+export function releaseApprovalCardState(id: string): void {
+  if (!id) return;
   laterIds.delete(id);
   controlReadyIds.delete(id);
   loginStatuses.delete(id);
+  approvalOwners.delete(id);
+}
+
+/** Releases every approval card remount state and held-request settlement belonging to `sessionId`. */
+export function releaseApprovalSessionState(sessionId: string): void {
+  if (!sessionId) return;
+  for (const [id, owner] of [...approvalOwners]) {
+    if (owner === sessionId) releaseApprovalCardState(id);
+  }
+  if (heldSettled.delete(sessionId)) {
+    for (const listener of heldListeners) listener();
+  }
 }
 
 /** Once the request ended (decided here or answered elsewhere) its card's remount memory goes. */
@@ -218,6 +238,7 @@ function useControlReady(id: string, sessionId: string, takeover: boolean): bool
     void Promise.resolve(window.mixdogDesktop?.takeoverReady?.(sessionId, id)).then((value) => {
       if (!value || !live) return;
       controlReadyIds.add(id);
+      noteApprovalOwner(id, sessionId);
       setReady(true);
     });
     return () => {
@@ -324,6 +345,7 @@ function BrowserLoginCard({
   const local = Boolean(sessionId && api?.browserLoginOpen);
   const [decided, setDecided] = useState(false);
   const ended = Boolean(settled) || decided;
+  const ownerSessionId = sessionId || hostSessionId;
   const controlReady = useControlReady(id, sessionId, local && !ended);
   const [status, setStatus] = useState<DesktopBrowserLoginStatus>(() => loginStatuses.get(id) ?? { state: 'idle' });
   const [later, setLater] = useState(() => laterIds.has(id));
@@ -345,7 +367,10 @@ function BrowserLoginCard({
     void Promise.resolve(pending).then(
       (next) => {
         if (!mounted.current) return;
-        if (next?.state && next.state !== 'unavailable' && !endedRef.current) loginStatuses.set(id, next);
+        if (next?.state && next.state !== 'unavailable' && !endedRef.current) {
+          loginStatuses.set(id, next);
+          noteApprovalOwner(id, ownerSessionId);
+        }
         if (!next || next.state === 'unavailable') {
           setStatus({ state: 'idle' });
           setError(t('The sign-in window could not open.'));
@@ -438,6 +463,7 @@ function BrowserLoginCard({
   };
   const decideLater = () => {
     laterIds.add(id);
+    noteApprovalOwner(id, ownerSessionId);
     setLater(true);
   };
   if (later && closable) {
@@ -897,11 +923,7 @@ function cardButtons(
 
 /** The card's one decision path: a decision in flight blocks the next, an
  *  unconfirmed refusal is retryable, and a failure is worded for the card. */
-function useApprovalDecision(
-  id: string,
-  resolve: ApprovalCardProps['resolve'],
-  settled: ApprovalCardProps['settled']
-) {
+function useApprovalDecision(id: string, resolve: ApprovalCardProps['resolve'], settled: ApprovalCardProps['settled']) {
   const [resolving, setResolving] = useState(false);
   const [decided, setDecided] = useState(false);
   useApprovalCardEnd(id, Boolean(settled) || decided);
@@ -1202,11 +1224,32 @@ export function approvalRecordLabel(approval: Approval): string {
 // settles one arrives later in the same thread; the conversation publishes the
 // settled ids per session so the earlier row's card can fold away.
 const heldSettled = new Map<string, ReadonlyMap<string, string>>();
+const heldReaders = new Map<string, number>();
 const heldListeners = new Set<() => void>();
 const subscribeHeld = (listener: () => void) => {
   heldListeners.add(listener);
   return () => heldListeners.delete(listener);
 };
+
+/** Retains `sessionId`'s held-settlement table while a conversation pane shows it; drops it when the last pane leaves. */
+export function retainHeldSettlements(sessionId: string): () => void {
+  if (!sessionId) return () => {};
+  heldReaders.set(sessionId, (heldReaders.get(sessionId) ?? 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const remaining = (heldReaders.get(sessionId) ?? 1) - 1;
+    if (remaining > 0) {
+      heldReaders.set(sessionId, remaining);
+      return;
+    }
+    heldReaders.delete(sessionId);
+    if (heldSettled.delete(sessionId)) {
+      for (const listener of heldListeners) listener();
+    }
+  };
+}
 
 /** Record the settled held requests of `sessionId`'s transcript (`status|device`). */
 export function publishHeldSettlements(sessionId: string, items: readonly TranscriptItem[]): void {

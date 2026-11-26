@@ -191,3 +191,135 @@ test('a row pending at 0px takes it; only a hidden pane keeps the size the timel
   ]);
   assert.deepEqual(applied, [[1, 0]]);
 });
+
+test('unrelated re-renders do not re-read mounted rows, no duplicate ResizeObserver is created, hidden 0x0 rows preserve --transcript-measured-height, and scroll mounts drain synchronously before parent layout effects', async (t) => {
+  const resizeObservers = [];
+  class FakeResizeObserver {
+    constructor() {
+      resizeObservers.push(this);
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  const { root, document } = installTestDom(t, {
+    rootId: 'root',
+    expose: ['HTMLElement'],
+    globals: { ResizeObserver: FakeResizeObserver },
+  });
+  const { useMountedRowMeasurement } = await import('./transcript-list-row-measure.ts');
+  const spacer = document.createElement('div');
+  const reads = new Map();
+  const heights = new Map([
+    ['row-0', { width: 720, height: 80 }],
+    ['row-1', { width: 720, height: 90 }],
+    ['row-2', { width: 720, height: 110 }],
+    ['row-hidden', { width: 0, height: 0 }],
+  ]);
+  const makeRow = (key, index) => {
+    const row = document.createElement('div');
+    row.dataset.index = String(index);
+    row.dataset.timelineKey = key;
+    row.append(document.createElement('div'));
+    row.getBoundingClientRect = () => {
+      reads.set(key, (reads.get(key) ?? 0) + 1);
+      const box = heights.get(key) ?? { width: 0, height: 0 };
+      return { top: 0, left: 0, right: box.width, bottom: box.height, ...box };
+    };
+    return row;
+  };
+  const row0 = makeRow('row-0', 0);
+  const row1 = makeRow('row-1', 1);
+  const hiddenRow = makeRow('row-hidden', 3);
+  hiddenRow.style.setProperty('--transcript-measured-height', '132px');
+  spacer.append(row0, row1, hiddenRow);
+  document.body.append(spacer);
+
+  const keys = ['row-0', 'row-1', 'row-2', 'row-hidden'];
+  const applied = [];
+  const parentSawSizes = [];
+  const core = {
+    options: { anchorTo: 'end', getItemKey: (index) => keys[index] },
+    itemSizeCache: new Map(),
+    measurementsCache: keys.map((key, index) => ({ key, index, start: index * 60, end: index * 60 + 60, size: 60 })),
+    resizeItem: (index, size) => {
+      applied.push([index, size]);
+      core.itemSizeCache.set(keys[index], size);
+    },
+  };
+  let rerender;
+  const stableRows = keys.map((key) => ({ _tag: 'AssistantPart', key }));
+  function ChildMeasurement() {
+    useMountedRowMeasurement({
+      rows: stableRows,
+      spacer: useRef(spacer),
+      virtualizerRef: useRef(core),
+      baseResizeItem: useRef((index, size) => core.resizeItem(index, size)),
+      pendingResizes: useRef(new Map()),
+      indexForPendingKey: (_key, hint) => hint,
+      laidOutRows: useRef([]),
+      pendingAnchor: useRef(null),
+      anchorHold: useRef(null),
+      restoreReadingAnchor() {},
+    });
+    return null;
+  }
+  function ParentHarness() {
+    const [tick, setTick] = React.useState(0);
+    rerender = () => setTick((n) => n + 1);
+    React.useLayoutEffect(() => {
+      parentSawSizes.push({
+        tick,
+        row2: core.itemSizeCache.get('row-2'),
+        rowHidden: core.itemSizeCache.get('row-hidden'),
+      });
+    });
+    return React.createElement(ChildMeasurement);
+  }
+
+  await act(async () => root.render(React.createElement(ParentHarness)));
+  assert.equal(resizeObservers.length, 0, 'does not attach a duplicate ResizeObserver alongside virtual-core');
+  assert.deepEqual(applied, [
+    [0, 80],
+    [1, 90],
+  ]);
+  assert.equal(
+    hiddenRow.style.getPropertyValue('--transcript-measured-height'),
+    '132px',
+    'a 0x0 hidden row never overwrites its remembered --transcript-measured-height with 0px'
+  );
+
+  // When the hidden pane becomes visible, the next commit measures the previously hidden row synchronously
+  // before the parent layout effect runs.
+  heights.set('row-hidden', { width: 720, height: 140 });
+  reads.clear();
+  await act(async () => rerender());
+  assert.deepEqual([...reads.entries()], [['row-hidden', 1]], 'only the previously hidden row is read on reveal');
+  assert.equal(
+    parentSawSizes.at(-1)?.rowHidden,
+    140,
+    'parent layout effect observes the revealed row height in the same commit'
+  );
+  assert.equal(hiddenRow.style.getPropertyValue('--transcript-measured-height'), '140px');
+
+  // Unrelated re-renders perform zero layout reads (O(1) fast path).
+  reads.clear();
+  await act(async () => rerender());
+  await act(async () => rerender());
+  assert.equal(reads.size, 0, 'unrelated renders never call getBoundingClientRect');
+
+  // Mounting a new row during a scroll commit (same `rows` identity) drains synchronously before parent layout effects.
+  const row2 = makeRow('row-2', 2);
+  reads.clear();
+  await act(async () => {
+    spacer.append(row2);
+    rerender();
+  });
+  assert.deepEqual([...reads.entries()], [['row-2', 1]], 'only the newly mounted scroll row is read');
+  assert.equal(
+    parentSawSizes.at(-1)?.row2,
+    110,
+    'parent layout effect sees the newly mounted row size before writing spacer geometry'
+  );
+  assert.deepEqual(applied.at(-1), [2, 110]);
+});

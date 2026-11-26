@@ -205,5 +205,63 @@ test('compact chrome preserves input growth, readable rows and accessible action
     // with 6px around them, the footer's controls on the bar's own row.
     assert.equal(mobile.bar, 56);
     assert.equal(mobile.input, 56);
+    await page.evaluate(() => document.documentElement.removeAttribute('data-mixdog-mobile-tabs'));
   });
+
+  await t.test(
+    'compaction divider keeps primary label single-line ahead of detail with zero overflow down to 180px',
+    async () => {
+      const results = await page.evaluate(async () => {
+        const host = document.createElement('div');
+        host.style.cssText = 'position:fixed;left:0;top:0;box-sizing:border-box;';
+        host.innerHTML = [
+          `<div class="compaction-divider" id="cd-compact" role="status"><svg class="compaction-icon" width="16" height="16"></svg><span>Conversation compacted</span><small>Continuing with the previous context and extra summary detail.</small></div>`,
+          `<div class="compaction-divider" id="cd-fork" role="status"><svg class="compaction-icon" width="16" height="16"></svg><span>Session forked</span><small>Continuing with the previous context.</small></div>`,
+          `<div class="compaction-divider" id="cd-long" role="status"><svg class="compaction-icon" width="16" height="16"></svg><span>Workflow custom-long-workflow-name is no longer available; this conversation keeps default</span></div>`,
+        ].join('');
+        document.body.appendChild(host);
+        const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+        const out = [];
+        try {
+          for (const width of [420, 320, 260, 180]) {
+            host.style.width = `${width}px`;
+            await frame();
+            for (const id of ['cd-compact', 'cd-fork', 'cd-long']) {
+              const divider = host.querySelector(`#${id}`);
+              const span = divider.querySelector('span');
+              const small = divider.querySelector('small');
+              const box = divider.getBoundingClientRect();
+              const spanBox = span.getBoundingClientRect();
+              const smallBox = small ? small.getBoundingClientRect() : null;
+              const lineHeight = Number.parseFloat(getComputedStyle(span).lineHeight) || 26;
+              out.push({
+                width,
+                id,
+                overflow: divider.scrollWidth > divider.clientWidth + 0.5,
+                spanRightOverflow: spanBox.right > box.right + 0.5,
+                smallRightOverflow: smallBox ? smallBox.right > box.right + 0.5 : false,
+                spanLines: span.getClientRects().length,
+                spanHeight: Math.round(spanBox.height * 10) / 10,
+                lineHeight,
+                spanTruncated: span.scrollWidth > span.clientWidth + 0.5,
+              });
+            }
+          }
+          return out;
+        } finally {
+          host.remove();
+        }
+      });
+      for (const row of results) {
+        assert.equal(row.overflow, false, `horizontal overflow: ${JSON.stringify(row)}`);
+        assert.equal(row.spanRightOverflow, false, `span past divider edge: ${JSON.stringify(row)}`);
+        assert.equal(row.smallRightOverflow, false, `small past divider edge: ${JSON.stringify(row)}`);
+        assert.equal(row.spanLines, 1, `primary label wrapped: ${JSON.stringify(row)}`);
+        assert.ok(row.spanHeight <= row.lineHeight + 2, `primary label grew past one line: ${JSON.stringify(row)}`);
+        if (row.width >= 260 && (row.id === 'cd-compact' || row.id === 'cd-fork')) {
+          assert.equal(row.spanTruncated, false, `short primary label starved by small: ${JSON.stringify(row)}`);
+        }
+      }
+    }
+  );
 });
