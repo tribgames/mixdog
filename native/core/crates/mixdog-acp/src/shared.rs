@@ -542,10 +542,10 @@ impl Agents {
         shared.insert(preset.id.clone(), SharedSlot::Starting { id, started: started.clone(), cancel: cancel.clone() });
         let (agents, preset, program) = (self.clone(), preset.clone(), program.clone());
         drop(mixdog_rt::spawn("acp.shared.start", TaskClass::Work, async move {
-            let outcome = SharedServer::start(&agents, &preset, &program, cancel).await;
+            let outcome = SharedServer::start(&agents, &preset, &program, cancel.clone()).await;
             // Held until every open that waited for the start has leased the server or given up: a server none of
             // them leases serves no session, and the hold's end closes it as such.
-            let (held, orphaned) = {
+            let (held, timed_out_orphan) = {
                 let mut shared = lock(&agents.shared);
                 let current = matches!(shared.get(&preset.id), Some(SharedSlot::Starting { id: slot, .. }) if *slot == id);
                 match &outcome {
@@ -553,7 +553,8 @@ impl Agents {
                         shared.insert(preset.id.clone(), SharedSlot::Running(server.clone()));
                         (server.lease(), None)
                     }
-                    Ok(server) => (None, Some(server.clone())),
+                    Ok(server) if cancel.is_cancelled() => (None, Some(server.clone())),
+                    Ok(_) => (None, None),
                     Err(_) => {
                         if current {
                             shared.remove(&preset.id);
@@ -562,7 +563,7 @@ impl Agents {
                     }
                 }
             };
-            let outcome = if let Some(server) = orphaned {
+            let outcome = if let Some(server) = timed_out_orphan {
                 server.connection.kill();
                 agents.track_stop(mixdog_rt::spawn("acp.shared.orphan", TaskClass::Work, async move {
                     server.stop().await;
@@ -626,8 +627,7 @@ impl Agents {
         self.track_stop(mixdog_rt::spawn("acp.shared.stop", TaskClass::Work, async move {
             let server = match slot {
                 SharedSlot::Running(server) => Some(server),
-                SharedSlot::Starting { mut started, cancel, .. } => {
-                    cancel.cancel();
+                SharedSlot::Starting { mut started, .. } => {
                     started.wait_for(Option::is_some).await.ok().and_then(|outcome| outcome.clone()).and_then(Result::ok)
                 }
             };
