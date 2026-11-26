@@ -22,6 +22,9 @@ use url::Url;
 
 use super::error::FetchError;
 use super::error::FetchKind;
+use super::extract::Extracted;
+use super::extract::extract_document;
+use super::extract_host::PageExtractor;
 use super::lanes::WebLanes;
 use super::ssrf::AddressPolicy;
 use super::ssrf::PolicyResolver;
@@ -63,6 +66,8 @@ pub struct Fetcher {
     policy: AddressPolicy,
     lanes: WebLanes,
     user_agent: String,
+    /// What extracts a page's text; without one the extraction is a job of the extract lane, in this process.
+    extractor: Option<Arc<dyn PageExtractor>>,
 }
 
 fn is_redirect(status: u16) -> bool {
@@ -161,11 +166,22 @@ impl Fetcher {
             .no_proxy()
             .build()
             .map_err(|error| FetchError::network(&error))?;
-        Ok(Self { client, policy, lanes, user_agent: format!("mixdog-web-search/{version}") })
+        Ok(Self { client, policy, lanes, user_agent: format!("mixdog-web-search/{version}"), extractor: None })
     }
 
-    pub fn lanes(&self) -> WebLanes {
-        self.lanes
+    pub fn extracting_with(mut self, extractor: Option<Arc<dyn PageExtractor>>) -> Self {
+        self.extractor = extractor;
+        self
+    }
+
+    /// The text of the page `body` is, fetched from `url` as `content_type`.
+    pub(super) async fn extract(&self, url: Url, body: String, content_type: String) -> Result<Extracted, FetchError> {
+        match &self.extractor {
+            Some(extractor) => extractor.extract(url, body, content_type).await,
+            None => super::lanes::run(self.lanes.extract, move |_| extract_document(&url, &body, &content_type))
+                .await
+                .map_err(|_| FetchError::new(FetchKind::Network, "content extraction failed"))?,
+        }
     }
 
     pub fn parse_url(&self, text: &str) -> Result<Url, FetchError> {

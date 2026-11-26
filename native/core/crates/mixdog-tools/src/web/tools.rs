@@ -34,6 +34,7 @@ use super::cache::NodeCache;
 use super::cache::node_cache_key;
 use super::error::FetchError;
 use super::error::FetchKind;
+use super::extract_host::PageExtractor;
 use super::format::FetchItem;
 use super::format::continuation;
 use super::format::format_fetch;
@@ -92,6 +93,8 @@ pub struct WebConfig {
     /// without it they live in memory only.
     pub cache_file: Option<CacheFile>,
     pub lanes: WebLanes,
+    /// What extracts a fetched page's text; without one the core extracts it itself.
+    pub extractor: Option<Arc<dyn PageExtractor>>,
     pub(crate) public_policy: AddressPolicy,
 }
 
@@ -104,6 +107,7 @@ impl WebConfig {
             search: None,
             request_timeout: Duration::from_secs(120),
             cache_file: None,
+            extractor: None,
             public_policy: AddressPolicy::PublicOnly,
         }
     }
@@ -143,10 +147,10 @@ fn text_output(text: String) -> ToolOutput {
 
 impl WebService {
     pub fn new(config: WebConfig) -> Result<Arc<Self>, FetchError> {
-        let public = Arc::new(Fetcher::new(config.public_policy, &config.version, config.lanes)?);
+        let public = Arc::new(Fetcher::new(config.public_policy, &config.version, config.lanes)?.extracting_with(config.extractor.clone()));
         let cache = Arc::new(NodeCache::new(config.cache_file));
         Ok(Arc::new(Self {
-            loopback: Fetcher::new(AddressPolicy::LoopbackOnly, &config.version, config.lanes)?,
+            loopback: Fetcher::new(AddressPolicy::LoopbackOnly, &config.version, config.lanes)?.extracting_with(config.extractor),
             pipeline: Pipeline::new(public.clone(), config.renderer),
             public,
             search: SearchService::new(config.search, cache.clone()),

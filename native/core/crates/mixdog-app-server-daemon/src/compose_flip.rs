@@ -3116,11 +3116,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // `search` stays unset: the hosted search needs a `SearchHost` (the live Main route and the asking session), which has no implementation in the tree yet, so `web_search` answers Node's
     // "web search provider unavailable" (`web/search.rs`); `web_fetch`, `local_fetch` and `image_fetch` do not depend on it.
     let web_lanes = mixdog_tools::web::WebLanes { extract: b.tokens.cpu_interactive, dns: b.tokens.interactive_io };
+    let page_extractor: Arc<dyn mixdog_tools::web::PageExtractor> = Arc::new(mixdog_tools::web::HostExtractor::new(b.ext_host.clone()));
     let page_renderer: Arc<dyn mixdog_tools::web::PageRenderer> =
-        mixdog_tools::web::BrowserRenderer::new(Arc::new(b.ext_host.render_browser()), &build_version, web_lanes)
+        mixdog_tools::web::BrowserRenderer::extracting_with(Arc::new(b.ext_host.render_browser()), &build_version, web_lanes, page_extractor.clone())
             .map_err(|e| ComposeError::Config(format!("the web page renderer could not be built: {e}")))?;
     let mut web_config = mixdog_tools::web::WebConfig::new(build_version.clone(), web_lanes);
     web_config.renderer = Some(page_renderer);
+    web_config.extractor = Some(page_extractor);
     web_config.cache_file = Some(mixdog_tools::web::CacheFile { path: b.data_dir.join("cache.local.json"), lane: b.tokens.maintenance_io });
     // The hosted web search (`createNativeWebSearch`, `boot/providers.mjs:201-222`): one host for every thread; the asking thread picks the route cell and the session.
     let search_host = Arc::new(mixdog_core_domains::domains::ai_admin::web_search_host::RegistrySearchHost {

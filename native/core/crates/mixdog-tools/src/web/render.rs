@@ -25,7 +25,7 @@ use super::cdp::Cdp;
 use super::cdp::Event;
 use super::error::FetchError;
 use super::error::FetchKind;
-use super::extract::extract_document;
+use super::extract_host::PageExtractor;
 use super::http::Fetcher;
 use super::http::MAX_BODY_BYTES;
 use super::http::assert_document_response;
@@ -101,13 +101,33 @@ impl BrowserRenderer {
         Self::with_policy(endpoint, AddressPolicy::PublicOnly, version, lanes)
     }
 
+    /// [`Self::new`], its pages' text extracted by `extractor`.
+    pub fn extracting_with(
+        endpoint: Arc<dyn BrowserEndpoint>,
+        version: &str,
+        lanes: WebLanes,
+        extractor: Arc<dyn PageExtractor>,
+    ) -> Result<Arc<Self>, FetchError> {
+        Self::build(endpoint, AddressPolicy::PublicOnly, version, lanes, Some(extractor))
+    }
+
     pub(crate) fn with_policy(endpoint: Arc<dyn BrowserEndpoint>, policy: AddressPolicy, version: &str, lanes: WebLanes) -> Result<Arc<Self>, FetchError> {
+        Self::build(endpoint, policy, version, lanes, None)
+    }
+
+    fn build(
+        endpoint: Arc<dyn BrowserEndpoint>,
+        policy: AddressPolicy,
+        version: &str,
+        lanes: WebLanes,
+        extractor: Option<Arc<dyn PageExtractor>>,
+    ) -> Result<Arc<Self>, FetchError> {
         let pages = std::env::var("PUPPETEER_POOL_MAX_PAGES")
             .ok()
             .and_then(|value| value.trim().parse::<usize>().ok())
             .filter(|pages| *pages > 0)
             .unwrap_or(DEFAULT_POOL_PAGES);
-        Ok(Arc::new(Self { endpoint, fetcher: Arc::new(Fetcher::new(policy, version, lanes)?), slots: Semaphore::new(pages) }))
+        Ok(Arc::new(Self { endpoint, fetcher: Arc::new(Fetcher::new(policy, version, lanes)?.extracting_with(extractor)), slots: Semaphore::new(pages) }))
     }
 
     /// Answers one paused request through the policy-checked fetcher.
@@ -290,10 +310,7 @@ impl BrowserRenderer {
         if html.len() > MAX_BODY_BYTES {
             return Err(FetchError::policy(format!("puppeteer page content too large: {} bytes > cap={MAX_BODY_BYTES}", html.len())));
         }
-        let at = final_url.clone();
-        let extracted = super::lanes::run(self.fetcher.lanes().extract, move |_| extract_document(&at, &html, "text/html"))
-            .await
-            .map_err(|_| FetchError::new(FetchKind::Network, "content extraction failed"))??;
+        let extracted = self.fetcher.extract(final_url.clone(), html, "text/html".to_owned()).await?;
         Ok(StagePage {
             url: final_url.to_string(),
             title: extracted.title,

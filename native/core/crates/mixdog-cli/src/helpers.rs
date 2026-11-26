@@ -62,6 +62,15 @@ pub enum Helper {
     },
 }
 
+/// The page extraction the web tools hand to the worker (`mixdog_tools::web`): the worker crate does not hold the extractor.
+fn web_methods(registry: &mut mixdog_exthost_worker::Registry) {
+    registry.register_blocking(mixdog_tools::web::EXTRACT_METHOD, |ctx| {
+        mixdog_tools::web::extract_answer(&ctx.params)
+            .map(mixdog_exthost_worker::Outcome::value)
+            .map_err(|message| mixdog_exthost_worker::CodedError::new("invalid_params", message))
+    });
+}
+
 /// A command line that is one helper's.
 #[derive(Parser)]
 #[command(no_binary_name = true)]
@@ -98,7 +107,7 @@ pub fn run(helper: Helper) -> ExitCode {
                     electron: js.electron,
                 });
             }
-            mixdog_exthost_worker::ext_worker_main()
+            mixdog_exthost_worker::main_entry::ext_worker_main_with(&[web_methods])
         }
         Helper::SkillRun { args } => {
             // A script that is not shipped runs on the install's script interpreter.
@@ -116,5 +125,14 @@ pub fn run(helper: Helper) -> ExitCode {
             }
             mixdog_skill_scripts::skill_run(args, runtime)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_worker_serves_the_web_tools_page_extraction() {
+        let methods = mixdog_exthost_worker::main_entry::native_methods_with(&[super::web_methods]);
+        assert!(methods.iter().any(|method| method == mixdog_tools::web::EXTRACT_METHOD), "{methods:?}");
     }
 }

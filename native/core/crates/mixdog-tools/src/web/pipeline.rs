@@ -2,7 +2,6 @@
 //! then the optional render stage, all inside one budget. Pages on the same host
 //! take turns with a short gap; other hosts never wait on them.
 
-use super::lanes;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -16,7 +15,6 @@ use url::Url;
 use super::error::FetchError;
 use super::error::FetchKind;
 use super::extract::assert_readable;
-use super::extract::extract_document;
 use super::http::Fetcher;
 use super::http::Redirect;
 use super::http::Session;
@@ -418,9 +416,7 @@ impl Pipeline {
             document = self.fetcher.fetch_document(&target, &session).await?;
         }
         let final_url = document.url.clone();
-        let extracted = lanes::run(self.fetcher.lanes().extract, move |_| extract_document(&document.url, &document.body, &document.content_type))
-            .await
-            .map_err(|_| FetchError::new(FetchKind::Network, "content extraction failed"))??;
+        let extracted = self.fetcher.extract(document.url, document.body, document.content_type).await?;
         Ok(StagePage {
             url: final_url.to_string(),
             title: extracted.title,
