@@ -47,6 +47,7 @@ pub enum ToWorker {
 /// Helper to core.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
+#[allow(clippy::large_enum_variant, reason = "one frame decoded and matched at once; the helper's start is sent once per process")]
 pub enum FromWorker {
     Ready { ready: Ready },
     Reply { id: RequestId, reply: Reply },

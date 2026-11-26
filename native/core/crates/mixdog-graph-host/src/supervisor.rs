@@ -591,7 +591,7 @@ struct Actor {
     generations: u64,
     /// The last completed demand, or the current generation's start: the idle deadline runs from it.
     reference: Option<Instant>,
-    launch: Option<BoxFuture<(u64, io::Result<(OwnedChild, OwnedPipes)>)>>,
+    launch: Option<BoxFuture<Launched>>,
     exit: Option<BoxFuture<(u64, Reaped)>>,
     /// A removal on the disk with no helper; no helper starts while it runs.
     offline: Option<BoxFuture<Result<Forgot, String>>>,
@@ -601,6 +601,9 @@ struct Actor {
     closing: Option<Closing>,
     closed: Option<CloseOutcome>,
 }
+
+/// A generation's launch: its number, and the helper with its pipes.
+type Launched = (u64, io::Result<(OwnedChild, OwnedPipes)>);
 
 async fn next<T>(slot: &mut Option<BoxFuture<T>>) -> T {
     match slot {
