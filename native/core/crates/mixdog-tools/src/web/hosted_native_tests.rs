@@ -226,9 +226,9 @@ impl SearchHost for World {
     fn catalog_row(&self, provider: &str, model: &str) -> Option<Value> {
         self.global.get(format!("{provider}/{model}")).cloned()
     }
-    async fn provider(&self, provider: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, String> {
+    async fn provider(&self, provider: &str) -> Result<Option<super::SearchProvider>, String> {
         let mut providers = self.providers.lock().unwrap();
-        Ok(Some(
+        Ok(Some(super::SearchProvider::Hosted(
             providers
                 .entry(provider.to_owned())
                 .or_insert_with(|| {
@@ -243,7 +243,7 @@ impl SearchHost for World {
                     })
                 })
                 .clone(),
-        ))
+        )))
     }
     fn session_id(&self, thread: &ThreadId) -> Option<String> {
         assert_eq!(thread, &asking_thread(), "the session is the asking thread's");
@@ -319,7 +319,7 @@ impl SearchHost for Threads {
     fn catalog_row(&self, provider: &str, model: &str) -> Option<Value> {
         self.shared.catalog_row(provider, model)
     }
-    async fn provider(&self, provider: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, String> {
+    async fn provider(&self, provider: &str) -> Result<Option<super::SearchProvider>, String> {
         self.shared.provider(provider).await
     }
     fn session_id(&self, thread: &ThreadId) -> Option<String> {

@@ -190,6 +190,10 @@ impl WorkflowHost for ConfigHosts {
         self.ready.ensure(providers).await
     }
 
+    async fn ensure_agent_provider_ready(&self, provider: &str) -> Result<(), String> {
+        self.facts.ensure_ready(&self.config.agent(), provider).await
+    }
+
     /// `lookupModelMeta(provider, model, { allowFetch: true })` (`web-search-route.mjs:66`): never absent, the bare
     /// `{id, provider}` placeholder at worst.
     async fn lookup_model_meta(&self, provider: &str, model: &str) -> Option<Value> {
@@ -224,4 +228,139 @@ impl WorkflowHost for ConfigHosts {
 
     /// The route state is the saved config; no provider cache is held apart from the catalog.
     fn web_search_route_saved(&self, _route: &Value) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use mixdog_core_api::mock::MockStatePublisher;
+    use mixdog_core_config::config::ConfigLanes;
+    use mixdog_core_ports::ports::route::Route;
+    use mixdog_core_ports::ports::route_facts::RouteSender;
+
+    use super::*;
+
+    struct NoLiveRoute;
+    impl LiveRoute for NoLiveRoute {
+        fn route(&self, _: &ThreadId) -> Route {
+            Route::new()
+        }
+        fn adopt_held(&self, _: &ThreadId, _: &Route) {}
+    }
+
+    struct NoGauge;
+    impl ContextStatusCache for NoGauge {
+        fn invalidate(&self, _: &ThreadId) {}
+    }
+
+    struct NoAgents;
+    #[async_trait]
+    impl CustomAgentIds for NoAgents {
+        async fn ids(&self) -> Vec<String> {
+            Vec::new()
+        }
+    }
+
+    struct NoRefresh;
+    impl AuthRefresh for NoRefresh {
+        fn after_credential_change(&self) {}
+        fn custom_provider_removed(&self, _: &str) {}
+        fn adopt_credentials(&self) {}
+        fn after_usage_auth_change(&self) {}
+        fn release_admission_cooldowns(&self) {}
+        fn account_selection_changed(&self) {}
+    }
+
+    struct PanicCatalogReady;
+    #[async_trait]
+    impl ProvidersReady for PanicCatalogReady {
+        async fn ensure(&self, _: Map<String, Value>) -> Result<(), String> {
+            panic!("catalog readiness must not be called for ACP agent providers")
+        }
+    }
+
+    struct AcpFacts {
+        ready_calls: Mutex<Vec<String>>,
+        ready_result: Result<(), String>,
+    }
+
+    #[async_trait]
+    impl RouteFacts for AcpFacts {
+        fn is_known(&self, provider: &str, _: &Map<String, Value>) -> bool {
+            provider == "acp-antigravity"
+        }
+        async fn ensure_ready(&self, _: &Map<String, Value>, provider: &str) -> Result<(), String> {
+            self.ready_calls.lock().unwrap().push(provider.to_owned());
+            self.ready_result.clone()
+        }
+        fn model_meta(&self, provider: &str, model: &str) -> Value {
+            json!({
+                "id": model,
+                "provider": provider,
+                "runner": "acp",
+                "supportsWebSearch": model != "gemini-pro-orchestrator",
+            })
+        }
+        fn window_meta(&self, _: &str, _: &str, _: &Value) -> Option<Value> {
+            None
+        }
+        fn catalog_knows(&self, _: &str, provider: &str) -> bool {
+            provider == "acp-antigravity"
+        }
+        fn fast_capable(&self, _: &str, _: &Value, _: Option<&str>, _: &Value) -> bool {
+            false
+        }
+        fn ultrafast_capable(&self, _: &str, _: &Value) -> bool {
+            false
+        }
+        async fn sender(&self, _: Option<&Map<String, Value>>, _: &str) -> Result<Option<RouteSender>, String> {
+            Ok(None)
+        }
+        fn registered(&self, _: &str) -> Option<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>> {
+            None
+        }
+        fn init_error(&self, _: &str) -> Option<String> {
+            None
+        }
+    }
+
+    #[tokio::test]
+    async fn config_hosts_routes_acp_web_search_readiness_and_meta_through_route_facts() {
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let path = dir.path().join("mixdog-config.json");
+        #[allow(clippy::disallowed_methods, reason = "test setup writes config fixture")]
+        std::fs::write(&path, br#"{"agent":{}}"#).unwrap();
+        let (config, _) = Config::open(
+            path,
+            Arc::new(MockStatePublisher::default()),
+            ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io },
+        )
+        .await
+        .unwrap();
+        let facts = Arc::new(AcpFacts { ready_calls: Mutex::default(), ready_result: Ok(()) });
+        let hosts = ConfigHosts {
+            config,
+            routes: Arc::new(NoLiveRoute),
+            gauge: Arc::new(NoGauge),
+            agents: Arc::new(NoAgents),
+            facts: facts.clone(),
+            ready: Arc::new(PanicCatalogReady),
+            refresh: Arc::new(NoRefresh),
+            env: Arc::new(|_| None),
+            agent_providers: Arc::new(|p| p == "acp-antigravity"),
+            surface: mixdog_core_base::surface::SurfaceGeneration::default(),
+        };
+
+        assert!(hosts.agent_provider("acp-antigravity"));
+        hosts.ensure_agent_provider_ready("acp-antigravity").await.unwrap();
+        assert_eq!(*facts.ready_calls.lock().unwrap(), ["acp-antigravity"]);
+
+        let good = hosts.lookup_model_meta("acp-antigravity", "gemini-3-flash").await;
+        assert!(hosts.web_search_capable("acp-antigravity", good.as_ref()));
+
+        let orch = hosts.lookup_model_meta("acp-antigravity", "gemini-pro-orchestrator").await;
+        assert!(!hosts.web_search_capable("acp-antigravity", orch.as_ref()));
+    }
 }

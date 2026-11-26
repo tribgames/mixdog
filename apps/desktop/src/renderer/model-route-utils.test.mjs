@@ -85,3 +85,29 @@ test('route options normalize capability records', () => {
     }
   );
 });
+
+test('routeOption preserves ACP runner, agent, and notApplicable fields for web-search rows', () => {
+  const acp = routeOption({
+    provider: 'acp-antigravity',
+    id: 'gemini-3.8-flash',
+    name: 'Antigravity · Gemini 3.8 Flash',
+    display: 'Antigravity · Gemini 3.8 Flash',
+    runner: 'acp',
+    agent: 'antigravity',
+    notApplicable: ['autoEffort', 'fast', 'fallbacks'],
+    effortOptions: [{ value: 'high', label: 'High' }],
+    defaultEffort: 'high',
+    supportsWebSearch: true,
+    webSearchCapable: true,
+  });
+  assert.equal(acp.runner, 'acp');
+  assert.equal(acp.agent, 'antigravity');
+  assert.deepEqual(acp.notApplicable, ['autoEffort', 'fast', 'fallbacks']);
+  assert.equal(acp.provider, 'acp-antigravity');
+  assert.equal(acp.model, 'gemini-3.8-flash');
+
+  const hosted = routeOption({ provider: 'openai', id: 'gpt-5', name: 'GPT-5' });
+  assert.equal('runner' in hosted, false);
+  assert.equal('agent' in hosted, false);
+  assert.equal('notApplicable' in hosted, false);
+});

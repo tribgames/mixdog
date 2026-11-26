@@ -9,6 +9,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_core_api::domain::provider::Usage;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_js::is_js_space;
 use mixdog_js::js_trim;
@@ -34,6 +35,7 @@ pub enum SearchFamily {
     Anthropic,
     Gemini,
     Xai,
+    Acp,
 }
 
 /// One provider/model that may answer a search.
@@ -95,11 +97,138 @@ pub struct HostedSearchError {
     /// refusal) before the stream produced anything: the next candidate may
     /// answer. A denied credential or any started stream is not one.
     pub capacity: bool,
+    /// The backend for this candidate is not available yet.
+    pub unavailable: bool,
+}
+
+impl HostedSearchError {
+    pub fn unavailable(message: impl Into<String>) -> Self {
+        Self { message: message.into(), capacity: false, unavailable: true }
+    }
+}
+
+/// One web search asked of an ACP agent preset's search-only session.
+#[derive(Clone, Debug)]
+pub struct AcpSearchRequest {
+    pub provider: String,
+    pub model: String,
+    pub effort: Option<String>,
+    pub query: String,
+    pub site: Option<String>,
+    pub locale: Option<Value>,
+    pub max_results: usize,
+    pub context_size: String,
+}
+
+/// One ACP search dispatch with the asking thread and resolved candidate.
+#[derive(Clone, Debug)]
+pub struct AcpSearchCall {
+    pub thread: ThreadId,
+    pub candidate: SearchCandidate,
+    pub request: AcpSearchRequest,
+}
+
+/// One ACP search turn's answer, citations, `search_web` calls, and usage.
+#[derive(Clone, Debug, Default)]
+pub struct AcpSearchReply {
+    pub answer: String,
+    /// The model the agent reports having used, if any.
+    pub model: Option<String>,
+    pub citations: Vec<NativeSource>,
+    /// The `search_web` calls made during this turn; an empty list is rejected as a failure.
+    pub calls: Vec<SearchCall>,
+    pub usage: Option<Usage>,
+    /// Whether `usage.input_tokens` excludes `usage.cache_read_tokens`.
+    pub input_excludes_cache: bool,
+}
+
+/// Classification of an ACP search backend failure.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AcpSearchErrorKind {
+    /// Rate limit or quota exhaustion before any search ran: fallback to the next candidate.
+    Capacity,
+    /// Agent sign-in required or expired: surface at once.
+    SignIn,
+    /// Account/policy refusal or turn made no `search_web` call: surface at once.
+    Refusal,
+    /// Agent binary/server not installed or feature disabled: surface at once.
+    NotInstalled,
+    /// No ACP search backend is wired yet: reports candidate unavailable.
+    Unavailable,
+    /// Caller cancelled the search.
+    Cancelled,
+    /// Any other failure: surface at once.
+    Failed,
+}
+
+#[derive(Clone, Debug)]
+pub struct AcpSearchError {
+    pub kind: AcpSearchErrorKind,
+    pub message: String,
+    /// Usage reported before failure or cancellation, if any.
+    pub usage: Option<Usage>,
+    pub input_excludes_cache: bool,
+}
+
+impl AcpSearchError {
+    pub fn capacity(message: impl Into<String>) -> Self {
+        Self { kind: AcpSearchErrorKind::Capacity, message: message.into(), usage: None, input_excludes_cache: false }
+    }
+
+    pub fn sign_in(message: impl Into<String>) -> Self {
+        Self { kind: AcpSearchErrorKind::SignIn, message: message.into(), usage: None, input_excludes_cache: false }
+    }
+
+    pub fn refusal(message: impl Into<String>) -> Self {
+        Self { kind: AcpSearchErrorKind::Refusal, message: message.into(), usage: None, input_excludes_cache: false }
+    }
+
+    pub fn not_installed(message: impl Into<String>) -> Self {
+        Self { kind: AcpSearchErrorKind::NotInstalled, message: message.into(), usage: None, input_excludes_cache: false }
+    }
+
+    pub fn unavailable(message: impl Into<String>) -> Self {
+        Self { kind: AcpSearchErrorKind::Unavailable, message: message.into(), usage: None, input_excludes_cache: false }
+    }
+
+    pub fn cancelled(message: impl Into<String>) -> Self {
+        Self { kind: AcpSearchErrorKind::Cancelled, message: message.into(), usage: None, input_excludes_cache: false }
+    }
+
+    pub fn failed(message: impl Into<String>) -> Self {
+        Self { kind: AcpSearchErrorKind::Failed, message: message.into(), usage: None, input_excludes_cache: false }
+    }
+
+    pub fn with_usage(mut self, usage: Option<Usage>, input_excludes_cache: bool) -> Self {
+        self.usage = usage;
+        self.input_excludes_cache = input_excludes_cache;
+        self
+    }
+}
+
+/// Port implemented by the ACP search session pool to run search-only turns.
+#[async_trait]
+pub trait AcpSearchBackend: Send + Sync {
+    async fn search(&self, request: AcpSearchRequest, cancel: &CancellationToken) -> Result<AcpSearchReply, AcpSearchError>;
+}
+
+/// Normalized ACP search reply returned by [`HostedSearchSender::send_acp`] after ledger accounting.
+#[derive(Clone, Debug, Default)]
+pub struct AcpSendReply {
+    pub answer: String,
+    pub model: Option<String>,
+    pub usage: Option<Value>,
+    pub citations: Vec<NativeSource>,
+    pub calls: Vec<SearchCall>,
 }
 
 #[async_trait]
 pub trait HostedSearchSender: Send + Sync {
     async fn send(&self, call: HostedSearchCall, cancel: &CancellationToken) -> Result<HostedSearchReply, HostedSearchError>;
+
+    async fn send_acp(&self, call: AcpSearchCall, _cancel: &CancellationToken) -> Result<AcpSendReply, HostedSearchError> {
+        Err(HostedSearchError::unavailable(format!("ACP web search backend for \"{}\" is not available", call.candidate.provider)))
+    }
 }
 
 pub struct HostedWebSearch {
@@ -160,6 +289,7 @@ fn tool_types(candidate: &SearchCandidate) -> Vec<String> {
         SearchFamily::Gemini => vec!["google_search".to_string()],
         SearchFamily::Anthropic | SearchFamily::Xai => vec!["web_search".to_string()],
         SearchFamily::Openai => vec!["web_search".to_string(), "web_search_preview".to_string()],
+        SearchFamily::Acp => vec!["search_web".to_string()],
     }
 }
 
@@ -188,7 +318,7 @@ fn hosted_tool(request: &NativeSearchRequest, tool_type: &str, family: SearchFam
     let location = user_location(request.locale.as_ref());
     let kind = if js_trim(tool_type).is_empty() { "web_search" } else { js_trim(tool_type) };
     match family {
-        SearchFamily::Gemini => json!({ "type": kind }),
+        SearchFamily::Gemini | SearchFamily::Acp => json!({ "type": kind }),
         SearchFamily::Anthropic => {
             let uses = if request.max_results == 0 { 5 } else { request.max_results };
             let mut tool = json!({
@@ -298,6 +428,38 @@ fn search_call(call: &Value) -> SearchCall {
     SearchCall { query: action.get("query").and_then(Value::as_str).unwrap_or_default().to_string(), sources, urls }
 }
 
+fn flatten_acp_citations(citations: &[NativeSource], calls: &[SearchCall]) -> Vec<NativeSource> {
+    let mut out: Vec<NativeSource> = Vec::new();
+    let mut add = |source: &NativeSource, fallback_title: &str| {
+        let url = js_trim(&source.url);
+        if url.is_empty() {
+            return;
+        }
+        let title = js_trim(&source.title);
+        let title = if title.is_empty() { js_trim(fallback_title) } else { title };
+        out.push(NativeSource {
+            url: url.to_string(),
+            title: if title.is_empty() { url.to_string() } else { title.to_string() },
+            snippet: js_trim(&source.snippet).to_string(),
+            published_date: source.published_date.clone(),
+        });
+    };
+    for citation in citations {
+        add(citation, "");
+    }
+    for call in calls {
+        for source in &call.sources {
+            add(source, &call.query);
+        }
+        for url in &call.urls {
+            add(&NativeSource { url: url.clone(), ..NativeSource::default() }, &call.query);
+        }
+    }
+    let mut seen = HashSet::new();
+    out.retain(|source| seen.insert(source.url.clone()));
+    out
+}
+
 #[async_trait]
 impl NativeWebSearch for HostedWebSearch {
     async fn search(&self, request: NativeSearchRequest, cancel: CancellationToken) -> Result<NativeSearchResult, NativeSearchError> {
@@ -306,7 +468,49 @@ impl NativeWebSearch for HostedWebSearch {
             return Err(NativeSearchError::Unavailable(self.routes.no_candidate_message(&request.thread).await));
         }
         let mut errors: Vec<String> = Vec::new();
+        let mut unavailable: Vec<String> = Vec::new();
         for candidate in candidates {
+            if candidate.family == SearchFamily::Acp {
+                let call = AcpSearchCall {
+                    thread: request.thread.clone(),
+                    candidate: candidate.clone(),
+                    request: AcpSearchRequest {
+                        provider: candidate.provider.clone(),
+                        model: candidate.model.clone(),
+                        effort: candidate.effort.clone(),
+                        query: request.query.clone(),
+                        site: request.site.clone(),
+                        locale: request.locale.clone(),
+                        max_results: request.max_results,
+                        context_size: request.context_size.clone(),
+                    },
+                };
+                match self.sender.send_acp(call, &cancel).await {
+                    Ok(reply) => {
+                        let citations = flatten_acp_citations(&reply.citations, &reply.calls);
+                        return Ok(NativeSearchResult {
+                            provider: candidate.provider,
+                            answer: js_trim(&reply.answer).to_string(),
+                            citations,
+                            calls: reply.calls,
+                            model: reply.model.filter(|model| !model.is_empty()).or_else(|| Some(candidate.model).filter(|model| !model.is_empty())),
+                            usage: reply.usage,
+                        });
+                    }
+                    Err(error) => {
+                        if error.unavailable && !cancel.is_cancelled() {
+                            unavailable.push(error.message);
+                            continue;
+                        }
+                        if !error.capacity || cancel.is_cancelled() {
+                            return Err(NativeSearchError::Failed(error.message));
+                        }
+                        let model = if candidate.model.is_empty() { String::new() } else { format!("/{}", candidate.model) };
+                        errors.push(format!("{}{model}/search_web: {}", candidate.provider, error.message));
+                    }
+                }
+                continue;
+            }
             let tool_type = tool_types(&candidate).remove(0);
             let call = HostedSearchCall {
                 thread: request.thread.clone(),
@@ -329,6 +533,10 @@ impl NativeWebSearch for HostedWebSearch {
                     });
                 }
                 Err(error) => {
+                    if error.unavailable && !cancel.is_cancelled() {
+                        unavailable.push(error.message);
+                        continue;
+                    }
                     if !error.capacity || cancel.is_cancelled() {
                         return Err(NativeSearchError::Failed(error.message));
                     }
@@ -336,6 +544,13 @@ impl NativeWebSearch for HostedWebSearch {
                     errors.push(format!("{}{model}/{tool_type}: {}", candidate.provider, error.message));
                 }
             }
+        }
+        if errors.is_empty() {
+            return Err(NativeSearchError::Unavailable(if unavailable.len() == 1 {
+                unavailable.remove(0)
+            } else {
+                unavailable.join(" | ")
+            }));
         }
         Err(NativeSearchError::Failed(format!("native web search failed: {}", errors.join(" | "))))
     }

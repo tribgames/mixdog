@@ -8,11 +8,13 @@ use mixdog_ai::catalog::CatalogService;
 use mixdog_ai::service::admin_models::{model_proxy_client_mode, provider_model_cache_row, sort_provider_models};
 use mixdog_ai::service::model_listing::listing_value;
 use mixdog_ai::service::routes::web_search_capable_for;
+use mixdog_ai::service::routes::web_search_provider_family;
 use mixdog_ai::service::web_search_models::{CatalogFacts, QuickFacts, WebSearchCatalog, hydrated_model, main_model_meta};
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_ports::ports::route::LiveRoute;
 use serde_json::{Map, Value};
 
+use super::chain::RouteFacts;
 use super::model_list::ModelListService;
 use crate::domains::ai_account::collaborators::WebSearchModels;
 use crate::domains::ai_account::failure::Failure;
@@ -36,6 +38,8 @@ pub struct WebSearchRoutes {
     pub main_route: Arc<dyn Fn() -> Value + Send + Sync>,
     /// `getWebSearchRoute()` = `rt.webSearchRoute`: the web-search route state.
     pub web_search_route: Arc<dyn Fn() -> Value + Send + Sync>,
+    /// Route facts (catalog + ACP agents) for Main model metadata fallback.
+    pub facts: Arc<dyn RouteFacts>,
 }
 
 #[derive(Clone)]
@@ -61,6 +65,13 @@ impl Facts {
         let snapshot = self.catalog.snapshot();
         let (_, records) = snapshot.models.iter().find(|(p, _)| p.as_str() == name)?;
         Some(records.iter().map(listing_value).collect())
+    }
+
+    fn catalog_meta(&self, provider: &str, id: &str) -> Value {
+        if web_search_provider_family(provider) == "acp" && self.routes.facts.catalog_knows(id, provider) {
+            return self.routes.facts.model_meta(provider, id);
+        }
+        self.catalog.listed_meta(provider, id)
     }
 }
 
@@ -102,20 +113,23 @@ impl QuickFacts for Facts {
 
     fn cache_row(&self, provider: &str, model: &Value) -> Value {
         let id = model.get("id").and_then(Value::as_str).unwrap_or_default();
-        let catalog_row = self.catalog.listed_meta(provider, id);
+        let catalog_row = self.catalog_meta(provider, id);
         let web_search = web_search_capable_for(provider, id, Some(model), Some(&catalog_row));
         Value::Object(provider_model_cache_row(provider, model, web_search))
     }
 
     fn capable_for(&self, provider: &str, model: &Value) -> bool {
         let id = model.get("id").and_then(Value::as_str).unwrap_or_default();
-        web_search_capable_for(provider, id, Some(model), Some(&self.catalog.listed_meta(provider, id)))
+        web_search_capable_for(provider, id, Some(model), Some(&self.catalog_meta(provider, id)))
     }
 
     fn main_model_meta(&self) -> Option<Value> {
         let route = self.route();
         let provider = route.get("provider")?.as_str()?;
-        let info = route.get("model").and_then(Value::as_str).and_then(|model| listed_row(&self.catalog, provider, model));
+        let info = route.get("model").and_then(Value::as_str).and_then(|model| {
+            listed_row(&self.catalog, provider, model)
+                .or_else(|| self.routes.facts.catalog_knows(model, provider).then(|| self.routes.facts.model_meta(provider, model)))
+        });
         main_model_meta(&route, info.as_ref())
     }
 

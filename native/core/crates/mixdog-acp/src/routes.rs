@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_ai::service::routes::web_search_capable_for;
 use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::call::Reply;
 use mixdog_core_api::error::CoreError;
@@ -11,6 +12,8 @@ use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
 use mixdog_core_api::service::DomainService;
+use mixdog_core_domains::domains::ai_account::collaborators::WebSearchModels;
+use mixdog_core_domains::domains::ai_account::failure::Failure;
 use mixdog_core_domains::domains::ai_admin::chain::RouteFacts;
 use mixdog_core_ports::ports::route::Route;
 use mixdog_core_ports::ports::route_facts::AgentAnswer;
@@ -24,6 +27,34 @@ use serde_json::Value;
 
 use crate::agents::Agents;
 use crate::preset::AgentPreset;
+
+fn is_own_orchestration(preset: &AgentPreset, model: &str) -> bool {
+    preset.quirks.own_orchestration.iter().any(|prefix| model.starts_with(prefix.as_str()))
+}
+
+fn web_search_capable(agents: &Arc<Agents>, preset: &AgentPreset, model: &str) -> bool {
+    let model = model.trim();
+    agents.selectable(preset).is_ok()
+        && web_search_capable_for(&preset.provider, model, None, None)
+        && agents.refuses_model(preset, model).is_none()
+        && !is_own_orchestration(preset, model)
+}
+
+fn apply_model_settings(rows: &mut [Value], settings: &Map<String, Value>) {
+    for row in rows {
+        let key = format!("{}/{}", row["provider"].as_str().unwrap_or_default(), row["id"].as_str().unwrap_or_default());
+        let (Some(saved), Some(row)) = (settings.get(&key), row.as_object_mut()) else { continue };
+        if let Some(hidden @ Value::Bool(_)) = saved.get("hidden") {
+            row.insert("savedHidden".to_owned(), hidden.clone());
+        }
+        if saved.get("favorite") == Some(&Value::Bool(true)) {
+            row.insert("favorite".to_owned(), Value::Bool(true));
+        }
+        if row.contains_key("effortOptions") {
+            row.insert("savedEffort".to_owned(), saved.get("effort").cloned().unwrap_or(Value::Null));
+        }
+    }
+}
 
 /// [`RouteFacts`] that knows the agents' routes; every other provider is the catalog's.
 pub struct AgentRouteFacts {
@@ -53,7 +84,13 @@ impl RouteFacts for AgentRouteFacts {
 
     fn model_meta(&self, provider: &str, model: &str) -> Value {
         match self.agents.preset_of_route(provider) {
-            Some(preset) => self.agents.model_row(preset, model),
+            Some(preset) => {
+                let mut row = self.agents.model_row(preset, model);
+                if let Some(obj) = row.as_object_mut() {
+                    obj.insert("supportsWebSearch".to_owned(), Value::Bool(web_search_capable(&self.agents, preset, model)));
+                }
+                row
+            }
             None => self.inner.model_meta(provider, model),
         }
     }
@@ -204,19 +241,7 @@ impl AgentModelList {
     fn rows(&self) -> Vec<Value> {
         let settings = (self.settings)();
         let mut rows = self.agents.picker_rows();
-        for row in &mut rows {
-            let key = format!("{}/{}", row["provider"].as_str().unwrap_or_default(), row["id"].as_str().unwrap_or_default());
-            let (Some(saved), Some(row)) = (settings.get(&key), row.as_object_mut()) else { continue };
-            if let Some(hidden @ Value::Bool(_)) = saved.get("hidden") {
-                row.insert("savedHidden".to_owned(), hidden.clone());
-            }
-            if saved.get("favorite") == Some(&Value::Bool(true)) {
-                row.insert("favorite".to_owned(), Value::Bool(true));
-            }
-            if row.contains_key("effortOptions") {
-                row.insert("savedEffort".to_owned(), saved.get("effort").cloned().unwrap_or(Value::Null));
-            }
-        }
+        apply_model_settings(&mut rows, &settings);
         rows
     }
 }
@@ -247,5 +272,399 @@ impl DomainService for AgentModelList {
 
     fn notify(&self, method: Method, params: Value, from: ConnectionId) -> Admit {
         self.inner.notify(method, params, from)
+    }
+}
+
+/// `account/listWebSearchModels` with the ready web-search-capable agents' entries after the catalog's rows.
+pub struct AgentWebSearchModels {
+    pub inner: Arc<dyn WebSearchModels>,
+    pub agents: Arc<Agents>,
+    /// The saved `modelSettings` (`"<provider>/<model>"` → the model's favourite, hidden and effort marks).
+    pub settings: Arc<dyn Fn() -> Map<String, Value> + Send + Sync>,
+}
+
+impl AgentWebSearchModels {
+    fn rows(&self) -> Vec<Value> {
+        let settings = (self.settings)();
+        let mut rows: Vec<Value> = self
+            .agents
+            .picker_rows()
+            .into_iter()
+            .filter_map(|mut row| {
+                let provider = row.get("provider").and_then(Value::as_str)?;
+                let id = row.get("id").and_then(Value::as_str)?;
+                let preset = self.agents.preset_of_route(provider)?;
+                if !web_search_capable(&self.agents, preset, id) {
+                    return None;
+                }
+                if let Some(obj) = row.as_object_mut() {
+                    obj.insert("supportsWebSearch".to_owned(), Value::Bool(true));
+                    obj.insert("webSearchCapable".to_owned(), Value::Bool(true));
+                    obj.insert("webSearchToolType".to_owned(), Value::String("web_search".to_owned()));
+                    obj.insert("mode".to_owned(), Value::String("chat".to_owned()));
+                }
+                Some(row)
+            })
+            .collect();
+        apply_model_settings(&mut rows, &settings);
+        rows
+    }
+}
+
+#[async_trait]
+impl WebSearchModels for AgentWebSearchModels {
+    async fn list(&self, thread: Option<&ThreadId>, force: bool) -> Result<Value, Failure> {
+        let mut value = self.inner.list(thread, force).await?;
+        let rows = self.rows();
+        if let Value::Array(models) = &mut value {
+            models.retain(|row| {
+                row.get("provider").and_then(Value::as_str).is_none_or(|provider| self.agents.preset_of_route(provider).is_none())
+            });
+            models.extend(rows);
+        }
+        Ok(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use mixdog_core_api::domain::common::AbsPath;
+    use serde_json::json;
+
+    use super::*;
+    use crate::agents::{AgentsParts, Readiness, Refusals, Windows, lock};
+    use crate::files::TextFiles;
+    use crate::preset::{AgentPreset, builtin};
+    use crate::session::{AgentModel, Models, Program};
+    use crate::upkeep::Slot;
+
+    #[derive(Default)]
+    struct NoRefusals;
+
+    #[async_trait]
+    impl Refusals for NoRefusals {
+        async fn read(&self) -> HashMap<String, String> {
+            HashMap::new()
+        }
+        async fn keep(&self, _: HashMap<String, String>) {}
+        async fn read_windows(&self) -> Windows {
+            Windows::new()
+        }
+        async fn keep_windows(&self, _: Windows) {}
+    }
+
+    struct NoFiles;
+
+    #[async_trait]
+    impl TextFiles for NoFiles {
+        async fn read(&self, _: AbsPath) -> Result<String, String> {
+            Err("unused".into())
+        }
+        async fn resolved(&self, path: AbsPath) -> Result<AbsPath, String> {
+            Ok(path)
+        }
+        async fn create(&self, _: AbsPath, _: String) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    struct EmptyFacts;
+
+    #[async_trait]
+    impl RouteFacts for EmptyFacts {
+        fn is_known(&self, _: &str, _: &Map<String, Value>) -> bool {
+            false
+        }
+        async fn ensure_ready(&self, _: &Map<String, Value>, provider: &str) -> Result<(), String> {
+            Err(format!("unknown provider {provider}"))
+        }
+        fn model_meta(&self, _: &str, _: &str) -> Value {
+            Value::Null
+        }
+        fn window_meta(&self, _: &str, _: &str, _: &Value) -> Option<Value> {
+            None
+        }
+        fn catalog_knows(&self, _: &str, _: &str) -> bool {
+            false
+        }
+        fn fast_capable(&self, _: &str, _: &Value, _: Option<&str>, _: &Value) -> bool {
+            false
+        }
+        fn ultrafast_capable(&self, _: &str, _: &Value) -> bool {
+            false
+        }
+        async fn sender(&self, _: Option<&Map<String, Value>>, _: &str) -> Result<Option<RouteSender>, String> {
+            Ok(None)
+        }
+        fn registered(&self, _: &str) -> Option<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>> {
+            None
+        }
+        fn init_error(&self, _: &str) -> Option<String> {
+            None
+        }
+    }
+
+    struct StaticWebSearchModels(Value);
+
+    #[async_trait]
+    impl WebSearchModels for StaticWebSearchModels {
+        async fn list(&self, _: Option<&ThreadId>, _: bool) -> Result<Value, Failure> {
+            Ok(self.0.clone())
+        }
+    }
+
+    fn build_agents(presets: Vec<AgentPreset>, enabled: Arc<AtomicBool>) -> (tempfile::TempDir, Arc<Agents>) {
+        let dir = tempfile::tempdir().unwrap();
+        let processes = Arc::new(mixdog_spawn::LocalProcessManager::new(
+            mixdog_rt::testing::tokens().spawn_io,
+            mixdog_spawn::ProcessConfig::default(),
+        ));
+        let agents = Agents::new(AgentsParts {
+            refusals: Arc::new(NoRefusals),
+            presets,
+            processes,
+            files: Arc::new(NoFiles),
+            enabled: {
+                let enabled = enabled.clone();
+                Arc::new(move || enabled.load(Ordering::SeqCst))
+            },
+            changed: Arc::new(|| {}),
+            probe_cwd: dir.path().to_path_buf(),
+            definitions: dir.path().join("defs"),
+            data_dir: dir.path().join("data"),
+            env: Arc::new(|_| None),
+            mcp_bridge: None,
+            registry: None,
+        });
+        (dir, agents)
+    }
+
+    fn seed_slot(agents: &Agents, preset_id: &str, readiness: Readiness) {
+        let mut slots = lock(&agents.slots);
+        let mut slot = Slot::default();
+        slot.readiness = Some(readiness);
+        slot.program = Some(Program::at("stub"));
+        slots.insert(preset_id.to_owned(), slot);
+    }
+
+    fn models(list: &[(&str, &str)]) -> Models {
+        Models {
+            available: list.iter().map(|(id, name)| AgentModel { id: (*id).to_owned(), name: (*name).to_owned() }).collect(),
+            current: list.first().map(|(id, _)| (*id).to_owned()),
+            config_option: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn agent_route_facts_marks_web_search_capability_and_excludes_own_orchestration() {
+        let mut presets = builtin();
+        let mut other = presets[0].clone();
+        other.id = "other-agent".into();
+        other.provider = "acp-other".into();
+        presets.push(other);
+
+        let enabled = Arc::new(AtomicBool::new(true));
+        let (_dir, agents) = build_agents(presets, enabled.clone());
+        seed_slot(
+            &agents,
+            "antigravity",
+            Readiness::Ready {
+                version: "1.5.2".into(),
+                models: models(&[("gemini-3-flash", "Gemini 3 Flash"), ("gemini-pro-orchestrator", "Orchestrator")]),
+            },
+        );
+        seed_slot(
+            &agents,
+            "antigravity-cli",
+            Readiness::SignedOut { version: "1.5.16".into(), message: "sign in".into() },
+        );
+
+        let facts = AgentRouteFacts { inner: Arc::new(EmptyFacts), agents: agents.clone() };
+        let empty = Map::new();
+
+        assert_eq!(facts.ensure_ready(&empty, "acp-antigravity").await, Ok(()));
+        assert!(facts.ensure_ready(&empty, "acp-antigravity-cli").await.unwrap_err().contains("signed out"));
+
+        assert_eq!(facts.model_meta("acp-antigravity", "gemini-3-flash")["supportsWebSearch"], json!(true));
+        assert_eq!(facts.model_meta("acp-antigravity", "gemini-pro-orchestrator")["supportsWebSearch"], json!(false));
+        assert_eq!(facts.model_meta("acp-antigravity", "claude-opus-4-6")["supportsWebSearch"], json!(false));
+        // Signed-out agent is not selectable, so its models are not marked web-search capable.
+        assert_eq!(facts.model_meta("acp-antigravity-cli", "claude-opus-4-6")["supportsWebSearch"], json!(false));
+        assert_eq!(facts.model_meta("acp-antigravity-cli", "gemini-3-flash")["supportsWebSearch"], json!(false));
+        assert_eq!(facts.model_meta("acp-other", "gemini-3-flash")["supportsWebSearch"], json!(false));
+
+        seed_slot(
+            &agents,
+            "antigravity-cli",
+            Readiness::Ready { version: "1.5.16".into(), models: models(&[("claude-opus-4-6", "Claude Opus 4.6")]) },
+        );
+        assert_eq!(facts.model_meta("acp-antigravity-cli", "claude-opus-4-6")["supportsWebSearch"], json!(true));
+        assert_eq!(facts.model_meta("acp-antigravity-cli", "gemini-3-flash")["supportsWebSearch"], json!(false));
+
+        enabled.store(false, Ordering::SeqCst);
+        assert!(facts.ensure_ready(&empty, "acp-antigravity").await.unwrap_err().contains("turned off"));
+        assert_eq!(facts.model_meta("acp-antigravity", "gemini-3-flash")["supportsWebSearch"], json!(false));
+        assert_eq!(facts.model_meta("acp-antigravity-cli", "claude-opus-4-6")["supportsWebSearch"], json!(false));
+    }
+
+    #[tokio::test]
+    async fn agent_route_facts_rejects_non_chat_models_for_web_search() {
+        let enabled = Arc::new(AtomicBool::new(true));
+        let (_dir, agents) = build_agents(builtin(), enabled);
+        seed_slot(
+            &agents,
+            "antigravity",
+            Readiness::Ready {
+                version: "1.5.2".into(),
+                models: models(&[("gemini-3-flash", "Gemini 3 Flash"), ("gemini-embedding-001", "Gemini Embedding")]),
+            },
+        );
+        seed_slot(
+            &agents,
+            "antigravity-cli",
+            Readiness::Ready {
+                version: "1.5.16".into(),
+                models: models(&[
+                    ("claude-opus-4-6", "Claude Opus 4.6"),
+                    ("text-embedding-001", "Text Embedding"),
+                    ("whisper-1", "Whisper"),
+                ]),
+            },
+        );
+
+        let facts = AgentRouteFacts { inner: Arc::new(EmptyFacts), agents: agents.clone() };
+        for (provider, id) in [
+            ("acp-antigravity", "gemini-embedding-001"),
+            ("acp-antigravity-cli", "text-embedding-001"),
+            ("acp-antigravity-cli", "whisper-1"),
+        ] {
+            let meta = facts.model_meta(provider, id);
+            assert_eq!(meta["supportsWebSearch"], json!(false), "{provider}/{id}");
+            assert!(!web_search_capable_for(provider, id, Some(&meta), None), "{provider}/{id} must not pass web_search_capable_for");
+        }
+
+        let decorator = AgentWebSearchModels {
+            inner: Arc::new(StaticWebSearchModels(json!([]))),
+            agents,
+            settings: Arc::new(Map::new),
+        };
+        let listed = decorator.list(None, false).await.unwrap();
+        let pairs: Vec<(&str, &str)> = listed.as_array().unwrap().iter().map(|r| (r["provider"].as_str().unwrap(), r["id"].as_str().unwrap())).collect();
+        assert_eq!(pairs, [("acp-antigravity", "gemini-3-flash"), ("acp-antigravity-cli", "claude-opus-4-6")]);
+    }
+
+    #[tokio::test]
+    async fn unready_or_disabled_acp_agent_emits_no_web_search_rows() {
+        let enabled = Arc::new(AtomicBool::new(true));
+        let (_dir, agents) = build_agents(builtin(), enabled.clone());
+        seed_slot(&agents, "antigravity", Readiness::SignedOut { version: "1.5.2".into(), message: "sign in".into() });
+        seed_slot(
+            &agents,
+            "antigravity-cli",
+            Readiness::Ready { version: "1.5.16".into(), models: models(&[("claude-opus-4-6", "Claude Opus 4.6")]) },
+        );
+
+        let decorator = AgentWebSearchModels {
+            inner: Arc::new(StaticWebSearchModels(json!([
+                { "provider": "openai", "id": "gpt-5.2", "supportsWebSearch": true },
+                { "provider": "acp-antigravity", "id": "gemini-3-flash", "supportsWebSearch": true },
+                { "provider": "acp-antigravity-cli", "id": "claude-opus-4-6", "supportsWebSearch": true }
+            ]))),
+            agents: agents.clone(),
+            settings: Arc::new(Map::new),
+        };
+
+        let listed = decorator.list(None, false).await.unwrap();
+        let pairs: Vec<(&str, &str)> = listed.as_array().unwrap().iter().map(|r| (r["provider"].as_str().unwrap(), r["id"].as_str().unwrap())).collect();
+        assert_eq!(pairs, [("openai", "gpt-5.2"), ("acp-antigravity-cli", "claude-opus-4-6")]);
+        assert_eq!(listed.as_array().unwrap()[1]["runner"], "acp");
+
+        enabled.store(false, Ordering::SeqCst);
+        let listed = decorator.list(None, false).await.unwrap();
+        let pairs: Vec<(&str, &str)> = listed.as_array().unwrap().iter().map(|r| (r["provider"].as_str().unwrap(), r["id"].as_str().unwrap())).collect();
+        assert_eq!(pairs, [("openai", "gpt-5.2")]);
+    }
+
+    #[tokio::test]
+    async fn agent_web_search_models_lists_ready_presets_excludes_own_orchestration_and_replaces_bare_duplicates() {
+        let mut presets = builtin();
+        let mut non_search = presets[0].clone();
+        non_search.id = "non-search".into();
+        non_search.provider = "acp-non-search".into();
+        presets.push(non_search);
+
+        let enabled = Arc::new(AtomicBool::new(true));
+        let (_dir, agents) = build_agents(presets, enabled);
+        seed_slot(
+            &agents,
+            "antigravity",
+            Readiness::Ready {
+                version: "1.5.2".into(),
+                models: models(&[
+                    ("gemini-3-flash", "Gemini 3 Flash"),
+                    ("gemini-pro-orchestrator", "Orchestrator"),
+                    ("gemini-3-pro-low", "Gemini 3 Pro (Low)"),
+                    ("gemini-3-pro-high", "Gemini 3 Pro (High)"),
+                ]),
+            },
+        );
+        seed_slot(
+            &agents,
+            "antigravity-cli",
+            Readiness::Ready {
+                version: "1.5.16".into(),
+                models: models(&[("claude-opus-4-6", "Claude Opus 4.6"), ("gemini-3-flash", "Gemini 3 Flash")]),
+            },
+        );
+        seed_slot(
+            &agents,
+            "non-search",
+            Readiness::Ready { version: "1.0.0".into(), models: models(&[("gemini-3-flash", "Gemini 3 Flash")]) },
+        );
+
+        let inner = Arc::new(StaticWebSearchModels(json!([
+            { "provider": "default", "id": "default", "supportsWebSearch": true },
+            { "provider": "openai", "id": "gpt-5.2", "supportsWebSearch": true },
+            { "provider": "acp-antigravity", "id": "gemini-3-flash", "supportsWebSearch": true }
+        ])));
+        let saved = json!({
+            "acp-antigravity/gemini-3-flash": { "favorite": true },
+            "acp-antigravity/gemini-3-pro": { "effort": "high" },
+            "acp-antigravity-cli/claude-opus-4-6": { "hidden": true }
+        });
+        let decorator = AgentWebSearchModels {
+            inner,
+            agents,
+            settings: Arc::new(move || saved.as_object().cloned().unwrap_or_default()),
+        };
+
+        let listed = decorator.list(None, false).await.unwrap();
+        let rows = listed.as_array().unwrap();
+        let pairs: Vec<(&str, &str)> = rows.iter().map(|r| (r["provider"].as_str().unwrap(), r["id"].as_str().unwrap())).collect();
+        assert_eq!(
+            pairs,
+            [
+                ("default", "default"),
+                ("openai", "gpt-5.2"),
+                ("acp-antigravity", "gemini-3-flash"),
+                ("acp-antigravity", "gemini-3-pro"),
+                ("acp-antigravity-cli", "claude-opus-4-6"),
+            ]
+        );
+        let flash = rows.iter().find(|r| r["provider"] == "acp-antigravity" && r["id"] == "gemini-3-flash").unwrap();
+        assert_eq!(flash["runner"], "acp");
+        assert_eq!(flash["supportsWebSearch"], true);
+        assert_eq!(flash["webSearchCapable"], true);
+        assert_eq!(flash["webSearchToolType"], "web_search");
+        assert_eq!(flash["favorite"], true);
+
+        let pro = rows.iter().find(|r| r["provider"] == "acp-antigravity" && r["id"] == "gemini-3-pro").unwrap();
+        assert_eq!(pro["savedEffort"], "high");
+
+        let claude = rows.iter().find(|r| r["provider"] == "acp-antigravity-cli" && r["id"] == "claude-opus-4-6").unwrap();
+        assert_eq!(claude["savedHidden"], true);
     }
 }

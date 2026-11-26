@@ -11,6 +11,10 @@ test.after(restore);
 window.HTMLElement.prototype.scrollIntoView = () => {};
 const { createRoot } = await import('react-dom/client');
 const { ModelCatalog, filterConfiguredModels } = await import('./model-catalog.tsx');
+const { routeOption } = await import('./model-route-utils.ts');
+const { normalizeModelOptions } = await import('./provider-display.tsx');
+const { agentRouteSummary } = await import('./workflows-agent-rows.tsx');
+const { routeEditorModels } = await import('./workflows-editors.tsx');
 const { normalizedProviderModels } = await import('../shared/desktop-transcript-limits.ts');
 
 const NOT_APPLICABLE = ['effort', 'autoEffort', 'fast', 'fallbacks'];
@@ -179,4 +183,34 @@ test("an agent's models are offered where a pick is saved, as a connected provid
   }
   // A provider that is not connected stays out; the agent needs no entry of the provider setup.
   assert.ok(filterConfiguredModels(models, setup, '').every((option) => option.provider !== 'cursor-oauth'));
+});
+
+test('ACP web-search models survive routeOption and filterConfiguredModels for the Web Search editor', () => {
+  const rawWebSearchRows = [
+    { provider: 'openai-oauth', id: 'gpt-5.5', name: 'GPT-5.5', display: 'GPT-5.5', supportsWebSearch: true },
+    ...agentRows.map((row) => ({ ...row, supportsWebSearch: true, webSearchCapable: true })),
+  ];
+  const webSearchModels = filterConfiguredModels(normalizeModelOptions(rawWebSearchRows.map(routeOption)), setup);
+  const offered = routeEditorModels({ id: 'web-search', modelKind: 'webSearch' }, [], webSearchModels);
+  assert.deepEqual(
+    offered
+      .filter((option) => option.provider.startsWith('acp-'))
+      .map((option) => `${option.provider}/${option.model}`)
+      .sort(),
+    [
+      'acp-antigravity-cli/claude-opus-5-5',
+      'acp-antigravity-cli/gpt-oss-120b',
+      'acp-antigravity/gemini-3.8-flash',
+      'acp-antigravity/gemini-4-neon',
+    ]
+  );
+  assert.ok(offered.filter((option) => option.provider.startsWith('acp-')).every((option) => option.runner === 'acp'));
+
+  const summary = agentRouteSummary(
+    { provider: 'acp-antigravity', model: 'gemini-3.8-flash', effort: 'high' },
+    offered,
+    { webSearch: true }
+  );
+  assert.equal(summary.model, 'Gemini 3.8 Flash');
+  assert.equal(summary.effort, 'high');
 });

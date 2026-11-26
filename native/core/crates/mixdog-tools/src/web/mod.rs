@@ -22,6 +22,8 @@ mod ssrf;
 mod tools;
 
 #[cfg(test)]
+mod acp_search_tests;
+#[cfg(test)]
 mod hosted_native_tests;
 #[cfg(test)]
 mod render_tests;
@@ -36,6 +38,14 @@ pub use extract::Extracted;
 pub use extract::extract_document;
 pub use hosted_routes::ConfiguredSearchRoutes;
 pub use hosted_routes::SearchHost;
+pub use hosted_routes::SearchProvider;
+pub use hosted_search::AcpSearchBackend;
+pub use hosted_search::AcpSearchCall;
+pub use hosted_search::AcpSearchError;
+pub use hosted_search::AcpSearchErrorKind;
+pub use hosted_search::AcpSearchReply;
+pub use hosted_search::AcpSearchRequest;
+pub use hosted_search::AcpSendReply;
 pub use hosted_search::HostedSearchCall;
 pub use hosted_search::HostedSearchError;
 pub use hosted_search::HostedSearchReply;

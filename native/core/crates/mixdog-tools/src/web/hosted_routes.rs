@@ -22,6 +22,13 @@ use super::hosted_search::SearchCandidate;
 use super::hosted_search::SearchFamily;
 use super::hosted_search::SearchRoutes;
 
+/// What serves a web-search candidate: a Mixdog provider adapter running its
+/// hosted search tool, or an ACP agent route whose readiness was checked.
+pub enum SearchProvider {
+    Hosted(Arc<dyn ProviderAdapter>),
+    Acp,
+}
+
 /// What the routes and the sender ask of the runtime around them. A failure is
 /// the sentence Node threw. Node builds this per runtime (`rt`), so `getRoute()`
 /// and `getSession()` are one conversation's; a daemon hosts many, and the
@@ -45,8 +52,8 @@ pub trait SearchHost: Send + Sync {
     fn catalog_row(&self, provider: &str, model: &str) -> Option<Value>;
 
     /// `ensureProvidersReady(ensureProviderEnabled(cfg, provider))`, then
-    /// `getReg().getProvider(provider)`.
-    async fn provider(&self, provider: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, String>;
+    /// `getReg().getProvider(provider)` (or `SearchProvider::Acp` for a ready ACP route).
+    async fn provider(&self, provider: &str) -> Result<Option<SearchProvider>, String>;
 
     /// `getSession()?.id`: the session the asking turn runs in.
     fn session_id(&self, thread: &ThreadId) -> Option<String>;
@@ -89,6 +96,7 @@ fn family_of(provider: &str) -> Option<SearchFamily> {
         "anthropic" => SearchFamily::Anthropic,
         "gemini" => SearchFamily::Gemini,
         "xai" => SearchFamily::Xai,
+        "acp" => SearchFamily::Acp,
         _ => return None,
     })
 }

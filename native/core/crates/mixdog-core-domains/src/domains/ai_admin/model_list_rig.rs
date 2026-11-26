@@ -441,11 +441,17 @@ impl Rig {
 }
 
 pub(super) fn web_search(rig: &Rig) -> WebSearchModelsService {
+    let facts = Arc::new(super::chain::CatalogFacts {
+        catalog: rig.catalog.clone(),
+        readiness: rig.readiness.clone(),
+        registry: rig.registry.clone(),
+        config: rig.config.clone(),
+    });
     WebSearchModelsService::new(
         rig.catalog.clone(),
         rig.config.clone(),
         rig.service.clone(),
-        WebSearchRoutes { cells: Arc::new(NoCells), main_route: Arc::new(|| json!({})), web_search_route: Arc::new(|| Value::Null) },
+        WebSearchRoutes { cells: Arc::new(NoCells), main_route: Arc::new(|| json!({})), web_search_route: Arc::new(|| Value::Null), facts },
     )
 }
 
