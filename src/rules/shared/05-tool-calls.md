@@ -1,11 +1,10 @@
 # Tool Calls
 
-- Group calls already known to be needed in one response. Sequence only when
-  an earlier operation or result is needed to choose or safely run a later call.
-- For `read`, `grep`, `glob`, `git`, and `code_graph`, combine compatible targets
-  in one array call; split only for dependencies, differing options or scope,
-  or schema limits.
+- Issue every call you already know you need in one response, compatible
+  `read`, `grep`, `glob`, `git` and `code_graph` targets as one array call.
+  Sequence or split only when a later call depends on an earlier result, or
+  options, scope or schema limits differ.
 - Order on files: enumerate only when the scope is unknown → locate every
   site (known locations skip straight to the read) → one read stage over every
-  located site → every edit in one response → one verification. A search after
-  a read that could have run before it is a wasted round.
+  located site → every edit in one response → one verification. Search again
+  only for what a read newly revealed.

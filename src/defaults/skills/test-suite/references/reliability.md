@@ -38,7 +38,8 @@ ports, paths, child processes, the clock or the host's language.
 - Use a private temp root per test and remove it afterwards; never write into
   the user's home configuration or the repository tree.
 - Windows releases handles asynchronously: a rename or delete right after a
-  close may need a bounded retry sized to the observed contention.
+  close can fail once; wait on the handle's release (child exit, stream
+  `close` event) before it rather than retrying in a loop.
 - Point every home, data or cache directory variable the code reads at the
   test's own root.
 

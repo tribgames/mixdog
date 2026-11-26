@@ -6,5 +6,6 @@
   functions; no heuristics, generalization or duplicate logic.
 - Normalize by source format and required schema before comparing; equivalent
   representations are not conflicts. No extra conversions.
-- Fix causes, not symptoms. Remove obsolete branches and dependencies when
-  replacing an implementation.
+- Fix causes, not symptoms: no guard, retry, cap or timer without a stated
+  basis. Remove obsolete branches and dependencies when replacing an
+  implementation.
