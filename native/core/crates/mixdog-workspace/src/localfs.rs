@@ -10,10 +10,12 @@
 //! rename into place with the Windows retry ladder, directory fsync, write *through* a leaf symlink,
 //! the target's mode kept. Batches are `apply_patch`'s rollback (`rollback-state.mjs`): a pre-image
 //! of every path, an in-place restore on failure. Walks and text search are ripgrep's own
-//! `ignore`/`grep` crates, which is what Node's resident search server runs. Their producers run
-//! on threads of their own rather than as lane jobs: a producer waits whenever its consumer's
-//! queue is full, mid-file included, and may sit in an OS call nothing can interrupt, neither of
-//! which a pooled lane job may do (its lease, its slot); see [`Streamed`].
+//! `ignore`/`grep` crates, which is what Node's resident search server runs, and as there they run
+//! outside the core: [`LocalFileService`] hands them to its [`Searches`], the core's being the
+//! search helper process (`mixdog-search-host`), which runs this module's engine ([`Served`]).
+//! Their producers run on threads of their own rather than as lane jobs: a producer waits whenever
+//! its consumer's queue is full, mid-file included, and may sit in an OS call nothing can interrupt,
+//! neither of which a pooled lane job may do (its lease, its slot); see [`Streamed`].
 //!
 //! Project text saves (`projectFs/writeText`) are not this service: they keep the in-place rewrite
 //! and recovery journal of [`crate::fsops`].
@@ -100,11 +102,24 @@ const RENAME_BACKOFFS_MS: [u64; 8] = [25, 50, 100, 200, 400, 800, 1200, 1600];
 /// Windows `ERROR_SHARING_VIOLATION`, Node's `EBUSY`.
 const SHARING_VIOLATION: i32 = 32;
 
-/// The agent tools' file service. Stateless apart from the write locks: construct one and share it.
+/// The agent tools' file service. Stateless apart from the write locks and where its walks and text searches run
+/// ([`Searches`]): construct one and share it.
 pub struct LocalFileService {
     locks: Arc<PathLocks>,
+    searches: Arc<dyn Searches>,
 }
 
+/// Where a [`LocalFileService`]'s walks and text searches run: in the core, the search helper process
+/// (`mixdog-search-host`), which runs them on this module's engine ([`served_walk`], [`served_search`]); in a test,
+/// that engine in the test's own process ([`LocalFileService::new`]).
+pub trait Searches: Send + Sync {
+    /// [`FileService::walk`].
+    fn walk(&self, request: WalkRequest) -> Box<dyn EventSource<Result<DirEntry, FsError>>>;
+    /// [`FileService::search_text`], or [`FileService::search_summary`] when `summary`.
+    fn search(&self, request: SearchRequest, summary: bool) -> Box<dyn EventSource<Result<SearchMatch, FsError>>>;
+}
+
+#[cfg(any(test, feature = "test-support"))]
 impl Default for LocalFileService {
     fn default() -> Self {
         Self::new()
@@ -112,8 +127,29 @@ impl Default for LocalFileService {
 }
 
 impl LocalFileService {
+    pub fn with_searches(searches: Arc<dyn Searches>) -> Self {
+        Self { locks: Arc::new(PathLocks::default()), searches }
+    }
+
+    /// A test's service: its walks and searches run on this module's engine in this process.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new() -> Self {
-        Self { locks: Arc::new(PathLocks::default()) }
+        Self::with_searches(Arc::new(InProcess))
+    }
+}
+
+/// A test's [`Searches`]: the engine, in the test's own process.
+#[cfg(any(test, feature = "test-support"))]
+struct InProcess;
+
+#[cfg(any(test, feature = "test-support"))]
+impl Searches for InProcess {
+    fn walk(&self, request: WalkRequest) -> Box<dyn EventSource<Result<DirEntry, FsError>>> {
+        Box::new(walk_stream(&request))
+    }
+
+    fn search(&self, request: SearchRequest, summary: bool) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
+        Box::new(search_stream(&request, summary))
     }
 }
 
@@ -1180,13 +1216,22 @@ struct Deadline {
     after_files: Option<usize>,
 }
 
+/// What a stream's queue holds, reserved by its producer ([`Control::reserve`]) and given back by its consumer
+/// ([`Control::taken`]).
+#[derive(Default)]
+struct Queued {
+    items: usize,
+    bytes: usize,
+}
+
 /// What a stream and its producer thread share.
 struct Control {
     /// Set by `close` and by dropping the stream ([`Control::halt`]): the producer ends at its next check.
     stop: AtomicBool,
-    /// The bytes of the items in the queue ([`QUEUE_BYTES`]).
-    queued: Mutex<usize>,
-    /// Notified when the queue's bytes go down and when the stream stops.
+    /// The items in the queue and their bytes ([`QUEUE`], [`QUEUE_BYTES`]); a served stream's until its consumer in the
+    /// other process has taken them ([`Served`]).
+    queued: Mutex<Queued>,
+    /// Notified when an item leaves the queue and when the stream stops.
     room: Condvar,
     deadline: Deadline,
     /// Files searched that had matches (for [`Deadline::after_files`]).
@@ -1211,7 +1256,7 @@ impl Control {
     fn new(deadline: Deadline) -> Self {
         Self {
             stop: AtomicBool::new(false),
-            queued: Mutex::new(0),
+            queued: Mutex::new(Queued::default()),
             room: Condvar::new(),
             deadline,
             #[cfg(feature = "replay-controls")]
@@ -1254,16 +1299,17 @@ impl Control {
         }
     }
 
-    /// Takes `weight` bytes of the queue, waiting while they would take it past [`QUEUE_BYTES`] (an item larger than
-    /// that waits for an empty queue); `false` once the stream is stopped.
+    /// Takes a place and `weight` bytes of the queue, waiting while it holds [`QUEUE`] items or the bytes would take it
+    /// past [`QUEUE_BYTES`] (an item larger than that waits for an empty queue); `false` once the stream is stopped.
     fn reserve(&self, weight: usize) -> bool {
         let mut queued = self.queued.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
             if self.stopped() {
                 return false;
             }
-            if *queued == 0 || *queued + weight <= QUEUE_BYTES {
-                *queued += weight;
+            if queued.items < QUEUE && (queued.bytes == 0 || queued.bytes + weight <= QUEUE_BYTES) {
+                queued.items += 1;
+                queued.bytes += weight;
                 return true;
             }
             queued = self.room.wait(queued).unwrap_or_else(PoisonError::into_inner);
@@ -1274,7 +1320,8 @@ impl Control {
     fn taken(&self, weight: usize) {
         let mut queued = self.queued.lock().unwrap_or_else(PoisonError::into_inner);
         // A stream that is one error ([`one_item`]) queued it without reserving it.
-        *queued = queued.saturating_sub(weight);
+        queued.items = queued.items.saturating_sub(1);
+        queued.bytes = queued.bytes.saturating_sub(weight);
         self.room.notify_all();
     }
 
@@ -3220,7 +3267,7 @@ mod tests {
         parallel: bool,
     ) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
         let alone = open.clone();
-        search_with_output(producers, request, walked, Box::new(move |path| alone(path)), summary, parallel.then_some(open))
+        Box::new(search_with_output(producers, request, walked, Box::new(move |path| alone(path)), summary, parallel.then_some(open)))
     }
 
     /// The name of the first file a parallel search reads on its readers: the one past [`PARALLEL_AFTER`].
@@ -5285,39 +5332,91 @@ impl FileService for LocalFileService {
         .await?
     }
 
-    /// The walker runs on its own thread, at most [`QUEUE`] entries and [`QUEUE_BYTES`] ahead of the consumer (see
-    /// [`Streamed`]).
+    /// Run by the service's [`Searches`] ([`walk_stream`]).
     fn walk(&self, _lane: MaintenanceIo, request: WalkRequest) -> Box<dyn EventSource<Result<DirEntry, FsError>>> {
-        let root = request.root.as_path();
-        let walking = match walking(&request, Box::new(tree::RealDirs)) {
-            Ok(walking) => Box::new(walking),
-            Err(error) => return failed(error),
-        };
-        #[cfg(feature = "replay-controls")]
-        let full = request.server.is_some() && deadline_script::queue_full(root);
-        #[cfg(not(feature = "replay-controls"))]
-        let full = false;
-        // A find's inventory is Node's fuzzy request, a glob's (and a walk Node makes itself) a file inventory.
-        let search = if request.server == Some(SearchClass::Fuzzy) { "fuzzy" } else { "file inventory" };
-        streamed(&PRODUCERS, walking, Deadline::default(), Origin::new(request.server, root, search), full)
+        self.searches.walk(request)
     }
 
-    /// The search runs on its own thread, at most [`QUEUE`] matches and [`QUEUE_BYTES`] ahead of the consumer (see
-    /// [`Streamed`]).
+    /// Run by the service's [`Searches`] ([`search_stream`]).
     fn search_text(&self, _lane: MaintenanceIo, request: SearchRequest) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
-        let walked = match text_listing(&request, Box::new(tree::RealDirs)) {
-            Ok(walked) => walked,
-            Err(error) => return failed(error),
-        };
-        search_with_output(&PRODUCERS, &request, walked, Box::new(open_to_search), false, Some(Arc::new(open_to_search)))
+        self.searches.search(request, false)
     }
 
     fn search_summary(&self, _lane: MaintenanceIo, request: SearchRequest) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
-        let walked = match text_listing(&request, Box::new(tree::RealDirs)) {
-            Ok(walked) => walked,
-            Err(error) => return failed(error),
-        };
-        search_with_output(&PRODUCERS, &request, walked, Box::new(open_to_search), true, Some(Arc::new(open_to_search)))
+        self.searches.search(request, true)
+    }
+}
+/// `request`'s walk: the walker runs on its own thread, at most [`QUEUE`] entries and [`QUEUE_BYTES`] ahead of the
+/// consumer (see [`Streamed`]).
+fn walk_stream(request: &WalkRequest) -> Streamed<DirEntry> {
+    let root = request.root.as_path();
+    let walking = match walking(request, Box::new(tree::RealDirs)) {
+        Ok(walking) => Box::new(walking),
+        Err(error) => return failed(error),
+    };
+    #[cfg(feature = "replay-controls")]
+    let full = request.server.is_some() && deadline_script::queue_full(root);
+    #[cfg(not(feature = "replay-controls"))]
+    let full = false;
+    // A find's inventory is Node's fuzzy request, a glob's (and a walk Node makes itself) a file inventory.
+    let search = if request.server == Some(SearchClass::Fuzzy) { "fuzzy" } else { "file inventory" };
+    streamed(&PRODUCERS, walking, Deadline::default(), Origin::new(request.server, root, search), full)
+}
+/// `request`'s text search (`summary`: a row per file, [`FileService::search_summary`]): the search runs on its own
+/// thread, at most [`QUEUE`] matches and [`QUEUE_BYTES`] ahead of the consumer (see [`Streamed`]).
+fn search_stream(request: &SearchRequest, summary: bool) -> Streamed<SearchMatch> {
+    let walked = match text_listing(request, Box::new(tree::RealDirs)) {
+        Ok(walked) => walked,
+        Err(error) => return failed(error),
+    };
+    search_with_output(&PRODUCERS, request, walked, Box::new(open_to_search), summary, Some(Arc::new(open_to_search)))
+}
+/// A walk or text search served to its consumer in another process (the search helper's to the core's): its producer
+/// runs at most [`QUEUE`] items and [`QUEUE_BYTES`] ahead of that consumer, as it runs ahead of one in this process, since
+/// an item's room in the queue is given back when the far consumer has taken it ([`Room::taken`]), not when this hands
+/// it on.
+pub struct Served<T>(Streamed<T>);
+/// The queue of a [`Served`] stream, whose room its far consumer gives back.
+pub struct Room(Arc<Control>);
+impl Room {
+    /// The far consumer took an item of `weight` bytes, the weight [`Served`] handed on with it.
+    pub fn taken(&self, weight: usize) {
+        self.0.taken(weight);
+    }
+}
+/// `request`'s walk ([`walk_stream`]), served.
+pub fn served_walk(request: &WalkRequest) -> Served<DirEntry> {
+    Served(walk_stream(request))
+}
+/// `request`'s text search ([`search_stream`]), served.
+pub fn served_search(request: &SearchRequest, summary: bool) -> Served<SearchMatch> {
+    Served(search_stream(request, summary))
+}
+impl<T> Served<T> {
+    pub fn room(&self) -> Room {
+        Room(self.0.ctl.clone())
+    }
+}
+impl Served<DirEntry> {
+    /// The next entry or error, with its weight when it holds room in the queue until [`Room::taken`]; `None` at the end.
+    pub async fn next(&mut self) -> Option<(Result<DirEntry, FsError>, Option<usize>)> {
+        self.0.pull().await
+    }
+
+    /// [`EventSource::close`]: returns once nothing of the producer still runs.
+    pub async fn close(&mut self) {
+        self.0.close().await;
+    }
+}
+impl Served<SearchMatch> {
+    /// The next match or error, with its weight when it holds room in the queue until [`Room::taken`]; `None` at the end.
+    pub async fn next(&mut self) -> Option<(Result<SearchMatch, FsError>, Option<usize>)> {
+        self.0.pull().await
+    }
+
+    /// [`EventSource::close`]: returns once nothing of the producer still runs.
+    pub async fn close(&mut self) {
+        self.0.close().await;
     }
 }
 /// A walk request's walk, its entries listed through `dirs` ([`tree`]).
@@ -5378,7 +5477,7 @@ fn search_over(producers: &Arc<Producers>, request: &SearchRequest, listing: Lis
 }
 /// [`search_over`] of a walk that names the volumes of its calls ([`Walked`], [`Volumes`]).
 fn search_with(producers: &Arc<Producers>, request: &SearchRequest, walked: Walked, open: Opener) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
-    search_with_output(producers, request, walked, open, false, None)
+    Box::new(search_with_output(producers, request, walked, open, false, None))
 }
 
 /// [`search_with`] of a summary (`summary`: a row per file) or not, its files read through `parallel` on several
@@ -5390,7 +5489,7 @@ fn search_with_output(
     open: Opener,
     summary: bool,
     parallel: Option<SharedOpener>,
-) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
+) -> Streamed<SearchMatch> {
     // A pattern that does not parse is reported with the parser's own text, as Node shows it.
     let matcher = match compile(request) {
         Ok(m) => m,
@@ -7226,8 +7325,8 @@ struct Streamed<T> {
     interrupt: Option<Arc<cancel_io::Interrupt>>,
 }
 /// A stream that is one error: no producer.
-fn failed<T: Weigh + Send + 'static>(error: FsError) -> Box<dyn EventSource<Result<T, FsError>>> {
-    Box::new(Streamed {
+fn failed<T>(error: FsError) -> Streamed<T> {
+    Streamed {
         rx: Some(one_item(Err(error))),
         ctl: Arc::new(Control::new(Deadline::default())),
         finished: None,
@@ -7237,7 +7336,7 @@ fn failed<T: Weigh + Send + 'static>(error: FsError) -> Box<dyn EventSource<Resu
         waiting: None,
         thread: None,
         interrupt: None,
-    })
+    }
 }
 /// A stream of `producer`'s items: its producer starts at once if a slot is free, waits for one otherwise, or is refused
 /// ([`Producers::enqueue`]): standing for a search-server request when the queue is full, or on a volume holding as
@@ -7248,7 +7347,7 @@ fn streamed<T: Weigh + Send + 'static>(
     deadline: Deadline,
     origin: Origin,
     full: bool,
-) -> Box<dyn EventSource<Result<T, FsError>>> {
+) -> Streamed<T> {
     let ticket = Ticket::new(origin, producers);
     let start = match producers.enqueue(&ticket, full) {
         Ok(start) => start,
@@ -7274,7 +7373,7 @@ fn streamed<T: Weigh + Send + 'static>(
     if start {
         stream.spawn();
     }
-    Box::new(stream)
+    stream
 }
 impl<T: Weigh + Send + 'static> Streamed<T> {
     /// Starts the waiting producer once its [`Producers`] gave it a slot; `false` while it still waits.
@@ -7335,37 +7434,35 @@ impl<T: Weigh + Send + 'static> Streamed<T> {
             admitted.await;
         }
     }
-}
-#[async_trait]
-impl<T: Weigh + Send + 'static> EventSource<Result<T, FsError>> for Streamed<T> {
-    async fn next(&mut self) -> Option<Result<T, FsError>> {
+
+    /// The next item, with its weight when it came off the queue, its room not yet given back ([`Control::taken`]).
+    async fn pull(&mut self) -> Option<(Result<T, FsError>, Option<usize>)> {
         self.rx.as_ref()?;
         self.started().await;
         let rx = self.rx.as_mut()?;
-        let ctl = &self.ctl;
-        let taken = |item: Option<Result<T, FsError>>| {
-            if let Some(item) = &item {
-                ctl.taken(item.weight());
-            }
-            item
+        let queued = |item: Option<Result<T, FsError>>| {
+            item.map(|item| {
+                let weight = item.weight();
+                (item, Some(weight))
+            })
         };
         let item = match self.ctl.deadline.at.filter(|_| !self.late) {
             Some(at) => tokio::select! {
                 biased;
-                item = rx.recv() => taken(item),
+                item = rx.recv() => queued(item),
                 () = tokio::time::sleep_until(at.into()) => {
                     if self.ctl.in_file.load(Ordering::SeqCst) {
                         self.late = true;
-                        taken(rx.recv().await)
+                        queued(rx.recv().await)
                     } else {
                         self.ctl.halt();
-                        Some(Err(timed_out(None)))
+                        Some((Err(timed_out(None)), None))
                     }
                 }
             },
-            None => taken(rx.recv().await),
+            None => queued(rx.recv().await),
         };
-        if matches!(item, None | Some(Err(FsError { kind: FsErrorKind::TimedOut, .. }))) {
+        if matches!(item, None | Some((Err(FsError { kind: FsErrorKind::TimedOut, .. }), _))) {
             self.rx = None;
             // A search read on several threads may have reads and its walk still in flight when it has its answer
             // ([`Parallel`]): they are let go of now, as a dropped stream's are, so one no cancel reaches is given up
@@ -7376,6 +7473,16 @@ impl<T: Weigh + Send + 'static> EventSource<Result<T, FsError>> for Streamed<T> 
             }
         }
         item
+    }
+}
+#[async_trait]
+impl<T: Weigh + Send + 'static> EventSource<Result<T, FsError>> for Streamed<T> {
+    async fn next(&mut self) -> Option<Result<T, FsError>> {
+        let (item, weight) = self.pull().await?;
+        if let Some(weight) = weight {
+            self.ctl.taken(weight);
+        }
+        Some(item)
     }
 
     async fn close(&mut self) {

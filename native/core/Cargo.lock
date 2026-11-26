@@ -4577,6 +4577,7 @@ dependencies = [
  "mixdog-remote",
  "mixdog-rt",
  "mixdog-scm",
+ "mixdog-search-host",
  "mixdog-secrets",
  "mixdog-services",
  "mixdog-spawn",
@@ -4734,6 +4735,7 @@ dependencies = [
  "mixdog-protocol",
  "mixdog-rt",
  "mixdog-scm",
+ "mixdog-search-host",
  "mixdog-secrets",
  "mixdog-services",
  "mixdog-skill-scripts",
@@ -6572,6 +6574,35 @@ dependencies = [
  "unicode-normalization",
  "url",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "mixdog-search-host"
+version = "1.5.0"
+dependencies = [
+ "async-trait",
+ "futures",
+ "mixdog-ai",
+ "mixdog-app-protocol",
+ "mixdog-core-api",
+ "mixdog-core-base",
+ "mixdog-fsio",
+ "mixdog-graph-host",
+ "mixdog-image-egress",
+ "mixdog-imaging",
+ "mixdog-js",
+ "mixdog-protocol",
+ "mixdog-rt",
+ "mixdog-secrets",
+ "mixdog-spawn",
+ "mixdog-store",
+ "mixdog-workspace",
+ "mixdog-workspace-hack",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

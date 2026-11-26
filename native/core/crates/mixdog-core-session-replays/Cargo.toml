@@ -59,7 +59,7 @@ mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
 mixdog-services = { workspace = true, features = ["assigned-pg-port", "test-support"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 mixdog-testkit = { workspace = true }
-mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
+mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls", "test-support"] }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "sync", "time"] }
