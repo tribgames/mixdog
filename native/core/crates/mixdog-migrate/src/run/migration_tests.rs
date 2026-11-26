@@ -212,8 +212,8 @@ pub(crate) fn fixture(root: &Path) -> MigrationRoots {
         br#"{"version":2,"workers":{"sess_b":{"sessionId":"sess_b","ownerSessionId":" sess_a ","tag":"t","status":"idle","messages":[]}},"tombstones":{"session:p\u0000t":{"tag":"t","sessionId":"sess_b","parentSessionId":"p","reapedAt":"2026-01-01T00:00:00.000Z"},"session:p\u0000g":{"tag":"g","sessionId":"sess_gone","reapedAt":"2026-01-01T00:00:00.000Z"}}}"#,
     );
     write(&data, "agent-workers-released.json", br#"{"version":1,"released":{"sess_a":"2026-01-02T00:00:00.000Z","sess_gone":"2026-01-02T00:00:00.000Z"}}"#);
-    write(&data, "goals/sess_a.json", br#"{"sessionId":"sess_a"}"#);
-    write(&data, "goals/sess_gone.json", br#"{"sessionId":"sess_gone"}"#);
+    write(&data, "goals/sess_a.json", br#"{"version":1,"goal":{"sessionId":"sess_a"}}"#);
+    write(&data, "goals/sess_gone.json", br#"{"version":1,"goal":{"sessionId":"sess_gone"}}"#);
     write(
         &data,
         "mixdog-config.json",
@@ -1751,6 +1751,416 @@ fn front_with_announces_conversion_only_when_earlier_data_is_converted() {
     let (count, front) = run_front(&with_profile);
     assert_eq!(count, 0, "subsequent restart with migrated profile converts nothing");
     assert!(matches!(front, Front::Complete(_)));
+}
+
+#[test]
+fn directory_stores_carry_non_data_json_and_isolate_damaged_data_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let roots = MigrationRoots { data: dir.path().join("data"), home: dir.path().join("home"), profile: None };
+    std::fs::create_dir_all(&roots.data).unwrap();
+    let jsonc = b"{\n  // comments are valid in tsconfig\n  \"compilerOptions\": { \"strict\": true, },\n}\n";
+
+    // Non-data JSON/JSONC files under skills, workflows, schedules, hooks, bots, goals/history: carried verbatim.
+    write(&roots.data, "skills/ts-skill/SKILL.md", b"---\nname: ts-skill\n---\n");
+    write(&roots.data, "skills/ts-skill/tsconfig.json", jsonc);
+    write(&roots.data, "skills/other/SKILL.md", b"---\nname: other\n---\n");
+    write(&roots.data, "workflows/wf/WORKFLOW.md", b"# wf\n");
+    write(&roots.data, "workflows/wf/tsconfig.json", jsonc);
+    write(&roots.data, "schedules/legacy.json", jsonc);
+    write(&roots.data, "goals/history/sess_good/1.json", jsonc);
+
+    // Hooks: damaged hooks/hooks.json stays in place (keepWithoutBackup) and NEVER restores hooks/hooks.json.bak
+    // (1.4.5/1.5.0 only restore <data>/hooks.json, never hooks/hooks.json); helper files stay intact.
+    write(&roots.data, "hooks/hooks.json", b"{broken");
+    write(&roots.data, "hooks/hooks.json.bak", br#"{"hooks":{"preToolUse":[]}}"#);
+    write(&roots.data, "hooks/helper/tsconfig.json", jsonc);
+    write(&roots.data, "hooks/helper/run.sh", b"#!/bin/sh\n");
+
+    // Bots and agents: damaged agent.json/migration.json without .bak stay in place (fail-closed connector policy);
+    // damaged agent.json with valid .bak restores .bak and reports set-aside.
+    write(&roots.data, "bots/good/AGENT.md", b"# good\n");
+    write(&roots.data, "bots/good/agent.json", br#"{"name":"good"}"#);
+    write(&roots.data, "bots/good/tsconfig.json", jsonc);
+    write(&roots.data, "bots/bad/AGENT.md", b"# bad\n");
+    write(&roots.data, "bots/bad/agent.json", b"{broken");
+    write(&roots.data, "bots/bad_policy/agent.json", br#"{"connectors":"bogus"}"#);
+    write(&roots.data, "bots/bak/agent.json", b"{broken");
+    write(&roots.data, "bots/bak/agent.json.bak", br#"{"connectors":{"off":["gmail"]}}"#);
+    write(&roots.data, "bots/migration.json", b"{broken");
+    write(&roots.data, "agents/good/agent.json", br#"{"name":"a"}"#);
+    write(&roots.data, "agents/bad/agent.json", b"{broken");
+    write(&roots.data, "agents/bak/agent.json", br#"{"connectors":42}"#);
+    write(&roots.data, "agents/bak/agent.json.bak", br#"{"connectors":{"off":["linear"]}}"#);
+
+    // Goals: good and future-version stay, schema-damaged without .bak quarantines alone,
+    // damaged with good .bak restores .bak (owner-only).
+    write(&roots.data, "goals/sess_good.json", br#"{"version":1,"goal":{}}"#);
+    write(&roots.data, "goals/sess_v2.json", br#"{"version":2,"goal":42}"#);
+    write(&roots.data, "goals/sess_bad.json", b"{broken");
+    write(&roots.data, "goals/sess_bad_schema.json", br#"{"sessionId":"s"}"#);
+    write(&roots.data, "goals/sess_bak.json", b"{broken");
+    write(&roots.data, "goals/sess_bak.json.bak", br#"{"version":1,"goal":{"id":"restored"}}"#);
+
+    // Human-gate: grants.json never restores .bak (would resurrect revoked grants), and .bak stays untouched;
+    // audit.jsonl with a malformed line stays in place untouched (1.4.5 skips bad lines).
+    write(&roots.data, "human-gate/grants.json", b"{broken");
+    write(&roots.data, "human-gate/grants.json.bak", br#"{"grants":[{"id":"old"}]}"#);
+    write(&roots.data, "human-gate/audit.jsonl", b"{\"decision\":\"allow\"}\n{truncated-line\n");
+
+    // TUI prompt history: good stays, damaged with good .bak restores .bak (owner-only), bad without .bak quarantines alone.
+    write(&roots.data, "tui-prompt-history/good.json", br#"{"version":1,"entries":["hi"]}"#);
+    write(&roots.data, "tui-prompt-history/bad.json", b"{broken");
+    write(&roots.data, "tui-prompt-history/bak.json", b"{}");
+    write(&roots.data, "tui-prompt-history/bak.json.bak", br#"{"version":1,"entries":["restored"]}"#);
+
+    let complete = migrator(&roots, None).run().unwrap();
+    // 5 keepWithoutBackup files (hooks.json, bots/bad, bots/bad_policy, bots/migration, agents/bad)
+    // + 4 start-empty files (goals/sess_bad, goals/sess_bad_schema, human-gate/grants, tui-prompt-history/bad) = 9 unexpected.
+    assert_eq!(complete.kinds.data.quarantined_unexpected, 9, "{:?}", unexpected_reasons(&roots));
+    // 4 restored from .bak (bots/bak, agents/bak, goals/sess_bak, tui-prompt-history/bak) = 4 expected set-asides.
+    assert_eq!(complete.kinds.data.quarantined_expected, 4, "{complete:?}");
+
+    for (rel, want) in [
+        ("skills/ts-skill/SKILL.md", b"---\nname: ts-skill\n---\n".as_slice()),
+        ("skills/ts-skill/tsconfig.json", jsonc.as_slice()),
+        ("skills/other/SKILL.md", b"---\nname: other\n---\n".as_slice()),
+        ("workflows/wf/WORKFLOW.md", b"# wf\n".as_slice()),
+        ("workflows/wf/tsconfig.json", jsonc.as_slice()),
+        ("schedules/legacy.json", jsonc.as_slice()),
+        ("goals/history/sess_good/1.json", jsonc.as_slice()),
+        ("hooks/helper/tsconfig.json", jsonc.as_slice()),
+        ("hooks/helper/run.sh", b"#!/bin/sh\n".as_slice()),
+        ("bots/good/AGENT.md", b"# good\n".as_slice()),
+        ("bots/good/agent.json", br#"{"name":"good"}"#.as_slice()),
+        ("bots/good/tsconfig.json", jsonc.as_slice()),
+        ("bots/bad/AGENT.md", b"# bad\n".as_slice()),
+        ("agents/good/agent.json", br#"{"name":"a"}"#.as_slice()),
+        ("goals/sess_good.json", br#"{"version":1,"goal":{}}"#.as_slice()),
+        ("goals/sess_v2.json", br#"{"version":2,"goal":42}"#.as_slice()),
+        // Restored from .bak:
+        ("bots/bak/agent.json", br#"{"connectors":{"off":["gmail"]}}"#.as_slice()),
+        ("agents/bak/agent.json", br#"{"connectors":{"off":["linear"]}}"#.as_slice()),
+        ("goals/sess_bak.json", br#"{"version":1,"goal":{"id":"restored"}}"#.as_slice()),
+        ("goals/sess_bak.json.bak", br#"{"version":1,"goal":{"id":"restored"}}"#.as_slice()),
+        ("tui-prompt-history/bak.json", br#"{"version":1,"entries":["restored"]}"#.as_slice()),
+        // Human-gate .bak left untouched and audit.jsonl kept verbatim:
+        ("human-gate/grants.json.bak", br#"{"grants":[{"id":"old"}]}"#.as_slice()),
+        ("human-gate/audit.jsonl", b"{\"decision\":\"allow\"}\n{truncated-line\n".as_slice()),
+        ("tui-prompt-history/good.json", br#"{"version":1,"entries":["hi"]}"#.as_slice()),
+        // Fail-closed / keepWithoutBackup files MUST stay in place on disk (and hooks/hooks.json.bak is NOT restored):
+        ("hooks/hooks.json", b"{broken".as_slice()),
+        ("hooks/hooks.json.bak", br#"{"hooks":{"preToolUse":[]}}"#.as_slice()),
+        ("bots/bad/agent.json", b"{broken".as_slice()),
+        ("bots/bad_policy/agent.json", br#"{"connectors":"bogus"}"#.as_slice()),
+        ("bots/migration.json", b"{broken".as_slice()),
+        ("agents/bad/agent.json", b"{broken".as_slice()),
+    ] {
+        assert_eq!(std::fs::read(roots.data.join(rel)).unwrap(), want, "{rel} should be preserved/restored");
+    }
+
+    // Kept-in-place quarantine reasons say the damaged file stayed in place and name it.
+    let hooks_reason: QuarantineReason = serde_json::from_slice(
+        &std::fs::read(
+            quarantine_dir(&roots.data, QuarantineCode::ParseError, &crate::stores::store_file_key(ItemKind::Hooks, "hooks/hooks.json")).join(REASON_FILE),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(hooks_reason.detail.contains("left in place"), "{}", hooks_reason.detail);
+    assert!(hooks_reason.detail.contains("hooks.json"), "{}", hooks_reason.detail);
+
+    // Secret restored files have owner-only permissions.
+    assert!(durable::is_owner_only_if_supported(&roots.data.join("goals/sess_bak.json")).unwrap());
+    assert!(durable::is_owner_only_if_supported(&roots.data.join("tui-prompt-history/bak.json")).unwrap());
+
+    // Only start-empty files without keepWithoutBackup were moved out of place.
+    for moved in ["goals/sess_bad.json", "goals/sess_bad_schema.json", "human-gate/grants.json", "tui-prompt-history/bad.json"] {
+        assert!(!roots.data.join(moved).exists(), "{moved} should be quarantined out of place");
+    }
+}
+
+#[test]
+fn damaged_singletons_follow_1_4_5_reader_behavior_and_report_repairs() {
+    // With good `.bak`: projects.json, plugins/registry.json (owner-only), and project-connectors.json
+    // restore `.bak` and report every repair in complete.json; <data>/.mcp.json is ignored as in 1.4.5.
+    let dir_bak = tempfile::tempdir().unwrap();
+    let roots_bak = MigrationRoots { data: dir_bak.path().join("data"), home: dir_bak.path().join("home"), profile: None };
+    std::fs::create_dir_all(&roots_bak.data).unwrap();
+    std::fs::create_dir_all(&roots_bak.home).unwrap();
+    write(&roots_bak.home, "projects.json", b"{broken");
+    write(&roots_bak.home, "projects.json.bak", br#"{"projects":[{"name":"p","path":"/p"}]}"#);
+    write(&roots_bak.data, "plugins/registry.json", b"{}");
+    write(&roots_bak.data, "plugins/registry.json.bak", br#"{"plugins":[]}"#);
+    write(&roots_bak.data, "project-connectors.json", b"{broken");
+    write(&roots_bak.data, "project-connectors.json.bak", br#"{"projects":{"/p":{"off":["gmail"]}}}"#);
+    write(&roots_bak.data, ".mcp.json", b"{broken");
+
+    let complete = migrator(&roots_bak, None).run().unwrap();
+    assert_eq!(complete.kinds.data.quarantined_unexpected, 0, "{:?}", unexpected_reasons(&roots_bak));
+    assert_eq!(complete.kinds.data.quarantined_expected, 3, "every .bak restore is reported as set aside");
+    assert_eq!(std::fs::read(roots_bak.home.join("projects.json")).unwrap(), br#"{"projects":[{"name":"p","path":"/p"}]}"#);
+    assert_eq!(std::fs::read(roots_bak.data.join("plugins/registry.json")).unwrap(), br#"{"plugins":[]}"#);
+    assert!(durable::is_owner_only_if_supported(&roots_bak.data.join("plugins/registry.json")).unwrap(), "plugins/registry.json is secret: true");
+    assert_eq!(std::fs::read(roots_bak.data.join("project-connectors.json")).unwrap(), br#"{"projects":{"/p":{"off":["gmail"]}}}"#);
+    assert_eq!(std::fs::read(roots_bak.data.join(".mcp.json")).unwrap(), b"{broken", "<data>/.mcp.json has no reader in 1.4.5/1.5.0");
+    assert!(roots_bak.home.join("projects.json.bak").is_file(), ".bak stays intact");
+    for (root, rel) in [(Root::Home, "projects.json"), (Root::Data, "plugins/registry.json"), (Root::Data, "project-connectors.json")] {
+        let aside_key = crate::plan::retain_key(root, rel);
+        let aside_dir = quarantine_dir(&roots_bak.data, QuarantineCode::CarriedSetAside, &aside_key);
+        assert!(aside_dir.join(REASON_FILE).is_file(), "set-aside reason for {rel}");
+    }
+
+    // Without `.bak`: projects.json and plugins/registry.json start empty; project-connectors.json STAYS IN PLACE
+    // (fail-closed deny-all, never moved); <data>/.mcp.json stays untouched; none blocks boot.
+    let dir_empty = tempfile::tempdir().unwrap();
+    let roots_empty = MigrationRoots { data: dir_empty.path().join("data"), home: dir_empty.path().join("home"), profile: None };
+    std::fs::create_dir_all(&roots_empty.data).unwrap();
+    std::fs::create_dir_all(&roots_empty.home).unwrap();
+    write(&roots_empty.home, "projects.json", b"{broken");
+    write(&roots_empty.data, "plugins/registry.json", b"{broken");
+    write(&roots_empty.data, "project-connectors.json", b"{broken");
+    write(&roots_empty.data, ".mcp.json", b"{broken");
+
+    let complete = migrator(&roots_empty, None).run().unwrap();
+    assert_eq!(complete.kinds.data.quarantined_unexpected, 3);
+    assert!(!roots_empty.home.join("projects.json").exists(), "damaged projects.json without .bak starts empty");
+    assert!(!roots_empty.data.join("plugins/registry.json").exists(), "damaged plugins/registry.json without .bak starts empty");
+    assert_eq!(
+        std::fs::read(roots_empty.data.join("project-connectors.json")).unwrap(),
+        b"{broken",
+        "damaged project-connectors.json without .bak stays in place so connectors stay deny-all"
+    );
+    assert_eq!(std::fs::read(roots_empty.data.join(".mcp.json")).unwrap(), b"{broken");
+    assert!(
+        quarantine_dir(&roots_empty.data, QuarantineCode::ParseError, &crate::stores::store_key(ItemKind::ProjectConnectors)).join(REASON_FILE).is_file(),
+        "kept-in-place damaged policy records its reason in quarantine"
+    );
+}
+
+#[test]
+fn damaged_single_file_stores_restore_bak_and_leave_damaged_bak_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let roots = MigrationRoots { data: dir.path().join("data"), home: dir.path().join("home"), profile: None };
+    std::fs::create_dir_all(&roots.data).unwrap();
+    let cases = [
+        ("core-memory.json", b"{truncated".as_slice(), br#"{"version":1,"curated":[]}"#.as_slice()),
+        ("worktrees-v1/registry.json", br#"{"version":1,"worktrees":[]}"#.as_slice(), br#"{"version":1,"entries":{}}"#.as_slice()),
+        ("connector-accounts-by-conversation.json", b"{truncated".as_slice(), br#"{"sess_a":{"gmail":"acct-1"}}"#.as_slice()),
+        ("connector-accounts-in-use.json", b"{truncated".as_slice(), br#"{"gmail":"acct-1"}"#.as_slice()),
+        ("quota-resume.json", b"{truncated".as_slice(), br#"{"pending":[]}"#.as_slice()),
+        ("heartbeat.json", b"{truncated".as_slice(), br#"{"lastBeatAt":1}"#.as_slice()),
+    ];
+    for (rel, bad, good) in cases {
+        write(&roots.data, rel, bad);
+        write(&roots.data, &format!("{rel}.bak"), good);
+    }
+
+    // Restored already by front() (Wave::Stores), before the core starts serving.
+    let front = migrator(&roots, None).front().unwrap();
+    for (rel, _, good) in cases {
+        assert_eq!(std::fs::read(roots.data.join(rel)).unwrap(), good, "{rel} restored before serving");
+        assert_eq!(std::fs::read(roots.data.join(format!("{rel}.bak"))).unwrap(), good, "{rel}.bak kept");
+        let aside_key = crate::plan::retain_key(Root::Data, rel);
+        let aside_dir = quarantine_dir(&roots.data, QuarantineCode::CarriedSetAside, &aside_key);
+        assert!(aside_dir.join(REASON_FILE).is_file(), "set-aside reason for {rel}");
+    }
+    assert!(durable::is_owner_only_if_supported(&roots.data.join("core-memory.json")).unwrap(), "core-memory.json is secret: true");
+    let complete = match front {
+        Front::Pending(back) => back.run().unwrap(),
+        Front::Complete(complete) => complete,
+    };
+    assert_eq!(complete.kinds.data.quarantined_unexpected, 0, "{:?}", unexpected_reasons(&roots));
+    assert_eq!(complete.kinds.data.quarantined_expected, cases.len() as u64, "every .bak restore is counted in complete.json");
+    for (rel, _, good) in cases {
+        assert_eq!(std::fs::read(roots.data.join(rel)).unwrap(), good, "{rel} survives disposal");
+        assert_eq!(std::fs::read(roots.data.join(format!("{rel}.bak"))).unwrap(), good, "{rel}.bak survives disposal");
+    }
+
+    // When BOTH primary and `.bak` are damaged, only primary is quarantined; `.bak` stays untouched on disk (1.4.5 behavior).
+    // And in a multi-file store (ConnectorAccounts), one damaged file does not quarantine its healthy sibling.
+    let dir2 = tempfile::tempdir().unwrap();
+    let roots2 = MigrationRoots { data: dir2.path().join("data"), home: dir2.path().join("home"), profile: None };
+    std::fs::create_dir_all(&roots2.data).unwrap();
+    write(&roots2.data, "worktrees-v1/registry.json", b"{broken");
+    write(&roots2.data, "worktrees-v1/registry.json.bak", b"{also-broken");
+    write(&roots2.data, "connector-accounts-by-conversation.json", b"{broken");
+    write(&roots2.data, "connector-accounts-by-conversation.json.bak", b"{also-broken");
+    // `#ids`: the records are bound already, so the connector transition leaves the file as it is.
+    write(&roots2.data, "connector-accounts-in-use.json", br##"{"gmail":"acct-1","#ids":true}"##);
+    let complete2 = migrator(&roots2, None).run().unwrap();
+    assert_eq!(complete2.kinds.data.quarantined_unexpected, 2);
+    assert!(!roots2.data.join("worktrees-v1/registry.json").exists());
+    assert_eq!(std::fs::read(roots2.data.join("worktrees-v1/registry.json.bak")).unwrap(), b"{also-broken", "damaged .bak stays in place");
+    assert!(!roots2.data.join("connector-accounts-by-conversation.json").exists());
+    assert_eq!(std::fs::read(roots2.data.join("connector-accounts-by-conversation.json.bak")).unwrap(), b"{also-broken", "damaged .bak stays in place");
+    assert_eq!(std::fs::read(roots2.data.join("connector-accounts-in-use.json")).unwrap(), br##"{"gmail":"acct-1","#ids":true}"##);
+}
+
+#[test]
+fn v8_tolerant_json_stores_are_not_treated_as_damaged() {
+    let dir = tempfile::tempdir().unwrap();
+    let roots = MigrationRoots { data: dir.path().join("data"), home: dir.path().join("home"), profile: None };
+    std::fs::create_dir_all(&roots.data).unwrap();
+    std::fs::create_dir_all(&roots.home).unwrap();
+
+    // Invalid UTF-8 bytes, nesting deeper than serde_json's 128 limit, and out-of-range numbers (`1e400`)
+    // are all accepted by Node's JSON.parse and 1.5.0's mixdog_statefile readers.
+    let deep = format!("{}{}", "[".repeat(200), "]".repeat(200));
+    // `#ids`: the accounts-in-use records are bound already, so the connector transition leaves that file as it is.
+    let mut payload = b"{\"plugins\":[],\"#ids\":true,\"bad_utf8\":\"\xff\",\"huge\":1e400,\"deep\":".to_vec();
+    payload.extend_from_slice(deep.as_bytes());
+    payload.push(b'}');
+
+    write(&roots.home, "projects.json", &payload);
+    write(&roots.home, "projects.json.bak", br#"{"projects":[]}"#);
+    write(&roots.data, "plugins/registry.json", &payload);
+    write(&roots.data, "plugins/registry.json.bak", br#"{"plugins":["older"]}"#);
+    write(&roots.data, "connector-accounts-in-use.json", &payload);
+    write(&roots.data, "agents/a/agent.json", &payload);
+
+    let complete = migrator(&roots, None).run().unwrap();
+    assert_eq!(complete.kinds.data.quarantined_unexpected, 0, "{:?}", unexpected_reasons(&roots));
+    assert_eq!(complete.kinds.data.quarantined_expected, 0, "valid V8 JSON must not restore .bak");
+    assert_eq!(std::fs::read(roots.home.join("projects.json")).unwrap(), payload);
+    assert_eq!(std::fs::read(roots.data.join("plugins/registry.json")).unwrap(), payload);
+    assert_eq!(std::fs::read(roots.data.join("connector-accounts-in-use.json")).unwrap(), payload);
+    assert_eq!(std::fs::read(roots.data.join("agents/a/agent.json")).unwrap(), payload);
+}
+
+#[test]
+fn publish_restore_refuses_to_overwrite_target_changed_since_planning() {
+    let dir = tempfile::tempdir().unwrap();
+    let roots = MigrationRoots { data: dir.path().join("data"), home: dir.path().join("home"), profile: None };
+    std::fs::create_dir_all(&roots.data).unwrap();
+    std::fs::create_dir_all(&roots.home).unwrap();
+    write(&roots.home, "projects.json", b"{broken");
+    write(&roots.home, "projects.json.bak", br#"{"projects":[{"name":"old-bak","path":"/old"}]}"#);
+
+    let cut = format!("journal:staged:{}:after", crate::stores::store_key(ItemKind::ProjectsRegistry));
+    let fault: FaultHook = {
+        let cut = cut.clone();
+        Arc::new(move |point| if point == cut { Err(Blocked::Interrupted { point: cut.clone() }) } else { Ok(()) })
+    };
+    assert_eq!(migrator(&roots, Some(fault)).run().unwrap_err(), Blocked::Interrupted { point: cut });
+
+    // Simulate returning to 1.4.5, which repairs projects.json and saves newer user edits.
+    let newer = br#"{"projects":[{"name":"newer-145","path":"/new"}]}"#;
+    write(&roots.home, "projects.json", newer);
+
+    let err = migrator(&roots, None).run().unwrap_err();
+    assert_eq!(err, Blocked::SourceChanged { path: roots.home.join("projects.json") });
+    assert_eq!(std::fs::read(roots.home.join("projects.json")).unwrap(), newer, "newer 1.4.5 edits must not be overwritten");
+}
+
+#[test]
+fn live_session_pid_file_survives_migration_and_does_not_announce_conversion() {
+    // 1.4.5 fixture with a live-sessions pid file: migration leaves the pid file untouched.
+    let dir = tempfile::tempdir().unwrap();
+    let roots = fixture(dir.path());
+    write(&roots.data, "live-sessions/4242.pid", b"4242 1700000000000\n");
+    migrator(&roots, None).run().unwrap();
+    assert_eq!(std::fs::read(roots.data.join("live-sessions/4242.pid")).unwrap(), b"4242 1700000000000\n");
+    assert_eq!(std::fs::read(roots.data.join("live-sessions/1.pid")).unwrap(), b"1");
+
+    // Fresh install with only a live-sessions pid file written before starting the core:
+    // neither announces conversion nor deletes the pid file.
+    let fresh_dir = tempfile::tempdir().unwrap();
+    let fresh = MigrationRoots { data: fresh_dir.path().join("data"), home: fresh_dir.path().join("home"), profile: None };
+    std::fs::create_dir_all(&fresh.data).unwrap();
+    write(&fresh.data, "live-sessions/9999.pid", b"9999 1700000000000\n");
+    let count = AtomicUsize::new(0);
+    let front = migrator(&fresh, None)
+        .front_with(&|| {
+            count.fetch_add(1, Ordering::SeqCst);
+        })
+        .unwrap();
+    assert_eq!(count.load(Ordering::SeqCst), 0, "live-sessions pid file alone converts nothing");
+    if let Front::Pending(back) = front {
+        back.run().unwrap();
+    }
+    assert_eq!(std::fs::read(fresh.data.join("live-sessions/9999.pid")).unwrap(), b"9999 1700000000000\n");
+}
+
+#[test]
+fn resumed_old_manifest_applies_per_file_policy_in_verify_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let roots = MigrationRoots { data: dir.path().join("data"), home: dir.path().join("home"), profile: None };
+    std::fs::create_dir_all(&roots.data).unwrap();
+    std::fs::create_dir_all(&roots.home).unwrap();
+
+    // Write files as an older build would have planned them in single Contract::Preserve items.
+    write(&roots.home, "projects.json", b"{broken");
+    write(&roots.home, "projects.json.bak", br#"{"projects":[{"name":"p","path":"/p"}]}"#);
+    write(&roots.data, "plugins/registry.json", b"{}");
+    write(&roots.data, "plugins/registry.json.bak", br#"{"plugins":[]}"#);
+    write(&roots.data, "project-connectors.json", b"{broken");
+    write(&roots.data, "project-connectors.json.bak", b"{also-broken");
+    write(&roots.data, "worktrees-v1/registry.json", br#"{"version":1,"worktrees":[]}"#);
+    write(&roots.data, "worktrees-v1/registry.json.bak", b"{also-broken");
+    write(&roots.data, "hooks/hooks.json", b"{broken");
+    write(&roots.data, "hooks/hooks.json.bak", br#"{"hooks":{}}"#);
+
+    let source_of = |root: Root, rel: &str| {
+        let base = match root {
+            Root::Home => &roots.home,
+            Root::Data => &roots.data,
+            Root::Profile => unreachable!(),
+        };
+        let (size, sha256) = durable::hash_file(&base.join(rel)).unwrap();
+        SourceFile { root, path: rel.to_owned(), size, sha256, secret: false }
+    };
+    let item_of = |kind: ItemKind, sources: Vec<SourceFile>| ManifestItem {
+        key: Text::try_from(crate::stores::store_key(kind).as_str()).unwrap(),
+        group: KindGroup::Data,
+        kind,
+        contract: Contract::Preserve,
+        sources,
+        late_sources: Vec::new(),
+        target: None,
+    };
+    let mut items = vec![
+        item_of(ItemKind::ProjectsRegistry, vec![source_of(Root::Home, "projects.json"), source_of(Root::Home, "projects.json.bak")]),
+        item_of(ItemKind::Plugins, vec![source_of(Root::Data, "plugins/registry.json"), source_of(Root::Data, "plugins/registry.json.bak")]),
+        item_of(ItemKind::ProjectConnectors, vec![source_of(Root::Data, "project-connectors.json"), source_of(Root::Data, "project-connectors.json.bak")]),
+        item_of(ItemKind::Worktrees, vec![source_of(Root::Data, "worktrees-v1/registry.json"), source_of(Root::Data, "worktrees-v1/registry.json.bak")]),
+        item_of(ItemKind::Hooks, vec![source_of(Root::Data, "hooks/hooks.json"), source_of(Root::Data, "hooks/hooks.json.bak")]),
+    ];
+    items.sort_by(|a, b| a.key.as_str().cmp(b.key.as_str()));
+
+    let manifest = Manifest {
+        format: mixdog_store::schema::migration::MANIFEST_FORMAT,
+        roots: mixdog_store::schema::migration::Roots { data: roots.data.display().to_string(), home: roots.home.display().to_string(), profile: None },
+        items,
+        shared: Vec::new(),
+    };
+    let manifest_bytes = serde_json::to_vec(&manifest).unwrap();
+    let manifest_sha = durable::sha256_hex(&manifest_bytes);
+    durable::publish_file(&roots.data.join(MANIFEST_PATH), &manifest_bytes).unwrap();
+    Journal::create(
+        &roots.data.join(JOURNAL_PATH),
+        PlanEntry { manifest_sha256: Text::try_from(manifest_sha.as_str()).unwrap(), items: manifest.items.len() as u64 },
+        &manifest,
+    )
+    .unwrap();
+
+    let complete = migrator(&roots, None).run().unwrap();
+    // projects.json and plugins/registry.json restored in place from .bak (with carried_set_aside records + owner-only on plugins).
+    assert_eq!(std::fs::read(roots.home.join("projects.json")).unwrap(), br#"{"projects":[{"name":"p","path":"/p"}]}"#);
+    assert_eq!(std::fs::read(roots.data.join("plugins/registry.json")).unwrap(), br#"{"plugins":[]}"#);
+    assert!(durable::is_owner_only_if_supported(&roots.data.join("plugins/registry.json")).unwrap());
+    for (root, rel) in [(Root::Home, "projects.json"), (Root::Data, "plugins/registry.json")] {
+        let aside_dir = quarantine_dir(&roots.data, QuarantineCode::CarriedSetAside, &crate::plan::retain_key(root, rel));
+        assert!(aside_dir.join(REASON_FILE).is_file(), "resumed restore writes set-aside reason for {rel}");
+    }
+    // project-connectors.json and hooks/hooks.json stay in place (fail-closed / no hooks.json.bak restore), with their .bak intact.
+    assert_eq!(std::fs::read(roots.data.join("project-connectors.json")).unwrap(), b"{broken");
+    assert_eq!(std::fs::read(roots.data.join("project-connectors.json.bak")).unwrap(), b"{also-broken");
+    assert_eq!(std::fs::read(roots.data.join("hooks/hooks.json")).unwrap(), b"{broken");
+    assert_eq!(std::fs::read(roots.data.join("hooks/hooks.json.bak")).unwrap(), br#"{"hooks":{}}"#);
+    // worktrees-v1/registry.json had schema error + bad .bak: primary moved to quarantine, .bak left in place.
+    assert!(!roots.data.join("worktrees-v1/registry.json").exists());
+    assert_eq!(std::fs::read(roots.data.join("worktrees-v1/registry.json.bak")).unwrap(), b"{also-broken");
+    assert_eq!(complete.kinds.data.quarantined_unexpected, 3);
 }
 
 pub(crate) fn corpus() -> PathBuf {

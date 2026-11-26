@@ -519,10 +519,14 @@ impl McpOAuth {
         let client = self.client_credentials(&entry).await?.ok_or(OAuthError::ReauthenticationRequired)?;
         let discovery = match entry.discovery.clone() {
             Some(d) if d.token_endpoint().is_some() => d,
-            _ => self.protocol.discover(&self.binding.url, parse_challenge(challenge).resource_metadata_url.as_deref()).await,
+            _ => self
+                .protocol
+                .discover(&self.binding.url, parse_challenge(challenge).resource_metadata_url.as_deref())
+                .await
+                .map_err(|_| OAuthError::ReauthenticationRequired)?,
         };
         // A pre-registered client's provider issues tokens for its own APIs: no resource indicator.
-        let resource = self.binding.client.is_none().then(|| discovery.resource(&self.binding.url));
+        let resource = self.binding.client.is_none().then(|| discovery.resource(&self.binding.url)).flatten();
         let form = vec![("grant_type", "refresh_token".to_owned()), ("refresh_token", refresh_token.clone())];
         match self.protocol.token(&discovery, &client, form, resource).await {
             Ok(mut tokens) => {

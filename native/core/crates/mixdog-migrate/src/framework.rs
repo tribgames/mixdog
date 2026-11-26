@@ -159,6 +159,13 @@ pub trait ItemDriver: Send + Sync {
     fn keeps_sources(&self, item: &ManifestItem) -> bool {
         item.contract == Contract::Preserve || matches!(item.target, Some(Target::Ledger))
     }
+    /// Whether disposal keeps `source` of a quarantined `item` in place instead of moving it into
+    /// `quarantine/`. True by default for retained items that keep their sources, and overridden
+    /// for fail-closed stores (`keepWithoutBackup`), `.bak` siblings, and healthy siblings on a
+    /// resumed older manifest.
+    fn keeps_quarantined_source(&self, _cx: &ItemContext<'_>, item: &ManifestItem, _source: &SourceFile) -> bool {
+        item.contract == Contract::Retain && self.keeps_sources(item)
+    }
 }
 
 /// A session of the earlier version as a retention verdict reads it, before it is converted.

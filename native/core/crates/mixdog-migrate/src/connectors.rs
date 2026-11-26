@@ -667,7 +667,11 @@ pub fn plan(roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()> {
 /// Every rewritten file under the stage dir, with the index naming each one's target and
 /// SHA-256; the index's SHA-256 is the output. A file of a quarantined store is not rewritten.
 pub fn stage(cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Staged> {
-    let writable = |rel: &str| owner(rel).is_none_or(|kind| cx.state(&stores::store_key(kind)) != Some(ItemState::Quarantined));
+    let writable = |rel: &str| {
+        owner(rel).is_none_or(|kind| {
+            cx.state(&stores::store_key(kind)) != Some(ItemState::Quarantined) && cx.state(&stores::store_file_key(kind, rel)) != Some(ItemState::Quarantined)
+        })
+    };
     let conversion = convert(&cx.roots.data, &writable)?;
     let dir = cx.stage_dir(item.key.as_str());
     let mut index = Vec::new();

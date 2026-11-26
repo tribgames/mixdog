@@ -1180,6 +1180,37 @@ async fn a_recorded_link_in_a_snapshot_or_disposable_worktree_is_unlinked_and_it
 }
 
 #[tokio::test]
+async fn a_snapshot_owned_by_another_session_is_refused_without_a_live_lease() {
+    let (_guard, _data, worktrees, made, cancel) = two_worktrees().await;
+    let project = std::path::Path::new(&made[0].project_path);
+    let snapshot = worktrees.create_worker_snapshot("worker-1", project, "HEAD", "tx-snap", false, &cancel).await.unwrap();
+    let id = snapshot["id"].as_str().unwrap();
+    let path = std::path::PathBuf::from(snapshot["path"].as_str().unwrap());
+    // No command lease is held, yet another session is refused through every session-scoped entry point.
+    for failure in [
+        worktrees.remove_snapshot_for(id, true, Some("lead"), &cancel).await.unwrap_err(),
+        worktrees.remove_by_path(&path, true, Some("lead"), &cancel).await.unwrap_err(),
+        worktrees.remove(id, true, Some("lead"), &cancel).await.unwrap_err(),
+    ] {
+        assert_eq!(failure.code(), Some(crate::worktree::errors::WORKTREE_BUSY_JOBS));
+        assert_eq!(failure.message(), Some("This snapshot belongs to another session's turn; it is removed when that turn ends, or by a prune."));
+        match failure.detail() {
+            Some(mixdog_protocol::DomainErrorDetail::WorktreeBusyJobs { reason, session_id, entry_id, .. }) => {
+                assert_eq!(reason, "snapshot-held");
+                assert_eq!(session_id.as_deref(), Some("worker-1"));
+                assert_eq!(entry_id.as_deref(), Some(id));
+            }
+            other => panic!("unexpected detail: {other:?}"),
+        }
+    }
+    assert!(path.exists(), "refused removals leave the snapshot intact");
+    // The holder session itself can remove it once idle.
+    let removed = worktrees.remove_snapshot_for(id, true, Some("worker-1"), &cancel).await.unwrap();
+    assert_eq!(removed["removed"], true, "{removed}");
+    assert!(!path.exists());
+}
+
+#[tokio::test]
 async fn an_unrecorded_link_still_refuses_the_removal_and_nothing_is_deleted() {
     let (_guard, data, worktrees, made, cancel) = two_worktrees().await;
     let shared = data.path().join("elsewhere");

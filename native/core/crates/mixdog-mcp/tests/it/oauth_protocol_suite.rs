@@ -2,11 +2,16 @@
 //! authorization server's endpoints are (RFC 8414 and the legacy default paths), whether PKCE S256 and a scope are offered, which
 //! resource the token is asked for (RFC 8707), the PKCE pair (RFC 7636) and the sign-in errors a caller tells apart.
 
+use std::sync::Arc;
+use std::sync::Mutex;
+
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use mixdog_mcp::oauth::OAuthError;
 use mixdog_mcp::oauth::protocol::Challenge;
 use mixdog_mcp::oauth::protocol::Discovery;
+use mixdog_mcp::oauth::protocol::Protocol;
+use mixdog_mcp::oauth::protocol::TokenError;
 use mixdog_mcp::oauth::protocol::parse_challenge;
 use mixdog_mcp::oauth::protocol::pkce;
 use mixdog_mcp::oauth::protocol::random_state;
@@ -15,6 +20,7 @@ use mixdog_mcp::oauth::shared::is_scope_not_granted;
 use serde_json::json;
 use sha2::Digest;
 use sha2::Sha256;
+use tokio::net::TcpListener;
 use url::Url;
 
 fn discovery(metadata: Option<serde_json::Value>) -> Discovery {
@@ -79,15 +85,122 @@ fn pkce_s256_is_assumed_unless_the_server_lists_methods_without_it_and_a_scope_m
 }
 
 #[test]
-fn the_resource_asked_for_is_the_one_the_server_names_else_its_own_url_without_a_fragment() {
+fn the_resource_is_omitted_without_protected_resource_metadata_else_named_or_fragmentless_server_url() {
     let server = Url::parse("https://mcp.example/v1/mcp#section").unwrap();
-    assert_eq!(discovery(None).resource(&server), "https://mcp.example/v1/mcp");
+    assert_eq!(discovery(None).resource(&server), None);
+    let unnamed = Discovery { resource_metadata: Some(json!({})), ..discovery(None) };
+    assert_eq!(unnamed.resource(&server).as_deref(), Some("https://mcp.example/v1/mcp"));
     let named = Discovery { resource_metadata: Some(json!({"resource": "https://mcp.example/"})), ..discovery(None) };
-    assert_eq!(named.resource(&server), "https://mcp.example/");
+    assert_eq!(named.resource(&server).as_deref(), Some("https://mcp.example/"));
     let scopes = Discovery { resource_metadata: Some(json!({"scopes_supported": ["a", 3, "b"]})), ..discovery(None) };
     assert_eq!(scopes.resource_scopes().as_deref(), Some("a b"));
     let none = Discovery { resource_metadata: Some(json!({"scopes_supported": []})), ..discovery(None) };
     assert_eq!((none.resource_scopes(), discovery(None).resource_scopes()), (None, None));
+}
+
+async fn spawn_metadata_server(handler: impl Fn(&str, &str) -> (&'static str, String) + Send + Sync + 'static) -> (String, Arc<Mutex<Vec<String>>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let handler = Arc::new(handler);
+    let (seen_task, base_task) = (Arc::clone(&seen), base.clone());
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut stream, _)) = listener.accept().await else { break };
+            let (seen, base, handler) = (Arc::clone(&seen_task), base_task.clone(), Arc::clone(&handler));
+            tokio::spawn(async move {
+                let (_, path, _, _) = crate::oauth_suite::read_request(&mut stream).await;
+                seen.lock().unwrap().push(path.clone());
+                let (status, body) = handler(&path, &base);
+                let headers = if body.is_empty() { Vec::new() } else { vec![("content-type", "application/json".to_owned())] };
+                crate::oauth_suite::respond(&mut stream, status, &headers, &body).await;
+            });
+        }
+    });
+    (base, seen)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn discovery_without_protected_resource_metadata_uses_origin_root_without_query_string() {
+    let (base, seen) = spawn_metadata_server(|path, base| match path {
+        "/.well-known/oauth-authorization-server" => (
+            "200 OK",
+            json!({
+                "issuer": base,
+                "authorization_endpoint": format!("{base}/custom/auth"),
+                "token_endpoint": format!("{base}/custom/token"),
+                "registration_endpoint": format!("{base}/custom/register"),
+                "scopes_supported": ["offline_access"],
+            })
+            .to_string(),
+        ),
+        _ => ("404 Not Found", String::new()),
+    })
+    .await;
+
+    let server = Url::parse(&format!("{base}/v1/mcp?token=secret#frag")).unwrap();
+    let discovery = Protocol::new().unwrap().discover(&server, None).await.unwrap();
+    assert_eq!(discovery.authorization_server_url, format!("{base}/"));
+    assert_eq!(discovery.resource_metadata, None);
+    assert_eq!(discovery.resource(&server), None);
+    assert_eq!(discovery.authorization_endpoint().unwrap().as_str(), format!("{base}/custom/auth"));
+    assert_eq!(discovery.token_endpoint().unwrap().as_str(), format!("{base}/custom/token"));
+    assert_eq!(discovery.registration_endpoint().unwrap().as_str(), format!("{base}/custom/register"));
+    assert!(discovery.offers_scope("offline_access"));
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec!["/.well-known/oauth-protected-resource/v1/mcp", "/.well-known/oauth-protected-resource", "/.well-known/oauth-authorization-server",]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn discovery_stops_fallback_lookups_after_a_5xx() {
+    let (prm_base, prm_seen) = spawn_metadata_server(|path, base| match path {
+        "/.well-known/oauth-protected-resource/mcp" => ("500 Internal Server Error", String::new()),
+        "/.well-known/oauth-protected-resource" => {
+            ("200 OK", json!({"resource": format!("{base}/mcp"), "authorization_servers": [format!("{base}/wrong")]}).to_string())
+        }
+        "/.well-known/oauth-authorization-server" => (
+            "200 OK",
+            json!({
+                "issuer": base,
+                "authorization_endpoint": format!("{base}/oauth/auth"),
+                "token_endpoint": format!("{base}/oauth/token"),
+            })
+            .to_string(),
+        ),
+        _ => ("404 Not Found", String::new()),
+    })
+    .await;
+
+    let prm_server = Url::parse(&format!("{prm_base}/mcp")).unwrap();
+    let discovery = Protocol::new().unwrap().discover(&prm_server, None).await.unwrap();
+    assert_eq!(discovery.resource_metadata, None);
+    assert_eq!(discovery.authorization_server_url, format!("{prm_base}/"));
+    assert_eq!(discovery.authorization_endpoint().unwrap().as_str(), format!("{prm_base}/oauth/auth"));
+    assert_eq!(*prm_seen.lock().unwrap(), vec!["/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-authorization-server"]);
+
+    let (as_base, as_seen) = spawn_metadata_server(|path, base| match path {
+        "/.well-known/oauth-authorization-server" => ("503 Service Unavailable", String::new()),
+        "/.well-known/openid-configuration" => (
+            "200 OK",
+            json!({
+                "issuer": base,
+                "authorization_endpoint": format!("{base}/oidc/auth"),
+                "token_endpoint": format!("{base}/oidc/token"),
+            })
+            .to_string(),
+        ),
+        _ => ("404 Not Found", String::new()),
+    })
+    .await;
+
+    let as_server = Url::parse(&format!("{as_base}/mcp")).unwrap();
+    assert_eq!(Protocol::new().unwrap().discover(&as_server, None).await, Err(TokenError::Failed));
+    assert_eq!(
+        *as_seen.lock().unwrap(),
+        vec!["/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-protected-resource", "/.well-known/oauth-authorization-server",]
+    );
 }
 
 #[test]

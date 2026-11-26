@@ -1038,6 +1038,9 @@ impl Worktrees {
             .into_iter()
             .find(|r| path_key(Path::new(&r.path)) == wanted)
             .ok_or_else(|| errors::path_unsafe(String::new(), path_text(path), Some("not-managed")))?;
+        if is_snapshot(&record) {
+            return self.remove_snapshot_for(&record.id, force, session_id, cancel).await;
+        }
         self.remove(&record.id, force, session_id, cancel).await
     }
 

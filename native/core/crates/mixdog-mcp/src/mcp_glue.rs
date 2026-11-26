@@ -1498,8 +1498,9 @@ async fn probe_server(client: &reqwest::Client, kind: &str, url: &reqwest::Url) 
     }
     let header = response.headers().get("www-authenticate").and_then(|h| h.to_str().ok()).map(str::to_owned);
     let challenge = parse_challenge(header.as_deref());
-    let discovery = Protocol::new()?.discover(url, challenge.resource_metadata_url.as_deref()).await;
-    if discovery.authorization_server_metadata.is_some() {
+    if let Ok(discovery) = Protocol::new()?.discover(url, challenge.resource_metadata_url.as_deref()).await
+        && discovery.authorization_server_metadata.is_some()
+    {
         return Ok(json!({"auth": "oauth"}));
     }
     Ok(json!({"auth": "none", "error": "HTTP 401: the server requires authentication but offers no OAuth sign-in"}))

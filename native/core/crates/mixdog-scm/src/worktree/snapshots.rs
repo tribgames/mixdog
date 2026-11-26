@@ -22,6 +22,20 @@ use crate::locks::path_key;
 use crate::worktree::errors;
 use crate::worktree::manager::Worktrees;
 use crate::worktree::manager::entry_json;
+use crate::worktree::registry::WorktreeRecord;
+
+pub(crate) fn assert_snapshot_holder(record: &WorktreeRecord, caller: &str) -> Result<(), ScmFailure> {
+    let holder = record.extra.get("holderSessionId").and_then(Value::as_str);
+    if holder != Some(caller) {
+        return Err(errors::snapshot_held_by(holder.map(str::to_owned), record.id.clone()));
+    }
+    Ok(())
+}
+
+enum SnapshotHolder<'a> {
+    Worker(&'a str),
+    Turn(&'a crate::worktree::ownership::Owner),
+}
 
 /// How a snapshot cleanup retries the removals a command still runs in: the first delay, the
 /// number of attempts, and (when set) the doubling stops after that many steps. Node has two
@@ -138,6 +152,33 @@ impl SnapshotLedger {
 }
 
 impl Worktrees {
+    async fn create_snapshot_with(
+        &self,
+        holder: SnapshotHolder<'_>,
+        project: &Path,
+        commit: &str,
+        tx_id: &str,
+        confirm_large: bool,
+        cancel: &CancellationToken,
+    ) -> Result<Value, ScmFailure> {
+        let (prefix, session) = match holder {
+            SnapshotHolder::Worker(session) => ("worker-snapshot", session),
+            SnapshotHolder::Turn(owner) => ("turn-snapshot", owner.session_id.as_str()),
+        };
+        let ledger = self.ledger();
+        let tx = match tx_id.trim() {
+            "" => format!("{prefix}-{}-{}", std::process::id(), ledger.sequence.fetch_add(1, Ordering::Relaxed)),
+            given => given.to_owned(),
+        };
+        let record = match holder {
+            SnapshotHolder::Worker(session) => self.snapshot(project, session, commit, &tx, confirm_large, cancel).await?,
+            SnapshotHolder::Turn(owner) => self.snapshot_held(project, owner, commit, &tx, confirm_large, cancel).await?,
+        };
+        ledger.register(&record.id, Path::new(&record.path));
+        ledger.note_turn(session, &tx);
+        Ok(entry_json(&record))
+    }
+
     /// A snapshot of `commit` held by worker `session_id` until its turn settles.
     pub async fn create_worker_snapshot(
         &self,
@@ -152,24 +193,41 @@ impl Worktrees {
         if session.is_empty() {
             return Err(ScmFailure::invalid("sessionId", "the worker session"));
         }
-        let ledger = self.ledger();
-        let tx = match tx_id.trim() {
-            "" => format!("worker-snapshot-{}-{}", std::process::id(), ledger.sequence.fetch_add(1, Ordering::Relaxed)),
-            given => given.to_owned(),
-        };
-        let record = self.snapshot(project, session, commit, &tx, confirm_large, cancel).await?;
-        ledger.register(&record.id, Path::new(&record.path));
-        ledger.note_turn(session, &tx);
-        Ok(entry_json(&record))
+        self.create_snapshot_with(SnapshotHolder::Worker(session), project, commit, tx_id, confirm_large, cancel).await
+    }
+
+    /// A snapshot of `commit` held by `holder` until its turn settles (used by the Lead's
+    /// `git worktree add --detach` with the session runtime's [`crate::worktree::ownership::Owner`]).
+    pub async fn create_turn_snapshot(
+        &self,
+        holder: &crate::worktree::ownership::Owner,
+        project: &Path,
+        commit: &str,
+        tx_id: &str,
+        confirm_large: bool,
+        cancel: &CancellationToken,
+    ) -> Result<Value, ScmFailure> {
+        self.create_snapshot_with(SnapshotHolder::Turn(holder), project, commit, tx_id, confirm_large, cancel).await
     }
 
     /// Removes one snapshot unless a command still runs in it.
     pub async fn remove_snapshot(&self, id: &str, force: bool, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
+        self.remove_snapshot_for(id, force, None, cancel).await
+    }
+
+    /// Removes one snapshot on behalf of `caller_session_id` (refusing if another session's turn
+    /// holds it), unless a command still runs in it.
+    pub async fn remove_snapshot_for(&self, id: &str, force: bool, caller_session_id: Option<&str>, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
+        if let Some(caller) = caller_session_id {
+            let record =
+                self.record(cancel, id).await?.filter(crate::worktree::manager::is_snapshot).ok_or_else(|| errors::missing(Some(id.to_owned()), None, None))?;
+            assert_snapshot_holder(&record, caller)?;
+        }
         let ledger = self.ledger();
         if !ledger.begin_removal(id) {
             return Err(errors::busy_with("snapshot-held", None, Some(id.to_owned()), None));
         }
-        let outcome = self.remove(id, force, None, cancel).await;
+        let outcome = self.remove(id, force, caller_session_id, cancel).await;
         ledger.end_removal(id);
         if outcome.is_ok() {
             ledger.forget(id);

@@ -1290,22 +1290,27 @@ impl Migrator {
                 }
                 self.remove_sources(shared, cx, item)?;
             }
-            // Retained where this version reads it; its reason is in the quarantine folder.
-            ItemState::Quarantined if item.contract == Contract::Retain && driver.keeps_sources(item) => {}
             ItemState::Quarantined => {
                 let code = progress.quarantined.ok_or_else(|| Blocked::journal(format!("{k} without code")))?;
                 let dir = quarantine_dir(&self.roots.data, code, k);
                 let names = quarantine_names(item);
+                let mut kept_all = true;
                 for (source, name) in item.sources.iter().zip(&names) {
+                    if driver.keeps_quarantined_source(cx, item, source) {
+                        continue;
+                    }
+                    kept_all = false;
                     self.quarantine_source(shared, cx, item, source, name, &dir)?;
                 }
                 // Shared files this item read (pending entries, worker rows) travel
                 // with it as copies, so the export holds everything it was made of.
-                for file in cx.shared_for(k) {
-                    let path = cx.source_path(file)?;
-                    if let Some(bytes) = durable::read_optional(&path)? {
-                        let name = format!("shared-{}", file.path.replace('/', "%2F"));
-                        durable::publish_file(&dir.join(name), &bytes)?;
+                if !kept_all {
+                    for file in cx.shared_for(k) {
+                        let path = cx.source_path(file)?;
+                        if let Some(bytes) = durable::read_optional(&path)? {
+                            let name = format!("shared-{}", file.path.replace('/', "%2F"));
+                            durable::publish_file(&dir.join(name), &bytes)?;
+                        }
                     }
                 }
             }

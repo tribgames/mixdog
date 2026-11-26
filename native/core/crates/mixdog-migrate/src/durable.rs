@@ -133,6 +133,11 @@ fn write_halves(file: &mut File, path: &Path, bytes: &[u8], midway: Step) -> Res
 /// publication of that same name (a quarantine directory is outside the migration directory, and holds moved user files
 /// no sweep may touch).
 pub fn publish_file(path: &Path, bytes: &[u8]) -> Result<()> {
+    publish_file_with(path, bytes, false)
+}
+
+/// [`publish_file`] with owner-only permissions when `secret` is true (`0o600` / owner-only ACL).
+pub fn publish_file_with(path: &Path, bytes: &[u8], secret: bool) -> Result<()> {
     if let Some(parent) = path.parent() {
         create_dir_all(parent)?;
     }
@@ -143,7 +148,30 @@ pub fn publish_file(path: &Path, bytes: &[u8]) -> Result<()> {
             remove_file(&path.with_file_name(entry))?;
         }
     }
-    fsio::publish_file_with(path, bytes, fsio::Access::Inherit).map_err(Blocked::fsio)
+    let access = if secret { fsio::Access::OwnerOnly } else { fsio::Access::Inherit };
+    fsio::publish_file_with(path, bytes, access).map_err(Blocked::fsio)
+}
+
+/// Whether `path` has owner-only permissions (`0o600` / owner-only ACL).
+pub fn is_owner_only(path: &Path) -> Result<bool> {
+    fsio::is_owner_only(path).map_err(Blocked::fsio)
+}
+
+/// Whether `path` has owner-only permissions on filesystems that can express them; returns `true`
+/// on filesystems (FAT, exFAT, drvfs without metadata) that ignore owner-only mode bits / ACLs.
+pub fn is_owner_only_if_supported(path: &Path) -> Result<bool> {
+    match fsio::is_owner_only(path) {
+        Ok(true) => return Ok(true),
+        Ok(false) => {}
+        Err(error) if error.source.kind() == std::io::ErrorKind::NotFound => return Err(Blocked::fsio(error)),
+        Err(_) => {}
+    }
+    let probe = fsio::tmp_path(path);
+    let file = fsio::create_new_file(&probe, fsio::Access::OwnerOnly).map_err(Blocked::fsio)?;
+    drop(file);
+    let supported = matches!(fsio::is_owner_only(&probe), Ok(true));
+    let _ = fs::remove_file(&probe);
+    Ok(!supported)
 }
 
 /// Makes the staged directory `stage` (every file already synced) the directory `target`.

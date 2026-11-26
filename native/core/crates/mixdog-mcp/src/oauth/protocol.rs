@@ -100,14 +100,11 @@ impl Discovery {
         }
     }
 
-    /// RFC 8707 resource indicator: the metadata's resource when the server names one, else the
-    /// server URL.
-    pub fn resource(&self, server: &Url) -> String {
-        self.resource_metadata
-            .as_ref()
-            .and_then(|m| m.get("resource"))
-            .and_then(Value::as_str)
-            .map_or_else(|| strip_fragment(server).to_string(), str::to_owned)
+    /// RFC 8707 resource indicator: present only when protected-resource metadata was found,
+    /// using the metadata's `resource` or else the server URL without a fragment.
+    pub fn resource(&self, server: &Url) -> Option<String> {
+        let metadata = self.resource_metadata.as_ref()?;
+        Some(metadata.get("resource").and_then(Value::as_str).map_or_else(|| strip_fragment(server).to_string(), str::to_owned))
     }
 
     pub fn resource_scopes(&self) -> Option<String> {
@@ -121,6 +118,16 @@ fn strip_fragment(url: &Url) -> Url {
     let mut url = url.clone();
     url.set_fragment(None);
     url
+}
+
+fn origin_root(url: &Url) -> String {
+    url.join("/").map_or_else(|_| url.to_string(), Into::into)
+}
+
+enum MetadataFetch {
+    Found(Value),
+    Miss,
+    ServerError,
 }
 
 /// A token endpoint failure.
@@ -174,23 +181,26 @@ impl Protocol {
         Ok(Self { client })
     }
 
-    async fn get_json(&self, url: &Url) -> Option<Value> {
+    async fn get_json(&self, url: &Url) -> MetadataFetch {
         // A built-in Google connector's address is answered in this process, never on the network.
         if let Some(metadata) = crate::google_mcp::protected_resource(url) {
-            return Some(metadata);
+            return MetadataFetch::Found(metadata);
         }
-        let response = self
-            .client
-            .get(url.clone())
-            .header(reqwest::header::ACCEPT, "application/json")
-            .header("MCP-Protocol-Version", MCP_PROTOCOL_VERSION)
-            .send()
-            .await
-            .ok()?;
+        let Ok(response) =
+            self.client.get(url.clone()).header(reqwest::header::ACCEPT, "application/json").header("MCP-Protocol-Version", MCP_PROTOCOL_VERSION).send().await
+        else {
+            return MetadataFetch::Miss;
+        };
+        if response.status().is_server_error() {
+            return MetadataFetch::ServerError;
+        }
         if !response.status().is_success() {
-            return None;
+            return MetadataFetch::Miss;
         }
-        response.json::<Value>().await.ok().filter(Value::is_object)
+        match response.json::<Value>().await.ok().filter(Value::is_object) {
+            Some(metadata) => MetadataFetch::Found(metadata),
+            None => MetadataFetch::Miss,
+        }
     }
 
     /// The protected-resource metadata of `server`: the challenge's hint, else the path-aware
@@ -209,14 +219,16 @@ impl Protocol {
         }
         for candidate in candidates {
             let Ok(url) = Url::parse(&candidate) else { continue };
-            if let Some(metadata) = self.get_json(&url).await {
-                return Some((metadata, candidate));
+            match self.get_json(&url).await {
+                MetadataFetch::Found(metadata) => return Some((metadata, candidate)),
+                MetadataFetch::Miss => continue,
+                MetadataFetch::ServerError => return None,
             }
         }
         None
     }
 
-    async fn server_metadata(&self, issuer: &Url) -> Option<Value> {
+    async fn server_metadata(&self, issuer: &Url) -> Result<Option<Value>, TokenError> {
         let path = issuer.path().trim_end_matches('/');
         let origin = issuer.origin().ascii_serialization();
         let candidates = if path.is_empty() {
@@ -230,32 +242,37 @@ impl Protocol {
         };
         for candidate in candidates {
             let Ok(url) = Url::parse(&candidate) else { continue };
-            if let Some(metadata) = self.get_json(&url).await
-                && metadata.get("authorization_endpoint").is_some_and(Value::is_string)
-                && metadata.get("token_endpoint").is_some_and(Value::is_string)
-            {
-                return Some(metadata);
+            match self.get_json(&url).await {
+                MetadataFetch::Found(metadata)
+                    if metadata.get("authorization_endpoint").is_some_and(Value::is_string) && metadata.get("token_endpoint").is_some_and(Value::is_string) =>
+                {
+                    return Ok(Some(metadata));
+                }
+                MetadataFetch::Found(_) | MetadataFetch::Miss => continue,
+                MetadataFetch::ServerError => return Err(TokenError::Failed),
             }
         }
-        None
+        Ok(None)
     }
 
-    pub async fn discover(&self, server: &Url, hint: Option<&str>) -> Discovery {
+    pub async fn discover(&self, server: &Url, hint: Option<&str>) -> Result<Discovery, TokenError> {
         let resource = self.resource_metadata(server, hint).await;
         let authorization_server_url = resource
             .as_ref()
-            .and_then(|(m, _)| m.get("authorization_servers")?.as_array()?.first()?.as_str().map(str::to_owned))
-            .unwrap_or_else(|| server.to_string());
+            .and_then(|(m, _)| m.get("authorization_servers")?.as_array()?.first()?.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| origin_root(server));
         let authorization_server_metadata = match Url::parse(&authorization_server_url) {
-            Ok(issuer) => self.server_metadata(&issuer).await,
+            Ok(issuer) => self.server_metadata(&issuer).await?,
             Err(_) => None,
         };
-        Discovery {
+        Ok(Discovery {
             authorization_server_url,
             resource_metadata_url: resource.as_ref().map(|(_, url)| url.clone()),
             resource_metadata: resource.map(|(m, _)| m),
             authorization_server_metadata,
-        }
+        })
     }
 
     /// RFC 7591 dynamic client registration.

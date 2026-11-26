@@ -347,6 +347,20 @@ impl DirtyDetail {
     }
 }
 
+/// `WORKTREE_BUSY_JOBS` (`snapshot-held`): a snapshot owned by another session's turn (`side-checkouts.mjs:70`).
+pub fn snapshot_held_by(session_id: Option<String>, entry_id: String) -> ScmFailure {
+    let mut detail = none_busy("snapshot-held");
+    if let DomainErrorDetail::WorktreeBusyJobs { session_id: s, entry_id: e, .. } = &mut detail {
+        *s = session_id;
+        *e = Some(entry_id);
+    }
+    ScmFailure::coded_with_message(
+        WORKTREE_BUSY_JOBS,
+        detail,
+        "This snapshot belongs to another session's turn; it is removed when that turn ends, or by a prune.",
+    )
+}
+
 /// The retained worktree belongs to another project than the one the caller guarded.
 pub fn project_mismatch(worktree_id: String, worktree_project: String, project_path: String) -> ScmFailure {
     ScmFailure::coded(
@@ -357,6 +371,15 @@ pub fn project_mismatch(worktree_id: String, worktree_project: String, project_p
             worktree_project: Some(worktree_project),
             repo_common_dir: None,
         },
+    )
+}
+
+/// The command ran in a repository other than the session's Project repository (`session-view.mjs:94`).
+pub fn repo_project_mismatch(project_path: String, repo_common_dir: String) -> ScmFailure {
+    ScmFailure::coded_with_message(
+        "WORKTREE_PROJECT_MISMATCH",
+        DomainErrorDetail::WorktreeProjectMismatch { project_path, worktree_id: None, worktree_project: None, repo_common_dir: Some(repo_common_dir) },
+        "Managed worktrees belong to this session's Project repository; run the command there.",
     )
 }
 

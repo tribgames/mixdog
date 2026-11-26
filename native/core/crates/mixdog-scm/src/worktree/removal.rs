@@ -999,7 +999,13 @@ impl Worktrees {
     /// The removal of `current`, under its repository lock. Without a `session_id` the owner is
     /// the acting session, as in Node.
     pub async fn remove_locked(&self, current: &mut WorktreeRecord, request: &RemoveRequest, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
-        Self::assert_not_shared(current, request.session_id.as_deref().or(current.owner_session_id.as_deref()))?;
+        if is_snapshot(current) {
+            if let Some(caller) = request.session_id.as_deref() {
+                crate::worktree::snapshots::assert_snapshot_holder(current, caller)?;
+            }
+        } else {
+            Self::assert_not_shared(current, request.session_id.as_deref().or(current.owner_session_id.as_deref()))?;
+        }
         if current.state == "creating" || current.state == "recovery" {
             let (complete, remaining) = self.rollback_record(current, None, cancel).await?;
             return Ok(if complete { json!({ "removed": true }) } else { json!({ "removed": false, "retryable": true, "remaining": remaining }) });

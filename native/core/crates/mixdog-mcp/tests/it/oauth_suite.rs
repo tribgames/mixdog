@@ -1714,3 +1714,156 @@ async fn a_sign_in_of_an_account_whose_address_changed_is_made_for_the_new_addre
     assert_eq!(stored["url"], format!("http://127.0.0.1:{}/mcp", runtime.port));
     runtime.glue.hub().close_all().await;
 }
+
+/// An HTTP MCP server whose URL has a path (and query) and that publishes no RFC 9728 protected-resource metadata
+/// falls back to the origin root as authorization server: root well-known metadata is read without the query string,
+/// `offline_access` is picked up from it, non-default endpoints are used, and no `resource` parameter is sent on
+/// authorization, code exchange or refresh.
+#[tokio::test(flavor = "multi_thread")]
+async fn sign_in_and_refresh_for_a_path_url_with_root_only_authorization_metadata() {
+    let _seams = crate::oauth_seams().await;
+    #[derive(Default)]
+    struct RootOnly {
+        valid: String,
+        challenge: Option<String>,
+        grants: Vec<String>,
+        metadata_paths: Vec<String>,
+    }
+    let state = Arc::new(Mutex::new(RootOnly::default()));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let base = format!("http://127.0.0.1:{port}");
+    {
+        let (state, base) = (Arc::clone(&state), base.clone());
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else { break };
+                let (state, base) = (Arc::clone(&state), base.clone());
+                tokio::spawn(async move {
+                    let (method, path, headers, body) = read_request(&mut stream).await;
+                    let json_header = [("content-type", "application/json".to_owned())];
+                    if method == "GET" && path.contains(".well-known") {
+                        state.lock().unwrap().metadata_paths.push(path.clone());
+                    }
+                    match (method.as_str(), path.as_str()) {
+                        ("POST", "/mcp?mode=1") => {
+                            let valid = state.lock().unwrap().valid.clone();
+                            if headers.get("authorization").map(String::as_str) != Some(&format!("Bearer {valid}")) {
+                                return respond(&mut stream, "401 Unauthorized", &[("www-authenticate", "Bearer scope=\"read\"".to_owned())], "").await;
+                            }
+                            let message: Value = serde_json::from_str(&body).unwrap();
+                            let id = message["id"].clone();
+                            let result = match message["method"].as_str().unwrap_or_default() {
+                                "initialize" => json!({"protocolVersion": "2025-06-18", "capabilities": {"tools": {}}}),
+                                "tools/list" => json!({"tools": [{"name": "echo", "inputSchema": {"type": "object"}}]}),
+                                "tools/call" => json!({"content": [{"type": "text", "text": message["params"]["arguments"]["text"]}]}),
+                                _ => return respond(&mut stream, "202 Accepted", &[], "").await,
+                            };
+                            respond(&mut stream, "200 OK", &json_header, &json!({"jsonrpc": "2.0", "id": id, "result": result}).to_string()).await;
+                        }
+                        ("GET", "/.well-known/oauth-authorization-server") => {
+                            let doc = json!({
+                                "issuer": base,
+                                "authorization_endpoint": format!("{base}/oauth/authorize"),
+                                "token_endpoint": format!("{base}/oauth/token"),
+                                "registration_endpoint": format!("{base}/oauth/register"),
+                                "code_challenge_methods_supported": ["S256"],
+                                "scopes_supported": ["read", "offline_access"],
+                            });
+                            respond(&mut stream, "200 OK", &json_header, &doc.to_string()).await;
+                        }
+                        ("POST", "/oauth/register") => {
+                            respond(&mut stream, "201 Created", &json_header, &json!({"client_id": "cid"}).to_string()).await;
+                        }
+                        ("POST", "/oauth/token") => {
+                            let fields = form(&body);
+                            if fields.contains_key("resource") {
+                                return respond(&mut stream, "400 Bad Request", &json_header, &json!({"error": "invalid_target"}).to_string()).await;
+                            }
+                            let reply = {
+                                let mut s = state.lock().unwrap();
+                                s.grants.push(fields["grant_type"].clone());
+                                match fields["grant_type"].as_str() {
+                                    "authorization_code" => {
+                                        let challenge = s.challenge.clone().unwrap();
+                                        let computed = URL_SAFE_NO_PAD.encode(Sha256::digest(fields["code_verifier"].as_bytes()));
+                                        if fields["code"] != "the-code" || computed != challenge || fields["client_id"] != "cid" {
+                                            json!({"error": "invalid_grant"})
+                                        } else {
+                                            s.valid = "t1".into();
+                                            json!({"access_token": "t1", "refresh_token": "r1", "token_type": "Bearer"})
+                                        }
+                                    }
+                                    "refresh_token" if fields["refresh_token"] == "r1" => {
+                                        s.valid = "t2".into();
+                                        json!({"access_token": "t2", "refresh_token": "r2", "token_type": "Bearer"})
+                                    }
+                                    _ => json!({"error": "invalid_grant"}),
+                                }
+                            };
+                            let status = if reply.get("error").is_some() { "400 Bad Request" } else { "200 OK" };
+                            respond(&mut stream, status, &json_header, &reply.to_string()).await;
+                        }
+                        _ => respond(&mut stream, "404 Not Found", &[], "").await,
+                    }
+                });
+            }
+        });
+    }
+
+    let tokens = mixdog_rt::testing::tokens();
+    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
+    let dir = tempfile::tempdir().unwrap();
+    let env = OAuthEnv { store: Arc::new(MemoryStore::default()), plugin_data: dir.path().to_path_buf(), io: io.durability, installation: None };
+    let hub = McpHub::new(io, dir.path().join("artifacts"), OutputPolicy::default());
+    hub.set_oauth_env(env);
+    let entry = json!({"url": format!("{base}/mcp?mode=1")});
+    hub.apply(vec![McpServerConfig::from_entry("rootonly", &entry, &Default::default()).unwrap()]);
+
+    let server = hub.server("rootonly").unwrap();
+    until_failed(&server).await;
+    let challenge = hub.oauth("rootonly").unwrap().refusal_challenge().expect("the 401 challenge is kept");
+    let session = hub.login_flow("rootonly", AccountMode::Connect).unwrap().with_challenge(Some(&challenge)).start().await.unwrap();
+    let authorize = loop {
+        match session.next().await.expect("an authorize state") {
+            LoginState::Authorize { url, .. } => break Url::parse(&url).unwrap(),
+            LoginState::Starting => {}
+            other => panic!("unexpected {other:?}"),
+        }
+    };
+    let query: HashMap<String, String> = authorize.query_pairs().into_owned().collect();
+    assert_eq!(authorize.path(), "/oauth/authorize");
+    assert!(!query.contains_key("resource"), "no resource indicator without RFC 9728 metadata: {authorize}");
+    assert_eq!(query.get("scope").map(String::as_str), Some("read offline_access"));
+    assert_eq!(query.get("prompt").map(String::as_str), Some("consent"));
+
+    state.lock().unwrap().challenge = Some(query["code_challenge"].clone());
+    let callback = Url::parse(&format!("{}?code=the-code&state={}", query["redirect_uri"], query["state"])).unwrap();
+    let page = tokio::spawn(async move { browser_get(&callback).await });
+    let done = loop {
+        match session.next().await.expect("a terminal state") {
+            state if state.is_terminal() => break state,
+            _ => {}
+        }
+    };
+    assert!(matches!(done, LoginState::Done { .. }), "{done:?}");
+    assert!(page.await.unwrap().starts_with("HTTP/1.1 200"));
+
+    hub.reconnect("rootonly").await.unwrap();
+    let call = |text: &'static str| {
+        let server = Arc::clone(&server);
+        async move { server.call_tool("t", "echo", json!({"text": text}), &CancellationToken::new(), None).await }
+    };
+    assert_eq!(call("one").await.unwrap().parts, vec![ToolPart::Text("one".into())]);
+    state.lock().unwrap().valid = "expired".into();
+    assert_eq!(call("two").await.unwrap().parts, vec![ToolPart::Text("two".into())]);
+
+    let s = state.lock().unwrap();
+    assert_eq!(s.grants, ["authorization_code", "refresh_token"]);
+    assert_eq!(
+        s.metadata_paths,
+        vec!["/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-protected-resource", "/.well-known/oauth-authorization-server",]
+    );
+    drop(s);
+    hub.close_all().await;
+}

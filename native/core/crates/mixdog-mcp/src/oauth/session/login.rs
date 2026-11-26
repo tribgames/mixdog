@@ -533,8 +533,10 @@ impl Run<'_> {
             if let Some(scope) = scope {
                 query.append_pair("scope", scope);
             }
-            if static_client.is_none() {
-                query.append_pair("resource", &discovery.resource(server));
+            if static_client.is_none()
+                && let Some(resource) = discovery.resource(server)
+            {
+                query.append_pair("resource", &resource);
             }
         }
         if let Some(client) = static_client {
@@ -558,7 +560,7 @@ impl Run<'_> {
 
         let discovery = self.discover().await?;
         let issuer = discovery.authorization_server_url.clone();
-        let resource = static_client.is_none().then(|| discovery.resource(&server));
+        let resource = static_client.is_none().then(|| discovery.resource(&server)).flatten();
         // The scope the refusal asked for comes first (`auth(provider, { scope })` before the client's own).
         let scope = self
             .challenge
@@ -617,23 +619,26 @@ impl Run<'_> {
     async fn discover(&mut self) -> Result<Discovery, AuthError> {
         let oauth = Arc::clone(self.oauth);
         let server = &oauth.binding.url;
-        let mut discovery = match self.creds.discovery.clone().filter(|d| !d.authorization_server_url.is_empty()) {
-            Some(cached) => cached,
+        let discovery = match self.creds.discovery.clone().filter(|d| !d.authorization_server_url.is_empty()) {
+            Some(mut cached) => {
+                if cached.authorization_server_metadata.is_none() {
+                    let hint = self.challenge.resource_metadata_url.as_deref().or(cached.resource_metadata_url.as_deref());
+                    let found = self.abort.guard(oauth.protocol.discover(server, hint)).await?.map_err(token_failure)?;
+                    cached.authorization_server_metadata = found.authorization_server_metadata;
+                    if cached.resource_metadata.is_none() {
+                        cached.resource_metadata = found.resource_metadata;
+                    }
+                }
+                cached
+            }
             None => {
                 let hint = self.challenge.resource_metadata_url.clone();
-                let mut found = self.abort.guard(oauth.protocol.discover(server, hint.as_deref())).await?;
+                let mut found = self.abort.guard(oauth.protocol.discover(server, hint.as_deref())).await?.map_err(token_failure)?;
                 // The SDK keeps the challenge's URL, not the one it derived itself.
                 found.resource_metadata_url = hint;
                 found
             }
         };
-        if discovery.authorization_server_metadata.is_none() {
-            let found = self.abort.guard(oauth.protocol.discover(server, discovery.resource_metadata_url.as_deref())).await?;
-            discovery.authorization_server_metadata = found.authorization_server_metadata;
-            if discovery.resource_metadata.is_none() {
-                discovery.resource_metadata = found.resource_metadata;
-            }
-        }
         self.creds.discovery = Some(discovery.clone());
         Ok(discovery)
     }

@@ -155,9 +155,9 @@ fn an_expired_session_is_removed_unconverted_unless_something_else_is_bound_to_i
     for id in bound {
         session(data, id, OLD, if id == "sess_unread" { r#","readState":{"messageCount":1,"revision":1}"# } else { "" });
     }
-    write(data, "goals/sess_goal.json", br#"{"sessionId":"sess_goal"}"#);
+    write(data, "goals/sess_goal.json", br#"{"version":1,"goal":{"sessionId":"sess_goal"}}"#);
     write(data, "connector-accounts-by-conversation.json", br#"{"sess_conv":{"notion":"notion"}}"#);
-    write(data, "worktrees-v1/registry.json", br#"{"version":1,"worktrees":[{"ownerSessionId":"sess_tree"}]}"#);
+    write(data, "worktrees-v1/registry.json", br#"{"version":1,"entries":{"w1":{"ownerSessionId":"sess_tree"}}}"#);
     write(data, "session-pending/sess_queue.json", br#"{"version":1,"sessions":{"sess_queue":[{"id":"q1","message":"m","enqueuedAt":5}]}}"#);
     write(data, "tool-results/sess_tools/1.txt", b"offloaded");
     let week = Week::at(NOW);
