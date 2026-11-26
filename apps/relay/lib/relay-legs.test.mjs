@@ -478,3 +478,40 @@ test('client-open omits the credential when the leg has none (older desktops)', 
   assert.equal(sent[0].type, 'client-open');
   assert.equal('browserClientId' in sent[0], false);
 });
+
+test('runClientLeg tells a phone desktop-gone at once when its PC is offline', () => {
+  const entry = { socket: null, clients: new Map(), media: new Map(), mediaLane: false, deviceId: 'dev' };
+  const phone = fakeSocket();
+  runClientLeg(entry, () => assert.fail('must not send to a missing desktop'), phone, 'browser-1', {
+    maxFrameBytes: 1024,
+  });
+  assert.deepEqual(phone.sent, [JSON.stringify({ resync: 'desktop-gone' })]);
+  assert.equal(entry.clients.size, 1);
+});
+
+test('desktop open/close and phone close log lines include device id for analysis', (t) => {
+  const lines = [];
+  t.mock.method(console, 'log', (line) => lines.push(String(line)));
+  const desktop = fakeSocket();
+  const entry = { socket: desktop, clients: new Map(), media: new Map(), mediaLane: false };
+  desktopLeg(entry, desktop);
+  const phone = fakeSocket();
+  runClientLeg(entry, (target, payload) => target.send(JSON.stringify(payload)), phone, 'browser-1', {
+    maxFrameBytes: 1024,
+  });
+  phone.emit('close', 1000, 'background');
+  desktop.readyState = 3;
+  desktop.emit('close', 1006, '');
+  assert.ok(
+    lines.some((line) => line.startsWith('[relay] desktop leg opened device=dev ')),
+    lines.join('\n')
+  );
+  assert.ok(
+    lines.some((line) => line.startsWith('[relay] phone leg closed device=dev client=') && line.includes('code=1000')),
+    lines.join('\n')
+  );
+  assert.ok(
+    lines.some((line) => line.startsWith('[relay] desktop leg closed device=dev code=1006')),
+    lines.join('\n')
+  );
+});

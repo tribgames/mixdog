@@ -81,8 +81,15 @@ pub fn phone_upgrade_refused_desktop_offline(device_id: &str) -> Line {
     out(format!("[relay] phone upgrade refused cause=desktop-offline device={}", short(device_id)))
 }
 
-pub fn sweep_terminated_leg() -> Line {
-    out("[relay] sweep terminated a leg that missed its ping window".to_owned())
+pub fn sweep_terminated_leg(role: &str, device_id: Option<&str>, client_id: Option<&str>) -> Line {
+    let mut text = format!("[relay] sweep terminated leg role={role}");
+    if let Some(device) = device_id {
+        text.push_str(&format!(" device={}", short(device)));
+    }
+    if let Some(client) = client_id {
+        text.push_str(&format!(" client={}", short(client)));
+    }
+    out(text)
 }
 
 /// What the desktop leg had shown when its handshake turn ran late.
@@ -97,8 +104,25 @@ pub fn desktop_leg_missed_handshake_turn(turn: impl std::fmt::Display) -> Line {
     out(format!("[relay] desktop leg missed a phone handshake turn={turn} and its probe; closing it"))
 }
 
-pub fn phone_leg_closed(client_id: &str, code: u16, reason: &str, lived_ms: i64) -> Line {
-    out(format!("[relay] phone leg closed client={} code={code} reason={} lived={lived_ms}ms", short(client_id), crate::js::js_slice(reason, 60)))
+pub fn desktop_leg_opened(device_id: &str, superseded: bool, phones: usize) -> Line {
+    out(format!("[relay] desktop leg opened device={} superseded={superseded} phones={phones}", short(device_id)))
+}
+
+pub fn desktop_leg_closed(device_id: &str, code: u16, reason: &str, lived_ms: i64, phones: usize, superseded: bool) -> Line {
+    out(format!(
+        "[relay] desktop leg closed device={} code={code} reason={} lived={lived_ms}ms phones={phones} superseded={superseded}",
+        short(device_id),
+        crate::js::js_slice(reason, 60)
+    ))
+}
+
+pub fn phone_leg_closed(device_id: &str, client_id: &str, code: u16, reason: &str, lived_ms: i64) -> Line {
+    out(format!(
+        "[relay] phone leg closed device={} client={} code={code} reason={} lived={lived_ms}ms",
+        short(device_id),
+        short(client_id),
+        crate::js::js_slice(reason, 60)
+    ))
 }
 
 pub fn device_store_not_tightened(message: &str) -> Line {

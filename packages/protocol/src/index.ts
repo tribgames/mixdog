@@ -4142,7 +4142,7 @@ toolCalls?: Array<JsonValue>, };
 /**
  * Today's `DesktopModelSelection`.
  */
-export type ModelSelection = { provider: string, model: string, effort?: string, fast?: boolean, autoEffort?: boolean, modelParameters?: { [key in string]?: string }, contextPercent?: number, contextTokens?: number,
+export type ModelSelection = { provider: string, model: string, effort?: string, fast?: boolean, autoEffort?: boolean, effortAuto?: boolean, modelParameters?: { [key in string]?: string }, contextPercent?: number, contextTokens?: number,
 /**
  * The Lead's ordered fallback models; `[]` clears, absent keeps.
  */
@@ -5425,6 +5425,10 @@ projectRecovery: boolean,
  * `autoEffort` in model selections.
  */
 routeAutoEffort: boolean,
+/**
+ * `effortAuto` in model selections; a host offering only `routeAutoEffort` rejects that key.
+ */
+routeEffortAuto: boolean,
 /**
  * The agent visualize panel.
  */
@@ -6870,7 +6874,7 @@ positionedWindow?: boolean, };
 /**
  * Thread resume position: replay requires an equal window (P §6.3 rule 3).
  */
-export type ThreadResumePosition = { epoch: FeedEpoch, seq: number, window: ResumeWindow, };
+export type ThreadResumePosition = { epoch: FeedEpoch, seq: number, window: ResumeWindow, subscriptionId?: SubscriptionId, windowVersion?: number, };
 
 export type ThreadResumeResponse = { thread: ThreadSummary, subscription: Subscription, };
 
@@ -6936,7 +6940,7 @@ export type ThreadRoute = {
 /**
  * Always sent, `null` before the conversation has a provider (context-state.mjs `routeState`: `runtime.sessionProvider ?? null`).
  */
-sessionProvider?: string, sessionModel?: string, fast?: boolean, fastCapable?: boolean, autoEffort?: boolean, modelParameters?: { [key in string]?: string }, selectedContextWindow?: number, effort?: string, provider?: string, model?: string, turnEffort?: string, effortOptions?: Array<JsonValue>, cwd?: string, sessionForkedFrom?: string, systemShell?: JsonValue, webSearchRoute?: JsonValue, autoClear?: JsonValue, };
+sessionProvider?: string, sessionModel?: string, fast?: boolean, fastCapable?: boolean, autoEffort?: boolean, effortAuto?: boolean, modelParameters?: { [key in string]?: string }, selectedContextWindow?: number, effort?: string, provider?: string, model?: string, turnEffort?: string, effortOptions?: Array<JsonValue>, cwd?: string, sessionForkedFrom?: string, systemShell?: JsonValue, webSearchRoute?: JsonValue, autoClear?: JsonValue, };
 
 export type ThreadRuntime = { busy: boolean,
 /**

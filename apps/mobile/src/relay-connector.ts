@@ -14,7 +14,7 @@
 // negotiation is the core's carrier, SPEC §4.7).
 import type { Connector, Target, TransportWriter } from '../../../packages/protocol-client/src/index.ts';
 import type { RelayE2EEPairingMaterial } from '../../desktop/src/shared/remote-e2ee.ts';
-import { CLOSE_NORMAL, RelaySession, closeParked, type ConnectorState } from './relay-session.ts';
+import { CLOSE_NORMAL, CLOSE_PHONE_ENDED, RelaySession, closeParked, type ConnectorState } from './relay-session.ts';
 
 /** The browser WebSocket surface this connector uses. */
 export interface RelaySocket {
@@ -59,6 +59,8 @@ export interface RelayConnectorDeps {
   unresponsive?(): void;
   /** The relay answered a wake probe (its pong, or traffic that proves the leg live): the page's wake recovery may go on. */
   probeAnswered?(): void;
+  /** The relay parked this socket because the PC currently has no live leg. */
+  desktopOffline?(): void;
   /** The relay's cleartext resync hint (any resync but desktop-gone). */
   resyncHint?(word: Readonly<Record<string, unknown>>): void;
   /** Monotonic millisecond clock; defaults to `performance.now()`. */
@@ -78,8 +80,10 @@ export interface RelayConnectorDeps {
 export interface RelayConnector extends Connector {
   /** The page went hidden: no transport timer runs until `wake`. */
   hidden(): void;
-  /** Visible again: release a suspension, recycle a stale or forced unready dial, and probe the live socket (and both transport paths) at once. True when a socket was probed. */
-  wake(options?: { force?: boolean }): boolean;
+  /** Visible again: release a suspension, recycle on request or a stale/forced unready dial, or probe the live socket (and both transport paths) at once. True when a socket was probed. */
+  wake(options?: { force?: boolean; recycle?: string }): boolean;
+  /** Probe a currently ready socket (and active transport paths) without releasing a suspension or recycling an unready dial. */
+  probe(): boolean;
   /** Nothing has arrived on the live socket since `since`, and no probe is out: a call sent then is worth a probe. */
   silentSince(since: number): boolean;
   /** Nothing has arrived on a ready socket for at least `windowMs` on a monotonic clock, and no probe is out. */
@@ -124,9 +128,20 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
         resume?.();
         return false;
       }
+      if (options?.recycle) {
+        closeParked(state, CLOSE_PHONE_ENDED, options.recycle);
+        state.current?.recycleNow(options.recycle);
+        return false;
+      }
       if (state.current?.restartIfStale(options?.force === true)) return false;
       const probing = state.current?.probe() ?? false;
       state.active?.wake();
+      return probing;
+    },
+    probe: () => {
+      if (suspended || held) return false;
+      const probing = state.current?.probe() ?? false;
+      if (probing) state.active?.wake();
       return probing;
     },
     retire: () => state.current?.retire(),

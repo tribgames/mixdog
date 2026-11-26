@@ -18,7 +18,7 @@ use crate::http1::conn::panic_message;
 use crate::http1::{Handler, HandlerFuture, Limits, Request, ResponseWriter, UpgradeRequest};
 use crate::ice;
 use crate::ice::turn_config_from_env;
-use crate::legs::hub::{Hub, HubConfig};
+use crate::legs::hub::{Hub, HubConfig, OFFLINE_GRACE};
 use crate::legs::ingress::{IngressLimits, IngressPool};
 use crate::legs::phone::{PhoneLegs, PhoneLimits};
 use crate::legs::policy::{
@@ -68,6 +68,8 @@ pub struct Options {
     pub uplink_capacity_bytes: usize,
     /// `handshakeStallMs` and `livenessProbeMs`.
     pub handshake: HandshakeTiming,
+    /// How long phones stay parked while their PC is offline before being closed 4002.
+    pub offline_grace: std::time::Duration,
     /// `feedbackEnv`, `nativePushEnv` and `turnEnv`: explicit like in Node, so only the entry that hands over the real environment turns
     /// real SMTP, push and TURN on.
     pub feedback_env: BTreeMap<String, String>,
@@ -90,6 +92,7 @@ impl Options {
             max_payload_bytes: MAX_WS_PAYLOAD_BYTES,
             uplink_capacity_bytes: MAX_UPLINK_CAPACITY_BYTES,
             handshake: HandshakeTiming::default(),
+            offline_grace: OFFLINE_GRACE,
             feedback_env: env.clone(),
             native_push_env: env.clone(),
             turn_env: env.clone(),
@@ -269,6 +272,7 @@ async fn assemble(
             uplink_capacity_ceiling: options.uplink_capacity_bytes,
             max_inflight_bytes: options.max_inflight_bytes,
             handshake: options.handshake,
+            offline_grace: options.offline_grace,
             ingress,
         },
         pool.clone(),

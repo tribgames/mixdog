@@ -16,13 +16,13 @@ use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use mixdog_rt::TaskClass;
-use mixdog_rt::time::{Instant, sleep_unrefed};
+use mixdog_rt::time::Instant;
 use serde_json::{Value, json};
 
 use super::dispatch::{CapabilityOffer, HandlerFuture, Later, LegCall};
 use super::envelope;
 use super::hub::{
-    Conn, Entry, Hub, HubState, IngressInstall, Liveness, MediaPending, OFFLINE_GRACE, SocketRef, SweepLeg, announce_phone, deliver_to_phone, send_json,
+    Conn, Entry, Hub, HubState, IngressInstall, Liveness, MediaPending, SocketRef, SweepLeg, SweepTarget, announce_phone, deliver_to_phone, send_json,
     signal_desktop_gone,
 };
 use super::ingress::{IngressLeg, LegKind};
@@ -115,39 +115,30 @@ fn publish_capabilities(conn: &mut Conn, max_frame_bytes: usize, offer: &Capabil
     }
 }
 
-/// Puts `conn` in the entry of `device_id`, creating the entry when there is none; a redial returns the media the old connection had in
-/// flight.
-fn seat_conn(state: &mut HubState, device_id: &str, conn: Conn, timing: HandshakeTiming) -> Vec<Box<dyn MediaPending>> {
+/// Puts `conn` in the entry of `device_id`, creating the entry when there is none; a redial returns whether it superseded an
+/// open desktop leg and any media the old connection had in flight.
+fn seat_conn(state: &mut HubState, device_id: &str, conn: Conn, timing: HandshakeTiming) -> (bool, Vec<Box<dyn MediaPending>>) {
+    let generation = conn.generation;
     match state.desktops.get_mut(device_id) {
         Some(entry) => {
             if let Some(timer) = entry.offline_timer.take() {
                 timer.abort();
             }
-            entry.conn.socket.close(SUPERSEDED, SUPERSEDED_REASON.as_bytes());
+            let superseded = entry.conn.as_ref().is_some_and(|old| old.socket.is_open());
+            if let Some(old) = &entry.conn {
+                old.socket.close(SUPERSEDED, SUPERSEDED_REASON.as_bytes());
+            }
             let superseded_media = entry.media.take_all();
             // A desktop/VPS redial is a transport event, not a browser-session event: phone sockets stay attached and are
             // re-announced to the new leg.
-            entry.conn = conn;
+            entry.generation = generation;
+            entry.conn = Some(conn);
             entry.media_lane = false;
-            superseded_media
+            (superseded, superseded_media)
         }
         None => {
-            state.desktops.insert(
-                device_id.to_owned(),
-                Entry {
-                    conn,
-                    clients: Vec::new(),
-                    media: super::hub::MediaSlot::default(),
-                    // False on purpose: an older desktop never announces it, and the media route must degrade on the FIRST
-                    // request instead of waiting out a first-frame timeout per tile.
-                    media_lane: false,
-                    pair_v2: false,
-                    host_name: None,
-                    handshake: timing,
-                    offline_timer: None,
-                },
-            );
-            Vec::new()
+            state.desktops.insert(device_id.to_owned(), Entry::new(generation, Some(conn), Vec::new(), timing, None));
+            (false, Vec::new())
         }
     }
 }
@@ -161,13 +152,18 @@ impl Hub {
     pub fn attach_desktop(self: &Arc<Self>, device_id: &str, socket: SocketRef, ingress: Option<IngressInstall>) -> DesktopHandle {
         let ingress = ingress.map(|install| install(LegKind::Desktop));
         let liveness = Liveness::new();
-        let leg_id = self.register_leg(SweepLeg { socket: Arc::clone(&socket), liveness: Arc::clone(&liveness), ingress: ingress.clone() });
+        let leg_id = self.register_leg(SweepLeg {
+            socket: Arc::clone(&socket),
+            liveness: Arc::clone(&liveness),
+            ingress: ingress.clone(),
+            target: SweepTarget::Desktop { device_id: device_id.to_owned() },
+        });
         let offer = self.dispatch().capabilities();
         let connect_frames = self.dispatch().connect_frames(device_id);
         let charge = LegCharge::new(Arc::clone(self.meter()));
         let max_frame_bytes = self.config().max_frame_bytes;
         let timing = self.config().handshake;
-        let (generation, superseded_media) = {
+        let (generation, superseded, phones, superseded_media) = {
             let mut guard = self.lock();
             let state: &mut HubState = &mut guard;
             state.next_generation += 1;
@@ -179,23 +175,28 @@ impl Hub {
                 uplink: UplinkLeg::new(self.config().uplink_capacity_ceiling),
                 heard: None,
             };
-            let superseded_media = seat_conn(state, device_id, conn, timing);
+            let (superseded, superseded_media) = seat_conn(state, device_id, conn, timing);
+            let mut phones = 0;
             if let Some(entry) = state.desktops.get_mut(device_id) {
                 entry.handshake = timing;
                 let Entry { conn, clients, handshake, .. } = entry;
-                publish_capabilities(conn, max_frame_bytes, &offer);
-                // The browser subscriptions this PC may deliver to, after the capabilities that say how.
-                for frame in &connect_frames {
-                    send_json(&*conn.socket, frame);
-                }
-                // Existing browser legs survive a transient desktop redial: replaying client-open makes the replacement desktop build
-                // fresh E2EE channels for those same sockets without waiting for backgrounded tabs to reconnect.
-                for phone in clients.iter_mut() {
-                    announce_phone(self, device_id, conn, *handshake, phone);
+                phones = clients.len();
+                if let Some(conn) = conn.as_mut() {
+                    publish_capabilities(conn, max_frame_bytes, &offer);
+                    // The browser subscriptions this PC may deliver to, after the capabilities that say how.
+                    for frame in &connect_frames {
+                        send_json(&*conn.socket, frame);
+                    }
+                    // Existing browser legs survive a transient desktop redial: replaying client-open makes the replacement desktop build
+                    // fresh E2EE channels for those same sockets without waiting for backgrounded tabs to reconnect.
+                    for phone in clients.iter_mut() {
+                        announce_phone(self, device_id, conn, *handshake, phone);
+                    }
                 }
             }
-            (generation, superseded_media)
+            (generation, superseded, phones, superseded_media)
         };
+        logline::emit(&logline::desktop_leg_opened(device_id, superseded, phones));
         for pending in superseded_media {
             pending.fail();
         }
@@ -208,6 +209,7 @@ impl Hub {
             ingress,
             liveness,
             leg_id,
+            opened_at: Instant::now(),
             revoked: AtomicBool::new(false),
             finished: AtomicBool::new(false),
             later: Arc::default(),
@@ -225,6 +227,7 @@ pub struct DesktopHandle {
     ingress: Option<IngressLeg>,
     liveness: Arc<Liveness>,
     leg_id: u64,
+    opened_at: Instant,
     /// The device was revoked on this leg: nothing more it says is acted on.
     revoked: AtomicBool,
     finished: AtomicBool,
@@ -254,15 +257,17 @@ impl DesktopHandle {
     /// the wire, and may answer for itself, but nothing it says belongs to the connection that replaced it. This device's routing, and
     /// its declaration, are the live socket's alone.
     fn live_entry<'a>(&self, state: &'a mut HubState) -> Option<&'a mut Entry> {
-        state.desktops.get_mut(&self.device_id).filter(|entry| entry.conn.generation == self.generation)
+        state.desktops.get_mut(&self.device_id).filter(|entry| entry.conn.as_ref().is_some_and(|conn| conn.generation == self.generation))
     }
 
     /// The socket's pong: anything the desktop leg says proves the shared leg is read and answered.
     pub fn pong(&self) {
         self.liveness.mark();
         let mut guard = self.hub.lock();
-        if let Some(entry) = self.live_entry(&mut guard) {
-            entry.conn.heard = Some(Instant::now());
+        if let Some(entry) = self.live_entry(&mut guard)
+            && let Some(conn) = entry.conn.as_mut()
+        {
+            conn.heard = Some(Instant::now());
         }
     }
 
@@ -274,7 +279,9 @@ impl DesktopHandle {
             let mut guard = self.hub.lock();
             match self.live_entry(&mut guard) {
                 Some(entry) => {
-                    entry.conn.heard = Some(Instant::now());
+                    if let Some(conn) = entry.conn.as_mut() {
+                        conn.heard = Some(Instant::now());
+                    }
                     true
                 }
                 None => false,
@@ -455,10 +462,12 @@ impl DesktopHandle {
         entry.pair_v2 = message.get("pairV2").and_then(Value::as_f64) == Some(1.0);
         let declared = message.get("maxPayloadBytes").and_then(policy::js_number);
         let text_frames = message.get("textFrames").and_then(Value::as_f64) == Some(1.0);
-        entry.conn.uplink.declare(declared, text_frames);
-        // Answer the declaration on the connection it was made on: the leg now knows which envelope its text will actually travel in,
-        // and the ceilings that go with it.
-        publish_capabilities(&mut entry.conn, max_frame_bytes, &offer);
+        if let Some(conn) = entry.conn.as_mut() {
+            conn.uplink.declare(declared, text_frames);
+            // Answer the declaration on the connection it was made on: the leg now knows which envelope its text will actually travel in,
+            // and the ceilings that go with it.
+            publish_capabilities(conn, max_frame_bytes, &offer);
+        }
     }
 
     /// The desktop's build, reported once per leg. It only selects which renderer release the relay serves this device's phones; an old
@@ -511,12 +520,16 @@ impl DesktopHandle {
         }
     }
 
-    /// The socket closed (`socket.on('close')`): the leg's accounting goes with it. The close code is deliberately not read: whatever this
+    /// The socket closed (`socket.on('close')`): the leg's accounting goes with it. The close code is logged only and never acted on: whatever this
     /// receiver did with whatever frame, it says nothing this relay can attribute, and the leg state that could have carried a verdict
     /// forward goes away with the socket, so the next connection starts from its own declaration. A live leg's close parks its phones:
     /// they keep answering their own pings, so each is told once the desktop is gone, and a replacement leg within the grace rekeys them
     /// in place; after it they are closed 4002 and the entry goes.
     pub fn closed(&self) {
+        self.closed_with(1006, b"");
+    }
+
+    pub fn closed_with(&self, code: u16, reason: &[u8]) {
         if self.finished.swap(true, Ordering::SeqCst) {
             return;
         }
@@ -525,11 +538,13 @@ impl DesktopHandle {
             ingress.release();
         }
         self.hub.unregister_leg(self.leg_id);
-        let (live, media) = {
+        let (live, superseded, phones, media) = {
             let mut guard = self.hub.lock();
+            let superseded = guard.desktops.get(&self.device_id).is_some_and(|e| e.generation != self.generation);
             match self.live_entry(&mut guard) {
-                None => (false, Vec::new()),
+                None => (false, superseded, 0, Vec::new()),
                 Some(entry) => {
+                    let phones = entry.clients.len();
                     let media = entry.media.take_all();
                     for phone in &entry.clients {
                         signal_desktop_gone(&phone.shared, false);
@@ -537,16 +552,13 @@ impl DesktopHandle {
                     if let Some(timer) = entry.offline_timer.take() {
                         timer.abort();
                     }
-                    let (hub, device_id, generation) = (Arc::clone(&self.hub), self.device_id.clone(), self.generation);
-                    let task = mixdog_rt::spawn("relay-desktop-offline", TaskClass::Control, async move {
-                        sleep_unrefed(OFFLINE_GRACE).await;
-                        hub.desktop_offline_expired(&device_id, generation);
-                    });
-                    entry.offline_timer = Some(task.abort_handle());
-                    (true, media)
+                    entry.offline_timer = Some(self.hub.spawn_offline_timer(&self.device_id, self.generation));
+                    (true, false, phones, media)
                 }
             }
         };
+        let lived_ms = i64::try_from(self.opened_at.elapsed().as_millis()).unwrap_or(i64::MAX);
+        logline::emit(&logline::desktop_leg_closed(&self.device_id, code, &js::decode_utf8(reason), lived_ms, phones, superseded));
         if live {
             // A closed live leg's pairing code dies with it; a superseded leg must not clear the code its replacement just requested.
             self.hub.dispatch().leg_closed(&self.device_id);
@@ -570,6 +582,7 @@ pub async fn run_desktop_leg(hub: Arc<Hub>, device_id: String, ws: WebSocket, mu
     // send is not held back by a busy leg.
     let mut later: Vec<HandlerFuture> = Vec::new();
     handle.later().drive();
+    let (mut code, mut reason) = (1006, Bytes::new());
     loop {
         tokio::select! {
             biased;
@@ -583,7 +596,10 @@ pub async fn run_desktop_leg(hub: Arc<Hub>, device_id: String, ws: WebSocket, mu
                     WsEvent::Pong(_) => handle.pong(),
                     // A ping is answered by the socket itself; an error is surfaced as the close that follows it.
                     WsEvent::Ping(_) | WsEvent::Error(_) => {}
-                    WsEvent::Close { .. } => break,
+                    WsEvent::Close { code: closed, reason: why } => {
+                        (code, reason) = (closed, why);
+                        break;
+                    }
                 }
             }
             // No frame is ready: what the frames read so far deferred starts now, in the order it was deferred.
@@ -603,5 +619,5 @@ pub async fn run_desktop_leg(hub: Arc<Hub>, device_id: String, ws: WebSocket, mu
     for work in later {
         mixdog_rt::spawn("relay-deferred", TaskClass::Work, work);
     }
-    handle.closed();
+    handle.closed_with(code, &reason);
 }

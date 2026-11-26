@@ -10,6 +10,11 @@ import {
   relayE2EEPairingMaterial,
   type RelayE2EEChannel,
 } from '../../desktop/src/shared/remote-e2ee.ts';
+import {
+  NATIVE_BACKGROUND_EVENT,
+  NATIVE_FOREGROUND_EVENT,
+  NATIVE_NETWORK_CHANGE_EVENT,
+} from '../../desktop/src/shared/native-app.ts';
 import { REMOTE_WAKE_EVENT } from '../../desktop/src/renderer/remote-connection-state.ts';
 import type { RemoteShimContext } from '../../desktop/src/renderer/remote-shim-state.ts';
 import type { RelaySocket } from './relay-connector.ts';
@@ -40,6 +45,7 @@ const resetPage = (): void => {
   documentListeners.clear();
   doc.visibilityState = 'visible';
   doc.documentElement.dataset = {};
+  delete page.navigator;
 };
 
 const doc = {
@@ -131,7 +137,12 @@ function readyRelaySocket(identity: Identity, options: { autoPong?: boolean } = 
     } else if (msg.method === 'app/subscribe') {
       await toPhone({
         id: msg.id,
-        result: { subscription: { id: 'app-sub', mode: 'snapshot', epoch: 'e1', startSeq: 1 } },
+        result: { subscription: { id: 'app-sub', mode: 'resume', epoch: 'e1', startSeq: 1 } },
+      });
+    } else if (msg.method === 'feed/heads') {
+      await toPhone({
+        id: msg.id,
+        result: { feedIds: ['app'], positions: [{ epoch: 'e1', seq: 0 }] },
       });
     } else if (msg.id !== undefined && msg.method !== 'initialized') {
       await toPhone({ id: msg.id, result: {} });
@@ -358,6 +369,327 @@ test('plain focus on an active, recently-trafficked connection skips redundant p
   } finally {
     t.mock.timers.reset();
     boot.resetPairing();
+    resetPage();
+  }
+});
+
+test('going to background or screen lock suspends cleanly at once without a 30 s grace timer', async () => {
+  resetPage();
+  const { bootPhone } = await import('./phone-boot.ts');
+  const identity = await generateRelayE2EEServerIdentity();
+  const sockets: Array<ReturnType<typeof readyRelaySocket>> = [];
+  const dialed: Array<{ n: number; resolve(): void }> = [];
+  const dial = (n: number) =>
+    new Promise<void>((resolve) => (sockets.length >= n ? resolve() : dialed.push({ n, resolve })));
+  const ctx = makeCtx(identity);
+  const boot = bootPhone(ctx, {
+    version: conformanceOptions.clientInfo.version,
+    createSocket: () => {
+      const far = readyRelaySocket(identity);
+      sockets.push(far);
+      for (const waiter of dialed.filter((w) => w.n <= sockets.length)) {
+        dialed.splice(dialed.indexOf(waiter), 1);
+        waiter.resolve();
+      }
+      far.start();
+      return far.ws;
+    },
+    suspendApplies: () => true,
+    visualizePanels: () => [],
+    random: () => 0.5,
+    updateRequired() {},
+  });
+  await boot.synced();
+  try {
+    // Native Android background/screen-lock signal closes cleanly with 1000 background immediately.
+    emit(windowListeners, NATIVE_BACKGROUND_EVENT);
+    await new Promise((r) => setTimeout(r, 15));
+    assert.equal(ctx.backgroundSuspended, true);
+    assert.deepEqual(sockets[0].closes, [[1000, 'background']]);
+
+    // Returning from background wakes and redials straight away without probing.
+    emit(windowListeners, NATIVE_FOREGROUND_EVENT);
+    await dial(2);
+    await boot.synced();
+    assert.equal(sockets[0].pings, 0, 'suspended socket is not probed on return');
+    assert.equal(ctx.backgroundSuspended, false);
+
+    // Page visibility hidden in an installed app (MixdogApp/ UA) also suspends at once without waiting 30 s.
+    page.navigator = { userAgent: 'Mozilla/5.0 (Linux; Android 14) MixdogApp/1.5.0' };
+    doc.visibilityState = 'hidden';
+    emit(documentListeners, 'visibilitychange');
+    await new Promise((r) => setTimeout(r, 15));
+    assert.equal(ctx.backgroundSuspended, true);
+    assert.deepEqual(sockets[1].closes, [[1000, 'background']]);
+
+    // Returning via visibilitychange wakes again, and pagehide also suspends at once.
+    doc.visibilityState = 'visible';
+    emit(documentListeners, 'visibilitychange');
+    await dial(3);
+    await boot.synced();
+    delete page.navigator;
+    emit(windowListeners, 'pagehide');
+    await new Promise((r) => setTimeout(r, 15));
+    assert.equal(ctx.backgroundSuspended, true);
+    assert.deepEqual(sockets[2].closes, [[1000, 'background']]);
+  } finally {
+    boot.resetPairing();
+    resetPage();
+  }
+});
+
+test('returning after a freeze recycles straight away, while an unsuspended long hide keeps the wake probe', async () => {
+  resetPage();
+  const { bootPhone } = await import('./phone-boot.ts');
+  const identity = await generateRelayE2EEServerIdentity();
+  const sockets: Array<ReturnType<typeof readyRelaySocket>> = [];
+  const dialed: Array<{ n: number; resolve(): void }> = [];
+  const dial = (n: number) =>
+    new Promise<void>((resolve) => (sockets.length >= n ? resolve() : dialed.push({ n, resolve })));
+  let clock = 1_000;
+  const boot = bootPhone(makeCtx(identity), {
+    version: conformanceOptions.clientInfo.version,
+    createSocket: () => {
+      const far = readyRelaySocket(identity);
+      sockets.push(far);
+      for (const waiter of dialed.filter((w) => w.n <= sockets.length)) {
+        dialed.splice(dialed.indexOf(waiter), 1);
+        waiter.resolve();
+      }
+      far.start();
+      return far.ws;
+    },
+    suspendApplies: () => false,
+    visualizePanels: () => [],
+    now: () => clock,
+    random: () => 0.5,
+    updateRequired() {},
+  });
+  await boot.synced();
+  try {
+    // Freeze + resume recycles immediately without sending a ping probe.
+    emit(documentListeners, 'freeze');
+    emit(documentListeners, 'resume');
+    assert.equal(sockets[0].pings, 0, 'freeze return skips wake probe');
+    assert.deepEqual(sockets[0].closes, [[4000, 'wake recycle']]);
+    await dial(2);
+    await boot.synced();
+
+    // Long hide (60 s) on a surface where suspendApplies() is false keeps the healthy socket via wake probe.
+    doc.visibilityState = 'hidden';
+    emit(documentListeners, 'visibilitychange');
+    clock += 60_000;
+    doc.visibilityState = 'visible';
+    emit(documentListeners, 'visibilitychange');
+    assert.equal(sockets[1].pings, 1, 'unsuspended long hide probes instead of recycling');
+    assert.deepEqual(sockets[1].closes, [], 'healthy socket stays open while probe runs');
+    sockets[1].sendPong();
+    await new Promise((r) => setTimeout(r, 15));
+    assert.equal(sockets.length, 2, 'answering the probe keeps the socket with no redial');
+  } finally {
+    boot.resetPairing();
+    resetPage();
+  }
+});
+
+test('call-deadline wakeProbe does not reset offline backoff while user, foregrounding, and online do', async () => {
+  resetPage();
+  const { bootPhone } = await import('./phone-boot.ts');
+  const identity = await generateRelayE2EEServerIdentity();
+  let dials = 0;
+  const dialed: Array<{ n: number; resolve(): void }> = [];
+  const dial = (n: number) => new Promise<void>((resolve) => (dials >= n ? resolve() : dialed.push({ n, resolve })));
+  const boot = bootPhone(makeCtx(identity), {
+    version: '1.0.0',
+    createSocket: () => {
+      dials += 1;
+      for (const waiter of dialed.filter((w) => w.n <= dials)) {
+        dialed.splice(dialed.indexOf(waiter), 1);
+        waiter.resolve();
+      }
+      return refusedSocket();
+    },
+    suspendApplies: () => false,
+    visualizePanels: () => [],
+    random: () => 0.5,
+    updateRequired() {},
+  });
+  void boot.start().catch(() => undefined);
+  const data = doc.documentElement.dataset;
+  try {
+    // First retry leaves at once; second waits in backoff (~750 ms).
+    await dial(2);
+    await new Promise((r) => setTimeout(r, 15));
+    const scheduledBefore = Number(data.mixdogRemoteRedialAt);
+    assert.ok(scheduledBefore > Date.now(), 'backoff timer is armed');
+
+    // A call deadline probe must neither cut the backoff wait nor reset it.
+    boot.wakeProbe();
+    await new Promise((r) => setTimeout(r, 15));
+    assert.equal(dials, 2, 'wakeProbe did not cut the backoff short');
+    assert.equal(Number(data.mixdogRemoteRedialAt), scheduledBefore, 'backoff deadline is unchanged');
+
+    // A plain already-foreground focus must also not cut the offline backoff short.
+    emit(windowListeners, 'focus');
+    await new Promise((r) => setTimeout(r, 15));
+    assert.equal(dials, 2, 'already-foreground focus did not cut the backoff short');
+
+    // User retry (REMOTE_WAKE_EVENT) resets backoff and dials immediately.
+    emit(windowListeners, REMOTE_WAKE_EVENT);
+    await dial(3);
+    assert.equal(dials, 3);
+  } finally {
+    boot.resetPairing();
+    resetPage();
+  }
+});
+
+test('NATIVE_NETWORK_CHANGE_EVENT recycles the socket once, and online probes a ready socket', async () => {
+  resetPage();
+  const { bootPhone } = await import('./phone-boot.ts');
+  const identity = await generateRelayE2EEServerIdentity();
+  const sockets: Array<ReturnType<typeof readyRelaySocket>> = [];
+  const dialed: Array<{ n: number; resolve(): void }> = [];
+  const dial = (n: number) =>
+    new Promise<void>((resolve) => (sockets.length >= n ? resolve() : dialed.push({ n, resolve })));
+  const boot = bootPhone(makeCtx(identity), {
+    version: conformanceOptions.clientInfo.version,
+    createSocket: () => {
+      const far = readyRelaySocket(identity);
+      sockets.push(far);
+      for (const waiter of dialed.filter((w) => w.n <= sockets.length)) {
+        dialed.splice(dialed.indexOf(waiter), 1);
+        waiter.resolve();
+      }
+      far.start();
+      return far.ws;
+    },
+    suspendApplies: () => false,
+    visualizePanels: () => [],
+    random: () => 0.5,
+    updateRequired() {},
+  });
+  await boot.synced();
+  try {
+    // On a Wi-Fi -> mobile switch in the app, the native network change event recycles once.
+    emit(windowListeners, NATIVE_NETWORK_CHANGE_EVENT);
+    assert.equal(sockets[0].pings, 0);
+    assert.deepEqual(sockets[0].closes, [[4000, 'network changed']]);
+    await dial(2);
+    await boot.synced();
+    assert.equal(sockets.length, 2, 'Wi-Fi to mobile switch recycles once, not twice');
+    assert.deepEqual(sockets[1].closes, []);
+
+    // Elsewhere (no native event), window online probes a ready socket immediately.
+    emit(windowListeners, 'online');
+    assert.equal(sockets[1].pings, 1, 'online probes the ready socket');
+    assert.deepEqual(sockets[1].closes, []);
+  } finally {
+    boot.resetPairing();
+    resetPage();
+  }
+});
+
+test('bootPhone shows PC offline as soon as a parked socket receives desktop-gone before ready', async () => {
+  resetPage();
+  const { bootPhone } = await import('./phone-boot.ts');
+  const identity = await generateRelayE2EEServerIdentity();
+  let openedWs: RelaySocket | null = null;
+  let markOpened!: () => void;
+  const opened = new Promise<void>((resolve) => {
+    markOpened = resolve;
+  });
+  const boot = bootPhone(makeCtx(identity), {
+    version: conformanceOptions.clientInfo.version,
+    createSocket: () => {
+      const ws: RelaySocket = {
+        binaryType: '',
+        bufferedAmount: 0,
+        onopen: null,
+        onmessage: null,
+        onclose: null,
+        onerror: null,
+        send: () => {},
+        close: () => {},
+      };
+      openedWs = ws;
+      queueMicrotask(() => {
+        ws.onopen?.();
+        ws.onmessage?.({ data: '{"resync":"desktop-gone"}' });
+        markOpened();
+      });
+      return ws;
+    },
+    suspendApplies: () => false,
+    visualizePanels: () => [],
+    random: () => 0.5,
+    updateRequired() {},
+  });
+  const starting = boot.start().catch(() => undefined);
+  try {
+    await opened;
+    await new Promise((r) => setTimeout(r, 10));
+    assert.ok(openedWs);
+    assert.equal(doc.documentElement.dataset.mixdogRemoteDesktop, 'offline');
+  } finally {
+    boot.resetPairing();
+    await starting;
+    resetPage();
+  }
+});
+
+test('new phone dialing with hold=1 against an old relay that ignores it still marks PC offline and backs off on 4002', async (t) => {
+  resetPage();
+  const { bootPhone } = await import('./phone-boot.ts');
+  const identity = await generateRelayE2EEServerIdentity();
+  const ctx = makeCtx(identity);
+  ctx.wsUrl = () => 'wss://relay.invalid/ws?token=abc&hold=1';
+  const dialedUrls: string[] = [];
+  const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.now() });
+  const boot = bootPhone(ctx, {
+    version: conformanceOptions.clientInfo.version,
+    createSocket: (url) => {
+      dialedUrls.push(url);
+      const ws: RelaySocket = {
+        binaryType: '',
+        bufferedAmount: 0,
+        onopen: null,
+        onmessage: null,
+        onclose: null,
+        onerror: null,
+        send: () => {},
+        close: () => {},
+      };
+      // Simulate an old relay that ignores &hold=1 and answers 4002 desktop offline at once.
+      queueMicrotask(() => ws.onclose?.({ code: 4002, reason: 'desktop offline' }));
+      return ws;
+    },
+    suspendApplies: () => false,
+    visualizePanels: () => [],
+    random: () => 1,
+    updateRequired() {},
+  });
+  const starting = boot.start().catch(() => undefined);
+  try {
+    const observedWaits: number[] = [];
+    for (let step = 0; step < 9; step++) {
+      await settle();
+      const redialAt = Number(doc.documentElement.dataset.mixdogRemoteRedialAt || 0);
+      if (redialAt > 0) observedWaits.push(redialAt - Date.now());
+      t.mock.timers.tick(60_000);
+    }
+    await settle();
+    assert.ok(dialedUrls.length >= 8, `expected repeated redials, got ${dialedUrls.length}`);
+    assert.ok(dialedUrls.every((url) => url.endsWith('&hold=1')));
+    assert.equal(doc.documentElement.dataset.mixdogRemoteDesktop, 'offline');
+    assert.ok(
+      observedWaits.includes(60_000),
+      `old relay 4002 keeps the 60 s offline ladder (waits: ${observedWaits.join(', ')})`
+    );
+  } finally {
+    boot.resetPairing();
+    await starting;
     resetPage();
   }
 });

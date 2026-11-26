@@ -47,9 +47,12 @@ export interface PhoneClientOptions extends Omit<RelayConnectorDeps, 'closed'> {
 export interface PhoneClient {
   readonly client: ProtocolClient<SessionFold>;
   /** Page lifecycle hooks of the transport session. */
-  readonly link: Pick<RelayConnector, 'hidden' | 'suspend' | 'suspended' | 'retire' | 'silentSince' | 'silentFor'> & {
-    /** Foreground: releases a suspension, probes the live socket, and cuts a running redial wait short. */
-    wake(options?: { force?: boolean }): boolean;
+  readonly link: Pick<
+    RelayConnector,
+    'hidden' | 'suspend' | 'suspended' | 'retire' | 'probe' | 'silentSince' | 'silentFor'
+  > & {
+    /** Foreground, user retry, or network online/change: releases a suspension, resets backoff, recycles or probes, and cuts a running redial wait short. */
+    wake(options?: { force?: boolean; recycle?: string }): boolean;
   };
   /** Present when `PhoneClientOptions.screen` was given: call `refresh()` when the page or the shown threads change. */
   readonly screen?: ScreenReporter;
@@ -203,6 +206,7 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
     hidden: () => connector.hidden(),
     suspend: () => connector.suspend(),
     retire: () => connector.retire(),
+    probe: () => connector.probe(),
     silentSince: (since) => connector.silentSince(since),
     silentFor: (windowMs) => connector.silentFor(windowMs),
     get suspended() {

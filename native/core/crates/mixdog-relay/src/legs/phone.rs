@@ -17,7 +17,7 @@ use bytes::Bytes;
 use tokio::io::AsyncWriteExt;
 use url::Url;
 
-use super::hub::{Hub, IngressInstall, Liveness, PhoneOptions, SweepLeg};
+use super::hub::{Hub, IngressInstall, Liveness, PhoneOptions, PhoneSlot, SweepLeg, SweepTarget};
 use super::ingress::IngressLeg;
 use crate::close_codes::{DESKTOP_OFFLINE, DESKTOP_OFFLINE_REASON, PAIRING_RESCAN_REQUIRED, PAIRING_RESCAN_REQUIRED_REASON};
 use crate::http1::conn::panic_message;
@@ -102,8 +102,10 @@ pub enum Decision {
     /// The handshake completes and the socket is closed with this code at once (`closeAnswered`). The slot, when there is one, is held
     /// until the connection ends.
     Answer { code: u16, reason: &'static str, slot: Option<OfflineSlot> },
-    /// A paired phone whose PC is connected: the handshake completes and the socket becomes a phone leg of the device.
-    Attach { device_id: String, browser_client_id: String },
+    /// A paired phone: the handshake completes and the socket attaches to its device's entry (live, or parked while the PC is
+    /// offline when `hold_offline` was requested via `&hold=1`). `slot` holds the per-device capacity reservation across the async
+    /// upgrade until `try_attach_phone` consumes it or the upgrade drops.
+    Attach { device_id: String, browser_client_id: String, slot: PhoneSlot, hold_offline: bool },
 }
 
 /// The relay's phone side: the limiters and the table of outstanding PC-offline answers, over the process's hub and socket server.
@@ -136,6 +138,7 @@ impl PhoneLegs {
             return Decision::Refuse { status: 403, reason: "Forbidden" };
         }
         let token = request.url.query_pairs().find(|(key, _)| key == "token").map(|(_, value)| value.into_owned()).unwrap_or_default();
+        let hold_offline = request.url.query_pairs().find(|(key, _)| key == "hold").is_some_and(|(_, value)| value == "1");
         let access = self.hub.store().client_access_for_token(&token);
         let Some((device_id, client_id)) = access.and_then(|access| {
             let client_id = access.client_id.filter(|id| !id.is_empty())?;
@@ -147,26 +150,21 @@ impl PhoneLegs {
             logline::emit(&logline::phone_upgrade_refused(status, cause, &device_id));
             Decision::Refuse { status, reason }
         };
-        // Every upgrade this relay completes is charged, the "PC offline" answer included: it costs a handshake and a socket like any
-        // other.
         if !lock(&self.connect_limiter).allow(&device_id) {
             return refuse(429, "Too Many Requests", "rate-limit");
         }
-        let info = self.hub.desktop_info(&device_id);
-        if !info.as_ref().is_some_and(|info| info.open) {
-            // Desktop offline is transient, and the phone has to be able to SAY so: a refused upgrade reaches a browser as a bare 1006
-            // that names nobody. The handshake completes and closes with the relay's own "PC offline" code, which is not a pairing
-            // failure: the reconnect loop keeps running and the stored pairing is untouched.
+        if !hold_offline && !self.hub.desktop_open(&device_id) {
             return self.offline(&device_id, refuse);
         }
-        if !phone_client_capacity_available(info.map_or(0, |info| info.clients)) {
+        let Some(slot) = self.hub.reserve_phone_slot(&device_id, MAX_PHONE_CLIENTS_PER_DEVICE) else {
             return refuse(429, "Too Many Requests", "client-capacity");
-        }
+        };
         self.hub.store().touch_client(&device_id, &client_id, &ProfileInput::default());
-        Decision::Attach { device_id, browser_client_id: client_id }
+        Decision::Attach { device_id, browser_client_id: client_id, slot, hold_offline }
     }
 
-    /// `closeOfflinePhone`: "PC offline" answers are bounded per device like live phone legs.
+    /// `closeOfflinePhone`: "PC offline" answers for phones that did not opt into offline parking are bounded per device like live
+    /// phone legs.
     fn offline(&self, device_id: &str, refuse: impl FnOnce(u16, &'static str, &str) -> Decision) -> Decision {
         let mut closing = lock(&self.offline_closing);
         let outstanding = closing.get(device_id).copied().unwrap_or(0);
@@ -205,9 +203,9 @@ impl PhoneLegs {
                 }
                 drop(slot);
             }
-            Decision::Attach { device_id, browser_client_id } => {
+            Decision::Attach { device_id, browser_client_id, slot, hold_offline } => {
                 if let Ok((socket, events)) = self.sockets.handle_upgrade(request.handshake, io, head).await {
-                    self.run_phone_leg(device_id, browser_client_id, socket, events).await;
+                    self.run_phone_leg(device_id, browser_client_id, slot, hold_offline, socket, events).await;
                 }
             }
         }
@@ -217,7 +215,7 @@ impl PhoneLegs {
     /// the close waits for its reply: a socket that misbehaves is cut there and then, and one that never replies is cut after the
     /// grace. The socket is listed for the heartbeat sweep like every upgraded socket.
     pub async fn answer_closed(&self, socket: WebSocket, mut events: WsEvents, code: u16, reason: &str) {
-        let leg = self.hub.register_leg(SweepLeg { socket: Arc::new(socket.clone()), liveness: Liveness::new(), ingress: None });
+        let leg = self.hub.register_leg(SweepLeg { socket: Arc::new(socket.clone()), liveness: Liveness::new(), ingress: None, target: SweepTarget::Closing });
         if socket.close(code, reason).is_err() {
             socket.terminate();
         }
@@ -240,17 +238,29 @@ impl PhoneLegs {
         self.hub.unregister_leg(leg);
     }
 
-    /// `runClientLeg` over a real socket: meter its ingress, attach it to its device's desktop and drive it from its events until it
-    /// closes. The first event is taken only after the ingress tap is installed, so the tap sees every byte of the connection. A
-    /// desktop entry that went away between the decision and here is what a PC that is offline is: the phone is answered 4002.
-    pub async fn run_phone_leg(&self, device_id: String, browser_client_id: String, socket: WebSocket, mut events: WsEvents) {
+    /// `runClientLeg` over a real socket: meter its ingress, attach it to its device's desktop (or park it while the PC is offline)
+    /// and drive it from its events until it closes. The first event is taken only after the ingress tap is installed, so the tap
+    /// sees every byte of the connection.
+    pub async fn run_phone_leg(
+        &self,
+        device_id: String,
+        browser_client_id: String,
+        slot: PhoneSlot,
+        hold_offline: bool,
+        socket: WebSocket,
+        mut events: WsEvents,
+    ) {
         let install: IngressInstall = {
             let (pool, limits, tapped) = (self.hub.ingress_pool().clone(), self.hub.ingress_limits(), socket.clone());
             Box::new(move |kind| IngressLeg::install(&pool, &tapped, kind, limits))
         };
-        let options =
-            PhoneOptions { browser_client_id: Some(browser_client_id), inflight_ceiling: self.hub.config().max_inflight_bytes, ingress: Some(install) };
-        let Ok(handle) = self.hub.attach_phone(&device_id, Arc::new(socket.clone()), options) else {
+        let options = PhoneOptions {
+            browser_client_id: Some(browser_client_id),
+            inflight_ceiling: self.hub.config().max_inflight_bytes,
+            ingress: Some(install),
+            slot: Some(slot),
+        };
+        let Some(handle) = self.hub.try_attach_phone(&device_id, Arc::new(socket.clone()), options, hold_offline) else {
             self.answer_closed(socket, events, DESKTOP_OFFLINE, DESKTOP_OFFLINE_REASON).await;
             return;
         };

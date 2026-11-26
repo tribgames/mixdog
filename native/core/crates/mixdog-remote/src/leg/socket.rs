@@ -2,10 +2,13 @@
 //! announces and what its loss means for phones belongs to the caller, which receives
 //! [`LegEvent`]s and sends [`Outgoing`] messages.
 
+use std::pin::Pin;
+use std::task::Poll;
 use std::time::Duration;
 
 use base64::Engine;
-use futures::{SinkExt, StreamExt};
+use futures::stream::SplitSink;
+use futures::{Sink, SinkExt, StreamExt};
 use serde_json::Value;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc;
@@ -19,7 +22,7 @@ use tokio_util::sync::CancellationToken;
 use url::Url;
 
 use super::inbound::{Inbound, read_message};
-use super::redial::{Redial, STABLE_LEG};
+use super::redial::{RETRY_MIN, Redial, STABLE_LEG};
 use crate::identity::DeviceIdentity;
 
 /// Idle NAT paths silently kill this leg; protocol pings keep it warm and detect a half-dead
@@ -208,6 +211,36 @@ async fn serve_leg(
     Ok(serve_socket(socket, config, events, outgoing, redial, cancel).await)
 }
 
+/// Drives one message through `sink` (ready, enqueue, flush) or finishes flushing bytes already queued.
+/// Cancel-safe inside `tokio::select!`: `pending` is taken only when `start_send` runs synchronously,
+/// and `poll_flush` resumes from the sink's internal write buffer on the next poll.
+async fn drive_sink<S>(sink: &mut SplitSink<WebSocketStream<S>, Message>, pending: &mut Option<Message>) -> Result<(), tokio_tungstenite::tungstenite::Error>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    std::future::poll_fn(|cx| {
+        let mut sink = Pin::new(&mut *sink);
+        if pending.is_some() {
+            match sink.as_mut().poll_ready(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Err(err)) => {
+                    *pending = None;
+                    return Poll::Ready(Err(err));
+                }
+                Poll::Ready(Ok(())) => {
+                    if let Some(message) = pending.take()
+                        && let Err(err) = sink.as_mut().start_send(message)
+                    {
+                        return Poll::Ready(Err(err));
+                    }
+                }
+            }
+        }
+        sink.poll_flush(cx)
+    })
+    .await
+}
+
 /// Serves one open leg until it ends.
 async fn serve_socket<S>(
     socket: WebSocketStream<S>,
@@ -234,10 +267,17 @@ where
     // Node's `ws` keeps reading after a failed write, so a close code the relay sent first still decides the redial
     // (remote-relay-connection.ts `ws.on('close', (code) => ...)`).
     let mut write_failed = false;
+    let mut pending_write: Option<Message> = None;
+    let mut flushing = false;
+    let mut pending_ping = false;
     loop {
         tokio::select! {
             () = cancel.cancelled() => {
-                let _ = sink.close().await;
+                if !write_failed && !flushing {
+                    // Best-effort close frame bounded by one retry step (`RETRY_MIN`) or heartbeat so a
+                    // half-dead socket on suspend, resume, or shutdown cannot pin the cancelled task.
+                    let _ = mixdog_rt::time::timeout(config.heartbeat.min(RETRY_MIN), sink.close()).await;
+                }
                 return Ended::Cancelled;
             }
             () = &mut stable, if !stable_done => {
@@ -249,15 +289,33 @@ where
                     return Ended::Closed(None);
                 }
                 alive = false;
-                write_failed = sink.send(Message::Ping(Vec::new().into())).await.is_err();
+                if flushing {
+                    pending_ping = true;
+                } else {
+                    pending_write = Some(Message::Ping(Vec::new().into()));
+                    flushing = true;
+                }
             }
-            sent = outgoing.recv(), if !write_failed => {
+            result = drive_sink(&mut sink, &mut pending_write), if flushing => {
+                if result.is_err() {
+                    write_failed = true;
+                    flushing = false;
+                    pending_ping = false;
+                } else if pending_ping {
+                    pending_ping = false;
+                    pending_write = Some(Message::Ping(Vec::new().into()));
+                } else {
+                    flushing = false;
+                }
+            }
+            sent = outgoing.recv(), if !write_failed && !flushing => {
                 let Some(sent) = sent else { return Ended::Cancelled };
                 let message = match sent {
                     Outgoing::Text(text) => Message::Text(text.into()),
                     Outgoing::Binary(bytes) => Message::Binary(bytes.into()),
                 };
-                write_failed = sink.send(message).await.is_err();
+                pending_write = Some(message);
+                flushing = true;
             }
             received = stream.next() => {
                 alive = true;
@@ -335,17 +393,7 @@ mod tests {
 
     /// A desktop leg served over an in-memory pipe, past its open.
     async fn open_leg() -> Pipe {
-        let (desktop_end, relay_end) = tokio::io::duplex(PIPE_ROOM);
-        let desktop = WebSocketStream::from_raw_socket(desktop_end, Role::Client, None).await;
-        let relay = WebSocketStream::from_raw_socket(relay_end, Role::Server, None).await;
-        let (events, mut opened) = mpsc::channel(1);
-        // One slot: a send that completes proves the leg has taken the previous message.
-        let (outgoing, mut queue) = mpsc::channel(1);
-        let config =
-            LegConfig::desktop("ws://127.0.0.1".to_owned(), DeviceIdentity { device_id: "00000000".to_owned(), device_secret: "0".repeat(16) }, PIPE_ROOM);
-        let leg = tokio::spawn(async move { serve_socket(desktop, &config, &events, &mut queue, &mut Redial::default(), &CancellationToken::new()).await });
-        assert!(matches!(opened.recv().await, Some(LegEvent::Open)));
-        Pipe { relay, outgoing, leg }
+        open_leg_with_heartbeat(HEARTBEAT).await
     }
 
     fn stalled_close() -> Option<CloseFrame> {
@@ -385,5 +433,68 @@ mod tests {
         let Pipe { mut relay, leg, outgoing: _outgoing } = open_leg().await;
         relay.close(stalled_close()).await.unwrap();
         assert_eq!(leg.await.unwrap(), Ended::Closed(Some(DESKTOP_HANDSHAKE_STALLED_CLOSE)));
+    }
+
+    async fn open_leg_with_heartbeat(heartbeat: Duration) -> Pipe {
+        let (desktop_end, relay_end) = tokio::io::duplex(PIPE_ROOM);
+        let desktop = WebSocketStream::from_raw_socket(desktop_end, Role::Client, None).await;
+        let relay = WebSocketStream::from_raw_socket(relay_end, Role::Server, None).await;
+        let (events, mut opened) = mpsc::channel(1);
+        let (outgoing, mut queue) = mpsc::channel(1);
+        let mut config =
+            LegConfig::desktop("ws://127.0.0.1".to_owned(), DeviceIdentity { device_id: "00000000".to_owned(), device_secret: "0".repeat(16) }, PIPE_ROOM);
+        config.heartbeat = heartbeat;
+        let leg = tokio::spawn(async move { serve_socket(desktop, &config, &events, &mut queue, &mut Redial::default(), &CancellationToken::new()).await });
+        assert!(matches!(opened.recv().await, Some(LegEvent::Open)));
+        Pipe { relay, outgoing, leg }
+    }
+
+    /// A half-dead transport: reads and writes stall indefinitely with no EOF or error.
+    struct BlackholeIo;
+
+    impl AsyncRead for BlackholeIo {
+        fn poll_read(self: Pin<&mut Self>, _cx: &mut std::task::Context<'_>, _buf: &mut tokio::io::ReadBuf<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Pending
+        }
+    }
+
+    impl AsyncWrite for BlackholeIo {
+        fn poll_write(self: Pin<&mut Self>, _cx: &mut std::task::Context<'_>, _buf: &[u8]) -> Poll<std::io::Result<usize>> {
+            Poll::Pending
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Pending
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Pending
+        }
+    }
+
+    /// An outgoing write that stalls on a half-dead socket cannot block the heartbeat from cutting the leg.
+    #[tokio::test]
+    async fn a_stuck_outgoing_write_does_not_block_the_heartbeat() {
+        let Pipe { relay: _relay, outgoing, leg } = open_leg_with_heartbeat(Duration::from_millis(40)).await;
+        outgoing.send(Outgoing::Binary(vec![0; PIPE_ROOM * 4])).await.unwrap();
+        // Proves the leg took the large message into its write path.
+        outgoing.send(Outgoing::Binary(vec![0; 1])).await.unwrap();
+        let ended = mixdog_rt::time::timeout(Duration::from_secs(2), leg).await.expect("heartbeat cuts the half-dead leg").unwrap();
+        assert_eq!(ended, Ended::Closed(None));
+    }
+
+    /// A protocol ping that stalls on a half-dead socket cannot block the next heartbeat tick from cutting the leg.
+    #[tokio::test]
+    async fn a_stuck_ping_write_does_not_block_the_heartbeat() {
+        let desktop = WebSocketStream::from_raw_socket(BlackholeIo, Role::Client, None).await;
+        let (events, mut opened) = mpsc::channel(1);
+        let (_outgoing, mut queue) = mpsc::channel(1);
+        let mut config =
+            LegConfig::desktop("ws://127.0.0.1".to_owned(), DeviceIdentity { device_id: "00000000".to_owned(), device_secret: "0".repeat(16) }, PIPE_ROOM);
+        config.heartbeat = Duration::from_millis(40);
+        let leg = tokio::spawn(async move { serve_socket(desktop, &config, &events, &mut queue, &mut Redial::default(), &CancellationToken::new()).await });
+        assert!(matches!(opened.recv().await, Some(LegEvent::Open)));
+        let ended = mixdog_rt::time::timeout(Duration::from_secs(2), leg).await.expect("heartbeat cuts the half-dead leg").unwrap();
+        assert_eq!(ended, Ended::Closed(None));
     }
 }

@@ -440,6 +440,10 @@ class Engine implements ProtocolClient<Json> {
   private readonly foldedWindow = new Map<string, ResumeWindow>();
   /** The window a subscription token's snapshot will fold in. */
   private readonly tokenWindow = new Map<number, ResumeWindow>();
+  /** The core subscription id whose positioned grant matches `store.threads`; survives disconnect so a positioned resume can replay. */
+  private readonly foldedSubId = new Map<string, string>();
+  /** The subscription id a token's snapshot will commit to `foldedSubId`. */
+  private readonly tokenSubId = new Map<number, string>();
   /** The feeds whose resume cursor the core refused (`cursorInvalidated`): attached whole until one is answered. */
   private readonly cursorReset = new Set<string>();
   private readonly serverRequests = new Map<string, ServerRequest>();
@@ -687,6 +691,7 @@ class Engine implements ProtocolClient<Json> {
     this.resuming.clear();
     this.subId.clear();
     this.tokenWindow.clear();
+    this.tokenSubId.clear();
     this.feedChains.clear();
     const dropped = [...this.serverRequests.values()];
     this.serverRequests.clear();
@@ -865,6 +870,7 @@ class Engine implements ProtocolClient<Json> {
     this.replayThrough.delete(threadId);
     this.store.threads.delete(threadId);
     this.foldedWindow.delete(threadId);
+    this.foldedSubId.delete(threadId);
     // A fold of the lost subscription may wait on a read that is never answered: the next open does not queue behind it.
     this.feedChains.delete(threadId);
     if (!this.requestsFor.has(threadId)) this.threadLastEvent.delete(threadId);
@@ -957,6 +963,7 @@ class Engine implements ProtocolClient<Json> {
     this.feedChains.clear();
     this.threadLastEvent.clear();
     this.tokenWindow.clear();
+    this.tokenSubId.clear();
     for (const threadId of [...this.held.keys(), ...this.heldRestoring.keys()]) this.releaseHeld(threadId);
     for (const w of this.readyWaiters.splice(0)) w.err(fail(detail));
     this.pulse();
@@ -1048,10 +1055,11 @@ class Engine implements ProtocolClient<Json> {
   }
 
   /** Whether `f` (not a snapshot) is the next frame of its feed's repeated range (`repeated`): it is dropped and the range advances. */
-  private repeats(f: FeedStamp): boolean {
+  private repeats(f: FeedStamp, n: JsonRpcNotification): boolean {
     const range = this.repeated.get(f.id);
     if (!range) return false;
     const cur = this.recv.get(f.id);
+    if (cur?.epoch === f.epoch && f.from === undefined && f.seq === range.next - 1 && standsAtFeed(n)) return true;
     if (cur?.epoch === f.epoch && firstOf(f) === range.next && f.seq <= range.through) {
       range.next = f.seq + 1;
       if (range.next > range.through) this.repeated.delete(f.id);
@@ -1259,7 +1267,7 @@ class Engine implements ProtocolClient<Json> {
     // A positioned window's change stands at the position the feed has reached and takes no seq of its own.
     const fenced = !snapshot && cur?.epoch === f.epoch && f.seq === cur.seq && f.from === undefined && standsAtFeed(n);
     if (snapshot) this.repeated.delete(f.id);
-    else if (!fenced && this.repeats(f)) return;
+    else if (!fenced && this.repeats(f, n)) return;
     if (!snapshot && !fenced && (!cur || cur.epoch !== f.epoch || firstOf(f) !== cur.seq + 1)) {
       let feedKind: 'app' | 'thread' | 'control' = 'control';
       if (f.id === WIRE.appFeedId) feedKind = 'app';
@@ -1289,7 +1297,7 @@ class Engine implements ProtocolClient<Json> {
    * the feed must run on without a gap, as a thread feed does. */
   private onScoped(n: JsonRpcNotification, f: FeedStamp, gen: number): void {
     if (n.method === 'feed/snapshot') this.repeated.delete(f.id);
-    else if (this.repeats(f)) return;
+    else if (this.repeats(f, n)) return;
     const cur = this.recv.get(f.id);
     if (n.method !== 'feed/snapshot' && cur && (cur.epoch !== f.epoch || firstOf(f) !== cur.seq + 1)) {
       this.feedGap(n, f, 'scoped');
@@ -1383,7 +1391,13 @@ class Engine implements ProtocolClient<Json> {
       const built = tok === undefined ? undefined : this.tokenWindow.get(tok);
       if (built) this.foldedWindow.set(f.id, built);
       else this.foldedWindow.delete(f.id);
-      if (tok !== undefined) this.tokenWindow.delete(tok);
+      const subId = tok === undefined ? undefined : this.tokenSubId.get(tok);
+      if (subId !== undefined) this.foldedSubId.set(f.id, subId);
+      else this.foldedSubId.delete(f.id);
+      if (tok !== undefined) {
+        this.tokenWindow.delete(tok);
+        this.tokenSubId.delete(tok);
+      }
     }
     const attach = this.resuming.get(f.id);
     if (snapshot && attach && attach.token === tok) {
@@ -1517,11 +1531,21 @@ class Engine implements ProtocolClient<Json> {
   private resumeParams(threadId: string, window: ResumeWindow, snapshot: boolean): Json {
     const prev = snapshot ? undefined : this.store.threads.get(threadId);
     const prevWindow = this.foldedWindow.get(threadId);
+    const positioned = this.o.positionedTranscripts === true && isObj(window) && 'lastItems' in window;
+    const prevSubId = positioned ? this.foldedSubId.get(threadId) : undefined;
+    const held = positioned && prev && isObj(prev.state) && isObj(prev.state.held) ? prev.state.held : undefined;
+    const windowVersion = typeof held?.version === 'number' ? held.version : undefined;
     const resumeFrom =
       prev && prevWindow && !this.cursorReset.has(threadId)
-        ? { epoch: prev.feed.epoch, seq: prev.feed.seq, window: prevWindow }
+        ? {
+            epoch: prev.feed.epoch,
+            seq: prev.feed.seq,
+            window: prevWindow,
+            ...(prevSubId !== undefined && windowVersion !== undefined
+              ? { subscriptionId: prevSubId, windowVersion }
+              : {}),
+          }
         : undefined;
-    const positioned = this.o.positionedTranscripts === true && isObj(window) && 'lastItems' in window;
     return {
       threadId,
       window,
@@ -1540,6 +1564,10 @@ class Engine implements ProtocolClient<Json> {
     if (s.id !== undefined && this.subId.get(feedId) === s.id) return;
     if (s.id === undefined) this.subId.delete(feedId);
     else this.subId.set(feedId, s.id);
+    if (window && s.mode === 'replay') {
+      if (s.id !== undefined) this.foldedSubId.set(feedId, s.id);
+      else this.foldedSubId.delete(feedId);
+    }
     // A reply that arrives after its feed already ran past the position it names is a stale read: it resets nothing, so the
     // events already received stay in order (the transcript is the feed's, not the reply's). A replay then repeats them: the core
     // replaced the subscription that delivered them, and the new one starts at `startSeq` (`repeated`). A snapshot resets the position.
@@ -1569,13 +1597,19 @@ class Engine implements ProtocolClient<Json> {
     this.dropToken(feedId);
     const token = ++this.tokenSeq;
     this.subToken.set(feedId, token);
-    if (window && s.mode === 'snapshot') this.tokenWindow.set(token, window);
+    if (window && s.mode === 'snapshot') {
+      this.tokenWindow.set(token, window);
+      if (s.id !== undefined) this.tokenSubId.set(token, s.id);
+    }
   }
 
   /** The feed's subscription token and the window its snapshot would have folded go together. */
   private dropToken(feedId: string): void {
     const token = this.subToken.get(feedId);
-    if (token !== undefined) this.tokenWindow.delete(token);
+    if (token !== undefined) {
+      this.tokenWindow.delete(token);
+      this.tokenSubId.delete(token);
+    }
     this.subToken.delete(feedId);
   }
 
@@ -1958,6 +1992,7 @@ class Engine implements ProtocolClient<Json> {
     this.subId.delete(threadId);
     this.store.threads.delete(threadId);
     this.foldedWindow.delete(threadId);
+    this.foldedSubId.delete(threadId);
     this.feedChains.delete(threadId);
     if (!this.requestsFor.has(threadId)) this.threadLastEvent.delete(threadId);
     releaseTranscriptWindow(this as never, threadId);

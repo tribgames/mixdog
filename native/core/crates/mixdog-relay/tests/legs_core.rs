@@ -259,7 +259,7 @@ fn phone(hub: &Arc<Hub>, device: &str, browser: Option<&str>) -> (Arc<Fake>, Pho
 
 fn phone_with(hub: &Arc<Hub>, device: &str, options: PhoneOptions) -> (Arc<Fake>, PhoneHandle) {
     let socket = Fake::new();
-    let handle = hub.attach_phone(device, socket.clone(), options).expect("a desktop leg is live");
+    let handle = hub.attach_phone(device, socket.clone(), options);
     (socket, handle)
 }
 

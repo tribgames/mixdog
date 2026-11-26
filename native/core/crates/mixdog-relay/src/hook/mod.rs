@@ -77,6 +77,7 @@ struct EntryState {
 
 /// One live agent leg (`{ socket, pending, inflight }` of `liveHooks`).
 pub(crate) struct HookEntry {
+    device_id: String,
     socket: WebSocket,
     state: Mutex<EntryState>,
     alive: AtomicBool,
@@ -142,6 +143,10 @@ pub struct HookLeg {
 }
 
 impl HookLeg {
+    pub fn device_id(&self) -> &str {
+        &self.entry.device_id
+    }
+
     pub fn socket(&self) -> &WebSocket {
         &self.entry.socket
     }

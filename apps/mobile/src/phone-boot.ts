@@ -7,6 +7,7 @@ import {
   REMOTE_CONNECTION_READY_EVENT,
   REMOTE_WAKE_EVENT,
   beginRemoteConnectionTimeline,
+  markRemoteDesktopOffline,
   remoteConnectionInterruptedError,
   reportRemoteConnectionIssue,
   setRemoteConnectionPhase,
@@ -16,6 +17,12 @@ import {
 import { setRemoteHostName, setRemoteHostOpenAccess } from '../../desktop/src/renderer/remote-host-access.ts';
 import { publishMediaKey, revokeMediaKey } from '../../desktop/src/renderer/remote-media-lane.ts';
 import { currentDeviceId, savePcName } from '../../desktop/src/renderer/remote-saved-pcs.ts';
+import {
+  NATIVE_BACKGROUND_EVENT,
+  NATIVE_FOREGROUND_EVENT,
+  NATIVE_NETWORK_CHANGE_EVENT,
+  nativeAppInfo,
+} from '../../desktop/src/shared/native-app.ts';
 import { readRelayPayloadRejection } from '../../desktop/src/shared/remote-payload-limit.ts';
 import {
   REMOTE_SECURE_CHANNEL_READY_EVENT,
@@ -29,8 +36,14 @@ import { createViewManager, type ViewManager } from './phone-view.ts';
 import type { RelaySocket } from './relay-connector.ts';
 import { WAKE_TRAFFIC_PROOF_MS } from './relay-session.ts';
 
-/** A quick app switch must not cost the connection: going hidden only arms this, and the suspension runs if the page is still hidden when it ends. */
+/** A plain browser tab keeps its socket across a quick tab switch; installed apps and native background events suspend at once. */
 export const BACKGROUND_GRACE_MS = 30_000;
+
+function isInstalledAppSurface(): boolean {
+  if (nativeAppInfo()) return true;
+  if (typeof window !== 'undefined' && window.matchMedia?.('(display-mode: standalone)').matches === true) return true;
+  return typeof navigator !== 'undefined' && (navigator as Navigator & { standalone?: boolean }).standalone === true;
+}
 
 export interface PhoneEnv {
   readonly version: string;
@@ -374,6 +387,9 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
         resyncAfterProbe = false;
         wakeView();
       },
+      desktopOffline: () => {
+        if (generation === pairingGeneration) markRemoteDesktopOffline();
+      },
       resyncHint: (word) => {
         if (generation !== pairingGeneration) return;
         // A `frame-too-large` notice carries the ceiling the relay enforces: learned, and told to the user.
@@ -413,7 +429,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
         console.warn('[mixdog-remote] view synchronization failed; retrying', error);
       },
       recycle: () => connected.link.retire(),
-      probe: () => wake(),
+      probe: () => probe(),
       silentSince: (since) => connected.link.silentSince(since),
     });
     lanes = createLaneFeeds(connected.client, {
@@ -450,7 +466,20 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
 
   let graceTimer: ReturnType<typeof setTimeout> | undefined;
   let frozen = false;
-  const beginBackgroundGrace = (): void => {
+  let wasFrozen = false;
+  let wasHidden = false;
+  const suspend = (): void => {
+    if (!env.suspendApplies() || ctx.backgroundSuspended) return;
+    clearTimeout(graceTimer);
+    graceTimer = undefined;
+    setRemoteConnectionPhase('background');
+    ctx.backgroundSuspended = true;
+    resyncOnWake = true;
+    setRemoteConnectionState('connecting');
+    currentLink()?.suspend();
+  };
+  const enterBackground = (immediate: boolean): void => {
+    wasHidden = true;
     currentLink()?.hidden();
     resyncOnWake = true;
     if (!env.suspendApplies()) return;
@@ -458,37 +487,58 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
       background = true;
       phone?.screen?.refresh();
     }
+    if (immediate || isInstalledAppSurface()) {
+      suspend();
+      return;
+    }
     if (graceTimer !== undefined) return;
     graceTimer = setTimeout(() => {
       graceTimer = undefined;
       if (gate.hidden()) suspend();
     }, BACKGROUND_GRACE_MS);
   };
-  const suspend = (): void => {
-    if (!env.suspendApplies()) return;
-    setRemoteConnectionPhase('background');
-    ctx.backgroundSuspended = true;
-    resyncOnWake = true;
-    setRemoteConnectionState('connecting');
-    currentLink()?.suspend();
+  const suspendImmediately = (): void => enterBackground(true);
+  const beginBackgroundGrace = (): void => enterBackground(false);
+  const probe = (): void => {
+    if (versionRefused || gate.hidden() || frozen || ctx.backgroundSuspended) return;
+    phone?.link.probe();
   };
-  const isRedundantFocus = (event?: Event): boolean =>
-    event?.type === 'focus' &&
-    !background &&
-    !ctx.backgroundSuspended &&
-    !resyncOnWake &&
-    Boolean(phone) &&
-    !phone?.link.silentFor(WAKE_TRAFFIC_PROOF_MS);
+  const recycleForNetworkChange = (): void => {
+    if (versionRefused || gate.hidden() || frozen || ctx.backgroundSuspended) return;
+    resyncOnWake = true;
+    if (!phone) {
+      dialLink?.wake({ force: true, recycle: 'network changed' });
+      gate.release();
+      void start().catch(() => undefined);
+      return;
+    }
+    phone.link.wake({ force: true, recycle: 'network changed' });
+  };
   const wake = (event?: Event): void => {
     if (versionRefused) return;
     if (event?.type === 'resume') frozen = false;
-    if (gate.hidden()) {
+    if (event?.type !== NATIVE_FOREGROUND_EVENT && gate.hidden()) {
       beginBackgroundGrace();
       return;
     }
-    if (frozen || isRedundantFocus(event)) return;
+    if (frozen) return;
+    const wasAway = background || ctx.backgroundSuspended || wasFrozen || wasHidden;
+    if (event?.type === 'focus' && !wasAway) {
+      if (!phone?.link.silentFor(WAKE_TRAFFIC_PROOF_MS)) return;
+      const probing = phone.link.probe();
+      if (!probing) resyncOnWake = true;
+      else if (resyncOnWake) {
+        resyncOnWake = false;
+        resyncAfterProbe = true;
+      }
+      return;
+    }
     clearTimeout(graceTimer);
     graceTimer = undefined;
+    // Recycle straight away only if the socket was actually suspended or the page was frozen; otherwise probe.
+    const recycle = wasFrozen || ctx.backgroundSuspended ? 'wake recycle' : undefined;
+    wasFrozen = false;
+    wasHidden = false;
     if (background) {
       background = false;
       phone?.screen?.refresh();
@@ -496,14 +546,15 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     if (ctx.backgroundSuspended) beginRemoteConnectionTimeline('wake');
     ctx.backgroundSuspended = false;
     const force = event?.type === 'online' || event?.type === REMOTE_WAKE_EVENT;
+    const wakeOptions = recycle ? { force, recycle } : { force };
     if (!phone) {
       // Before the first connection the redial wait (up to 60 s) and a suspension are the link's: a wake releases both.
-      dialLink?.wake({ force });
+      dialLink?.wake(wakeOptions);
       gate.release();
       void start().catch(() => undefined);
       return;
     }
-    const probing = phone.link.wake({ force });
+    const probing = phone.link.wake(wakeOptions);
     if (!probing) resyncOnWake = true;
     else if (resyncOnWake || force) {
       resyncOnWake = false;
@@ -512,6 +563,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
   };
   document.addEventListener('freeze', () => {
     frozen = true;
+    wasFrozen = true;
     resyncOnWake = true;
   });
   document.addEventListener('visibilitychange', wake);
@@ -519,13 +571,16 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
   window.addEventListener('online', wake);
   window.addEventListener('focus', wake);
   window.addEventListener('pageshow', wake);
-  window.addEventListener('pagehide', beginBackgroundGrace);
+  window.addEventListener('pagehide', suspendImmediately);
+  window.addEventListener(NATIVE_BACKGROUND_EVENT, suspendImmediately);
+  window.addEventListener(NATIVE_FOREGROUND_EVENT, wake);
+  window.addEventListener(NATIVE_NETWORK_CHANGE_EVENT, recycleForNetworkChange);
   // Tapping the disconnect overlay runs the same recovery a wake does.
   window.addEventListener(REMOTE_WAKE_EVENT, wake);
 
   return {
     start,
-    wakeProbe: () => wake(),
+    wakeProbe: () => probe(),
     silentSince: (since: number): boolean => phone?.link.silentSince(since) ?? false,
     client: () => phone?.client,
     onClient: (listener) => {

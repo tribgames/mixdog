@@ -5,9 +5,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.Color;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.PowerManager;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.WebView;
@@ -20,10 +20,9 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
+import com.getcapacitor.BridgeActivity;
 import java.util.Collections;
 import org.json.JSONObject;
-
-import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
   // One back press closes exactly one web layer: while that layer's
@@ -37,15 +36,15 @@ public class MainActivity extends BridgeActivity {
   // The service worker's offline frame (sw-shell.js) has nothing to close and
   // no native cover over it ('offline'): Back leaves it for the PC list.
   private static final String BACK_SCRIPT =
-      "(function(){var w=window;if(w.document.documentElement.hasAttribute('data-mixdog-offline'))return 'offline';"
-          + "if(w.__mixdogBackBusy)return 'web';"
-          + "var s=history.state,armed=!!(s&&s.mixdogBack),disarmed=!!s&&s.mixdogBack===false;"
-          + "if(armed||disarmed){w.__mixdogBackBusy=true;"
-          + "var done=function(){w.__mixdogBackBusy=false};"
-          + "w.addEventListener('popstate',done,{once:true});setTimeout(done,1000)}"
-          + "if(armed){history.back();return 'web'}"
-          + "if(disarmed)return 'disarmed';"
-          + "return location.origin==='https://localhost'?'local':'none'})()";
+      "(function(){var"
+          + " w=window;if(w.document.documentElement.hasAttribute('data-mixdog-offline'))return"
+          + " 'offline';if(w.__mixdogBackBusy)return 'web';var"
+          + " s=history.state,armed=!!(s&&s.mixdogBack),disarmed=!!s&&s.mixdogBack===false;"
+          + "if(armed||disarmed){w.__mixdogBackBusy=true;var"
+          + " done=function(){w.__mixdogBackBusy=false};"
+          + "w.addEventListener('popstate',done,{once:true});setTimeout(done,1000)}if(armed){history.back();return"
+          + " 'web'}if(disarmed)return 'disarmed';return"
+          + " location.origin==='https://localhost'?'local':'none'})()";
 
   private static final String THEME_HOST_NAME = "MixdogNativeTheme";
 
@@ -69,33 +68,36 @@ public class MainActivity extends BridgeActivity {
             new OnBackPressedCallback(true) {
               @Override
               public void handleOnBackPressed() {
-                // The offline cover hides the page: Back leaves the failed PC for the pairing screen.
+                // The offline cover hides the page: Back leaves the failed PC for the pairing
+                // screen.
                 if (reconnect != null && reconnect.onBack()) return;
                 WebView webView = getBridge() == null ? null : getBridge().getWebView();
                 if (webView == null) {
                   moveTaskToBack(true);
                   return;
                 }
-                webView.evaluateJavascript(BACK_SCRIPT, (result) -> {
-                  if ("\"web\"".equals(result)) return;
-                  if ("\"offline\"".equals(result)) {
-                    reconnect.chooseAnotherPc();
-                    return;
-                  }
-                  if ("\"disarmed\"".equals(result)) {
-                    // Past the picker's entry and its load entry in one step
-                    // (back to the PC page that opened the picker), else drop
-                    // the entry and leave like a plain picker would.
-                    if (webView.canGoBackOrForward(-2)) webView.goBackOrForward(-2);
-                    else {
-                      if (webView.canGoBack()) webView.goBack();
-                      moveTaskToBack(true);
-                    }
-                    return;
-                  }
-                  if ("\"local\"".equals(result) && webView.canGoBack()) webView.goBack();
-                  else moveTaskToBack(true);
-                });
+                webView.evaluateJavascript(
+                    BACK_SCRIPT,
+                    result -> {
+                      if ("\"web\"".equals(result)) return;
+                      if ("\"offline\"".equals(result)) {
+                        reconnect.chooseAnotherPc();
+                        return;
+                      }
+                      if ("\"disarmed\"".equals(result)) {
+                        // Past the picker's entry and its load entry in one step
+                        // (back to the PC page that opened the picker), else drop
+                        // the entry and leave like a plain picker would.
+                        if (webView.canGoBackOrForward(-2)) webView.goBackOrForward(-2);
+                        else {
+                          if (webView.canGoBack()) webView.goBack();
+                          moveTaskToBack(true);
+                        }
+                        return;
+                      }
+                      if ("\"local\"".equals(result) && webView.canGoBack()) webView.goBack();
+                      else moveTaskToBack(true);
+                    });
               }
             });
   }
@@ -119,39 +121,46 @@ public class MainActivity extends BridgeActivity {
     getBridge().setWebViewClient(new MixdogWebViewClient(this, getBridge(), reconnect));
     // Downloads the page did not route through the fileSave bridge (UNBUILT).
     getBridge().getWebView().setDownloadListener(new MixdogDownloads(this));
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) fitWebViewToInsets(getBridge().getWebView());
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM)
+      fitWebViewToInsets(getBridge().getWebView());
   }
 
   /**
-   * Android 15+ enforces edge-to-edge for targetSdk 35, and there
-   * adjustResize no longer shrinks the window: the soft keyboard only arrives
-   * as IME insets. Capacitor's own edge-to-edge margins cover the system bars
-   * but not the keyboard, so the WebView kept its full height and the
-   * composer stayed under the keyboard. The WebView is fitted here instead,
-   * keyboard included, which resizes the page itself (window, visualViewport
-   * and dvh all shrink) exactly like adjustResize does on older releases.
-   * Insets are consumed so the page never applies them a second time.
+   * Android 15+ enforces edge-to-edge for targetSdk 35, and there adjustResize no longer shrinks
+   * the window: the soft keyboard only arrives as IME insets. Capacitor's own edge-to-edge margins
+   * cover the system bars but not the keyboard, so the WebView kept its full height and the
+   * composer stayed under the keyboard. The WebView is fitted here instead, keyboard included,
+   * which resizes the page itself (window, visualViewport and dvh all shrink) exactly like
+   * adjustResize does on older releases. Insets are consumed so the page never applies them a
+   * second time.
    */
   private static void fitWebViewToInsets(View webView) {
-    ViewCompat.setOnApplyWindowInsetsListener(webView, (view, windowInsets) -> {
-      Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
-      Insets ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
-      int[] margins = WebViewInsets.margins(bars.left, bars.top, bars.right, bars.bottom, ime.bottom);
-      ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) view.getLayoutParams();
-      if (params.leftMargin != margins[0]
-          || params.topMargin != margins[1]
-          || params.rightMargin != margins[2]
-          || params.bottomMargin != margins[3]) {
-        params.setMargins(margins[0], margins[1], margins[2], margins[3]);
-        view.setLayoutParams(params);
-      }
-      return WindowInsetsCompat.CONSUMED;
-    });
+    ViewCompat.setOnApplyWindowInsetsListener(
+        webView,
+        (view, windowInsets) -> {
+          Insets bars =
+              windowInsets.getInsets(
+                  WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+          Insets ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
+          int[] margins =
+              WebViewInsets.margins(bars.left, bars.top, bars.right, bars.bottom, ime.bottom);
+          ViewGroup.MarginLayoutParams params =
+              (ViewGroup.MarginLayoutParams) view.getLayoutParams();
+          if (params.leftMargin != margins[0]
+              || params.topMargin != margins[1]
+              || params.rightMargin != margins[2]
+              || params.bottomMargin != margins[3]) {
+            params.setMargins(margins[0], margins[1], margins[2], margins[3]);
+            view.setLayoutParams(params);
+          }
+          return WindowInsetsCompat.CONSUMED;
+        });
     ViewCompat.requestApplyInsets(webView);
   }
 
   private void registerThemeHost(WebView webView) {
-    if (webView == null || !WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) return;
+    if (webView == null || !WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER))
+      return;
     WebViewCompat.addWebMessageListener(
         webView,
         THEME_HOST_NAME,
@@ -191,7 +200,8 @@ public class MainActivity extends BridgeActivity {
     if (value == null || value.length() != 7 || value.charAt(0) != '#') return null;
     for (int i = 1; i < 7; i++) {
       char ch = value.charAt(i);
-      boolean hex = (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
+      boolean hex =
+          (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
       if (!hex) return null;
     }
     return Color.parseColor(value);
@@ -249,7 +259,8 @@ public class MainActivity extends BridgeActivity {
 
   private static boolean isLightColor(int color) {
     double luminance =
-        (0.2126 * Color.red(color) + 0.7152 * Color.green(color) + 0.0722 * Color.blue(color)) / 255.0;
+        (0.2126 * Color.red(color) + 0.7152 * Color.green(color) + 0.0722 * Color.blue(color))
+            / 255.0;
     return luminance >= 0.5;
   }
 
@@ -267,6 +278,10 @@ public class MainActivity extends BridgeActivity {
     MixdogNativeHost.notifyWeb();
   }
 
+  void notifyNetworkChanged() {
+    if (nativeHost != null) nativeHost.onNetworkChanged();
+  }
+
   @Override
   public void onResume() {
     super.onResume();
@@ -277,8 +292,18 @@ public class MainActivity extends BridgeActivity {
   @Override
   public void onPause() {
     if (reconnect != null) reconnect.onPause();
-    if (nativeHost != null) nativeHost.onPause();
+    if (nativeHost != null) {
+      PowerManager pm = getSystemService(PowerManager.class);
+      if (pm != null && !pm.isInteractive()) nativeHost.onBackground();
+      nativeHost.onPause();
+    }
     super.onPause();
+  }
+
+  @Override
+  public void onStop() {
+    if (!isChangingConfigurations() && nativeHost != null) nativeHost.onBackground();
+    super.onStop();
   }
 
   @Override
@@ -288,9 +313,11 @@ public class MainActivity extends BridgeActivity {
   }
 
   @Override
-  public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+  public void onRequestPermissionsResult(
+      int requestCode, String[] permissions, int[] grantResults) {
     super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-    if (requestCode == MixdogNativeHost.PERMISSION_REQUEST && nativeHost != null) nativeHost.onPermissionResult();
+    if (requestCode == MixdogNativeHost.PERMISSION_REQUEST && nativeHost != null)
+      nativeHost.onPermissionResult();
   }
 
   /** A notification tap / Allow / Deny: park it for the web app and clear the notification. */
@@ -311,5 +338,4 @@ public class MainActivity extends BridgeActivity {
     // Consumed: a rotation or recreate must not replay it.
     intent.removeExtra(MixdogNotifications.EXTRA_ACTION);
   }
-
 }

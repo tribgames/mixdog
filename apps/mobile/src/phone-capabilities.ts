@@ -15,6 +15,7 @@ export interface PeerFlags {
   peerUsageRequests: boolean;
   peerProjectRecovery: boolean;
   peerRouteAutoEffort: boolean;
+  peerRouteEffortAuto: boolean;
   peerVisualize: boolean;
   peerFileDownloads: boolean;
   peerSecretInput: boolean;
@@ -41,6 +42,7 @@ export function peerFlagsOf(capabilities: ServerCapabilities): PeerFlags {
     peerUsageRequests: on('usageRequests'),
     peerProjectRecovery: on('projectRecovery'),
     peerRouteAutoEffort: on('routeAutoEffort'),
+    peerRouteEffortAuto: on('routeEffortAuto'),
     peerVisualize: on('visualize'),
     peerFileDownloads: on('fileDownloads'),
     peerSecretInput: on('secretInput'),

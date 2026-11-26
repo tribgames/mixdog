@@ -3,43 +3,47 @@ package io.mixdog.app;
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.os.Build;
 import android.net.Uri;
+import android.os.Build;
+import android.os.Looper;
 import android.provider.Settings;
 import android.webkit.WebView;
+import androidx.core.app.ActivityCompat;
+import androidx.core.app.NotificationManagerCompat;
+import androidx.core.content.ContextCompat;
 import androidx.webkit.JavaScriptReplyProxy;
 import androidx.webkit.WebMessageCompat;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
+import com.google.firebase.FirebaseApp;
+import com.google.firebase.messaging.FirebaseMessaging;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import org.json.JSONArray;
-import org.json.JSONTokener;
-import androidx.core.app.ActivityCompat;
-import androidx.core.app.NotificationManagerCompat;
-import androidx.core.content.ContextCompat;
-import com.google.firebase.FirebaseApp;
-import com.google.firebase.messaging.FirebaseMessaging;
-import java.lang.ref.WeakReference;
 import org.json.JSONObject;
+import org.json.JSONTokener;
 
 /**
- * `window.MixdogNativeHost` (shared/native-app.ts reads it): an AndroidX
- * WebMessageListener, so it exists only in pages whose origin matches the rules
- * (bundled pairing screen + saved relay origins) and every message is checked
- * again against that allow-list, main frame only. Anything else gets nothing.
- * Messages are JSON `{id, method, args}`; replies `{id, result}`. Slow work
+ * `window.MixdogNativeHost` (shared/native-app.ts reads it): an AndroidX WebMessageListener, so it
+ * exists only in pages whose origin matches the rules (bundled pairing screen + saved relay
+ * origins) and every message is checked again against that allow-list, main frame only. Anything
+ * else gets nothing. Messages are JSON `{id, method, args}`; replies `{id, result}`. Slow work
  * (permission prompt, token fetch) finishes later and fires `mixdognativepush`.
  */
 public final class MixdogNativeHost implements WebViewCompat.WebMessageListener {
   static final int PERMISSION_REQUEST = 4711;
   static final String NAME = "MixdogNativeHost";
+  static final String EVENT_BACKGROUND = "mixdognativebackground";
+  static final String EVENT_FOREGROUND = "mixdognativeforeground";
+  static final String EVENT_NETWORK = "mixdognativenetwork";
   private static WeakReference<MixdogNativeHost> current = new WeakReference<>(null);
 
   private final MainActivity activity;
   private final MixdogAppUpdater updater;
   private final MixdogFileSave fileSave;
+  private boolean backgrounded;
   // One token per loaded page: file-save handles belong to the page that began
   // them and die when the WebView navigates (touched on the UI thread only).
   private Object pageEpoch = new Object();
@@ -51,10 +55,17 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
     current = new WeakReference<>(this);
   }
 
-  /** The activity came back to the foreground (settings / installer closed). */
+  /**
+   * The activity came back to the foreground (settings / installer closed, or returning from
+   * background/lock).
+   */
   void onResume() {
     updater.onResume();
     fileSave.onResume();
+    if (backgrounded) {
+      backgrounded = false;
+      dispatch(EVENT_FOREGROUND);
+    }
     // The notification permission may have changed in system settings.
     fireEvent();
   }
@@ -64,13 +75,30 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
     updater.onPause();
   }
 
+  /**
+   * The activity went to background or the screen locked: tell the page to suspend the socket at
+   * once.
+   */
+  void onBackground() {
+    if (backgrounded) return;
+    backgrounded = true;
+    dispatch(EVENT_BACKGROUND);
+  }
+
+  /** The active default network changed while the app is on screen. */
+  void onNetworkChanged() {
+    dispatch(EVENT_NETWORK);
+  }
+
   /** This app's notification settings; the app's details page when the device has none. */
   private boolean openNotificationSettings() {
     Intent settings =
         new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
             .putExtra(Settings.EXTRA_APP_PACKAGE, activity.getPackageName());
     Intent details =
-        new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + activity.getPackageName()));
+        new Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.parse("package:" + activity.getPackageName()));
     for (Intent intent : new Intent[] {settings, details}) {
       try {
         activity.startActivity(intent);
@@ -97,15 +125,15 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
   }
 
   /**
-   * Register once, before the first page load. Removing and re-adding a
-   * listener on a live page invalidates every reply proxy of that frame,
-   * including Capacitor's bridge, and the next plugin reply crashes the
-   * WebView natively. So the injection rule is every origin, and the
-   * allow-list (bundled screen + saved relays, main frame) is enforced per
-   * message in onPostMessage; navigation is limited by MixdogWebViewClient.
+   * Register once, before the first page load. Removing and re-adding a listener on a live page
+   * invalidates every reply proxy of that frame, including Capacitor's bridge, and the next plugin
+   * reply crashes the WebView natively. So the injection rule is every origin, and the allow-list
+   * (bundled screen + saved relays, main frame) is enforced per message in onPostMessage;
+   * navigation is limited by MixdogWebViewClient.
    */
   void register(WebView webView) {
-    if (webView == null || !WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) return;
+    if (webView == null || !WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER))
+      return;
     WebViewCompat.addWebMessageListener(webView, NAME, Collections.singleton("*"), this);
   }
 
@@ -126,7 +154,11 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
       JSONObject safeArgs = args == null ? new JSONObject() : args;
       if (MixdogFileSave.handles(method)) {
         // Storage work runs off the UI thread; the reply arrives when it is done.
-        fileSave.handle(method, safeArgs, pageEpoch, result -> activity.runOnUiThread(() -> reply(replyProxy, id, result)));
+        fileSave.handle(
+            method,
+            safeArgs,
+            pageEpoch,
+            result -> activity.runOnUiThread(() -> reply(replyProxy, id, result)));
         return;
       }
       reply(replyProxy, id, handle(method, safeArgs, OriginPolicy.isBundled(origin)));
@@ -137,7 +169,11 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
 
   private static void reply(JavaScriptReplyProxy replyProxy, int id, String result) {
     try {
-      replyProxy.postMessage(new JSONObject().put("id", id).put("result", new JSONTokener(result).nextValue()).toString());
+      replyProxy.postMessage(
+          new JSONObject()
+              .put("id", id)
+              .put("result", new JSONTokener(result).nextValue())
+              .toString());
     } catch (Exception ignored) {
       // The page is gone.
     }
@@ -153,14 +189,16 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
     dispatch("mixdognativepush");
   }
 
-  /** Fire a window event in the WebView (callable from any thread). */
+  /**
+   * Fire a window event in the WebView (runs directly on the UI thread so background suspension
+   * lands before the OS freezes the page).
+   */
   private void dispatch(String event) {
     WebView webView = activity.getBridge() == null ? null : activity.getBridge().getWebView();
     if (webView == null) return;
-    webView.post(
-        () ->
-            webView.evaluateJavascript(
-                "window.dispatchEvent(new Event('" + event + "'))", null));
+    String script = "window.dispatchEvent(new Event('" + event + "'))";
+    if (Looper.myLooper() == Looper.getMainLooper()) webView.evaluateJavascript(script, null);
+    else webView.post(() -> webView.evaluateJavascript(script, null));
   }
 
   private String permission() {
@@ -177,13 +215,12 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
     if (FirebaseApp.getApps(activity).isEmpty()) return; // no google-services.json in this build
     FirebaseMessaging.getInstance()
         .getToken()
-        .addOnSuccessListener(
-            token -> {
-              if (token != null && !token.equals(MixdogPushStore.token(activity))) {
-                MixdogPushStore.setToken(activity, token);
-              }
-              fireEvent();
-            });
+        .addOnSuccessListener(token -> {
+          if (token != null && !token.equals(MixdogPushStore.token(activity))) {
+            MixdogPushStore.setToken(activity, token);
+          }
+          fireEvent();
+        });
   }
 
   private JSONObject state() throws Exception {
@@ -209,7 +246,8 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
           if (!bundledPage) return "false";
           JSONArray origins = args.optJSONArray("origins");
           List<String> list = new ArrayList<>();
-          for (int i = 0; origins != null && i < origins.length(); i++) list.add(origins.optString(i));
+          for (int i = 0; origins != null && i < origins.length(); i++)
+            list.add(origins.optString(i));
           MixdogOrigins.save(activity, OriginPolicy.sanitize(list));
           return "true";
         case "getNativeCapabilities":
@@ -220,19 +258,19 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
           if (!"granted".equals(permission())) {
             MixdogPushStore.setPermissionAsked(activity);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-              activity.runOnUiThread(
-                  () ->
-                      ActivityCompat.requestPermissions(
-                          activity,
-                          new String[] {Manifest.permission.POST_NOTIFICATIONS},
-                          PERMISSION_REQUEST));
+              activity.runOnUiThread(() ->
+                  ActivityCompat.requestPermissions(
+                      activity,
+                      new String[] {Manifest.permission.POST_NOTIFICATIONS},
+                      PERMISSION_REQUEST));
             }
           }
           return state().toString();
         case "openNotificationSettings":
           return openNotificationSettings() ? "true" : "false";
         case "setNotificationLabels":
-          return MixdogPushStore.setLabels(activity, args.optString("deny", ""), args.optString("allowOnce", ""))
+          return MixdogPushStore.setLabels(
+                  activity, args.optString("deny", ""), args.optString("allowOnce", ""))
               ? "true"
               : "false";
         case "peekPendingActions":

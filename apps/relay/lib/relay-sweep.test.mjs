@@ -54,3 +54,14 @@ test('answering a ping restores the full grace for the next stall', () => {
   sweepLegs(wss);
   assert.equal(slow.terminated, false);
 });
+
+test('sweep termination logs which connection it cut', (t) => {
+  const lines = [];
+  t.mock.method(console, 'log', (line) => lines.push(String(line)));
+  const dead = leg({ sweepTarget: 'role=desktop device=abcdef01' });
+  const wss = { clients: new Set([dead]) };
+  sweepLegs(wss);
+  sweepLegs(wss);
+  assert.equal(dead.terminated, true);
+  assert.ok(lines.includes('[relay] sweep terminated leg role=desktop device=abcdef01'), lines.join('\n'));
+});

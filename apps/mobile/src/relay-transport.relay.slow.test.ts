@@ -175,8 +175,10 @@ class RawPhone {
   closed: { code: number; reason: string } | null = null;
   private readonly ws: WsSocket;
 
-  constructor(relay: RelayProcess, token: string) {
-    this.ws = new WebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${token}`, { headers: { Origin: relay.origin } });
+  constructor(relay: RelayProcess, token: string, querySuffix = '') {
+    this.ws = new WebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${token}${querySuffix}`, {
+      headers: { Origin: relay.origin },
+    });
     this.ws.on('message', (data, isBinary) => {
       if (!isBinary) this.texts.push(data.toString('utf8'));
     });
@@ -243,7 +245,7 @@ function phoneConnector(
   };
   const connector: RelayConnector = createRelayConnector({
     pairing: () => relayE2EEPairingMaterial(identity),
-    socketUrl: () => `ws://127.0.0.1:${relay.port}/ws?token=${token()}`,
+    socketUrl: () => `ws://127.0.0.1:${relay.port}/ws?token=${token()}&hold=1`,
     createSocket,
     closed: (code, reason, info) => ends.push({ code, reason, info }),
     ready: (hello) => readies.push(hello),
@@ -488,25 +490,41 @@ for (const { runtime, present } of runtimes) {
       assert.deepEqual(second.closes, []);
     });
 
-    await t.test('the offline window ends: 4002 reaches the phone, and a new phone is refused with it', async () => {
-      const endsBefore = phone.ends.length;
-      desktop.close();
-      await until(() => second.closes[0], 'the second session to end');
-      assert.equal(second.closes[0]!.code, 1012);
-      const offline = await until(
-        () => phone.ends.slice(endsBefore).find((end) => end.code === 4002),
-        'the parked socket to be closed 4002',
-        OFFLINE_WINDOW_LIMIT_MS
-      );
-      assert.equal(offline.reason, 'desktop offline');
-      assert.equal(offline.info.remote, true);
-      assert.equal(terminalOfClose(offline.code, offline.reason), undefined);
-      const raw = await observer.end(OFFLINE_WINDOW_LIMIT_MS);
-      assert.deepEqual(raw, { code: 4002, reason: 'desktop offline' });
-      const late = new RawPhone(relay, pairingToken);
-      raws.push(late);
-      assert.deepEqual(await late.end(), { code: 4002, reason: 'desktop offline' });
-    });
+    await t.test(
+      'the offline window ends: 4002 reaches parked phones, and a late phone is parked with desktop-gone until PC returns',
+      async () => {
+        const endsBefore = phone.ends.length;
+        desktop.close();
+        await until(() => second.closes[0], 'the second session to end');
+        assert.equal(second.closes[0]!.code, 1012);
+        const offline = await until(
+          () => phone.ends.slice(endsBefore).find((end) => end.code === 4002),
+          'the parked socket to be closed 4002',
+          OFFLINE_WINDOW_LIMIT_MS
+        );
+        assert.equal(offline.reason, 'desktop offline');
+        assert.equal(offline.info.remote, true);
+        assert.equal(terminalOfClose(offline.code, offline.reason), undefined);
+        const raw = await observer.end(OFFLINE_WINDOW_LIMIT_MS);
+        assert.deepEqual(raw, { code: 4002, reason: 'desktop offline' });
+        // A phone without `&hold=1` (older app build) is still refused 4002 at once.
+        const legacy = new RawPhone(relay, pairingToken);
+        raws.push(legacy);
+        assert.deepEqual(await legacy.end(), { code: 4002, reason: 'desktop offline' });
+        // A phone with `&hold=1` is parked with desktop-gone and connected when PC returns.
+        const late = new RawPhone(relay, pairingToken, '&hold=1');
+        raws.push(late);
+        await late.text('{"resync":"desktop-gone"}');
+        assert.equal(late.closed, null);
+        desktop = connectDesktop();
+        await desktop.frame('relay-capabilities');
+        await until(
+          () => desktop.opened.some((open) => open.browserClientId === clientId),
+          'the parked late phone to be announced to the returning PC'
+        );
+        assert.equal(late.closed, null);
+      }
+    );
 
     await t.test('a credential the relay does not know is a lost pairing (4005)', async () => {
       const stale = new RawPhone(relay, randomBytes(32).toString('hex'));

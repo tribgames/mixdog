@@ -533,3 +533,268 @@ test('carryShown purges superseded and removed unit IDs from shown.ids without f
     countFoldWork(null);
   }
 });
+
+const settle = async () => {
+  for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r));
+};
+
+async function openPositionedClient() {
+  const net = new MockNetwork();
+  const connecting = connect<SessionFold>({
+    target: { id: 'local' },
+    connector: net,
+    clientInfo: options.clientInfo,
+    capabilities: options.capabilities,
+    threadReducer: sessionReducer,
+    positionedTranscripts: true,
+    clock: { sleep: () => Promise.resolve() },
+    random: () => 0,
+  });
+  const handshake = async () => {
+    const conn = await net.accept();
+    const init = JSON.parse(await conn.nextSent());
+    conn.serverSend({ id: init.id, result: { ...options.initializeResult, serverInstanceId: 's1' } });
+    await conn.nextSent(); // initialized
+    return conn;
+  };
+  const conn1 = await handshake();
+  const client = await connecting;
+  const resumed = client.resumeThread('t', { lastItems: 32 });
+  const resume1 = JSON.parse(await conn1.nextSent());
+  assert.equal(resume1.params.positionedWindow, true);
+  assert.equal(resume1.params.resumeFrom, undefined);
+  conn1.serverSend({
+    id: resume1.id,
+    result: { thread: { id: 't' }, subscription: { id: 'sub-1', mode: 'snapshot', epoch: 'e1', startSeq: 1 } },
+  });
+  await resumed;
+  conn1.serverSend({
+    method: 'thread/snapshot',
+    params: {
+      thread: { id: 't' },
+      state: {},
+      items: [],
+      hasOlder: true,
+      window: {
+        windowVersion: 1,
+        lineage: 0,
+        ranges: [{ id: 'tail', older: cont(pos('r8')), newer: end }],
+        added: [{ range: 'tail', units: units(['r8', 'r9']) }],
+        followTail: true,
+      },
+    },
+    feed: { id: 't', epoch: 'e1', seq: 1 },
+  });
+  await settle();
+  return { client, conn1, handshake };
+}
+
+test('a positioned client reconnects by replaying missed frames and records, preserving scrolled ranges and continuing window moves', async () => {
+  const { client, conn1, handshake } = await openPositionedClient();
+
+  // Page up so the client holds a scrolled range at windowVersion 2.
+  const moved1 = moveTranscriptWindow(client, 't', { kind: 'read', first: 'r8', last: 'r9' });
+  const set1 = JSON.parse(await conn1.nextSent());
+  conn1.serverSend({ id: set1.id, result: { requestId: set1.params.requestId } });
+  conn1.serverSend({
+    method: 'thread/window/changed',
+    params: {
+      threadId: 't',
+      subscriptionId: 'sub-1',
+      requestId: set1.params.requestId,
+      windowVersion: 2,
+      lineage: 0,
+      atFeedPosition: { epoch: 'e1', seq: 1 },
+      ranges: [
+        { id: 'tail', older: cont(pos('r8')), newer: end },
+        { id: 'q:1', older: cont(pos('r6')), newer: cont(pos('r8')) },
+      ],
+      removed: [],
+      added: [{ range: 'q:1', units: units(['r6', 'r7', 'r8']) }],
+      followTail: true,
+    },
+    feed: { id: 't', epoch: 'e1', seq: 1 },
+  });
+  assert.equal(await moved1, true);
+  conn1.serverSend({
+    method: 'thread/runtime/updated',
+    params: { threadId: 't', value: { busy: true } },
+    feed: { id: 't', epoch: 'e1', seq: 2 },
+  });
+  await settle();
+
+  // Drop connection 1; reconnect 2 should send subscriptionId + windowVersion and replay without snapshot.
+  conn1.serverClose(1006, 'drop');
+  const conn2 = await handshake();
+  const resume2 = JSON.parse(await conn2.nextSent());
+  assert.equal(resume2.method, 'thread/resume');
+  assert.equal(resume2.params.positionedWindow, true);
+  assert.deepEqual(resume2.params.resumeFrom, {
+    epoch: 'e1',
+    seq: 2,
+    window: { lastItems: 32 },
+    subscriptionId: 'sub-1',
+    windowVersion: 2,
+  });
+  conn2.serverSend({
+    id: resume2.id,
+    result: {
+      thread: { id: 't' },
+      subscription: { id: 'sub-2', mode: 'replay', epoch: 'e1', startSeq: 3, liveSeq: 5 },
+    },
+  });
+  // Replay missed record standing at seq 2, progress frame at seq 3, runtime update at seq 4, and replace at seq 4.
+  conn2.serverSend({
+    method: 'thread/transcript/changed',
+    params: { threadId: 't', lineage: 0, change: { op: 'insert', unit: unit(user('r10')) } },
+    feed: { id: 't', epoch: 'e1', seq: 2 },
+  });
+  conn2.serverSend({
+    method: 'thread/transcript/changed',
+    params: { threadId: 't', lineage: 0 },
+    feed: { id: 't', epoch: 'e1', seq: 3 },
+  });
+  conn2.serverSend({
+    method: 'thread/runtime/updated',
+    params: { threadId: 't', value: { busy: false } },
+    feed: { id: 't', epoch: 'e1', seq: 4 },
+  });
+  conn2.serverSend({
+    method: 'thread/transcript/changed',
+    params: { threadId: 't', lineage: 0, change: { op: 'replace', unit: unit(user('r6', 'amended')) } },
+    feed: { id: 't', epoch: 'e1', seq: 4 },
+  });
+  await settle();
+
+  assert.equal(client.threadSubscription('t').subscriptionId, 'sub-2');
+  const afterReplay = sessionStateOf(client, 't') as O;
+  assert.deepEqual(ids(afterReplay.items), ['r6', 'r7', 'r8', 'r9', 'r10']);
+  assert.equal(afterReplay.items[0].text, 'amended');
+  assert.equal(client.store.thread('t')?.state.held?.version, 2);
+
+  // Drop connection 2; reconnect 3 must carry the replayed subscriptionId `sub-2` and version 2.
+  conn2.serverClose(1006, 'drop-2');
+  const conn3 = await handshake();
+  const resume3 = JSON.parse(await conn3.nextSent());
+  assert.deepEqual(resume3.params.resumeFrom, {
+    epoch: 'e1',
+    seq: 4,
+    window: { lastItems: 32 },
+    subscriptionId: 'sub-2',
+    windowVersion: 2,
+  });
+  conn3.serverSend({
+    id: resume3.id,
+    result: {
+      thread: { id: 't' },
+      subscription: { id: 'sub-3', mode: 'replay', epoch: 'e1', startSeq: 5, liveSeq: 5 },
+    },
+  });
+  await settle();
+
+  // Subsequent window move uses the new subscriptionId `sub-3` and preserved baseWindowVersion 2.
+  const moved2 = moveTranscriptWindow(client, 't', { kind: 'read', first: 'r6', last: 'r10' });
+  const set2 = JSON.parse(await conn3.nextSent());
+  assert.equal(set2.method, 'thread/window/set');
+  assert.deepEqual([set2.params.subscriptionId, set2.params.baseWindowVersion], ['sub-3', 2]);
+  conn3.serverSend({ id: set2.id, result: { requestId: set2.params.requestId } });
+  conn3.serverSend({
+    method: 'thread/window/changed',
+    params: {
+      threadId: 't',
+      subscriptionId: 'sub-3',
+      requestId: set2.params.requestId,
+      windowVersion: 3,
+      lineage: 0,
+      atFeedPosition: { epoch: 'e1', seq: 4 },
+      ranges: [
+        { id: 'tail', older: cont(pos('r8')), newer: end },
+        { id: 'q:1', older: cont(pos('r6')), newer: cont(pos('r8')) },
+        { id: 'q:2', older: end, newer: cont(pos('r6')) },
+      ],
+      removed: [],
+      added: [{ range: 'q:2', units: units(['r4', 'r5', 'r6']) }],
+      followTail: true,
+    },
+    feed: { id: 't', epoch: 'e1', seq: 4 },
+  });
+  assert.equal(await moved2, true);
+  assert.deepEqual(ids((sessionStateOf(client, 't') as O).items), ['r4', 'r5', 'r6', 'r7', 'r8', 'r9', 'r10']);
+  await client.close();
+});
+
+test('a positioned client falls back to a fresh snapshot when reconnect is not covered and tracks the new grant', async () => {
+  const { client, conn1, handshake } = await openPositionedClient();
+
+  // Drop 1: core falls back to snapshot on sub-2, then drop 2 happens before sub-2's snapshot folds.
+  conn1.serverClose(1006, 'drop-1');
+  const conn2 = await handshake();
+  const resume2 = JSON.parse(await conn2.nextSent());
+  assert.deepEqual(resume2.params.resumeFrom, {
+    epoch: 'e1',
+    seq: 1,
+    window: { lastItems: 32 },
+    subscriptionId: 'sub-1',
+    windowVersion: 1,
+  });
+  conn2.serverSend({
+    id: resume2.id,
+    result: {
+      thread: { id: 't' },
+      subscription: { id: 'sub-2', mode: 'snapshot', epoch: 'e1', startSeq: 10, liveSeq: 10 },
+    },
+  });
+  await settle();
+  conn2.serverClose(1006, 'drop-before-snapshot');
+
+  // Reconnect 3 must still claim the folded grant (sub-1, v1), never the unfolded sub-2.
+  const conn3 = await handshake();
+  const resume3 = JSON.parse(await conn3.nextSent());
+  assert.deepEqual(resume3.params.resumeFrom, {
+    epoch: 'e1',
+    seq: 1,
+    window: { lastItems: 32 },
+    subscriptionId: 'sub-1',
+    windowVersion: 1,
+  });
+  conn3.serverSend({
+    id: resume3.id,
+    result: {
+      thread: { id: 't' },
+      subscription: { id: 'sub-3', mode: 'snapshot', epoch: 'e1', startSeq: 10, liveSeq: 10 },
+    },
+  });
+  conn3.serverSend({
+    method: 'thread/snapshot',
+    params: {
+      thread: { id: 't' },
+      state: {},
+      items: [],
+      hasOlder: true,
+      window: {
+        windowVersion: 10,
+        lineage: 0,
+        ranges: [{ id: 'tail', older: cont(pos('r15')), newer: end }],
+        added: [{ range: 'tail', units: units(['r15', 'r16']) }],
+        followTail: true,
+      },
+    },
+    feed: { id: 't', epoch: 'e1', seq: 10 },
+  });
+  await settle();
+  assert.deepEqual(ids((sessionStateOf(client, 't') as O).items), ['r15', 'r16']);
+  assert.equal(client.store.thread('t')?.state.held?.version, 10);
+
+  // Reconnect 4 claims the newly folded sub-3 and windowVersion 10.
+  conn3.serverClose(1006, 'drop-after-snapshot');
+  const conn4 = await handshake();
+  const resume4 = JSON.parse(await conn4.nextSent());
+  assert.deepEqual(resume4.params.resumeFrom, {
+    epoch: 'e1',
+    seq: 10,
+    window: { lastItems: 32 },
+    subscriptionId: 'sub-3',
+    windowVersion: 10,
+  });
+  await client.close();
+});

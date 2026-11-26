@@ -29,7 +29,7 @@
       "inflight": { "c0": 64, "c1": 16, "c2": 8, "c3": 4 },
       "maxConnections": 128,
       "heartbeatTickMs": 15000,
-      "maxProcesses": 64,
+      "maxProcesses": 0,
       "terminalInputBufferBytes": 1048576
     },
     "capabilities": {

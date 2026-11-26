@@ -193,6 +193,7 @@ export function runHookLeg(liveHooks, deviceId, socket, options = {}) {
   }
   const entry = { socket, pending: new Map(), inflight: 0 };
   liveHooks.set(deviceId, entry);
+  socket.sweepTarget = `role=hook device=${String(deviceId).slice(0, 8)}`;
   socket.isAlive = true;
   socket.on('pong', () => {
     socket.isAlive = true;

@@ -7,7 +7,7 @@ use bytes::Bytes;
 use mixdog_relay::close_codes::{DESKTOP_HANDSHAKE_STALLED, DESKTOP_OFFLINE, DESKTOP_REJECTED_CLIENT, PAIRING_RESCAN_REQUIRED, REVOKED, SUPERSEDED};
 use mixdog_relay::http1::Headers;
 use mixdog_relay::legs::envelope::decode_frame;
-use mixdog_relay::legs::hub::{Hub, HubConfig, LegSocket, Liveness, SweepLeg};
+use mixdog_relay::legs::hub::{Hub, HubConfig, LegSocket, Liveness, SweepLeg, SweepTarget};
 use mixdog_relay::legs::ingress::IngressPool;
 use mixdog_relay::legs::phone::{
     ANSWERED_CLOSE_GRACE, Decision, MAX_PHONE_CLIENTS_PER_DEVICE, MAX_PHONE_CONNECTIONS_PER_MINUTE, PhoneLegs, PhoneLimits, PhoneRequest,
@@ -143,7 +143,7 @@ impl LegSocket for Fake {
 }
 
 fn leg_of(socket: &Arc<Fake>) -> SweepLeg {
-    SweepLeg { socket: socket.clone(), liveness: Liveness::new(), ingress: None }
+    SweepLeg { socket: socket.clone(), liveness: Liveness::new(), ingress: None, target: SweepTarget::Desktop { device_id: DEVICE.to_owned() } }
 }
 
 // ---- the liveness sweep ----
@@ -255,9 +255,14 @@ fn handshake() -> HandshakeRequest {
     )
 }
 
-/// The decision for an upgrade of `/ws?token=...` from the relay's own origin.
+/// The decision for an upgrade of `/ws?token=...` from the relay's own origin (older phone without `&hold=1`).
 fn decide(rig: &Rig, token: &str) -> Decision {
     decide_with(rig, &format!("/ws?token={token}"), Some(&format!("http://{HOST}")))
+}
+
+/// The decision for an upgrade of `/ws?token=...&hold=1` from the relay's own origin.
+fn decide_hold(rig: &Rig, token: &str) -> Decision {
+    decide_with(rig, &format!("/ws?token={token}&hold=1"), Some(&format!("http://{HOST}")))
 }
 
 fn decide_with(rig: &Rig, target: &str, origin: Option<&str>) -> Decision {
@@ -268,7 +273,7 @@ fn decide_with(rig: &Rig, target: &str, origin: Option<&str>) -> Decision {
 
 fn attach(rig: &Rig) -> (Arc<Fake>, mixdog_relay::legs::hub::PhoneHandle) {
     let socket = Fake::new();
-    let handle = rig.hub.attach_phone(DEVICE, socket.clone(), mixdog_relay::legs::hub::PhoneOptions::default()).expect("a desktop leg is live");
+    let handle = rig.hub.attach_phone(DEVICE, socket.clone(), mixdog_relay::legs::hub::PhoneOptions::default());
     (socket, handle)
 }
 
@@ -304,13 +309,20 @@ async fn build(limits: PhoneLimits) -> Rig {
     build_with(limits, HubConfig::default().max_frame_bytes).await
 }
 async fn build_with(limits: PhoneLimits, max_frame_bytes: usize) -> Rig {
+    build_with_grace(limits, max_frame_bytes, mixdog_relay::legs::hub::OFFLINE_GRACE).await
+}
+async fn build_with_grace(limits: PhoneLimits, max_frame_bytes: usize, offline_grace: Duration) -> Rig {
     let dir = tempfile::tempdir().expect("a temporary directory");
     let store = DeviceStore::open(dir.path(), io()).await.expect("the store opens");
     assert!(store.authenticate(DEVICE, SECRET).await);
     let registered = store.register_client(DEVICE, "bbbbbbbb", &ProfileInput::default()).await.expect("a browser credential");
     // A watchdog that never fires within a test.
-    let config =
-        HubConfig { max_frame_bytes, handshake: HandshakeTiming { stall: Duration::from_secs(600), probe: Duration::from_secs(600) }, ..HubConfig::default() };
+    let config = HubConfig {
+        max_frame_bytes,
+        handshake: HandshakeTiming { stall: Duration::from_secs(600), probe: Duration::from_secs(600) },
+        offline_grace,
+        ..HubConfig::default()
+    };
     let hub = Hub::new(store, config, IngressPool::new());
     let unauthorized = Arc::new(Mutex::new(RateLimiter::new(1000, 60_000)));
     let sockets = Arc::new(WebSocketServer::new(ServerOptions::new(64 * 1024 * 1024)));
@@ -364,7 +376,7 @@ async fn a_paired_phone_of_a_live_pc_is_attached_as_its_browser() {
     let rig = build(PhoneLimits::default()).await;
     let (_desktop, _handle) = desktop_leg(&rig);
     match decide(&rig, &rig.token) {
-        Decision::Attach { device_id, browser_client_id } => {
+        Decision::Attach { device_id, browser_client_id, .. } => {
             assert_eq!(device_id, DEVICE);
             assert_eq!(browser_client_id, "bbbbbbbb");
         }
@@ -372,42 +384,69 @@ async fn a_paired_phone_of_a_live_pc_is_attached_as_its_browser() {
     }
 }
 #[tokio::test]
-async fn an_offline_pc_is_answered_4002_whether_it_never_connected_or_its_leg_is_closed() {
+async fn a_paired_phone_is_parked_when_hold_is_requested_and_closed_4002_without_it() {
     let rig = build(PhoneLimits::default()).await;
-    assert_eq!(answered(&decide(&rig, &rig.token)), Some((4002, "desktop offline")));
+    assert_eq!(answered(&decide(&rig, &rig.token)), Some((4002, "desktop offline")), "without hold=1, cold offline closes 4002 at once");
+    assert!(
+        matches!(decide_hold(&rig, &rig.token), Decision::Attach { hold_offline: true, .. }),
+        "with hold=1, cold offline (e.g. after relay restart) parks instead of refusing"
+    );
     let (desktop, _handle) = desktop_leg(&rig);
-    assert!(matches!(decide(&rig, &rig.token), Decision::Attach { .. }));
+    assert!(matches!(decide(&rig, &rig.token), Decision::Attach { hold_offline: false, .. }));
+    assert!(matches!(decide_hold(&rig, &rig.token), Decision::Attach { hold_offline: true, .. }));
     desktop.set_open(false);
-    assert_eq!(answered(&decide(&rig, &rig.token)), Some((4002, "desktop offline")), "a parked entry is not a live PC");
+    assert_eq!(answered(&decide(&rig, &rig.token)), Some((4002, "desktop offline")), "without hold=1, in-grace offline closes 4002 at once");
+    assert!(matches!(decide_hold(&rig, &rig.token), Decision::Attach { hold_offline: true, .. }), "with hold=1, in-grace offline parks instead of refusing");
 }
 #[tokio::test]
-async fn pc_offline_answers_are_rate_limited_and_bounded() {
-    // The offline answer is charged to the per-device connect limit.
+async fn parked_and_offline_closing_phone_upgrades_are_rate_limited_and_bounded() {
+    // Offline phone upgrades (both legacy 4002 and hold=1 parked) are charged to the per-device connect limit.
     let rig = build(PhoneLimits::default()).await;
-    let mut results = Vec::new();
-    for _ in 0..=MAX_PHONE_CONNECTIONS_PER_MINUTE {
-        let decision = decide(&rig, &rig.token);
-        results.push(answered(&decision).or_else(|| refused(&decision)).map_or(0, |(number, _)| number));
+    for _ in 0..MAX_PHONE_CONNECTIONS_PER_MINUTE {
+        assert!(matches!(decide_hold(&rig, &rig.token), Decision::Attach { .. }));
     }
-    assert_eq!(results.iter().filter(|code| **code == DESKTOP_OFFLINE).count(), MAX_PHONE_CONNECTIONS_PER_MINUTE);
-    assert_eq!(results.last(), Some(&429));
+    assert_eq!(refused(&decide_hold(&rig, &rig.token)), Some((429, "Too Many Requests")));
 
-    // Peers that never acknowledge the close hold a slot each, up to the per-device phone capacity; past it the upgrade is refused,
-    // and a slot freed is a slot given back.
+    // Legacy offline-closing answers without `&hold=1` are bounded at 32 per device and release on drop.
+    let rig = build_unlimited().await;
+    let mut offline_slots = Vec::new();
+    for _ in 0..MAX_PHONE_CLIENTS_PER_DEVICE {
+        let decision = decide(&rig, &rig.token);
+        assert_eq!(answered(&decision), Some((4002, "desktop offline")));
+        offline_slots.push(decision);
+    }
+    assert_eq!(refused(&decide(&rig, &rig.token)), Some((429, "Too Many Requests")), "offline-closing answers are bounded");
+    offline_slots.pop();
+    assert_eq!(answered(&decide(&rig, &rig.token)), Some((4002, "desktop offline")), "freed offline slot is available again");
+
+    // Parked offline phones (`&hold=1`) share the per-device 32-client capacity, and leaving returns the slot.
     let rig = build_unlimited().await;
     let mut held = Vec::new();
     for _ in 0..MAX_PHONE_CLIENTS_PER_DEVICE {
-        match decide(&rig, &rig.token) {
-            Decision::Answer { code, slot, .. } => {
-                assert_eq!(code, DESKTOP_OFFLINE);
-                held.push(slot);
-            }
-            _ => panic!("an answer within the capacity"),
-        }
+        assert!(matches!(decide_hold(&rig, &rig.token), Decision::Attach { .. }));
+        held.push(attach(&rig));
     }
-    assert_eq!(refused(&decide(&rig, &rig.token)), Some((429, "Too Many Requests")), "outstanding closing sockets are bounded");
-    drop(held.pop());
-    assert!(answered(&decide(&rig, &rig.token)).is_some(), "a slot freed is available again");
+    assert_eq!(refused(&decide_hold(&rig, &rig.token)), Some((429, "Too Many Requests")), "parked offline phones are bounded");
+    let (_socket, last) = held.pop().expect("a phone");
+    last.closed(1000, b"background");
+    assert!(matches!(decide_hold(&rig, &rig.token), Decision::Attach { .. }), "a slot freed is available again");
+}
+#[tokio::test]
+async fn in_flight_phone_upgrades_reserve_their_slot_before_attaching() {
+    let rig = build_unlimited().await;
+    let mut reserved = Vec::new();
+    for _ in 0..MAX_PHONE_CLIENTS_PER_DEVICE {
+        let decision = decide_hold(&rig, &rig.token);
+        assert!(matches!(decision, Decision::Attach { .. }));
+        reserved.push(decision);
+    }
+    assert_eq!(
+        refused(&decide_hold(&rig, &rig.token)),
+        Some((429, "Too Many Requests")),
+        "32 in-flight upgrades reserve all 32 slots before attach_phone runs"
+    );
+    reserved.pop();
+    assert!(matches!(decide_hold(&rig, &rig.token), Decision::Attach { .. }), "dropping a failed/cancelled reservation frees the slot");
 }
 async fn build_unlimited() -> Rig {
     build(PhoneLimits { connects_per_window: 10_000, ..PhoneLimits::default() }).await
@@ -531,54 +570,109 @@ async fn an_unpaired_phone_gets_the_handshake_and_then_close_4005() {
     assert_eq!(peer.close_frame().await, Some((4005, "pairing rescan required".to_owned())));
 }
 #[tokio::test]
-async fn a_phone_of_an_offline_pc_is_closed_4002_and_the_pairing_is_untouched() {
-    let rig = build(PhoneLimits::default()).await;
-    let mut peer = dial(&rig, &format!("/ws?token={}", rig.token), true);
+async fn a_phone_without_hold_is_closed_4002_immediately_while_one_with_hold_is_parked_and_connected_on_return() {
+    let rig = build_with_grace(PhoneLimits::default(), HubConfig::default().max_frame_bytes, Duration::from_secs(5)).await;
+    // Older phone without `&hold=1`: closed 4002 at once (never parked, no desktop-gone frame).
+    let mut legacy = dial(&rig, &format!("/ws?token={}", rig.token), true);
+    assert_eq!(legacy.start().await, 101);
+    assert_eq!(
+        timeout(Duration::from_secs(1), legacy.frame()).await.expect("immediate 4002 without waiting for 5 s grace"),
+        Some((8, [4002u16.to_be_bytes().as_slice(), b"desktop offline"].concat()))
+    );
+    assert_eq!(rig.hub.client_count(DEVICE), 0);
+
+    // Cold offline (e.g. seconds after a relay restart): phone with `&hold=1` dials before any desktop leg exists.
+    let mut peer = dial(&rig, &format!("/ws?token={}&hold=1", rig.token), true);
+    assert_eq!(peer.start().await, 101);
+    assert_eq!(peer.frame().await, Some((1, b"{\"resync\":\"desktop-gone\"}".to_vec())));
+    eventually("the phone is parked on an offline entry", || rig.hub.client_count(DEVICE) == 1).await;
+    // Liveness probes are answered while parked.
+    peer.send(&masked_frame(0x81, b"{\"ping\":1}")).await;
+    assert_eq!(peer.frame().await, Some((1, b"{\"pong\":1}".to_vec())));
+    // The PC arrives within the offline grace and immediately receives client-open for the parked phone.
+    let (desktop, _handle) = desktop_leg(&rig);
+    eventually("the parked phone is announced to the returning PC", || !desktop.frames_of("client-open").is_empty()).await;
+    let open = desktop.frames_of("client-open").remove(0);
+    assert_eq!(open["browserClientId"], "bbbbbbbb");
+    peer.send(&masked_frame(0x81, b"{\"hello\":1}")).await;
+    eventually("frames flow after the PC returns", || !desktop.frames_of("frame").is_empty()).await;
+    assert_eq!(desktop.frames_of("frame")[0]["clientId"], open["clientId"]);
+}
+#[tokio::test]
+async fn a_phone_dialing_during_desktop_gone_grace_joins_existing_parked_phones_and_connects_on_return() {
+    let rig = build_with_grace(PhoneLimits::default(), HubConfig::default().max_frame_bytes, Duration::from_secs(5)).await;
+    let (first_desktop, first_handle) = desktop_leg(&rig);
+    let (_existing_socket, _existing_phone) = attach(&rig);
+    assert_eq!(first_desktop.frames_of("client-open").len(), 1);
+    // Desktop drops: enters offline grace with 1 parked phone.
+    first_desktop.set_open(false);
+    first_handle.closed();
+    // A second phone with `&hold=1` dials during the grace: told desktop-gone at once and held alongside the first phone.
+    let mut newcomer = dial(&rig, &format!("/ws?token={}&hold=1", rig.token), true);
+    assert_eq!(newcomer.start().await, 101);
+    assert_eq!(newcomer.frame().await, Some((1, b"{\"resync\":\"desktop-gone\"}".to_vec())));
+    eventually("both phones are parked", || rig.hub.client_count(DEVICE) == 2).await;
+    // Desktop returns within grace: BOTH phones are announced.
+    let (second_desktop, _second_handle) = desktop_leg(&rig);
+    eventually("both parked phones are announced", || second_desktop.frames_of("client-open").len() == 2).await;
+}
+#[tokio::test]
+async fn a_phone_of_an_offline_pc_is_closed_4002_after_offline_grace_and_the_pairing_is_untouched() {
+    let rig = build_with_grace(PhoneLimits::default(), HubConfig::default().max_frame_bytes, Duration::from_millis(80)).await;
+    let mut peer = dial(&rig, &format!("/ws?token={}&hold=1", rig.token), true);
     assert_eq!(peer.start().await, 101);
     assert_eq!(peer.close_frame().await, Some((4002, "desktop offline".to_owned())));
     assert!(rig.hub.store().has_client(DEVICE, "bbbbbbbb"));
 }
 #[tokio::test]
-async fn peers_that_never_acknowledge_the_close_hold_a_slot_each_and_the_next_is_refused() {
+async fn parked_offline_phones_are_bounded_at_32_and_the_33rd_is_refused() {
     let rig = build_unlimited().await;
     let mut peers = Vec::new();
-    for _ in 0..MAX_PHONE_CLIENTS_PER_DEVICE {
-        let mut peer = dial(&rig, &format!("/ws?token={}", rig.token), true);
+    for index in 0..MAX_PHONE_CLIENTS_PER_DEVICE {
+        let mut peer = dial(&rig, &format!("/ws?token={}&hold=1", rig.token), true);
         assert_eq!(peer.start().await, 101);
+        eventually("the parked phone is counted", || rig.hub.client_count(DEVICE) == index + 1).await;
         peers.push(peer);
     }
-    let mut extra = dial(&rig, &format!("/ws?token={}", rig.token), true);
-    assert_eq!(extra.start().await, 429, "outstanding closing sockets are bounded");
+    let mut extra = dial(&rig, &format!("/ws?token={}&hold=1", rig.token), true);
+    assert_eq!(extra.start().await, 429, "parked offline phones are bounded per device");
 }
 #[tokio::test]
 async fn a_malformed_frame_on_an_answered_closing_socket_cannot_crash_and_frees_its_slot() {
-    let rig = build_unlimited().await;
-    // Upgrade, never acknowledge the close, and answer with what the relay must reject: a client frame without a mask.
-    let mut peers = Vec::new();
+    let rig = build(PhoneLimits { connects_per_window: 10_000, answered_close_grace: Duration::from_secs(30), ..PhoneLimits::default() }).await;
+    // Fill every 4002 offline-closing slot (without `&hold=1`) so the 33rd is refused with 429.
+    let mut offline_peers = Vec::new();
     for _ in 0..MAX_PHONE_CLIENTS_PER_DEVICE {
         let mut peer = dial(&rig, &format!("/ws?token={}", rig.token), true);
         assert_eq!(peer.start().await, 101);
-        peer.send(&[0x81, 0x01, 0x41]).await;
-        peers.push(peer);
+        offline_peers.push(peer);
     }
-    // The unpaired (4005) answer is the same kind of socket.
+    let mut overflow = dial(&rig, &format!("/ws?token={}", rig.token), true);
+    assert_eq!(overflow.start().await, 429, "every OfflineSlot is held");
+    // A client frame without a mask cuts each closing socket immediately (well before the 30 s grace) and drops its OfflineSlot.
+    for peer in &mut offline_peers {
+        peer.send(&[0x81, 0x01, 0x41]).await;
+    }
+    for peer in &mut offline_peers {
+        assert!(peer.ended().await);
+    }
+    // Unpaired (4005) closing sockets are handled the same way.
     let mut unpaired = dial(&rig, &format!("/ws?token={}", "f".repeat(32)), true);
     assert_eq!(unpaired.start().await, 101);
     unpaired.send(&[0x81, 0x01, 0x41]).await;
-    for peer in &mut peers {
-        assert!(peer.ended().await, "a socket that misbehaves is cut there and then");
-    }
     assert!(unpaired.ended().await);
-    eventually("the cut sockets gave their slots back", || rig.hub.legs().is_empty()).await;
-    let mut again = dial(&rig, &format!("/ws?token={}", rig.token), true);
-    assert_eq!(again.start().await, 101, "a cut socket no longer holds a PC-offline slot");
+    eventually("every cut socket left the sweep table", || rig.hub.legs().is_empty()).await;
+    eventually("cut offline-closing sockets freed their OfflineSlot", || answered(&decide(&rig, &rig.token)) == Some((4002, "desktop offline"))).await;
+    let mut replacement = dial(&rig, &format!("/ws?token={}", rig.token), true);
+    assert_eq!(replacement.start().await, 101, "a cut socket no longer holds a PC-offline slot");
+    assert_eq!(replacement.close_frame().await, Some((4002, "desktop offline".to_owned())));
 }
 #[tokio::test]
 async fn a_peer_that_never_replies_to_the_close_is_cut_after_the_grace_and_its_slot_returns() {
     let rig = build(PhoneLimits { answered_close_grace: Duration::from_millis(100), ..PhoneLimits::default() }).await;
-    let mut peer = dial(&rig, &format!("/ws?token={}", rig.token), true);
+    let mut peer = dial(&rig, "/ws?token=legacy", true);
     assert_eq!(peer.start().await, 101);
-    assert_eq!(peer.close_frame().await, Some((4002, "desktop offline".to_owned())));
+    assert_eq!(peer.close_frame().await, Some((4005, "pairing rescan required".to_owned())));
     assert_eq!(rig.hub.legs().len(), 1, "an upgraded socket is listed for the sweep");
     assert!(peer.ended().await, "cut after the grace");
     eventually("the socket left the sweep's table", || rig.hub.legs().is_empty()).await;

@@ -127,7 +127,13 @@ impl HookHub {
         // `{ ...ingress, limit: MAX_HOOK_BODY_BYTES }`: whatever numbers the server gives, a hook leg's own limit is 1 MiB.
         let limits = IngressLimits { limit: MAX_HOOK_BODY_BYTES, ..self.options.ingress };
         let ingress = IngressLeg::install(&self.pool, &socket, LegKind::Hook, limits);
-        let entry = Arc::new(HookEntry { socket, state: std::sync::Mutex::new(EntryState::default()), alive: AtomicBool::new(true), ingress: ingress.clone() });
+        let entry = Arc::new(HookEntry {
+            device_id: device_id.to_owned(),
+            socket,
+            state: std::sync::Mutex::new(EntryState::default()),
+            alive: AtomicBool::new(true),
+            ingress: ingress.clone(),
+        });
         let previous = super::lock(&self.legs).insert(device_id.to_owned(), Arc::clone(&entry));
         if let Some(previous) = previous {
             // Already gone is not an error here.

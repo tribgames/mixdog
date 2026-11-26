@@ -168,10 +168,12 @@ async fn run(hub: Arc<Hub>, target: WatchTarget, epoch: u64, turn: Turn, timing:
 fn verdict(hub: &Hub, target: &WatchTarget, epoch: u64, turn: Turn, since: Instant) -> Verdict {
     let mut guard = hub.lock();
     let Some(entry) = guard.desktops.get_mut(&target.device_id) else { return Verdict::Moved };
-    if entry.conn.generation != target.generation {
+    let Some(conn) = entry.conn.as_ref() else { return Verdict::Moved };
+    if conn.generation != target.generation {
         return Verdict::Moved;
     }
-    let heard = entry.conn.heard.is_some_and(|at| at > since);
+    let heard = conn.heard.is_some_and(|at| at > since);
+    let socket = Arc::clone(&conn.socket);
     let Some(phone) = entry.clients.iter_mut().find(|phone| phone.id == target.client_id) else { return Verdict::Moved };
     if phone.watch.epoch != epoch || phone.watch.turn != Some(turn) || !phone.live() {
         return Verdict::Moved;
@@ -180,5 +182,5 @@ fn verdict(hub: &Hub, target: &WatchTarget, epoch: u64, turn: Turn, since: Insta
         phone.watch.end();
         return Verdict::Heard;
     }
-    Verdict::Silent(Arc::clone(&entry.conn.socket))
+    Verdict::Silent(socket)
 }

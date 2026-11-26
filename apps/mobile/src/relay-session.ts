@@ -22,6 +22,8 @@ import type { RelayConnectorDeps, RelaySocket } from './relay-connector.ts';
 export interface ParkedSocket {
   readonly ws: RelaySocket;
   readonly inbox: unknown[];
+  /** True when the relay parked this socket on `desktop-gone` (PC offline); false when parked on a replacement challenge. */
+  readonly offline?: boolean;
 }
 
 /** What the connector's sessions share: the transport peer and session that own the socket now, and the parked socket, if any. */
@@ -33,7 +35,7 @@ export interface ConnectorState {
 
 /** Challenges a joining socket may answer again after its first one: each is one desktop leg replaced mid-handshake. */
 const MAX_HANDSHAKE_RESTARTS = 2;
-/** Socket opening and the E2EE handshake must each finish within these. */
+/** Socket opening and waiting for the E2EE handshake must finish within these; an offline-parked socket waits on the relay's hold. */
 const OPEN_DEADLINE_MS = 12_000;
 const HANDSHAKE_DEADLINE_MS = 10_000;
 const CLOSE_PROTOCOL_ERROR = 1002;
@@ -42,7 +44,7 @@ export const CLOSE_NORMAL = 1000;
 /** The logical end of a session whose desktop leg went away while the relay kept the socket. */
 const CLOSE_DESKTOP_LEG_GONE = 1012;
 /** This page ended a socket for a reason of its own (keepalive, wake probe, failed view sync, a broken frame); the reason says which. */
-const CLOSE_PHONE_ENDED = 4000;
+export const CLOSE_PHONE_ENDED = 4000;
 /** What a close frame may say. The frame is cleartext to the relay, and a caller's reason can carry feed ids or exception text
  *  (`feed gap on <feed>`, `reducer failed on <feed>: <error>`, `transport failed: <error>`): only its category leaves this page. */
 const CLOSE_CATEGORIES: readonly string[] = [
@@ -53,6 +55,8 @@ const CLOSE_CATEGORIES: readonly string[] = [
   'keepalive timed out',
   'wake probe unanswered',
   'wake dial restarted',
+  'wake recycle',
+  'network changed',
   'view sync failed',
   'relay connection timed out',
   'relay handshake timed out',
@@ -170,10 +174,14 @@ export class RelaySession {
     this.now = init.deps.now ?? monotonicNow;
     this.lastTrafficMono = this.now();
     this.pingSentMono = this.lastTrafficMono;
-    this.deadline = setTimeout(
-      () => this.fail(CLOSE_HANDSHAKE_TIMEOUT, 'relay connection timed out'),
-      init.reuse ? HANDSHAKE_DEADLINE_MS : OPEN_DEADLINE_MS
-    );
+    if (init.reuse?.offline) {
+      if (init.reuse.inbox.length === 0) this.deps.desktopOffline?.();
+    } else {
+      this.deadline = setTimeout(
+        () => this.fail(CLOSE_HANDSHAKE_TIMEOUT, 'relay connection timed out'),
+        init.reuse ? HANDSHAKE_DEADLINE_MS : OPEN_DEADLINE_MS
+      );
+    }
     this.deps.signal?.addEventListener('abort', this.onAbort, { once: true });
     // The plain (untransported) leg's own queue: a frame has left once the socket's buffer holds no more than what was sent after it.
     this.wsDeparture = new CarrierDeparture(
@@ -255,6 +263,13 @@ export class RelaySession {
     if (this.finished || this.ready || (!force && !this.unproven)) return false;
     this.quiet = true;
     this.fail(CLOSE_NORMAL, 'wake dial restarted', true);
+    return true;
+  }
+
+  /** Recycle a live or dialing socket immediately (after a freeze or network switch) instead of waiting on a probe. */
+  recycleNow(reason: string): boolean {
+    if (this.finished) return false;
+    this.recycle(CLOSE_NORMAL, reason);
     return true;
   }
 
@@ -346,14 +361,14 @@ export class RelaySession {
 
   /** The desktop leg behind this ready session is gone but the relay kept the socket: the session ends (its calls fail
    *  as for any lost connection) and the socket waits for the desktop's next challenge. */
-  private park(waiting: unknown[]): void {
+  private park(waiting: unknown[], offline = false): void {
     if (this.finished || !this.ready) return;
     this.finished = true;
     this.deps.signal?.removeEventListener('abort', this.onAbort);
     this.quiet = waiting.length > 0;
     this.stopTimers();
     this.closePeer();
-    const mine: ParkedSocket = { ws: this.ws, inbox: [...waiting] };
+    const mine: ParkedSocket = { ws: this.ws, inbox: [...waiting], offline };
     this.state.parked = mine;
     this.ws.onmessage = (event) => {
       if (typeof event.data === 'string') mine.inbox.push(event.data);
@@ -365,8 +380,17 @@ export class RelaySession {
       this.deps.closed?.(event.code, event.reason, { ready: false, remote: true, quiet: false });
     };
     const reason = this.quiet ? 'desktop leg replaced' : 'desktop leg gone';
+    if (offline) this.deps.desktopOffline?.();
     this.deps.closed?.(CLOSE_DESKTOP_LEG_GONE, reason, { ready: true, remote: false, quiet: this.quiet });
     this.sink.closed(CLOSE_DESKTOP_LEG_GONE, reason);
+  }
+
+  /** The relay parked this unready socket for an offline PC: show the PC offline and wait for the next challenge or 4002. */
+  private holdOffline(): void {
+    if (this.finished || this.ready) return;
+    clearTimeout(this.deadline);
+    this.deadline = undefined;
+    this.deps.desktopOffline?.();
   }
 
   // Keepalive.
@@ -419,8 +443,12 @@ export class RelaySession {
       return true;
     }
     if ('resync' in word) {
-      if (word.resync === 'desktop-gone') this.park([]);
-      else this.deps.resyncHint?.(word);
+      if (word.resync === 'desktop-gone') {
+        if (this.ready) this.park([], true);
+        else this.holdOffline();
+      } else {
+        this.deps.resyncHint?.(word);
+      }
       return true;
     }
     return false;

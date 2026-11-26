@@ -27,7 +27,7 @@ import {
   RemoteTransportSender,
   splitRemoteTransportPayload,
 } from '../../desktop/src/shared/remote-transport.ts';
-import { connectPhone } from './phone-client.ts';
+import { connectPhone, OFFLINE_LADDER_CAP_MS } from './phone-client.ts';
 import { REMOTE_TOOL_OUTPUT_DISPLAY } from '../../desktop/src/shared/remote-tool-output-display.ts';
 import type { PhoneConnection } from './phone-status.ts';
 import type { RelaySocket } from './relay-connector.ts';
@@ -1260,4 +1260,122 @@ test('a followed thread with no mounted conversation still has its window kept a
   await server;
   assert.ok(sent.some((frame) => frame.method === 'thread/window/set'));
   await phone.client.close();
+});
+
+test('link.probe does not reset offline redial backoff up to 60 s while link.wake does', async (t) => {
+  const identity = await generateRelayE2EEServerIdentity();
+  const controller = new AbortController();
+  const waits: number[] = [];
+  let link: { probe(): boolean; wake(): boolean } | undefined;
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.now() });
+  const pending = connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => refusedSocket(),
+    signal: controller.signal,
+    random: () => 1,
+    onConnection: () => undefined,
+    redialIn: (ms) => waits.push(ms),
+    linked: (l) => {
+      link = l;
+    },
+  });
+  pending.catch(() => undefined);
+  try {
+    // Advance through the full offline ladder while probing repeatedly (simulating call deadlines).
+    for (let i = 0; i < 8; i++) {
+      await settle();
+      assert.equal(link!.probe(), false, 'no ready socket to probe while offline');
+      t.mock.timers.tick(OFFLINE_LADDER_CAP_MS);
+    }
+    await settle();
+    assert.deepEqual(
+      waits.slice(0, 7),
+      [1_000, 2_000, 4_000, 8_000, 16_000, 32_000, OFFLINE_LADDER_CAP_MS],
+      'offline backoff grows up to 60 s despite link.probe() calls'
+    );
+    assert.equal(waits.at(-1), OFFLINE_LADDER_CAP_MS, 'stays capped at 60 s');
+
+    // Explicit wake resets the ladder and cuts the wait short.
+    const countBeforeWake = waits.length;
+    link!.wake();
+    await settle();
+    t.mock.timers.tick(1_000);
+    await settle();
+    assert.ok(waits.length > countBeforeWake);
+    assert.equal(waits[countBeforeWake], 1_000, 'wake reset backoff to the first step');
+  } finally {
+    controller.abort();
+    t.mock.timers.reset();
+    await assert.rejects(pending);
+  }
+});
+
+test('link.wake({ recycle }) is quiet only when no call is in flight, matching recycle()', async () => {
+  const identity = await generateRelayE2EEServerIdentity();
+  const legs = [relayPair(identity, false), relayPair(identity, false), relayPair(identity, false)];
+  let made = 0;
+  const dialed: Array<{ n: number; resolve(): void }> = [];
+  const waitDial = (n: number) => new Promise<void>((resolve) => (made >= n ? resolve() : dialed.push({ n, resolve })));
+  const closeInfos: Array<{ code: number; reason: string; quiet: boolean }> = [];
+  const served = [serve(legs[0].next, legs[0].send)];
+  legs[0].start();
+  const phone = await connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => {
+      const leg = legs[made++];
+      for (const waiter of dialed.filter((w) => w.n <= made)) {
+        dialed.splice(dialed.indexOf(waiter), 1);
+        waiter.resolve();
+      }
+      if (made >= 2) leg.start();
+      return leg.ws;
+    },
+    random: () => 0.5,
+    onConnection: () => undefined,
+    onClose: (code, reason, info) => void closeInfos.push({ code, reason, quiet: info.quiet }),
+  });
+  await Promise.all([phone.client.resumeThread('t1', { lastItems: 50 }), served[0]]);
+  try {
+    // With nothing in flight, immediate recycle is quiet.
+    assert.equal(phone.link.wake({ force: true, recycle: 'network changed' }), false);
+    assert.deepEqual(legs[0].closes, [[4000, 'network changed']]);
+    assert.equal(closeInfos.at(-1)?.quiet, true, 'idle recycleNow is quiet');
+
+    // Bring up the second leg and send a call whose reply is held back.
+    await waitDial(2);
+    let callSent!: () => void;
+    const inflightDelivered = new Promise<void>((resolve) => (callSent = resolve));
+    const serveLeg2 = (async () => {
+      for (;;) {
+        const frame = await legs[1].next();
+        if (frame === undefined) return;
+        if (frame.method === 'initialize') {
+          await legs[1].send({ id: frame.id, result: options.initializeResult });
+        } else if (frame.method === 'thread/list') {
+          callSent();
+          return;
+        } else if (frame.id !== undefined && frame.method !== 'initialized') {
+          await legs[1].send({ id: frame.id, result: {} });
+        }
+      }
+    })();
+    const pendingCall = phone.client.call('thread/list', {} as never);
+    pendingCall.catch(() => undefined);
+    await inflightDelivered;
+
+    // With a call in flight, recycleNow must not be quiet (matching recycle()).
+    assert.equal(phone.link.wake({ force: true, recycle: 'network changed' }), false);
+    assert.deepEqual(legs[1].closes, [[4000, 'network changed']]);
+    assert.equal(closeInfos.at(-1)?.quiet, false, 'recycleNow with an in-flight call surfaces the outage');
+    await waitDial(3);
+    await serveLeg2;
+  } finally {
+    await phone.client.close();
+  }
 });

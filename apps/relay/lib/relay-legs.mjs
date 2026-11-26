@@ -46,10 +46,16 @@ function closeQuietly(socket, code, reason) {
 
 export { DESKTOP_HANDSHAKE_STALLED_CLOSE, DESKTOP_OFFLINE_CLOSE };
 
-/** Both ends give the encrypted handshake 10s (the phone's encryption timer and
- *  the desktop's E2EE_HANDSHAKE_TIMEOUT_MS). A missed turn costs the desktop at
- *  most DESKTOP_HANDSHAKE_STALL_MS + DESKTOP_LIVENESS_PROBE_MS = 6s of that
- *  budget before its leg is closed; the remaining 4s are the redial. */
+/** How long phones stay parked at the relay while their PC is offline before
+ *  being closed 4002 and the entry dropped. */
+export const OFFLINE_GRACE_MS = 45_000;
+
+/** Both ends give the encrypted handshake 10s (the phone's HANDSHAKE_DEADLINE_MS
+ *  once connected or challenged, and the desktop's E2EE_HANDSHAKE_TIMEOUT_MS). A
+ *  missed turn costs the desktop at most DESKTOP_HANDSHAKE_STALL_MS +
+ *  DESKTOP_LIVENESS_PROBE_MS = 6s of that budget before its leg is closed; the
+ *  remaining 4s leave room for an immediate redial even for older phones that
+ *  keep the 10s timer across desktop-gone. */
 export const DESKTOP_HANDSHAKE_STALL_MS = 4_000;
 /** How long a desktop leg that went silent during a missed turn gets to answer
  *  a ping before it is judged dead. */
@@ -130,9 +136,14 @@ function noteDesktopTurn(phone) {
 }
 
 /** Announce a phone to the current desktop leg and start owing it a challenge.
- *  A phone being rejected or closed is never announced again. */
+ *  A phone being rejected or closed, or whose PC is currently offline, is not
+ *  announced until a live desktop leg is attached. */
 function announcePhone(entry, sendJson, clientId, phone) {
   if (!phoneLive(phone)) return;
+  if (!entry.socket || entry.socket.readyState !== entry.socket.OPEN) {
+    signalPhoneDesktopGone(phone);
+    return;
+  }
   sendJson(entry.socket, clientOpenEnvelope(clientId, phone.browserClientId));
   awaitDesktopTurn(entry, phone, 'challenge');
 }
@@ -342,7 +353,25 @@ const DESKTOP_FRAME_HANDLERS = new Map([
   ['broadcast', broadcastFrame],
 ]);
 
-function releaseDesktopLeg(liveDesktops, deviceId, entry, socket, nativeBindings) {
+export function scheduleOfflineGrace(
+  liveDesktops,
+  deviceId,
+  entry,
+  { socket = null, nativeBindings = null, offlineGraceMs = OFFLINE_GRACE_MS } = {}
+) {
+  if (entry.offlineTimer) clearTimeout(entry.offlineTimer);
+  entry.offlineTimer = setTimeout(() => {
+    entry.offlineTimer = null;
+    const current = liveDesktops.get(deviceId);
+    if (current !== entry || current.socket !== socket) return;
+    for (const phone of entry.clients.values()) closeQuietly(phone, DESKTOP_OFFLINE_CLOSE, 'desktop offline');
+    liveDesktops.delete(deviceId);
+    if (nativeBindings) dropNativeBindings(nativeBindings, deviceId);
+  }, offlineGraceMs);
+  entry.offlineTimer.unref?.();
+}
+
+function releaseDesktopLeg(liveDesktops, deviceId, entry, socket, nativeBindings, offlineGraceMs = OFFLINE_GRACE_MS) {
   releaseLeg(socket);
   releaseIngressLeg(socket);
   if (liveDesktops.get(deviceId)?.socket !== socket) return;
@@ -353,15 +382,7 @@ function releaseDesktopLeg(liveDesktops, deviceId, entry, socket, nativeBindings
   // Keep browser legs parked at the relay during transient desktop/VPS
   // outages. New RPCs cannot reach a closed desktop socket, but the next
   // desktop leg rekeys and resumes all existing clients in place.
-  if (entry.offlineTimer) clearTimeout(entry.offlineTimer);
-  entry.offlineTimer = setTimeout(() => {
-    entry.offlineTimer = null;
-    if (liveDesktops.get(deviceId)?.socket !== socket) return;
-    for (const phone of entry.clients.values()) closeQuietly(phone, DESKTOP_OFFLINE_CLOSE, 'desktop offline');
-    liveDesktops.delete(deviceId);
-    dropNativeBindings(nativeBindings, deviceId);
-  }, 45_000);
-  entry.offlineTimer.unref?.();
+  scheduleOfflineGrace(liveDesktops, deviceId, entry, { socket, nativeBindings, offlineGraceMs });
 }
 
 function createCapabilityPublisher(socket, sendJson, maxFrameBytes, { nativePush, webPush, ice }) {
@@ -399,11 +420,19 @@ export function runDesktopLeg(context, deviceId, socket) {
     ice = null,
     handshakeStallMs = DESKTOP_HANDSHAKE_STALL_MS,
     livenessProbeMs = DESKTOP_LIVENESS_PROBE_MS,
+    offlineGraceMs = OFFLINE_GRACE_MS,
   } = context;
   const entry = attachDesktop(deviceId, socket);
+  entry.deviceId = deviceId;
   entry.handshake = { stallMs: handshakeStallMs, probeMs: livenessProbeMs };
+  const legOpenedAt = Date.now();
+  socket.sweepTarget = `role=desktop device=${String(deviceId).slice(0, 8)}`;
   socket.isAlive = true;
   socket.heardAt = 0;
+  console.log(
+    `[relay] desktop leg opened device=${String(deviceId).slice(0, 8)}` +
+      ` superseded=${Boolean(entry.supersededPrevious)} phones=${entry.clients.size}`
+  );
   socket.on('pong', () => {
     socket.isAlive = true;
     markDesktopHeard(socket);
@@ -434,6 +463,8 @@ export function runDesktopLeg(context, deviceId, socket) {
     nativeLimiter,
     webPush,
     ice,
+    offlineGraceMs,
+    legOpenedAt,
     revoked: false,
   };
   // Existing browser legs survive a transient desktop redial. Replaying
@@ -446,16 +477,25 @@ export function runDesktopLeg(context, deviceId, socket) {
 }
 
 function listenDesktopFrames(leg, liveDesktops, maxFrameBytes) {
-  const { socket, entry, deviceId, pairCodes } = leg;
+  const { socket, entry, deviceId, pairCodes, offlineGraceMs, legOpenedAt } = leg;
   socket.on(
     'message',
     guarded('desktop frame', (raw, isBinary) => handleDesktopFrame(leg, liveDesktops, maxFrameBytes, raw, isBinary))
   );
-  socket.on('close', () => {
+  socket.on('close', (code, reason) => {
     // A closed live leg's code dies with it; a superseded leg must not clear
     // the code its replacement just requested.
-    if (liveDesktops.get(deviceId)?.socket === socket) pairCodes?.clear(deviceId);
-    releaseDesktopLeg(liveDesktops, deviceId, entry, socket, leg.nativeBindings);
+    const current = liveDesktops.get(deviceId);
+    const live = current?.socket === socket;
+    const superseded = Boolean(current?.socket && current.socket !== socket);
+    const phones = live ? entry.clients.size : 0;
+    console.log(
+      `[relay] desktop leg closed device=${String(deviceId).slice(0, 8)}` +
+        ` code=${code ?? 1006} reason=${String(reason || '').slice(0, 60)}` +
+        ` lived=${Date.now() - legOpenedAt}ms phones=${phones} superseded=${superseded}`
+    );
+    if (live) pairCodes?.clear(deviceId);
+    releaseDesktopLeg(liveDesktops, deviceId, entry, socket, leg.nativeBindings, offlineGraceMs);
   });
 }
 
@@ -570,10 +610,18 @@ function clientOpenEnvelope(clientId, browserClientId) {
 }
 
 export function runClientLeg(entry, sendJson, socket, browserClientId = null, options = {}) {
-  const { maxFrameBytes = MAX_FRAME_BYTES, inflightCeiling = MAX_INFLIGHT_BYTES, ingress, rawSocket = null } = options;
+  const {
+    maxFrameBytes = MAX_FRAME_BYTES,
+    inflightCeiling = MAX_INFLIGHT_BYTES,
+    ingress,
+    rawSocket = null,
+    deviceId = entry.deviceId || '',
+    liveDesktops = null,
+  } = options;
   const clientId = randomUUID();
   socket.browserClientId = browserClientId;
   socket.inflightCeiling = inflightCeiling;
+  socket.sweepTarget = `role=phone device=${String(deviceId).slice(0, 8)} client=${clientId.slice(0, 8)}`;
   const legPath = createLegPathReader(entry, clientId, maxFrameBytes);
   socket.oversizeLimitFor = (binary) => {
     const path = legPath();
@@ -614,8 +662,14 @@ export function runClientLeg(entry, sendJson, socket, browserClientId = null, op
       code,
       reason: [...String(reason || '')].slice(0, 60).join(''),
     });
+    if (!entry.socket && entry.clients.size === 0 && liveDesktops?.get(deviceId) === entry) {
+      if (entry.offlineTimer) clearTimeout(entry.offlineTimer);
+      entry.offlineTimer = null;
+      liveDesktops.delete(deviceId);
+    }
     console.log(
-      `[relay] phone leg closed client=${clientId.slice(0, 8)}` +
+      `[relay] phone leg closed device=${String(deviceId).slice(0, 8)}` +
+        ` client=${clientId.slice(0, 8)}` +
         ` code=${code} reason=${String(reason || '').slice(0, 60)}` +
         ` lived=${Date.now() - legOpenedAt}ms`
     );

@@ -502,7 +502,7 @@ const SECTIONS: Readonly<Record<string, SectionDef>> = {
       'sessionModel',
       'fast',
       'fastCapable',
-      'autoEffort',
+      'effortAuto',
       'modelParameters',
       'selectedContextWindow',
       'effort',

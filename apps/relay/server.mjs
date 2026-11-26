@@ -72,8 +72,10 @@ import { serveStatic } from './lib/relay-static-gate.mjs';
 import {
   DESKTOP_HANDSHAKE_STALL_MS,
   DESKTOP_LIVENESS_PROBE_MS,
+  OFFLINE_GRACE_MS,
   runClientLeg,
   runDesktopLeg,
+  scheduleOfflineGrace,
 } from './lib/relay-legs.mjs';
 import { DESKTOP_OFFLINE_CLOSE } from './lib/relay-close-codes.mjs';
 
@@ -276,6 +278,7 @@ export async function startRelay({
   // the relay closes the leg so the PC redials (lib/relay-legs.mjs).
   handshakeStallMs = DESKTOP_HANDSHAKE_STALL_MS,
   livenessProbeMs = DESKTOP_LIVENESS_PROBE_MS,
+  offlineGraceMs = OFFLINE_GRACE_MS,
   // Feedback mail. The environment is explicit (never process.env by default)
   // so only the CLI entry below turns real SMTP on. `feedbackSender` and
   // `feedbackOptions` (now/setTimer/clearTimer/limits) are test injection.
@@ -314,6 +317,7 @@ export async function startRelay({
   relay.feedback = feedback;
   relay.handshakeStallMs = handshakeStallMs;
   relay.livenessProbeMs = livenessProbeMs;
+  relay.offlineGraceMs = offlineGraceMs;
   relay.nativePush = nativePush ?? createNativePush({ env: nativePushEnv });
   relay.webPush = createRelayWebPush(relay, dataDir, webPushFetch);
   relay.ice = createRelayIce(turnEnv);
@@ -484,6 +488,24 @@ function sendJson(socket, payload) {
   }
 }
 
+function createDesktopEntry(deviceId, socket = null) {
+  // `mediaLane` starts false on purpose: an older desktop never announces
+  // it, and the media route must degrade on the FIRST request instead of
+  // waiting out a first-frame timeout per tile.
+  // No capacity and no envelope support live here: they are properties of
+  // the CONNECTION (`socket.uplinkLeg`), so a phone always reads the state
+  // of the leg its next frame will actually be handed to.
+  return {
+    deviceId,
+    socket,
+    supersededPrevious: false,
+    clients: new Map(),
+    media: new Map(),
+    mediaLane: false,
+    offlineTimer: null,
+  };
+}
+
 function attachDesktop(relay, deviceId, socket) {
   const { liveDesktops } = relay;
   socket.uplinkLeg = newUplinkLeg(relay.uplinkCapacityCeiling);
@@ -491,33 +513,26 @@ function attachDesktop(relay, deviceId, socket) {
   if (previous) {
     if (previous.offlineTimer) clearTimeout(previous.offlineTimer);
     previous.offlineTimer = null;
-    try {
-      previous.socket.close(4000, 'superseded');
-    } catch {
-      /* already gone */
+    const superseded = Boolean(previous.socket && previous.socket.readyState === previous.socket.OPEN);
+    if (previous.socket) {
+      try {
+        previous.socket.close(4000, 'superseded');
+      } catch {
+        /* already gone */
+      }
     }
     failMediaPending(previous);
     // A desktop/VPS redial is a transport event, not a browser-session
     // event. Keep phone sockets attached and re-announce them to the new
     // desktop leg; its E2EE challenge rekeys each existing connection.
+    previous.deviceId = deviceId;
     previous.socket = socket;
+    previous.supersededPrevious = superseded;
     previous.media = new Map();
     previous.mediaLane = false;
     return previous;
   }
-  // `mediaLane` starts false on purpose: an older desktop never announces
-  // it, and the media route must degrade on the FIRST request instead of
-  // waiting out a first-frame timeout per tile.
-  const entry = {
-    socket,
-    clients: new Map(),
-    media: new Map(),
-    mediaLane: false,
-    // No capacity and no envelope support live here: they are properties of
-    // the CONNECTION (`socket.uplinkLeg`), so a phone always reads the state
-    // of the leg its next frame will actually be handed to.
-    offlineTimer: null,
-  };
+  const entry = createDesktopEntry(deviceId, socket);
   liveDesktops.set(deviceId, entry);
   return entry;
 }
@@ -563,6 +578,7 @@ function upgradeDesktopLeg(relay, request, rawSocket, head) {
         ingress: relay.legIngress,
         handshakeStallMs: relay.handshakeStallMs,
         livenessProbeMs: relay.livenessProbeMs,
+        offlineGraceMs: relay.offlineGraceMs,
         rawSocket,
       },
       deviceId,
@@ -591,29 +607,45 @@ function upgradePhoneLeg(relay, request, url, rawSocket, head) {
     console.log(`[relay] phone upgrade refused status=${status} cause=${cause} device=${String(deviceId).slice(0, 8)}`);
     rejectUpgrade(rawSocket, status, reason);
   };
+  const holdOffline = url.searchParams.get('hold') === '1';
   // Every upgrade this relay completes is charged, the "PC offline" answer
   // included: it costs a handshake and a socket like any other.
   if (!phoneConnectLimiter.allow(deviceId)) {
     refuse(429, 'Too Many Requests', 'rate-limit');
     return;
   }
-  if (!desktopLegOpen(entry)) {
+  if (!holdOffline && !desktopLegOpen(entry)) {
     closeOfflinePhone(relay, deviceId, request, rawSocket, head, refuse);
     return;
   }
-  if (!phoneClientCapacityAvailable(entry.clients.size)) {
+  if (!phoneClientCapacityAvailable(entry?.clients.size || 0)) {
     refuse(429, 'Too Many Requests', 'client-capacity');
     return;
   }
   store.touchClient(deviceId, access.clientId);
-  wss.handleUpgrade(request, rawSocket, head, (socket) =>
-    runClientLeg(entry, sendJson, socket, access.clientId, {
+  wss.handleUpgrade(request, rawSocket, head, (socket) => {
+    let target = liveDesktops.get(deviceId);
+    if (!holdOffline && !desktopLegOpen(target)) {
+      closeAnswered(socket, DESKTOP_OFFLINE_CLOSE, 'desktop offline');
+      return;
+    }
+    if (!target) {
+      target = createDesktopEntry(deviceId);
+      liveDesktops.set(deviceId, target);
+      scheduleOfflineGrace(liveDesktops, deviceId, target, {
+        socket: null,
+        offlineGraceMs: relay.offlineGraceMs,
+      });
+    }
+    runClientLeg(target, sendJson, socket, access.clientId, {
+      deviceId,
+      liveDesktops,
       maxFrameBytes: relay.maxFrameBytes,
       inflightCeiling: relay.maxInflightBytes,
       ingress: relay.legIngress,
       rawSocket,
-    })
-  );
+    });
+  });
 }
 
 // An upgrade answered only with a close code is a socket until the peer
@@ -644,6 +676,7 @@ function closeOfflinePhone(relay, deviceId, request, rawSocket, head, refuse) {
 }
 
 function closeAnswered(socket, code, reason) {
+  socket.sweepTarget = 'role=closing';
   const terminate = () => {
     try {
       socket.terminate();
@@ -740,7 +773,7 @@ export function sweepLegs(wss) {
       }
       // A terminate reaches the peer as a bare 1006 that names nobody, so the
       // sweep says here that IT was the one that cut a silent leg.
-      console.log('[relay] sweep terminated a leg that missed its ping window');
+      console.log(`[relay] sweep terminated leg ${ws.sweepTarget || 'role=unknown'}`);
       try {
         ws.terminate();
       } catch {
@@ -766,7 +799,7 @@ async function closeRelay({ heartbeat, socketDiagnostics, wss, server, store, li
   for (const entry of liveDesktops.values()) {
     if (entry.offlineTimer) clearTimeout(entry.offlineTimer);
     try {
-      entry.socket.terminate();
+      entry.socket?.terminate();
     } catch {
       /* already gone */
     }

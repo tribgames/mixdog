@@ -12,7 +12,7 @@ use mixdog_rt::TaskClass;
 use mixdog_rt::time::{Instant, MissedTickBehavior, interval_at_unrefed};
 use tokio::task::AbortHandle;
 
-use super::hub::{Hub, LegSocket, SweepLeg};
+use super::hub::{Hub, LegSocket, SweepLeg, SweepTarget};
 use super::ingress::{IngressLeg, Sweep};
 use crate::hook::{HookHub, HookLeg};
 use crate::logline;
@@ -34,6 +34,8 @@ trait Swept {
     fn start_window(&mut self);
     /// One more extra window given; returns how many the leg has had.
     fn bump_grace(&mut self) -> u32;
+    /// The termination log line naming this connection.
+    fn terminated_log(&self) -> logline::Line;
 }
 
 impl Swept for SweepLeg {
@@ -55,6 +57,14 @@ impl Swept for SweepLeg {
 
     fn bump_grace(&mut self) -> u32 {
         self.liveness.bump_grace()
+    }
+
+    fn terminated_log(&self) -> logline::Line {
+        match &self.target {
+            SweepTarget::Desktop { device_id } => logline::sweep_terminated_leg("desktop", Some(device_id), None),
+            SweepTarget::Phone { device_id, client_id } => logline::sweep_terminated_leg("phone", Some(device_id), Some(client_id)),
+            SweepTarget::Closing => logline::sweep_terminated_leg("closing", None, None),
+        }
     }
 }
 
@@ -96,6 +106,10 @@ impl Swept for HookSwept<'_> {
         *grace += 1;
         *grace
     }
+
+    fn terminated_log(&self) -> logline::Line {
+        logline::sweep_terminated_leg("hook", Some(self.leg.device_id()), None)
+    }
 }
 
 /// The body of `sweepLegs` for one socket.
@@ -118,7 +132,7 @@ fn sweep_one(leg: &mut dyn Swept, now: Instant) {
         }
         // A terminate reaches the peer as a bare 1006 that names nobody, so the sweep says here that IT was the one that cut a silent
         // leg.
-        logline::emit(&logline::sweep_terminated_leg());
+        logline::emit(&leg.terminated_log());
         leg.socket().terminate();
         return;
     }

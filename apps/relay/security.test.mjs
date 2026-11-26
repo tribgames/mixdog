@@ -958,12 +958,108 @@ test('phone /ws accepts only per-browser credentials; others close 4005', async 
     // the phone must drop its pairing and rescan.
     assert.equal(await closeOf('fedcba9876543210'), 4005);
     assert.equal(await closeOf('0123456789abcdef0123456789abcdef'), 4005);
-    // A real per-browser credential with the desktop offline is retryable: the
-    // relay's own "PC offline" close, never the 4005 rescan close and never
-    // a bare refused upgrade the phone cannot tell from a network failure.
+    // A real per-browser credential WITHOUT `&hold=1` gets the retryable
+    // "PC offline" code (4002) immediately, never 4005 and never parked.
     const registered = relay.store.registerClient(DEVICE_ID, 'bbbbbbbb', {});
     assert.equal(await closeOf(registered.token), DESKTOP_OFFLINE_CLOSE);
   } finally {
+    await relay.close();
+  }
+});
+
+test('phone dialing while PC is offline: without hold=1 closes 4002 at once; with hold=1 parks and connects on PC return', async () => {
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-offline-park-'));
+  const renderer = join(dir, 'renderer');
+  mkdirSync(renderer);
+  writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
+  const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), rendererDir: renderer, offlineGraceMs: 5_000 });
+  const sockets = [];
+  const nextClientOpen = (ws) =>
+    new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('client-open timed out')), 2_000);
+      const onMessage = (raw) => {
+        const value = jsonOf(raw);
+        if (value?.type !== 'client-open') return;
+        clearTimeout(timeout);
+        ws.off('message', onMessage);
+        resolve(value);
+      };
+      ws.on('message', onMessage);
+    });
+  try {
+    relay.store.authenticate(DEVICE_ID, '0123456789abcdef');
+    const registered = relay.store.registerClient(DEVICE_ID, 'bbbbbbbb', {});
+    // Older phone build without `&hold=1`: closed 4002 immediately without waiting for the 5 s offline grace.
+    const legacy = await new Promise((resolve, reject) => {
+      const messages = [];
+      const ws = new WebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
+        headers: { Origin: `http://127.0.0.1:${relay.port}` },
+      });
+      sockets.push(ws);
+      const timer = setTimeout(() => reject(new Error('legacy phone was not closed immediately')), 1_500);
+      ws.on('message', (raw) => messages.push(raw.toString()));
+      ws.once('close', (code, reason) => {
+        clearTimeout(timer);
+        resolve({ code, reason: reason.toString(), messages });
+      });
+      ws.once('error', reject);
+    });
+    assert.deepEqual(legacy, { code: DESKTOP_OFFLINE_CLOSE, reason: 'desktop offline', messages: [] });
+
+    // New phone with `&hold=1` during cold offline (covers relay restart): held and told desktop-gone at once.
+    const phoneMessages = [];
+    let onPhoneMessage = null;
+    const nextPhoneMessage = () =>
+      phoneMessages.length > 0
+        ? Promise.resolve(phoneMessages.shift())
+        : new Promise((resolve) => {
+            onPhoneMessage = resolve;
+          });
+    const phone = new WebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}&hold=1`, {
+      headers: { Origin: `http://127.0.0.1:${relay.port}` },
+    });
+    sockets.push(phone);
+    phone.on('message', (raw) => {
+      const text = raw.toString();
+      if (onPhoneMessage) {
+        const resolve = onPhoneMessage;
+        onPhoneMessage = null;
+        resolve(text);
+      } else {
+        phoneMessages.push(text);
+      }
+    });
+    await new Promise((resolve, reject) => {
+      phone.once('open', resolve);
+      phone.once('error', reject);
+    });
+    let phoneClosed = false;
+    phone.once('close', () => {
+      phoneClosed = true;
+    });
+    // Relay tells the phone at once that its PC is offline while parking it.
+    assert.equal(await nextPhoneMessage(), '{"resync":"desktop-gone"}');
+    // Liveness ping works while parked.
+    phone.send('{"ping":1}');
+    assert.equal(await nextPhoneMessage(), '{"pong":1}');
+    await delay(100);
+    assert.equal(phoneClosed, false);
+
+    // PC connects within offline grace and is immediately told about the parked phone.
+    const desktop = new WebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
+      headers: { Authorization: DESKTOP_AUTH },
+    });
+    sockets.push(desktop);
+    const opened = nextClientOpen(desktop);
+    await new Promise((resolve, reject) => {
+      desktop.once('open', resolve);
+      desktop.once('error', reject);
+    });
+    const envelope = await opened;
+    assert.equal(envelope.browserClientId, 'bbbbbbbb');
+    assert.equal(phoneClosed, false);
+  } finally {
+    terminateAll(sockets);
     await relay.close();
   }
 });
@@ -1140,14 +1236,14 @@ test('the PC-offline close is its own code and never a pairing-revoking one', ()
   assert.equal(DESKTOP_HANDSHAKE_STALL_MS + DESKTOP_LIVENESS_PROBE_MS, 6_000);
 });
 
-test('PC-offline answers are rate-limited per device', async () => {
+test('offline phone upgrades are rate-limited per device', async () => {
   const dir = tempDir(join(tmpdir(), 'mixdog-relay-offline-limits-'));
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data') });
   try {
     relay.store.authenticate(DEVICE_ID, '0123456789abcdef');
     const registered = relay.store.registerClient(DEVICE_ID, 'bbbbbbbb', {});
     const origin = `http://127.0.0.1:${relay.port}`;
-    const outcome = () =>
+    const dialLegacyOffline = () =>
       new Promise((resolveOutcome) => {
         const ws = new WebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
           headers: { Origin: origin },
@@ -1159,16 +1255,92 @@ test('PC-offline answers are rate-limited per device', async () => {
         });
         ws.once('error', () => {});
       });
-    const results = [];
-    for (let index = 0; index < MAX_PHONE_CONNECTIONS_PER_MINUTE + 1; index++) results.push(await outcome());
-    assert.equal(results.filter((code) => code === DESKTOP_OFFLINE_CLOSE).length, MAX_PHONE_CONNECTIONS_PER_MINUTE);
-    assert.equal(results.at(-1), 429, 'the offline answer is charged to the per-device connect limit');
+    const dialHeldOffline = () =>
+      new Promise((resolveOutcome) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}&hold=1`, {
+          headers: { Origin: origin },
+        });
+        let sawDesktopGone = false;
+        ws.once('message', (raw) => {
+          sawDesktopGone = raw.toString() === '{"resync":"desktop-gone"}';
+          ws.close(1000);
+        });
+        ws.once('close', (code) => resolveOutcome({ code, sawDesktopGone }));
+        ws.once('unexpected-response', (_request, response) => {
+          resolveOutcome({ status: response.statusCode });
+          ws.terminate();
+        });
+        ws.once('error', () => {});
+      });
+    const legacyCount = Math.floor(MAX_PHONE_CONNECTIONS_PER_MINUTE / 2);
+    const heldCount = MAX_PHONE_CONNECTIONS_PER_MINUTE - legacyCount;
+    for (let index = 0; index < legacyCount; index++) {
+      assert.equal(await dialLegacyOffline(), DESKTOP_OFFLINE_CLOSE);
+    }
+    for (let index = 0; index < heldCount; index++) {
+      assert.deepEqual(await dialHeldOffline(), { code: 1000, sawDesktopGone: true });
+    }
+    assert.deepEqual(
+      await dialHeldOffline(),
+      { status: 429 },
+      'parked offline phone upgrades are charged to the per-device connect limit'
+    );
+    assert.equal(
+      await dialLegacyOffline(),
+      429,
+      'legacy offline phone upgrades are charged to the per-device connect limit'
+    );
   } finally {
     await relay.close();
   }
 });
 
-test('PC-offline answers whose peers never acknowledge the close are bounded per device', async () => {
+test('parked offline phones are bounded per device at MAX_PHONE_CLIENTS_PER_DEVICE', async () => {
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-offline-park-limit-'));
+  const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), offlineGraceMs: 5_000 });
+  const sockets = [];
+  try {
+    relay.store.authenticate(DEVICE_ID, '0123456789abcdef');
+    const registered = relay.store.registerClient(DEVICE_ID, 'bbbbbbbb', {});
+    const origin = `http://127.0.0.1:${relay.port}`;
+    const dialParked = () =>
+      new Promise((resolveOutcome, rejectOutcome) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}&hold=1`, {
+          headers: { Origin: origin },
+        });
+        ws.once('message', (raw) => {
+          sockets.push(ws);
+          resolveOutcome({ status: 101, message: raw.toString(), ws });
+        });
+        ws.once('unexpected-response', (_request, response) => {
+          resolveOutcome({ status: response.statusCode });
+          ws.terminate();
+        });
+        ws.once('error', (error) => {
+          if (ws.readyState !== WebSocket.CLOSED) rejectOutcome(error);
+        });
+      });
+    for (let index = 0; index < MAX_PHONE_CLIENTS_PER_DEVICE; index++) {
+      const outcome = await dialParked();
+      assert.equal(outcome.status, 101);
+      assert.equal(outcome.message, '{"resync":"desktop-gone"}');
+    }
+    assert.equal((await dialParked()).status, 429, 'parked offline phones are bounded');
+
+    const departed = sockets.pop();
+    const departedClosed = new Promise((resolveClose) => departed.once('close', resolveClose));
+    departed.close(1000);
+    await departedClosed;
+    const replacement = await dialParked();
+    assert.equal(replacement.status, 101, 'closing a parked phone frees its slot');
+    assert.equal(replacement.message, '{"resync":"desktop-gone"}');
+  } finally {
+    terminateAll(sockets);
+    await relay.close();
+  }
+});
+
+test('legacy offline-closing answers are bounded per device at MAX_PHONE_CLIENTS_PER_DEVICE', async () => {
   const dir = tempDir(join(tmpdir(), 'mixdog-relay-offline-closing-'));
   const second = await startRelay({ port: 0, dataDir: join(dir, 'data') });
   const raw = [];
@@ -1191,7 +1363,7 @@ test('PC-offline answers whose peers never acknowledge the close are bounded per
     const statuses = [];
     for (let index = 0; index < MAX_PHONE_CLIENTS_PER_DEVICE + 1; index++) statuses.push(await statusOf());
     assert.equal(statuses.filter((status) => status === 101).length, MAX_PHONE_CLIENTS_PER_DEVICE);
-    assert.equal(statuses.at(-1), 429, 'outstanding closing sockets are bounded');
+    assert.equal(statuses.at(-1), 429, 'offline-closing answers are bounded');
   } finally {
     for (const socket of raw) socket.destroy();
     await second.close();
@@ -1736,7 +1908,7 @@ test('a fragmented message past transport capacity is refused before the close',
         if (value.type === 'frame-too-large') notices.push(value);
       });
     });
-    const phone = await openPhoneSocket(relay, registered.token, sockets);
+    await openPhoneSocket(relay, registered.token, sockets);
     const clientId = await opened;
 
     // A message split across frames only overruns the transport on a LATER

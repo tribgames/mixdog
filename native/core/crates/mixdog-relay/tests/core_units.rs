@@ -270,18 +270,33 @@ fn log_lines_keep_their_text_and_stream() {
     assert_eq!(logline::label_failed("phone frame", "boom").text, "[relay] phone frame failed: boom");
     let line = logline::phone_upgrade_refused(403, "revoked", "12345678-abcd");
     assert_eq!((line.stream, line.text.as_str()), (Stream::Out, "[relay] phone upgrade refused status=403 cause=revoked device=12345678"));
-    assert_eq!(logline::phone_upgrade_refused_desktop_offline("abcdef0123").text, "[relay] phone upgrade refused cause=desktop-offline device=abcdef01");
+    let line = logline::phone_upgrade_refused_desktop_offline("12345678-abcd");
+    assert_eq!((line.stream, line.text.as_str()), (Stream::Out, "[relay] phone upgrade refused cause=desktop-offline device=12345678"));
     assert_eq!(logline::slow_phone_handshake(3, logline::HEARD_LIVE).text, "[relay] slow phone handshake turn=3; desktop leg is live, leaving the leg up");
     assert_eq!(logline::desktop_leg_missed_handshake_turn(3).text, "[relay] desktop leg missed a phone handshake turn=3 and its probe; closing it");
+    assert_eq!(logline::desktop_leg_opened("abcdef0123", false, 2).text, "[relay] desktop leg opened device=abcdef01 superseded=false phones=2");
+    assert_eq!(
+        logline::desktop_leg_closed("abcdef0123", 1006, "", 12_345, 2, false).text,
+        "[relay] desktop leg closed device=abcdef01 code=1006 reason= lived=12345ms phones=2 superseded=false"
+    );
     let long_reason = "r".repeat(80);
     assert_eq!(
-        logline::phone_leg_closed("0123456789", 4003, &long_reason, 1500).text,
-        format!("[relay] phone leg closed client=01234567 code=4003 reason={} lived=1500ms", "r".repeat(60))
+        logline::phone_leg_closed("abcdef0123", "0123456789", 4003, &long_reason, 1500).text,
+        format!("[relay] phone leg closed device=abcdef01 client=01234567 code=4003 reason={} lived=1500ms", "r".repeat(60))
     );
     assert_eq!(logline::feedback_diagnostic("send", "error").text, "[relay] feedback send code=error");
     assert_eq!(logline::ice_servers_issued("abcdef0123").text, "[relay] ice-servers issued device=abcdef01");
     assert_eq!(logline::push_credentials_unusable("APNs", "bad key").stream, Stream::Err);
-    assert_eq!(logline::sweep_terminated_leg().stream, Stream::Out);
+    assert_eq!(
+        logline::sweep_terminated_leg("desktop", Some("abcdef0123"), None),
+        logline::Line { stream: Stream::Out, text: "[relay] sweep terminated leg role=desktop device=abcdef01".into() }
+    );
+    assert_eq!(
+        logline::sweep_terminated_leg("phone", Some("abcdef0123"), Some("0123456789")).text,
+        "[relay] sweep terminated leg role=phone device=abcdef01 client=01234567"
+    );
+    assert_eq!(logline::sweep_terminated_leg("hook", Some("abcdef0123"), None).text, "[relay] sweep terminated leg role=hook device=abcdef01");
+    assert_eq!(logline::sweep_terminated_leg("closing", None, None).text, "[relay] sweep terminated leg role=closing");
 }
 
 #[test]

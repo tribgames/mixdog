@@ -38,7 +38,7 @@ use crate::logline;
 use crate::ws::{FlushCallback, Holder, WebSocket};
 use crate::{js, store::DeviceStore};
 
-/// How long phones stay parked at the relay after their desktop leg went before they are closed 4002 and the entry is dropped.
+/// How long phones stay parked at the relay while their PC is offline before being closed 4002 and the entry is dropped.
 pub const OFFLINE_GRACE: Duration = Duration::from_secs(45);
 
 /// What the legs code needs of a socket. A [`WebSocket`] is one; the tests of the legs hand in a scripted one.
@@ -134,6 +134,8 @@ pub struct HubConfig {
     /// The box-level ceiling a phone leg's sends are held to (`maxInflightBytes`).
     pub max_inflight_bytes: usize,
     pub handshake: HandshakeTiming,
+    /// How long phones stay parked while their PC is offline before being closed 4002.
+    pub offline_grace: Duration,
     /// The numbers of every leg's ingress metering; `limit` is replaced by `max_frame_bytes` for the legs of the hub.
     pub ingress: IngressLimits,
 }
@@ -145,6 +147,7 @@ impl Default for HubConfig {
             uplink_capacity_ceiling: MAX_UPLINK_CAPACITY_BYTES,
             max_inflight_bytes: MAX_INFLIGHT_BYTES,
             handshake: HandshakeTiming::default(),
+            offline_grace: OFFLINE_GRACE,
             ingress: IngressLimits::default(),
         }
     }
@@ -184,12 +187,21 @@ impl Liveness {
     }
 }
 
+/// Which connection a [`SweepLeg`] belongs to, for the sweep's termination log.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SweepTarget {
+    Desktop { device_id: String },
+    Phone { device_id: String, client_id: String },
+    Closing,
+}
+
 /// One upgraded socket as the heartbeat sweep sees it (`wss.clients`).
 #[derive(Clone)]
 pub struct SweepLeg {
     pub socket: SocketRef,
     pub liveness: Arc<Liveness>,
     pub ingress: Option<IngressLeg>,
+    pub target: SweepTarget,
 }
 
 /// The stream of frames a proxied media request holds open at the desktop; the relay fails it when the leg goes.
@@ -246,7 +258,9 @@ pub(super) struct Conn {
 }
 
 pub(super) struct Entry {
-    pub(super) conn: Conn,
+    /// Generation of the current desktop leg or offline-parked entry; distinguishes an offline timer from a later connection.
+    pub(super) generation: u64,
+    pub(super) conn: Option<Conn>,
     /// The phones attached to this desktop, in the order they attached (the order a fan-out visits them).
     pub(super) clients: Vec<Phone>,
     pub(super) media: MediaSlot,
@@ -258,10 +272,53 @@ pub(super) struct Entry {
     pub(super) offline_timer: Option<AbortHandle>,
 }
 
+impl Entry {
+    pub(super) fn new(generation: u64, conn: Option<Conn>, clients: Vec<Phone>, handshake: HandshakeTiming, offline_timer: Option<AbortHandle>) -> Self {
+        Self { generation, conn, clients, media: MediaSlot::default(), media_lane: false, pair_v2: false, host_name: None, handshake, offline_timer }
+    }
+}
+
 #[derive(Default)]
 pub(super) struct HubState {
     pub(super) desktops: HashMap<String, Entry>,
+    pub(super) pending_phones: HashMap<String, usize>,
     pub(super) next_generation: u64,
+}
+
+/// A per-device phone slot reserved before the async WebSocket upgrade completes, so a concurrent burst cannot park more than the
+/// device limit. Dropping it without attaching releases the reservation.
+pub struct PhoneSlot {
+    hub: Arc<Hub>,
+    device_id: String,
+    active: bool,
+}
+
+impl PhoneSlot {
+    fn release_locked(pending: &mut HashMap<String, usize>, device_id: &str) {
+        if let Some(count) = pending.get_mut(device_id) {
+            if *count <= 1 {
+                pending.remove(device_id);
+            } else {
+                *count -= 1;
+            }
+        }
+    }
+
+    fn consume(mut self, pending: &mut HashMap<String, usize>) {
+        if self.active {
+            self.active = false;
+            Self::release_locked(pending, &self.device_id);
+        }
+    }
+}
+
+impl Drop for PhoneSlot {
+    fn drop(&mut self) {
+        if self.active {
+            self.active = false;
+            Self::release_locked(&mut self.hub.lock().pending_phones, &self.device_id);
+        }
+    }
 }
 
 /// The state of a phone's uplink backlog, shared with the flush callbacks of the frames it sent: the phone stops being READ
@@ -545,25 +602,15 @@ pub struct PhoneOptions {
     pub inflight_ceiling: usize,
     /// Puts the leg's ingress meter on its socket; none for a socket that is not a [`WebSocket`] (the tests).
     pub ingress: Option<IngressInstall>,
+    /// Slot reserved before an async upgrade, consumed atomically when the phone is added to the entry.
+    pub slot: Option<PhoneSlot>,
 }
 
 impl Default for PhoneOptions {
     fn default() -> Self {
-        Self { browser_client_id: None, inflight_ceiling: MAX_INFLIGHT_BYTES, ingress: None }
+        Self { browser_client_id: None, inflight_ceiling: MAX_INFLIGHT_BYTES, ingress: None, slot: None }
     }
 }
-
-/// The device has no live desktop entry: the phone cannot be attached.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct NoDesktop;
-
-impl std::fmt::Display for NoDesktop {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("no desktop leg for this device")
-    }
-}
-
-impl std::error::Error for NoDesktop {}
 
 /// A desktop's connection state as the HTTP routes read it (`entry` of `liveDesktops.get(deviceId)`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -674,11 +721,32 @@ impl Hub {
 
     // ---- phones ----
 
-    /// `runClientLeg`: attach a phone to the desktop of `device_id` and announce it to the desktop leg (`client-open`, then the
-    /// challenge is owed within the watchdog's clock). The phone's `clientId` is a random UUID the hub hands out.
-    pub fn attach_phone(self: &Arc<Self>, device_id: &str, socket: SocketRef, options: PhoneOptions) -> Result<PhoneHandle, NoDesktop> {
+    /// Reserve one phone slot for `device_id` before an async upgrade starts so concurrent upgrades cannot exceed `max_clients`.
+    pub fn reserve_phone_slot(self: &Arc<Self>, device_id: &str, max_clients: usize) -> Option<PhoneSlot> {
+        let mut guard = self.lock();
+        let attached = guard.desktops.get(device_id).map_or(0, |entry| entry.clients.len());
+        let pending = guard.pending_phones.get(device_id).copied().unwrap_or(0);
+        if attached + pending >= max_clients {
+            return None;
+        }
+        *guard.pending_phones.entry(device_id.to_owned()).or_insert(0) += 1;
+        Some(PhoneSlot { hub: Arc::clone(self), device_id: device_id.to_owned(), active: true })
+    }
+
+    /// `runClientLeg`: attach a phone to `device_id`. If a desktop leg is open, announce the phone (`client-open`, then the
+    /// challenge is owed within the watchdog's clock). If the desktop is offline (either in its offline grace or absent after a
+    /// restart), park the phone in the device's entry and tell it `{"resync":"desktop-gone"}` at once so it is announced when
+    /// the desktop returns within [`HubConfig::offline_grace`], or closed 4002 when the grace expires.
+    pub fn attach_phone(self: &Arc<Self>, device_id: &str, socket: SocketRef, options: PhoneOptions) -> PhoneHandle {
+        self.try_attach_phone(device_id, socket, options, true).expect("hold_offline always attaches")
+    }
+
+    /// Like [`Hub::attach_phone`], except when `hold_offline` is false (an older phone without `&hold=1`): if the desktop leg
+    /// is not open, consumes any reserved slot without parking and returns `None` so the caller answers 4002 immediately.
+    pub fn try_attach_phone(self: &Arc<Self>, device_id: &str, socket: SocketRef, options: PhoneOptions, hold_offline: bool) -> Option<PhoneHandle> {
         let client_id = uuid::Uuid::new_v4().to_string();
-        let ingress = options.ingress.map(|install| {
+        let PhoneOptions { browser_client_id, inflight_ceiling, ingress, slot } = options;
+        let ingress = ingress.map(|install| {
             let hub = Arc::downgrade(self);
             let (device, client) = (device_id.to_owned(), client_id.clone());
             let limit_for: Arc<dyn Fn(bool) -> usize + Send + Sync> =
@@ -698,37 +766,83 @@ impl Hub {
         let phone = Phone {
             id: client_id.clone(),
             shared: Arc::clone(&shared),
-            browser_client_id: options.browser_client_id,
+            browser_client_id,
             attached: false,
             closing: false,
             resync_hinted: false,
-            inflight_ceiling: options.inflight_ceiling,
+            inflight_ceiling,
             watch: Watch::default(),
             ceiling_key: None,
             ceilings: UplinkCeilings { binary: 0, text: 0 },
         };
-        let leg_id = self.register_leg(SweepLeg { socket, liveness, ingress });
-        if !self.join_desktop(device_id, phone) {
+        let leg_id = self.register_leg(SweepLeg {
+            socket,
+            liveness,
+            ingress,
+            target: SweepTarget::Phone { device_id: device_id.to_owned(), client_id: client_id.clone() },
+        });
+        if !self.join_or_park_phone(device_id, phone, slot, hold_offline) {
             if let Some(ingress) = &shared.ingress {
                 ingress.release();
             }
             self.unregister_leg(leg_id);
-            return Err(NoDesktop);
+            return None;
         }
-        Ok(PhoneHandle { hub: Arc::clone(self), device_id: device_id.to_owned(), client_id, shared, leg_id, finished: AtomicBool::new(false) })
+        Some(PhoneHandle { hub: Arc::clone(self), device_id: device_id.to_owned(), client_id, shared, leg_id, finished: AtomicBool::new(false) })
     }
 
-    /// Adds `phone` to the entry of `device_id` and announces it to the desktop leg; `false` when that desktop is not connected.
-    fn join_desktop(self: &Arc<Self>, device_id: &str, phone: Phone) -> bool {
-        let mut guard = self.lock();
-        let Some(entry) = guard.desktops.get_mut(device_id) else { return false };
-        let Entry { conn, clients, handshake, .. } = entry;
-        clients.push(phone);
-        if let Some(phone) = clients.last_mut() {
-            phone.attached = true;
-            announce_phone(self, device_id, conn, *handshake, phone);
+    /// Adds `phone` to the entry of `device_id`, announcing it if the desktop leg is open, or parking it and telling it
+    /// `{"resync":"desktop-gone"}` at once when `hold_offline` is true (creating an offline entry with the grace timer when no
+    /// entry exists yet). Returns false without attaching when the desktop is offline and `hold_offline` is false.
+    fn join_or_park_phone(self: &Arc<Self>, device_id: &str, mut phone: Phone, slot: Option<PhoneSlot>, hold_offline: bool) -> bool {
+        let parked_shared = {
+            let mut guard = self.lock();
+            if let Some(slot) = slot {
+                slot.consume(&mut guard.pending_phones);
+            }
+            if let Some(entry) = guard.desktops.get_mut(device_id) {
+                let open = entry.conn.as_ref().is_some_and(|conn| conn.socket.is_open());
+                if !open && !hold_offline {
+                    return false;
+                }
+                let Entry { conn, clients, handshake, .. } = entry;
+                phone.attached = true;
+                let shared = Arc::clone(&phone.shared);
+                clients.push(phone);
+                if let (Some(conn), Some(phone)) = (conn.as_ref(), clients.last_mut())
+                    && conn.socket.is_open()
+                {
+                    announce_phone(self, device_id, conn, *handshake, phone);
+                    None
+                } else {
+                    Some(shared)
+                }
+            } else {
+                if !hold_offline {
+                    return false;
+                }
+                guard.next_generation += 1;
+                let generation = guard.next_generation;
+                phone.attached = true;
+                let shared = Arc::clone(&phone.shared);
+                let timer = self.spawn_offline_timer(device_id, generation);
+                guard.desktops.insert(device_id.to_owned(), Entry::new(generation, None, vec![phone], self.config.handshake, Some(timer)));
+                Some(shared)
+            }
+        };
+        if let Some(shared) = parked_shared {
+            signal_desktop_gone(&shared, false);
         }
         true
+    }
+
+    pub(super) fn spawn_offline_timer(self: &Arc<Self>, device_id: &str, generation: u64) -> AbortHandle {
+        let (hub, device, grace) = (Arc::clone(self), device_id.to_owned(), self.config.offline_grace);
+        let task = mixdog_rt::spawn("relay-desktop-offline", TaskClass::Control, async move {
+            sleep_unrefed(grace).await;
+            hub.desktop_offline_expired(&device, generation);
+        });
+        task.abort_handle()
     }
 
     /// `oversizeLimitFor`: the stable ceiling of one phone's path in one wire form, the number every refusal quotes.
@@ -737,16 +851,17 @@ impl Hub {
         let mut guard = self.lock();
         let found = guard.desktops.get_mut(device_id).and_then(|entry| {
             let Entry { conn, clients, .. } = entry;
+            let conn = conn.as_ref()?;
             clients.iter_mut().find(|phone| phone.id == client_id).map(|phone| phone.path(conn, max_frame_bytes))
         });
         let path = found.unwrap_or_else(|| undeclared_path(client_id, max_frame_bytes));
         if binary { path.binary } else { path.text }
     }
 
-    /// The desktop leg of `device_id` closed 45 s ago and has not come back: its parked phones are closed 4002 and the entry goes.
+    /// The offline grace for `device_id` expired with no desktop returning: parked phones are closed 4002 and the entry goes.
     pub(super) fn desktop_offline_expired(&self, device_id: &str, generation: u64) {
         let mut guard = self.lock();
-        let live = guard.desktops.get(device_id).is_some_and(|entry| entry.conn.generation == generation);
+        let live = guard.desktops.get(device_id).is_some_and(|entry| entry.generation == generation);
         if !live {
             return;
         }
@@ -764,23 +879,23 @@ impl Hub {
     /// Send a JSON frame to the live desktop leg of a device; false when the device has no open leg.
     pub fn send_to_desktop(&self, device_id: &str, payload: &Value) -> bool {
         let guard = self.lock();
-        let Some(entry) = guard.desktops.get(device_id) else { return false };
-        if !entry.conn.socket.is_open() {
+        let Some(conn) = guard.desktops.get(device_id).and_then(|entry| entry.conn.as_ref()) else { return false };
+        if !conn.socket.is_open() {
             return false;
         }
-        send_json(&*entry.conn.socket, payload);
+        send_json(&*conn.socket, payload);
         true
     }
 
     /// `desktopLegOpen(liveDesktops.get(deviceId))`.
     pub fn desktop_open(&self, device_id: &str) -> bool {
-        self.lock().desktops.get(device_id).is_some_and(|entry| entry.conn.socket.is_open())
+        self.lock().desktops.get(device_id).and_then(|entry| entry.conn.as_ref()).is_some_and(|conn| conn.socket.is_open())
     }
 
     /// What the routes know of a device's desktop: none when the device has no entry.
     pub fn desktop_info(&self, device_id: &str) -> Option<DesktopInfo> {
         self.lock().desktops.get(device_id).map(|entry| DesktopInfo {
-            open: entry.conn.socket.is_open(),
+            open: entry.conn.as_ref().is_some_and(|conn| conn.socket.is_open()),
             media_lane: entry.media_lane,
             pair_v2: entry.pair_v2,
             host_name: entry.host_name.clone(),
@@ -797,8 +912,9 @@ impl Hub {
     pub fn with_media<R>(&self, device_id: &str, read: impl FnOnce(MediaView<'_>) -> R) -> Option<R> {
         let mut guard = self.lock();
         let entry = guard.desktops.get_mut(device_id)?;
-        let open = entry.conn.socket.is_open();
-        Some(read(MediaView { lane: entry.media_lane, open, socket: &entry.conn.socket, pending: &mut entry.media }))
+        let conn = entry.conn.as_ref()?;
+        let open = conn.socket.is_open();
+        Some(read(MediaView { lane: entry.media_lane, open, socket: &conn.socket, pending: &mut entry.media }))
     }
 
     /// The browsers (their per-browser credential ids) with a phone attached to a device.
@@ -816,8 +932,8 @@ impl Hub {
             .iter()
             .map(|(device_id, entry)| DesktopSockets {
                 device_id: device_id.clone(),
-                socket_attached: true,
-                socket_buffered: entry.conn.socket.buffered_amount() as u64,
+                socket_attached: entry.conn.is_some(),
+                socket_buffered: entry.conn.as_ref().map_or(0, |conn| conn.socket.buffered_amount() as u64),
                 phones: entry
                     .clients
                     .iter()
@@ -834,7 +950,9 @@ impl Hub {
             if let Some(timer) = &entry.offline_timer {
                 timer.abort();
             }
-            entry.conn.socket.terminate();
+            if let Some(conn) = &entry.conn {
+                conn.socket.terminate();
+            }
             for phone in &entry.clients {
                 phone.shared.socket.terminate();
             }
@@ -896,7 +1014,10 @@ impl PhoneHandle {
         // The ceiling this phone is held to is the one its message can actually be DELIVERED under: this relay's policy, bounded by
         // what the desktop leg accepts once the routing envelope is on it. Past that is a payload error for this phone, never a
         // reason to drop the socket its session runs on.
-        let path = phone.path(conn, max_frame_bytes);
+        let path = match conn.as_ref() {
+            Some(conn) => phone.path(conn, max_frame_bytes),
+            None => undeclared_path(&phone.id, max_frame_bytes),
+        };
         let limit = if is_binary { path.binary } else { path.text };
         if let Oversize::Refused { announce } = check_oversize(data.len(), limit, announced) {
             if announce {
@@ -904,16 +1025,26 @@ impl PhoneHandle {
             }
             return true;
         }
-        let payload = if is_binary {
-            let Ok(frame) = envelope::encode_frame(&self.client_id, data, false, false) else { return true };
-            self.note_turn(phone, conn.generation, *handshake);
-            Uplink::Binary(frame)
+        let text = if is_binary {
+            None
         } else {
             let text = js::decode_utf8(data);
             if envelope::is_phone_ping(&text) {
                 self.shared.socket.send_text(Bytes::from_static(envelope::PHONE_PONG.as_bytes()), None);
                 return true;
             }
+            Some(text)
+        };
+        let Some(conn) = conn.as_ref() else {
+            signal_desktop_gone(&self.shared, true);
+            return true;
+        };
+        let payload = if is_binary {
+            let Ok(frame) = envelope::encode_frame(&self.client_id, data, false, false) else { return true };
+            self.note_turn(phone, conn.generation, *handshake);
+            Uplink::Binary(frame)
+        } else {
+            let text = text.as_deref().unwrap_or_default();
             self.note_turn(phone, conn.generation, *handshake);
             // A leg that decodes text inside the binary envelope gets it there: that envelope is a fixed header, so a message within
             // policy is still within policy on the wire. JSON escaping can make no such promise, which is why the text ceiling is a
@@ -922,7 +1053,7 @@ impl PhoneHandle {
                 let Ok(frame) = envelope::encode_frame(&self.client_id, data, false, true) else { return true };
                 Uplink::Binary(frame)
             } else {
-                Uplink::Text(envelope::json_frame(&self.client_id, &text))
+                Uplink::Text(envelope::json_frame(&self.client_id, text))
             }
         };
         // Backpressure is charged to this leg only: it stops being read while its own frames are outstanding, and resumes on its
@@ -980,17 +1111,28 @@ impl PhoneHandle {
         let said: String = js::decode_utf8(reason).chars().take(60).collect();
         {
             let mut guard = self.hub.lock();
+            let mut remove_empty_parked = false;
             if let Some(entry) = guard.desktops.get_mut(&self.device_id)
                 && let Some(position) = entry.clients.iter().position(|phone| phone.id == self.client_id)
             {
                 let mut phone = entry.clients.remove(position);
                 phone.attached = false;
                 phone.watch.end();
-                // The PC logs who hung up (the code and reason below), so its own log explains a phone that keeps reconnecting.
-                send_json(&*entry.conn.socket, &json!({ "type": "client-close", "clientId": self.client_id, "code": code, "reason": said }));
+                if let Some(conn) = &entry.conn {
+                    // The PC logs who hung up (the code and reason below), so its own log explains a phone that keeps reconnecting.
+                    send_json(&*conn.socket, &json!({ "type": "client-close", "clientId": self.client_id, "code": code, "reason": said }));
+                } else if entry.clients.is_empty() {
+                    if let Some(timer) = entry.offline_timer.take() {
+                        timer.abort();
+                    }
+                    remove_empty_parked = true;
+                }
+            }
+            if remove_empty_parked {
+                guard.desktops.remove(&self.device_id);
             }
         }
         let lived_ms = i64::try_from(self.shared.opened_at.elapsed().as_millis()).unwrap_or(i64::MAX);
-        logline::emit(&logline::phone_leg_closed(&self.client_id, code, &js::decode_utf8(reason), lived_ms));
+        logline::emit(&logline::phone_leg_closed(&self.device_id, &self.client_id, code, &js::decode_utf8(reason), lived_ms));
     }
 }

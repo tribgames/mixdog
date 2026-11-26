@@ -361,8 +361,75 @@ public class ReconnectCheck {
     eq(s.dueReload(), null, "abandoned: no timer");
     eq(s.retryNow(), null, "abandoned: no trigger");
 
+    // Active network switch and validated-internet tracker (Wi-Fi <-> cellular and same-network recovery).
+    NetworkSwitchTracker net = new NetworkSwitchTracker();
+    int WIFI = NetworkSwitchTracker.TRANSPORT_WIFI;
+    int CELL = NetworkSwitchTracker.TRANSPORT_CELLULAR;
+    int VPN = NetworkSwitchTracker.TRANSPORT_VPN;
+    NetworkSwitchTracker.Update u = net.onAvailable(100L, WIFI, true);
+    eq(u.networkSwitched, false, "initial registration callback is not a switch");
+    eq(u.internetValidated, true, "initial validated network reports validated");
+    u = net.onCapabilitiesChanged(100L, WIFI, true);
+    eq(u.networkSwitched, false, "same handle and transport is not a switch");
+    eq(u.internetValidated, false, "already-validated capabilities update does not retrigger reload");
+
+    // Internet lost then restored on the SAME network triggers reload retry without a network switch.
+    u = net.onCapabilitiesChanged(100L, WIFI, false);
+    eq(u.networkSwitched, false, "losing validation on same network is not a switch");
+    eq(u.internetValidated, false, "unvalidated network does not trigger reload");
+    u = net.onCapabilitiesChanged(100L, WIFI, true);
+    eq(u.networkSwitched, false, "regaining validation on same network is not a network switch");
+    eq(u.internetValidated, true, "regaining validation on same network retries reload at once");
+    u = net.onCapabilitiesChanged(100L, WIFI, true);
+    eq(u.internetValidated, false, "subsequent RSSI/bandwidth updates while validated do not retrigger reload");
+
+    // Wi-Fi -> cellular where onAvailable arrives before capabilities are populated must signal switch ONCE.
+    u = net.onAvailable(200L, 0, false);
+    eq(u.networkSwitched, true, "wifi -> cellular handle change with pending caps is a switch");
+    eq(u.internetValidated, false, "unvalidated new handle waits for validation before reload");
+    u = net.onCapabilitiesChanged(200L, CELL, false);
+    eq(u.networkSwitched, false, "filling in cellular transport after handle switch does not duplicate switch");
+    eq(u.internetValidated, false, "still unvalidated");
+    u = net.onCapabilitiesChanged(200L, CELL, true);
+    eq(u.networkSwitched, false, "validating the new cellular handle does not duplicate switch");
+    eq(u.internetValidated, true, "cellular handle gaining validation retries reload once");
+
+    net.onLost(100L);
+    u = net.onCapabilitiesChanged(200L, CELL, true);
+    eq(u.networkSwitched, false, "losing the old network does not mark the active one lost");
+    eq(u.internetValidated, false, "active cellular remains validated");
+
+    u = net.onAvailable(100L, WIFI, true);
+    eq(u.networkSwitched, true, "cellular -> wifi handle change is a switch");
+    eq(u.internetValidated, true, "validated wifi switch also retries reload");
+    u = net.onCapabilitiesChanged(100L, WIFI, true);
+    eq(u.networkSwitched, false, "follow-up capabilities update on wifi is not a duplicate switch");
+    eq(u.internetValidated, false, "follow-up capabilities update on wifi does not duplicate reload");
+
+    net.onLost(100L);
+    u = net.onAvailable(100L, WIFI, true);
+    eq(u.networkSwitched, true, "returning after losing the active network is a switch");
+    eq(u.internetValidated, true, "returning validated after loss retries reload");
+
+    u = net.onCapabilitiesChanged(100L, WIFI | VPN, true);
+    eq(u.networkSwitched, true, "transport change on the same handle is a switch");
+    eq(u.internetValidated, true, "validated transport switch retries reload");
+
+    net.reset();
+    u = net.onAvailable(300L, 0, false);
+    eq(u.networkSwitched, false, "first callback after reset with unknown transport is not a switch");
+    eq(u.internetValidated, false, "unvalidated initial network does not trigger reload");
+    u = net.onCapabilitiesChanged(300L, CELL, false);
+    eq(u.networkSwitched, false, "filling in initial transport is not a switch");
+    eq(u.internetValidated, false, "still unvalidated");
+    u = net.onCapabilitiesChanged(300L, CELL, true);
+    eq(u.networkSwitched, false, "same-network validation after unvalidated start is not a switch");
+    eq(u.internetValidated, true, "same-network validation after unvalidated start retries reload");
+    u = net.onCapabilitiesChanged(300L, WIFI, true);
+    eq(u.networkSwitched, true, "subsequent transport change is a switch");
+
     if (failures > 0) System.exit(1);
-    System.out.println("reconnect state (java): ok");
+    System.out.println("reconnect state + network switch tracker (java): ok");
   }
 }
 `;
@@ -383,6 +450,10 @@ try {
   );
   writeFileSync(join(pkg, 'FileSaveCheck.java'), fileSaveSource);
   cpSync(join(root, 'android/app/src/main/java/io/mixdog/app/ReconnectState.java'), join(pkg, 'ReconnectState.java'));
+  cpSync(
+    join(root, 'android/app/src/main/java/io/mixdog/app/NetworkSwitchTracker.java'),
+    join(pkg, 'NetworkSwitchTracker.java')
+  );
   writeFileSync(join(pkg, 'ReconnectCheck.java'), reconnectSource);
   execFileSync(
     'javac',
@@ -396,6 +467,7 @@ try {
         'WebViewInsets',
         'FileSaveSessions',
         'ReconnectState',
+        'NetworkSwitchTracker',
         'OriginPolicyCheck',
         'QueueCheck',
         'FileSaveCheck',

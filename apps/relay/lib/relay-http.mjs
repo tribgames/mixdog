@@ -37,7 +37,7 @@ export function clientIp(request) {
 
 /** Whether a desktop leg entry exists and its socket is still open. */
 export function desktopLegOpen(entry) {
-  return Boolean(entry) && entry.socket.readyState === entry.socket.OPEN;
+  return Boolean(entry?.socket) && entry.socket.readyState === entry.socket.OPEN;
 }
 
 /** The request line as a URL, or null when it cannot be parsed. */

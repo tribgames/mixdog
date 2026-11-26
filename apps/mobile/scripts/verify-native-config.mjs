@@ -126,6 +126,20 @@ check(
   webViewClientJava.includes('onReceivedError') && mainActivity.includes('MixdogReconnect'),
   'android reconnect hooks'
 );
+const reconnectJava = read(`${javaDir}MixdogReconnect.java`);
+check(
+  existsSync(join(root, `${javaDir}NetworkSwitchTracker.java`)) &&
+    mainActivity.includes('onStop()') &&
+    mainActivity.includes('nativeHost.onBackground()') &&
+    mainActivity.includes('notifyNetworkChanged()') &&
+    nativeHost.includes('"mixdognativebackground"') &&
+    nativeHost.includes('"mixdognativeforeground"') &&
+    nativeHost.includes('"mixdognativenetwork"') &&
+    reconnectJava.includes('registerDefaultNetworkCallback') &&
+    reconnectJava.includes('NET_CAPABILITY_VALIDATED') &&
+    reconnectJava.includes('activity.notifyNetworkChanged()'),
+  'android immediate background suspend and foreground network-switch notifications'
+);
 check(manifest.includes('android.permission.ACCESS_NETWORK_STATE'), 'manifest ACCESS_NETWORK_STATE');
 const lightColors = read('android/app/src/main/res/values/colors.xml');
 const darkColors = read('android/app/src/main/res/values-night/colors.xml');
@@ -156,7 +170,6 @@ check(
     mainActivity.includes('followSystem'),
   'android WebView synchronizes explicit Mixdog theme backing without overwriting onConfigurationChanged'
 );
-const reconnectJava = read(`${javaDir}MixdogReconnect.java`);
 const androidPickerBody = sliceSection(mainActivity, 'void applyPickerThemeBacking()', '\n  void openHostPicker()');
 const androidOpenPickerBody = sliceSection(
   mainActivity,
