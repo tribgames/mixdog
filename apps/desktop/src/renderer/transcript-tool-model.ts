@@ -1241,6 +1241,8 @@ export function desktopToolActivityItemPresentation(
       afterText ||
       structured.rows.length
   );
+  const headerTarget = patchSummary ? localizePatchTarget(patchSummary[1]) : fileHeaderSubject(subject, targetPath);
+  const headerSubject = importedCount ? `×${importedCount}` : rowSubject(normalizedName, headerTarget);
   return {
     category,
     title,
@@ -1273,12 +1275,7 @@ export function desktopToolActivityItemPresentation(
     hideSubjectWhenOpen: Boolean(command),
     targetPath,
     ...(normalizedName === 'read' && Number(args.offset) > 0 ? { targetLine: Math.floor(Number(args.offset)) } : {}),
-    headerSubject: importedCount
-      ? `×${importedCount}`
-      : rowSubject(
-          normalizedName,
-          patchSummary ? localizePatchTarget(patchSummary[1]) : fileHeaderSubject(subject, targetPath)
-        ),
+    headerSubject,
     subjectIsTarget: Boolean(targetPath) && subject.startsWith(targetPath),
     subjectKind: patchSummary ? 'target' : subjectKind,
     sections,

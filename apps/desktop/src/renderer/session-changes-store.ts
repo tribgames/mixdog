@@ -551,15 +551,14 @@ function adopt(target: ChangesTarget, read: ChangesRead, mode: LoadMode): void {
     );
   // A prefetch that found nothing new keeps the shown entry (no render).
   if (!changed && mode === 'warm' && !wasStale && !previous.loading && !previous.error) return;
+  let generation = previous?.generation ?? 0;
+  if (changed || mode !== 'warm') {
+    generation = sessionScopedSource(target.source) ? ++scopedGeneration : generation + 1;
+  }
   const next = {
     ...read,
     rows,
-    generation:
-      changed || mode !== 'warm'
-        ? sessionScopedSource(target.source)
-          ? ++scopedGeneration
-          : (previous?.generation ?? 0) + 1
-        : previous.generation,
+    generation,
     patchEpoch: (previous?.patchEpoch ?? 0) + (mode === 'foreground' ? 1 : 0),
     evidenceEpoch: (previous?.evidenceEpoch ?? 0) + (mode === 'activity' ? 1 : 0),
     loading: false,
@@ -1249,7 +1248,10 @@ export function useSessionChangePatches({
     row.parts.length === 0 && ((git && !row.reason) || (sessionDiff && row.patchOmitted === true));
   const rowKey = (row: SessionDiffRow) => `${key}\0${git ? row.path : row.id}`;
   const stampOf = (row: SessionDiffRow) => (git ? gitPatchStamp(target, entry, row) : `r${generation}`);
-  const kind = `${git ? 'git' : sessionDiff ? 'session' : 'none'}\0${key}`;
+  let patchScope = 'none';
+  if (git) patchScope = 'git';
+  else if (sessionDiff) patchScope = 'session';
+  const kind = `${patchScope}\0${key}`;
   const { capped, wantedRows } = wantedPatchRows(rows, kind, lazy, rowKey, selectedId);
   // The reads' names, once per wanted set and entry (a data change).
   // biome-ignore lint/correctness/useExhaustiveDependencies: the wanted set, the entry and the generation are what the stamps read
@@ -1433,7 +1435,11 @@ export function useSessionChanges({
   const changeRevision = useMemo(() => `${fileChangeKey(laneItemsForKey)}:${busy ? 1 : 0}`, [laneItemsForKey, busy]);
   const fallback = !gitOnly && !git;
   const diff = useSessionDiffRefresh({ sessionId: fallback ? session : '', active, revision: changeRevision });
-  const diffOutcome = fallback && session ? (diff.result ? 'ok' : diff.error ? 'err' : '') : '';
+  let diffOutcome: '' | 'ok' | 'err' = '';
+  if (fallback && session) {
+    if (diff.result) diffOutcome = 'ok';
+    else if (diff.error) diffOutcome = 'err';
+  }
   // Notify parent rail hydration checks when a non-Git workspace's fallback
   // session diff finishes loading so `useSessionChangesSettled` exits settling.
   useLayoutEffect(() => {
@@ -1474,13 +1480,11 @@ export function useSessionChanges({
   }, [active, mutations, source, target, watchable]);
   const laneItems = lane?.items;
   const latestCheckpoint = useMemo(() => latestTurnCheckpoint(laneItems), [laneItems]);
-  const rows = useMemo(
-    () =>
-      fallback
-        ? resolvedSessionRows(diff.result, Array.isArray(laneItems) ? laneItems : EMPTY_ITEMS, project)
-        : (entry?.rows ?? EMPTY_ROWS),
-    [fallback, diff.result, laneItems, project, entry?.rows]
-  );
+  const rows = useMemo(() => {
+    if (!fallback) return entry?.rows ?? EMPTY_ROWS;
+    const items = Array.isArray(laneItems) ? laneItems : EMPTY_ITEMS;
+    return resolvedSessionRows(diff.result, items, project);
+  }, [fallback, diff.result, laneItems, project, entry?.rows]);
   const summary = rowsSummary(rows);
   const diffRefresh = diff.refresh;
   const refresh = useCallback(

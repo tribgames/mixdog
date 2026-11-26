@@ -256,6 +256,24 @@ function evictUnpinnedStates(targetChars: number): void {
   emit();
 }
 
+function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
+  if (typeof timer === 'object' && 'unref' in timer) {
+    (timer as { unref?: () => void }).unref?.();
+  }
+}
+
+function clearRehydrateRetryIfIdle(): void {
+  if (![...evictedSessions.values()].some((entry) => entry.failed && entry.retries <= REHYDRATE_MAX_RETRIES)) {
+    clearRehydrateRetryTimer();
+  }
+}
+
+function rehydrateIfActiveEvicted(): void {
+  if ([...evictedSessions.entries()].some(([id, entry]) => isActiveSession(id) && !entry.failed)) {
+    rehydrateEvicted();
+  }
+}
+
 function scheduleRehydrateRetry(): void {
   if (rehydrateRetryTimer !== null) return;
   rehydrateRetryTimer = setTimeout(() => {
@@ -272,9 +290,7 @@ function scheduleRehydrateRetry(): void {
     if (cleared) emit();
     if (retryActive) rehydrateEvicted();
   }, REHYDRATE_RETRY_DELAY_MS);
-  if (typeof rehydrateRetryTimer === 'object' && 'unref' in rehydrateRetryTimer) {
-    (rehydrateRetryTimer as { unref?: () => void }).unref?.();
-  }
+  unrefTimer(rehydrateRetryTimer);
 }
 
 function failRehydrate(targets: ReadonlyArray<readonly [string, EvictedSessionEntry]>): void {
@@ -291,9 +307,7 @@ function failRehydrate(targets: ReadonlyArray<readonly [string, EvictedSessionEn
   }
   if (updated) emit();
   if (shouldRetry) scheduleRehydrateRetry();
-  if ([...evictedSessions.entries()].some(([id, entry]) => isActiveSession(id) && !entry.failed)) {
-    rehydrateEvicted();
-  }
+  rehydrateIfActiveEvicted();
 }
 
 function applyHeldFromRaw(sessionId: string, raw: VisualizeSessionState): VisualizeSessionState {
@@ -307,6 +321,58 @@ function applyHeldFromRaw(sessionId: string, raw: VisualizeSessionState): Visual
     heldCalls.delete(sessionId);
   }
   return state;
+}
+
+function applyRehydratedSnapshot(
+  targets: ReadonlyArray<readonly [string, EvictedSessionEntry]>,
+  snapshot: readonly VisualizeSessionState[]
+): void {
+  const byId = new Map<string, VisualizeSessionState>();
+  for (const raw of snapshot) {
+    if (raw?.sessionId) byId.set(raw.sessionId, raw);
+  }
+  const beforeHolds = holdKey();
+  const next = new Map(states);
+  let statesChanged = false;
+  let clearedEvicted = false;
+  const emptied: string[] = [];
+  for (const [sessionId, entry] of targets) {
+    if (evictedSessions.get(sessionId) !== entry || entry.failed) continue;
+    const raw = byId.get(sessionId);
+    if (!raw?.tabs.length) {
+      evictedSessions.delete(sessionId);
+      clearedEvicted = true;
+      pruneSessionPaneState(sessionId, undefined);
+      if (entry.versions.size > 0) emptied.push(sessionId);
+      if (raw) {
+        const state = applyHeldFromRaw(sessionId, raw);
+        if (state.history?.length) statesChanged = putState(next, state) || statesChanged;
+        else recentReaderSessions.delete(sessionId);
+      } else {
+        recentReaderSessions.delete(sessionId);
+        heldSince.delete(sessionId);
+        heldCalls.delete(sessionId);
+      }
+      continue;
+    }
+    pruneSessionPaneState(sessionId, raw);
+    if (!isActiveSession(sessionId)) continue;
+    evictedSessions.delete(sessionId);
+    const state = keptLocalActive(applyHeldFromRaw(sessionId, raw), entry.active);
+    statesChanged = putState(next, state) || statesChanged;
+    clearedEvicted = true;
+  }
+  const holdsChanged = holdKey() !== beforeHolds;
+  if (statesChanged) {
+    setStatesMap(next);
+    emit();
+  } else if (holdsChanged || clearedEvicted) {
+    emit();
+  }
+  for (const sessionId of emptied) notifyEmptied(sessionId);
+  if (statesChanged) enforceRendererCacheBudget();
+  clearRehydrateRetryIfIdle();
+  rehydrateIfActiveEvicted();
 }
 
 function rehydrateEvicted(): void {
@@ -340,56 +406,7 @@ function rehydrateEvicted(): void {
         failRehydrate(targets);
         return;
       }
-      const byId = new Map<string, VisualizeSessionState>();
-      for (const raw of snapshot) {
-        if (raw?.sessionId) byId.set(raw.sessionId, raw);
-      }
-      const beforeHolds = holdKey();
-      const next = new Map(states);
-      let statesChanged = false;
-      let clearedEvicted = false;
-      const emptied: string[] = [];
-      for (const [sessionId, entry] of targets) {
-        if (evictedSessions.get(sessionId) !== entry || entry.failed) continue;
-        const raw = byId.get(sessionId);
-        if (!raw || !raw.tabs.length) {
-          evictedSessions.delete(sessionId);
-          clearedEvicted = true;
-          pruneSessionPaneState(sessionId, undefined);
-          if (entry.versions.size > 0) emptied.push(sessionId);
-          if (raw) {
-            const state = applyHeldFromRaw(sessionId, raw);
-            if (state.history?.length) statesChanged = putState(next, state) || statesChanged;
-            else recentReaderSessions.delete(sessionId);
-          } else {
-            recentReaderSessions.delete(sessionId);
-            heldSince.delete(sessionId);
-            heldCalls.delete(sessionId);
-          }
-          continue;
-        }
-        pruneSessionPaneState(sessionId, raw);
-        if (!isActiveSession(sessionId)) continue;
-        evictedSessions.delete(sessionId);
-        const state = keptLocalActive(applyHeldFromRaw(sessionId, raw), entry.active);
-        statesChanged = putState(next, state) || statesChanged;
-        clearedEvicted = true;
-      }
-      const holdsChanged = holdKey() !== beforeHolds;
-      if (statesChanged) {
-        setStatesMap(next);
-        emit();
-      } else if (holdsChanged || clearedEvicted) {
-        emit();
-      }
-      for (const sessionId of emptied) notifyEmptied(sessionId);
-      if (statesChanged) enforceRendererCacheBudget();
-      if (![...evictedSessions.values()].some((entry) => entry.failed && entry.retries <= REHYDRATE_MAX_RETRIES)) {
-        clearRehydrateRetryTimer();
-      }
-      if ([...evictedSessions.entries()].some(([id, entry]) => isActiveSession(id) && !entry.failed)) {
-        rehydrateEvicted();
-      }
+      applyRehydratedSnapshot(targets, snapshot);
     })
     .catch(() => {
       if (rehydrateInFlight === request) rehydrateInFlight = null;
@@ -542,23 +559,20 @@ function replaceStates(next: Map<string, VisualizeSessionState>, alsoPrune?: Ite
     if (!next.has(sessionId) && !evictedSessions.has(sessionId)) recentReaderSessions.delete(sessionId);
   }
   const pruned = new Set<string>();
+  const pruneOnce = (sessionId: string, state: VisualizeSessionState | undefined) => {
+    if (pruned.has(sessionId)) return;
+    pruneSessionPaneState(sessionId, state);
+    pruned.add(sessionId);
+  };
   for (const [sessionId, state] of before) {
     const now = next.get(sessionId);
-    if (now === state) continue;
-    pruneSessionPaneState(sessionId, now);
-    pruned.add(sessionId);
+    if (now !== state) pruneOnce(sessionId, now);
   }
   for (const [sessionId, now] of next) {
-    if (before.has(sessionId) || pruned.has(sessionId)) continue;
-    pruneSessionPaneState(sessionId, now);
-    pruned.add(sessionId);
+    if (!before.has(sessionId)) pruneOnce(sessionId, now);
   }
   if (alsoPrune) {
-    for (const sessionId of alsoPrune) {
-      if (pruned.has(sessionId)) continue;
-      pruneSessionPaneState(sessionId, next.get(sessionId));
-      pruned.add(sessionId);
-    }
+    for (const sessionId of alsoPrune) pruneOnce(sessionId, next.get(sessionId));
   }
   emit();
   for (const [sessionId, state] of before) {
@@ -889,6 +903,25 @@ export function hydrateVisualizeStates(snapshot: readonly VisualizeSessionState[
   if (reopen.length) setTimeout(() => reopen.forEach(requestReveal), 0);
 }
 
+function collectResyncReveals(
+  before: ReadonlyMap<string, VisualizeSessionState>,
+  beforeEvicted: ReadonlyMap<string, EvictedSessionEntry>,
+  next: ReadonlyMap<string, VisualizeSessionState>
+): { missed: Array<[string, string]>; reopen: string[] } {
+  const missed: Array<[string, string]> = [];
+  const reopen: string[] = [];
+  for (const [sessionId, state] of next) {
+    const known = before.has(sessionId)
+      ? tabVersions(before.get(sessionId))
+      : (beforeEvicted.get(sessionId)?.versions ?? new Map<string, number>());
+    const changed = state.tabs.filter((tab) => known.get(tab.id) !== (tab.versions?.at(-1)?.n ?? 0));
+    const tab = changed.find((candidate) => candidate.id === state.active) ?? changed.at(-1);
+    if (tab) missed.push([sessionId, tab.id]);
+    else if (rememberedOpen(state)) reopen.push(sessionId);
+  }
+  return { missed, reopen };
+}
+
 export function resyncVisualizeStates(snapshot: readonly VisualizeSessionState[] | null | undefined): void {
   // A complete replacement, holds included (takeSnapshot).
   const before = states;
@@ -905,17 +938,7 @@ export function resyncVisualizeStates(snapshot: readonly VisualizeSessionState[]
         shareSession(states.get(state.sessionId), keptLocalActive(state, beforeEvicted.get(state.sessionId)?.active))
       );
   }
-  const missed: Array<[string, string]> = [];
-  const reopen: string[] = [];
-  for (const [sessionId, state] of next) {
-    const known = before.has(sessionId)
-      ? tabVersions(before.get(sessionId))
-      : (beforeEvicted.get(sessionId)?.versions ?? new Map<string, number>());
-    const changed = state.tabs.filter((tab) => known.get(tab.id) !== (tab.versions?.at(-1)?.n ?? 0));
-    const tab = changed.find((candidate) => candidate.id === state.active) ?? changed.at(-1);
-    if (tab) missed.push([sessionId, tab.id]);
-    else if (rememberedOpen(state)) reopen.push(sessionId);
-  }
+  const { missed, reopen } = collectResyncReveals(before, beforeEvicted, next);
   for (const [sessionId] of missed) {
     pendingResyncPins.set(sessionId, (pendingResyncPins.get(sessionId) ?? 0) + 1);
   }
@@ -946,9 +969,7 @@ export function resyncVisualizeStates(snapshot: readonly VisualizeSessionState[]
     }
     if (missed.length) enforceRendererCacheBudget();
   }, 0);
-  if (typeof timer === 'object' && 'unref' in timer) {
-    (timer as { unref?: () => void }).unref?.();
-  }
+  unrefTimer(timer);
   resyncTimers.add(timer);
 }
 

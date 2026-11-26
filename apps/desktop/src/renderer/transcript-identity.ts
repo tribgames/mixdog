@@ -99,7 +99,9 @@ function adoptItemIds(
   // No candidate at all: the incoming transcript is a different history.
   // It keeps its own ids and replaces the baseline.
   const accepted = kept > 0 || aligned?.inWindow != null || aligned?.prepend != null;
-  const offset = kept > 0 ? keptOffset : aligned?.prepend ? 0 : (aligned?.inWindow?.offset ?? 0);
+  let offset = aligned?.inWindow?.offset ?? 0;
+  if (kept > 0) offset = keptOffset;
+  else if (aligned?.prepend) offset = 0;
   const start = aligned?.prepend?.start ?? 0;
   let out: TranscriptItem[] | null = null;
   let index = Math.max(start, kept);
@@ -223,7 +225,10 @@ function nextBaseline(
     // The records of the rows above and of the rows kept stand; only the rows after them are recorded.
     const items = previous.items as TranscriptItem[];
     items.length = Math.min(offset + kept, items.length);
-    for (let index = kept; index < nextItems.length; index += 1) items.push(identityRecord(nextItems[index]!));
+    for (let index = kept; index < nextItems.length; index += 1) {
+      const item = nextItems[index];
+      if (item) items.push(identityRecord(item));
+    }
     return { items, source: new WeakRef(nextItems) };
   }
   if (previous && previous.items.length > 0 && offset > 0) {
@@ -271,17 +276,18 @@ export function createTranscriptIdentityReconciler(): TranscriptIdentityReconcil
       // Row for row under their own ids, below the records of an earlier window kept above: no id was adopted.
       const rawOffset = baselineItems.length - items.length;
       const rowForRow = !adopted.items && items.length > 0 && rawOffset >= 0;
+      let nextAnchored: boolean | undefined;
+      if (rowForRow) {
+        if (kept > 0) nextAnchored = true;
+        else if (sameItems && previous?.anchored !== undefined) nextAnchored = previous.anchored;
+      }
       sessions.set(sessionId, {
         items: baselineItems,
         tail: nextTail ? liveIdentityRecord(nextTail) : null,
         source,
         ...(rowForRow ? { raw: new WeakRef(items), rawOffset } : {}),
         // A frame decided from its held rows leaves the window anchored; the same list again leaves it as it was read.
-        ...(rowForRow && kept > 0
-          ? { anchored: true }
-          : rowForRow && sameItems && previous?.anchored !== undefined
-            ? { anchored: previous.anchored }
-            : {}),
+        ...(nextAnchored !== undefined ? { anchored: nextAnchored } : {}),
       });
       while (sessions.size > IDENTITY_SESSION_LIMIT) {
         const oldest = sessions.keys().next().value;

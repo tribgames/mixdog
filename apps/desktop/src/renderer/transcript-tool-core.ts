@@ -920,7 +920,8 @@ function toolActivitySummaryPhrase(unit: SummaryUnit, count: number, past: boole
  *  ("Visualize ×3", Korean "워크트리 관리 4회" like the other counted labels).
  *  A bare trailing number read as part of the name. */
 function countedUnitLabel(label: string, count: number, past = false): string {
-  return count > 1 ? t('{{label}} ×{{count}}', { label, count, ...(past ? SETTLED : undefined) }) : label;
+  if (count <= 1) return label;
+  return t('{{label}} ×{{count}}', { label, count, ...(past ? SETTLED : undefined) });
 }
 
 /** Units that read as one phrase share one summary entry: a viewed image and a

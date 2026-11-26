@@ -239,6 +239,106 @@ export interface BrowserHost {
   dispose(): Promise<void>;
 }
 
+function collectPageRetention(
+  base: Pick<ReturnType<typeof createBrowserHostFoundation>, 'sessions' | 'state' | 'display' | 'isBackgroundBusy'>,
+  now: number
+): BrowserPageRetention[] {
+  const { sessions, state, display } = base;
+  const rows: BrowserPageRetention[] = [];
+  for (const sessionId of sessions.sessionIds()) {
+    const finishedAt = sessions.turnFinishedAt(sessionId);
+    const add = (guest: WebContents, kind: BrowserPageRetention['kind'], keepAlive: boolean, busy: boolean) => {
+      if (guest.isDestroyed()) return;
+      const record = state.peek(guest);
+      rows.push({
+        session: sessionId.slice(-8),
+        webContentsId: guest.id,
+        kind,
+        shownBy: display.shownBy(guest),
+        driven: display.power.isDriven(guest),
+        keepAlive,
+        edited: record?.userEdits === true,
+        agentEdited: record?.agentEdits === true,
+        secret: Boolean(record?.sensitiveValues?.size),
+        dialog: Boolean(record?.pendingDialog || record?.pendingFileChooser),
+        busy,
+        idleMs: now - display.power.lastActiveAt(guest),
+        turnFinishedMs: finishedAt === undefined ? null : now - finishedAt,
+      });
+    };
+    for (const guest of sessions.visibleGuests(sessionId)) add(guest, 'primary', false, false);
+    for (const [name, page] of sessions.backgroundPages(sessionId)) {
+      add(page.guest, page.kind, page.keepAlive === true, base.isBackgroundBusy(sessionId, name));
+    }
+  }
+  return rows;
+}
+
+function attachRemoteWebrtc(params: {
+  remoteWebrtc: {
+    sendSignal(clientId: string, signal: RemoteWebrtcDesktopSignal): Promise<unknown>;
+    senderPage: RemoteWebrtcSenderPage;
+    screens?: Omit<RemoteScreenSourcesDeps, 'sink' | 'log'>;
+  };
+  onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
+  remote: ReturnType<typeof createBrowserHostPresentation>['remote'];
+  browserHost: BrowserHost;
+}): {
+  webrtc: RemoteWebrtcHost;
+  screens: RemoteScreenSources | null;
+  disposeSender: () => void;
+} {
+  const { remoteWebrtc, onDiagnostic, remote, browserHost } = params;
+  let webrtc: RemoteWebrtcHost | null = null;
+  let screens: RemoteScreenSources | null = null;
+  const sender = createRemoteWebrtcSenderWindow(remoteWebrtc.senderPage);
+  const report = (event: string, data: Record<string, unknown>): void => onDiagnostic?.(`remote-webrtc-${event}`, data);
+  if (remoteWebrtc.screens) {
+    const live = createRemoteScreenSources({
+      ...remoteWebrtc.screens,
+      // The WebRTC host exists by the time a session can start.
+      sink: {
+        geometryChanged: (sourceKey, geometry) => webrtc?.geometryChanged(sourceKey, geometry),
+        frame: (sourceKey, picture) => webrtc?.frame(sourceKey, picture),
+        captureChanged: (sourceKey) => webrtc?.captureChanged(sourceKey),
+        drawnTrack: (sourceKey, drawn) => webrtc?.drawnTrack(sourceKey, drawn),
+        channelPush: (sourceKey, message) => webrtc?.channelPush(sourceKey, message),
+      },
+      log: (event) => onDiagnostic?.(`remote-screen-${event.type}`, { ...event }),
+    });
+    screens = live;
+    browserHost.remoteScreenDisplays = () => live.displays();
+    browserHost.remoteScreenAccess = (clientId, access) => live.setAccess(clientId, parseRemoteScreenAccess(access));
+  }
+  webrtc = createRemoteWebrtcHost({
+    sender,
+    sendSignal: remoteWebrtc.sendSignal,
+    // A browser source is a session a paired client streams now; its input
+    // takes the relay's own page-input path (document guard, serialized).
+    // A screen source is the paired client's own whole-PC session.
+    sources: (source, viewer) => {
+      if (source.kind === 'screen') return screens?.resolve(source, viewer) ?? null;
+      if (source.kind !== 'browser') return null;
+      const sessionId = source.sessionId;
+      if (!remote.streamedPage(sessionId)) return null;
+      return {
+        source,
+        start: () => undefined,
+        stop: () => undefined,
+        page: () => remote.streamedPage(sessionId) ?? { documentId: null, geometry: null },
+        dispatch: async (control) => {
+          if (!isRemoteWebrtcPageInput(control)) throw new TypeError('A browser source takes page input only.');
+          await browserHost.remoteBrowserControl(sessionId, control);
+        },
+        resize: (request) => remote.resize(sessionId, request),
+        videoLimit: (limit) => remote.widenVideo(sessionId, limit),
+      };
+    },
+    report,
+  });
+  return { webrtc, screens, disposeSender: () => sender.dispose() };
+}
+
 export function createBrowserHost(
   window: BrowserWindow,
   options: {
@@ -444,37 +544,7 @@ export function createBrowserHost(
     }),
     forgetSuspendedSession: (sessionId) => lifecycle.forgetSuspendedSession(browserSessionId(sessionId)),
     ensurePartitionSession: () => base.partition.session,
-    pageRetention: (now = Date.now()) => {
-      const rows: BrowserPageRetention[] = [];
-      for (const sessionId of sessions.sessionIds()) {
-        const finishedAt = sessions.turnFinishedAt(sessionId);
-        const add = (guest: WebContents, kind: BrowserPageRetention['kind'], keepAlive: boolean, busy: boolean) => {
-          if (guest.isDestroyed()) return;
-          const record = state.peek(guest);
-          const shownBy = display.shownBy(guest);
-          rows.push({
-            session: sessionId.slice(-8),
-            webContentsId: guest.id,
-            kind,
-            shownBy,
-            driven: display.power.isDriven(guest),
-            keepAlive,
-            edited: record?.userEdits === true,
-            agentEdited: record?.agentEdits === true,
-            secret: Boolean(record?.sensitiveValues?.size),
-            dialog: Boolean(record?.pendingDialog || record?.pendingFileChooser),
-            busy,
-            idleMs: now - display.power.lastActiveAt(guest),
-            turnFinishedMs: finishedAt === undefined ? null : now - finishedAt,
-          });
-        };
-        for (const guest of sessions.visibleGuests(sessionId)) add(guest, 'primary', false, false);
-        for (const [name, page] of sessions.backgroundPages(sessionId)) {
-          add(page.guest, page.kind, page.keepAlive === true, base.isBackgroundBusy(sessionId, name));
-        }
-      }
-      return rows;
-    },
+    pageRetention: (now = Date.now()) => collectPageRetention(base, now),
     watchNewTab: newTabs.watch,
     remoteWebrtcSignal: async (clientId, signal, iceServers) => {
       if (!webrtc) throw new Error('Remote WebRTC is unavailable.');
@@ -567,53 +637,12 @@ export function createBrowserHost(
     }),
   };
   if (options.remoteWebrtc) {
-    const sender = createRemoteWebrtcSenderWindow(options.remoteWebrtc.senderPage);
-    disposeSender = () => sender.dispose();
-    const report = (event: string, data: Record<string, unknown>): void =>
-      options.onDiagnostic?.(`remote-webrtc-${event}`, data);
-    if (options.remoteWebrtc.screens) {
-      const live = createRemoteScreenSources({
-        ...options.remoteWebrtc.screens,
-        // The WebRTC host exists by the time a session can start.
-        sink: {
-          geometryChanged: (sourceKey, geometry) => webrtc?.geometryChanged(sourceKey, geometry),
-          frame: (sourceKey, picture) => webrtc?.frame(sourceKey, picture),
-          captureChanged: (sourceKey) => webrtc?.captureChanged(sourceKey),
-          drawnTrack: (sourceKey, drawn) => webrtc?.drawnTrack(sourceKey, drawn),
-          channelPush: (sourceKey, message) => webrtc?.channelPush(sourceKey, message),
-        },
-        log: (event) => options.onDiagnostic?.(`remote-screen-${event.type}`, { ...event }),
-      });
-      screens = live;
-      browserHost.remoteScreenDisplays = () => live.displays();
-      browserHost.remoteScreenAccess = (clientId, access) => live.setAccess(clientId, parseRemoteScreenAccess(access));
-    }
-    webrtc = createRemoteWebrtcHost({
-      sender,
-      sendSignal: options.remoteWebrtc.sendSignal,
-      // A browser source is a session a paired client streams now; its input
-      // takes the relay's own page-input path (document guard, serialized).
-      // A screen source is the paired client's own whole-PC session.
-      sources: (source, viewer) => {
-        if (source.kind === 'screen') return screens?.resolve(source, viewer) ?? null;
-        if (source.kind !== 'browser') return null;
-        const sessionId = source.sessionId;
-        if (!shown.remote.streamedPage(sessionId)) return null;
-        return {
-          source,
-          start: () => undefined,
-          stop: () => undefined,
-          page: () => shown.remote.streamedPage(sessionId) ?? { documentId: null, geometry: null },
-          dispatch: async (control) => {
-            if (!isRemoteWebrtcPageInput(control)) throw new TypeError('A browser source takes page input only.');
-            await browserHost.remoteBrowserControl(sessionId, control);
-          },
-          resize: (request) => shown.remote.resize(sessionId, request),
-          videoLimit: (limit) => shown.remote.widenVideo(sessionId, limit),
-        };
-      },
-      report,
-    });
+    ({ webrtc, screens, disposeSender } = attachRemoteWebrtc({
+      remoteWebrtc: options.remoteWebrtc,
+      onDiagnostic: options.onDiagnostic,
+      remote: shown.remote,
+      browserHost,
+    }));
   }
   // A released session or a disposed host never creates the tabs still asked for.
   const { releaseSession, dispose } = browserHost;

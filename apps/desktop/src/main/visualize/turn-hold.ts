@@ -7,10 +7,10 @@ import type { HistoryEntry } from './history';
 import type { VisualizeServiceDeps } from './service';
 import {
   displayedPanes,
-  fileTargetsKey,
   requestedPathsKey,
   type SessionState,
   shownLayout,
+  tabCanonicalKey,
   type TabState,
   view,
 } from './tab-state';
@@ -156,12 +156,9 @@ export function shownOfHistoryEntry(hold: TurnHold, entry: HistoryEntry): string
     const shown = shownOfKey(hold, entry.key);
     return shown && !hold.shown.turn.has(shown) ? shown : undefined;
   }
-  const entryRequested =
-    entry.cwd !== undefined
-      ? requestedPathsKey(entry.cwd, entry.targets)
-      : entry.targets.every((raw) => isAbsolute(raw))
-        ? requestedPathsKey('', entry.targets)
-        : null;
+  let entryRequested: string | null = null;
+  if (entry.cwd !== undefined) entryRequested = requestedPathsKey(entry.cwd, entry.targets);
+  else if (entry.targets.every((raw) => isAbsolute(raw))) entryRequested = requestedPathsKey('', entry.targets);
   if (entryRequested === null) {
     const shown = shownOfKey(hold, entry.key);
     return shown && !hold.shown.turn.has(shown) ? shown : undefined;
@@ -248,11 +245,7 @@ export interface ShownFileTab {
 }
 
 export function shownFileTabOf(tab: TabState): ShownFileTab {
-  const canonicalKey = tab.missing
-    ? tab.lastCanonicalKey
-    : tab.targets.length && tab.targets.every((target) => target.path)
-      ? fileTargetsKey(tab.targets)
-      : undefined;
+  const canonicalKey = tabCanonicalKey(tab);
   return {
     cwd: tab.cwd,
     targets: tab.targets.map((target) => target.target),

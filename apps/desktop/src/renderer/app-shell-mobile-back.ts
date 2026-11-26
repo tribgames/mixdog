@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, type MutableRefObject } from 'react
 import type { DesktopUpdaterState } from '../shared/contract';
 import { drawerIntentOpen } from './drawer-intent';
 import { useMobileRemoteSurface } from './mobile-surface';
-import { registerMobileBack, useMobileBack } from './mobile-back';
+import { registerMobileBack, useMobileBack, type MobileBackCloseHandler } from './mobile-back';
 import type { WorkbenchQuickAccessMode } from './workbench-overlays-loader';
 
 /** Whether a tab selection is a conversation home surface (where Back with no
@@ -13,7 +13,7 @@ export function isConversationTabSelection(selection: { kind: string } | null | 
 
 interface MobileBackProps {
   nonConversationTabOpen?: boolean;
-  returnFromNonConversationTab?: () => boolean | undefined | void;
+  returnFromNonConversationTab?: MobileBackCloseHandler;
   sidebarOpen: boolean;
   applySidebarOpen: (open: boolean, motion?: 'animated' | 'instant') => void;
   sidebarSubPanelOpen?: boolean;

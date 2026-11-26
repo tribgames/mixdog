@@ -51,16 +51,19 @@ function resultText(value: unknown): string {
   return content.map((part) => String(asRecord(part)?.text ?? '')).join('\n');
 }
 
+function combinedResultText(item: TranscriptItem): string {
+  return `${resultText(item.result)}\n${resultText(item.rawResult)}`;
+}
+
 /** The version an open's result says it made ("… as tab v3 (version 2)…"); 0
  *  when it names none (a host without versions, an older result). */
 function visualizeResultVersion(item: TranscriptItem): number {
-  const text = `${resultText(item.result)}\n${resultText(item.rawResult)}`;
-  return Number(/\bas tab v\d+ \(version (\d+)\)/.exec(text)?.[1] ?? 0);
+  return Number(/\bas tab v\d+ \(version (\d+)\)/.exec(combinedResultText(item))?.[1] ?? 0);
 }
 
 /** The tab id an open's result names ("… as tab v3." / "v3 html label → …"). */
 function visualizeResultTabId(item: TranscriptItem): string {
-  const text = `${resultText(item.result)}\n${resultText(item.rawResult)}`;
+  const text = combinedResultText(item);
   return (
     /\bas tab (v\d+)\b/.exec(text)?.[1] ??
     /^(v\d+) (?:html|document|pdf|image|audio|video|split) /m.exec(text)?.[1] ??
@@ -218,15 +221,22 @@ export function visualizeCardsShown(
 const newestCards = new Map<string, Map<string, { id: string; at: number }>>();
 const newestListeners = new Set<() => void>();
 
-/** Record `calls` as cards of `sessionId`; a later open of the same tab wins. */
-export function noteVisualizeCards(sessionId: string, calls: readonly VisualizeCardCall[]): void {
+function recordNewestTabCalls(
+  registry: Map<string, Map<string, { id: string; at: number }>>,
+  key: string,
+  calls: readonly VisualizeCardCall[],
+  limit?: number
+): void {
+  let tabs = registry.get(key);
   let changed = false;
   for (const call of calls) {
     if (!call.tabId) continue;
-    let tabs = newestCards.get(sessionId);
     if (!tabs) {
       tabs = new Map();
-      newestCards.set(sessionId, tabs);
+      registry.set(key, tabs);
+      if (limit !== undefined) {
+        while (registry.size > limit) registry.delete(registry.keys().next().value as string);
+      }
     }
     const known = tabs.get(call.tabId);
     if (known && (known.id === call.id || known.at > call.at)) continue;
@@ -234,6 +244,11 @@ export function noteVisualizeCards(sessionId: string, calls: readonly VisualizeC
     changed = true;
   }
   if (changed) for (const listener of newestListeners) listener();
+}
+
+/** Record `calls` as cards of `sessionId`; a later open of the same tab wins. */
+export function noteVisualizeCards(sessionId: string, calls: readonly VisualizeCardCall[]): void {
+  recordNewestTabCalls(newestCards, sessionId, calls);
 }
 
 /** Whether `call` is its tab's newest card (a pending or unseen one is). */
@@ -252,22 +267,7 @@ const turnCardsKey = (sessionId: string, turnKey: string) => `${sessionId}\0${tu
 /** Record `calls` as opens of turn `turnKey`; a later open of a tab wins. */
 export function noteVisualizeTurnCards(sessionId: string, turnKey: string, calls: readonly VisualizeCardCall[]): void {
   if (!turnKey) return;
-  const key = turnCardsKey(sessionId, turnKey);
-  let tabs = turnCards.get(key);
-  let changed = false;
-  for (const call of calls) {
-    if (!call.tabId) continue;
-    if (!tabs) {
-      tabs = new Map();
-      turnCards.set(key, tabs);
-      while (turnCards.size > TURN_CARDS_LIMIT) turnCards.delete(turnCards.keys().next().value as string);
-    }
-    const known = tabs.get(call.tabId);
-    if (known && (known.id === call.id || known.at > call.at)) continue;
-    tabs.set(call.tabId, { id: call.id, at: call.at });
-    changed = true;
-  }
-  if (changed) for (const listener of newestListeners) listener();
+  recordNewestTabCalls(turnCards, turnCardsKey(sessionId, turnKey), calls, TURN_CARDS_LIMIT);
 }
 
 /** Whether a later open of the same turn took over `call`'s tab (its card
@@ -326,8 +326,7 @@ const FILE_KINDS: Array<[RegExp, VisualizeCardKind]> = [
 /** What a card shows, for its placeholder icon: the live tab's panes when it
  *  is open, else what the open named. */
 export function visualizeCardKind(call: VisualizeCardCall, tab: VisualizeTabView | null): { kind: VisualizeCardKind } {
-  const current = tab?.panes.filter((pane) => pane.version === undefined) ?? [];
-  const live = current.length ? current : (tab?.panes ?? []);
+  const live = tab ? livePanes(tab) : [];
   if (live.length > 1) return { kind: 'split' };
   const pane = live[0];
   if (pane) {
@@ -551,7 +550,11 @@ export function visualizeInlineKindLabel(kind: VisualizeInlineKind): string {
       return 'SVG';
     case 'html':
       return 'HTML';
-    default:
+    case 'markdown':
       return 'Markdown';
+    default: {
+      const exhaustive: never = kind;
+      return exhaustive;
+    }
   }
 }

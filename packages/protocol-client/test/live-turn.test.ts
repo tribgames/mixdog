@@ -17,17 +17,11 @@ function rowsOf(notifications: { method: string; params: Obj }[]): Obj[] {
 }
 
 test('a restored single tool call stays the per-call card; a live one is an aggregate', () => {
-  const restored = frames.map((f) =>
-    f.params.item
-      ? {
-          ...f,
-          params: {
-            ...f.params,
-            item: JSON.parse(JSON.stringify(f.params.item, (k, v) => (k === 'live' ? undefined : v))),
-          },
-        }
-      : f
-  );
+  const restored = frames.map((f) => {
+    if (!f.params.item) return f;
+    const item = JSON.parse(JSON.stringify(f.params.item, (k, v) => (k === 'live' ? undefined : v)));
+    return { ...f, params: { ...f.params, item } };
+  });
   const names = (rows: Obj[]): unknown[] => rows.filter((r) => r.kind === 'tool').map((r) => r.name);
   assert.deepEqual(names(rowsOf(restored)), ['read', 'edit']);
   assert.deepEqual(names(rowsOf(frames)), ['__aggregate__', '__aggregate__']);

@@ -4,6 +4,12 @@ import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const read = (path) => readFileSync(join(root, path), 'utf8');
+const sliceSection = (source, startMarker, endMarker) => {
+  const start = source.indexOf(startMarker);
+  if (start < 0) return '';
+  const end = source.indexOf(endMarker, start + 1);
+  return end >= 0 ? source.slice(start, end) : source.slice(start);
+};
 const failures = [];
 const check = (ok, message) => {
   if (!ok) failures.push(message);
@@ -108,16 +114,16 @@ check(
   nativeHost.includes('isMainFrame') && nativeHost.includes('OriginPolicy.isBundled(origin)'),
   'android main-frame / bundled-only setAllowedOrigins'
 );
+const webViewClientJava = read(`${javaDir}MixdogWebViewClient.java`);
 check(
-  mainActivity.includes('MixdogWebViewClient') &&
-    read(`${javaDir}MixdogWebViewClient.java`).includes('shouldOverrideUrlLoading'),
+  mainActivity.includes('MixdogWebViewClient') && webViewClientJava.includes('shouldOverrideUrlLoading'),
   'android navigation guard'
 );
 // A failed relay page is brought back under a cover, not left on the browser's
 // error page; the network trigger needs the network-state permission. The cover
 // is the app's background alone (#111): no text, no spinner, no button.
 check(
-  read(`${javaDir}MixdogWebViewClient.java`).includes('onReceivedError') && mainActivity.includes('MixdogReconnect'),
+  webViewClientJava.includes('onReceivedError') && mainActivity.includes('MixdogReconnect'),
   'android reconnect hooks'
 );
 check(manifest.includes('android.permission.ACCESS_NETWORK_STATE'), 'manifest ACCESS_NETWORK_STATE');
@@ -151,23 +157,12 @@ check(
   'android WebView synchronizes explicit Mixdog theme backing without overwriting onConfigurationChanged'
 );
 const reconnectJava = read(`${javaDir}MixdogReconnect.java`);
-const webViewClientJava = read(`${javaDir}MixdogWebViewClient.java`);
-const androidPickerStart = mainActivity.indexOf('void applyPickerThemeBacking()');
-const androidPickerEnd =
-  androidPickerStart >= 0 ? mainActivity.indexOf('\n  void openHostPicker()', androidPickerStart) : -1;
-const androidPickerBody =
-  androidPickerStart >= 0
-    ? mainActivity.slice(androidPickerStart, androidPickerEnd >= 0 ? androidPickerEnd : undefined)
-    : '';
-const androidOpenPickerStart = mainActivity.indexOf('void openHostPicker()');
-const androidOpenPickerEnd =
-  androidOpenPickerStart >= 0
-    ? mainActivity.indexOf('\n  private void applyWebViewThemeColors(', androidOpenPickerStart)
-    : -1;
-const androidOpenPickerBody =
-  androidOpenPickerStart >= 0
-    ? mainActivity.slice(androidOpenPickerStart, androidOpenPickerEnd >= 0 ? androidOpenPickerEnd : undefined)
-    : '';
+const androidPickerBody = sliceSection(mainActivity, 'void applyPickerThemeBacking()', '\n  void openHostPicker()');
+const androidOpenPickerBody = sliceSection(
+  mainActivity,
+  'void openHostPicker()',
+  '\n  private void applyWebViewThemeColors('
+);
 check(
   androidPickerBody.includes('ContextCompat.getColor(this, R.color.mixdogBand)') &&
     androidPickerBody.includes('explicitWebViewSurfaceColor = pickerBg;') &&
@@ -183,12 +178,7 @@ check(
   'android resets dark #181818 picker backing and system bars when returning to the bundled saved-PC picker'
 );
 const viewController = read('ios/App/App/MixdogViewController.swift');
-const applyBackingStart = viewController.indexOf('private func applyBackingColors(');
-const applyBackingEnd = applyBackingStart >= 0 ? viewController.indexOf('\n    func ', applyBackingStart) : -1;
-const applyBackingBody =
-  applyBackingStart >= 0
-    ? viewController.slice(applyBackingStart, applyBackingEnd >= 0 ? applyBackingEnd : undefined)
-    : '';
+const applyBackingBody = sliceSection(viewController, 'private func applyBackingColors(', '\n    func ');
 const storedSurfaceIdx = applyBackingBody.indexOf('currentSurfaceColor = surface');
 const storedBandIdx = applyBackingBody.indexOf('currentBandColor = band');
 const applyBandIdx = applyBackingBody.indexOf('applyWindowBandColor()');
@@ -223,23 +213,13 @@ check(
     viewController.includes('followSystem'),
   'ios WKWebView synchronizes explicit Mixdog theme backing with origin checks'
 );
-const swiftBridgeForPicker = read('ios/App/App/MixdogNativeBridge.swift');
-const swiftDidCommitStart = swiftBridgeForPicker.indexOf(
-  'func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!)'
+const swiftBridge = read('ios/App/App/MixdogNativeBridge.swift');
+const swiftDidCommitBody = sliceSection(
+  swiftBridge,
+  'func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!)',
+  '\n    func webView('
 );
-const swiftDidCommitEnd =
-  swiftDidCommitStart >= 0 ? swiftBridgeForPicker.indexOf('\n    func webView(', swiftDidCommitStart + 1) : -1;
-const swiftDidCommitBody =
-  swiftDidCommitStart >= 0
-    ? swiftBridgeForPicker.slice(swiftDidCommitStart, swiftDidCommitEnd >= 0 ? swiftDidCommitEnd : undefined)
-    : '';
-const swiftOpenPickerStart = swiftBridgeForPicker.indexOf('private func openHostPicker()');
-const swiftOpenPickerEnd =
-  swiftOpenPickerStart >= 0 ? swiftBridgeForPicker.indexOf('\n    // MARK:', swiftOpenPickerStart) : -1;
-const swiftOpenPickerBody =
-  swiftOpenPickerStart >= 0
-    ? swiftBridgeForPicker.slice(swiftOpenPickerStart, swiftOpenPickerEnd >= 0 ? swiftOpenPickerEnd : undefined)
-    : '';
+const swiftOpenPickerBody = sliceSection(swiftBridge, 'private func openHostPicker()', '\n    // MARK:');
 check(
   viewController.includes('func applyPickerThemeBacking()') &&
     viewController.includes('pickerBandColor') &&
@@ -272,7 +252,6 @@ check(
   'capacitor.config.json must leave edge-to-edge margins to MainActivity'
 );
 check(gradle.includes('androidx.webkit:webkit'), 'gradle androidx.webkit dependency');
-const swiftBridge = read('ios/App/App/MixdogNativeBridge.swift');
 check(
   swiftBridge.includes('frameInfo.isMainFrame') && swiftBridge.includes('frameInfo.securityOrigin'),
   'ios handler checks calling frame'
@@ -282,8 +261,7 @@ check(
   'ios user script / handler origin checks'
 );
 check(
-  swiftBridge.includes('decidePolicyFor') &&
-    read('ios/App/App/MixdogViewController.swift').includes('MixdogNavigationDelegate'),
+  swiftBridge.includes('decidePolicyFor') && viewController.includes('MixdogNavigationDelegate'),
   'ios navigation guard'
 );
 const policyCases = JSON.parse(read('test-vectors/origin-policy.json'));

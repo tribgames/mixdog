@@ -64,6 +64,14 @@ function aclHelperScript(sid) {
   ].join(' ');
 }
 
+function killQuietly(child) {
+  try {
+    child.kill();
+  } catch {
+    /* child may already be gone */
+  }
+}
+
 function startAclHelper(icacls, sid) {
   const now = Date.now();
   aclHelperStartTimes = aclHelperStartTimes.filter((at) => now - at < ACL_HELPER_START_WINDOW_MS);
@@ -91,9 +99,7 @@ function startAclHelper(icacls, sid) {
     const lost = [...helper.pending.values()];
     helper.pending.clear();
     for (const request of lost) request.lost(cause);
-    try {
-      child.kill();
-    } catch {}
+    killQuietly(child);
   };
   helper.shutdownIdle = () => {
     if (aclHelper === helper) aclHelper = null;
@@ -106,9 +112,7 @@ function startAclHelper(icacls, sid) {
     try {
       child.stdin.end();
     } catch {
-      try {
-        child.kill();
-      } catch {}
+      killQuietly(child);
     }
   };
   child.on('error', helper.fail);
@@ -375,33 +379,44 @@ function unresolvedUserError() {
   return error;
 }
 
-function resolveCurrentUserPrincipal() {
+const WHOAMI_ARGS = ['/user', '/fo', 'csv', '/nh'];
+
+function whoamiPath() {
   const whoami = systemToolPath('whoami.exe');
-  if (whoami && existsSync(whoami)) {
+  return whoami && existsSync(whoami) ? whoami : null;
+}
+
+function resolveCurrentUserPrincipal() {
+  const whoami = whoamiPath();
+  if (whoami) {
     try {
-      const output = execFileSync(whoami, ['/user', '/fo', 'csv', '/nh'], {
+      const output = execFileSync(whoami, WHOAMI_ARGS, {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
         windowsHide: true,
       });
       const sid = currentUserSid(output);
       if (sid) return sid;
-    } catch {}
+    } catch {
+      /* whoami failure falls through to EACLNOUSER */
+    }
   }
   throw unresolvedUserError();
 }
 
 async function resolveCurrentUserPrincipalAsync() {
-  const whoami = systemToolPath('whoami.exe');
-  if (whoami && existsSync(whoami)) {
+  const whoami = whoamiPath();
+  if (whoami) {
     try {
-      const { stdout } = await execFileAsync(whoami, ['/user', '/fo', 'csv', '/nh'], {
+      const { stdout } = await execFileAsync(whoami, WHOAMI_ARGS, {
         encoding: 'utf8',
         windowsHide: true,
       });
       const sid = currentUserSid(stdout);
       if (sid) return sid;
-    } catch {}
+    } catch {
+      /* whoami failure falls through to EACLNOUSER */
+    }
   }
   throw unresolvedUserError();
 }
@@ -519,6 +534,17 @@ export function enforceOwnerOnlyAclWin32(targetPath, { fresh = false } = {}) {
   }
 }
 
+async function runAclCommandAsync(targetPath, command) {
+  try {
+    await execFileAsync(command.executable, command.args, {
+      windowsHide: true,
+      timeout: ACL_HELPER_REQUEST_TIMEOUT_MS,
+    });
+  } catch (error) {
+    throw aclFailure(targetPath, error, command.label);
+  }
+}
+
 export async function enforceOwnerOnlyAclWin32Async(targetPath, { fresh = false } = {}) {
   if (process.platform !== 'win32') return;
   const icacls = icaclsPath();
@@ -529,28 +555,12 @@ export async function enforceOwnerOnlyAclWin32Async(targetPath, { fresh = false 
     throw aclFailure(targetPath, new Error(reply.detail || 'unknown error'), 'Windows ACL helper');
   }
   // The helper could not answer: verify with a one-shot update instead.
-  return applyOwnerOnlyAclAsync(targetPath, fresh);
-}
-
-async function applyOwnerOnlyAclAsync(targetPath, fresh) {
-  const icacls = icaclsPath();
-  if (cachedUserSid === null) cachedUserSid = await resolveCurrentUserPrincipalAsync();
-  const command = ownerOnlyAclCommand(targetPath, cachedUserSid, fresh, icacls);
-  try {
-    await execFileAsync(command.executable, command.args, { windowsHide: true, timeout: 15_000 });
-  } catch (error) {
-    throw aclFailure(targetPath, error, command.label);
-  }
+  await runAclCommandAsync(targetPath, ownerOnlyAclCommand(targetPath, cachedUserSid, fresh, icacls));
 }
 
 export async function enforceOwnerOnlyDirectoryWin32Async(targetPath) {
   if (process.platform !== 'win32') return;
   const icacls = icaclsPath();
   if (cachedUserSid === null) cachedUserSid = await resolveCurrentUserPrincipalAsync();
-  const command = ownerOnlyDirectoryCommand(targetPath, cachedUserSid, icacls);
-  try {
-    await execFileAsync(command.executable, command.args, { windowsHide: true, timeout: 15_000 });
-  } catch (error) {
-    throw aclFailure(targetPath, error, command.label);
-  }
+  await runAclCommandAsync(targetPath, ownerOnlyDirectoryCommand(targetPath, cachedUserSid, icacls));
 }

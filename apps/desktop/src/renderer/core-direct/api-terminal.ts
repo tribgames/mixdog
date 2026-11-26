@@ -76,6 +76,21 @@ export function createTerminalApi(
     if (!entries) return;
     for (const entry of entries) entry.cancel();
   };
+  const clearTabState = (id: string): void => {
+    clearDeferredDetach(id);
+    detachIfAllFail.delete(id);
+    activeConsumers.delete(id);
+  };
+  const detachOrDeferAbortedTab = (id: string): void => {
+    if (activeConsumers.has(id)) return;
+    if (inflightAttaches.has(id)) {
+      detachIfAllFail.add(id);
+    } else {
+      clearDeferredDetach(id);
+      detachIfAllFail.delete(id);
+      feed.detach(id);
+    }
+  };
   const flushDeferredDetach = (id: string): void => {
     if (!clearDeferredDetach(id)) return;
     detachIfAllFail.delete(id);
@@ -181,6 +196,12 @@ export function createTerminalApi(
     }
   });
 
+  const subscribeTermData = (listener: (event: TerminalDataEvent, gen?: number) => void): (() => void) => {
+    const unsubscribe = listen(dataListeners, listener);
+    feed.flushPending();
+    return unsubscribe;
+  };
+
   const api: Pick<DesktopApi, DirectKey<'terminal'>> & {
     isTerminalAttached(id: unknown): boolean;
     terminalFeedGeneration(id: unknown): number | null;
@@ -212,15 +233,7 @@ export function createTerminalApi(
       const onAbort = (): void => {
         if (ensuredId) releaseInflight(ensuredId, entry, false, false);
         if (requestedId) releaseInflight(requestedId, entry, false, false);
-        if (joinedFeedId && !activeConsumers.has(joinedFeedId)) {
-          if (inflightAttaches.has(joinedFeedId)) {
-            detachIfAllFail.add(joinedFeedId);
-          } else {
-            clearDeferredDetach(joinedFeedId);
-            detachIfAllFail.delete(joinedFeedId);
-            feed.detach(joinedFeedId);
-          }
-        }
+        if (joinedFeedId) detachOrDeferAbortedTab(joinedFeedId);
       };
       if (signal) {
         if (signal.aborted) throw new TerminalAttachCancelledError(requestedId ?? '');
@@ -303,15 +316,7 @@ export function createTerminalApi(
       const onAbort = (): void => {
         if (!tab) return;
         releaseInflight(tab, entry, false, false);
-        if (!activeConsumers.has(tab)) {
-          if (inflightAttaches.has(tab)) {
-            detachIfAllFail.add(tab);
-          } else {
-            clearDeferredDetach(tab);
-            detachIfAllFail.delete(tab);
-            feed.detach(tab);
-          }
-        }
+        detachOrDeferAbortedTab(tab);
       };
       if (signal) {
         if (signal.aborted) throw new TerminalAttachCancelledError(tab);
@@ -336,9 +341,7 @@ export function createTerminalApi(
         scheduleDeferredDetach(id);
         return;
       }
-      clearDeferredDetach(id);
-      detachIfAllFail.delete(id);
-      activeConsumers.delete(id);
+      clearTabState(id);
       feed.detach(id);
     },
     termProfiles: async () => {
@@ -368,9 +371,7 @@ export function createTerminalApi(
     },
     async termDispose(id: unknown): Promise<void> {
       const tab = id as string;
-      clearDeferredDetach(tab);
-      detachIfAllFail.delete(tab);
-      activeConsumers.delete(tab);
+      clearTabState(tab);
       evictInflight(tab);
       // A new tab under this id has a feed of its own, which its ensure attaches; an attach in flight is the old tab's.
       feed.dispose(tab);
@@ -398,18 +399,10 @@ export function createTerminalApi(
       }
       return true;
     },
-    subscribeTermData: (listener: (event: TerminalDataEvent, gen?: number) => void) => {
-      const unsubscribe = listen(dataListeners, listener);
-      feed.flushPending();
-      return unsubscribe;
-    },
+    subscribeTermData,
     subscribeTabTermData: (id: unknown, listener: (event: TerminalDataEvent, gen?: number) => void) => {
       const tab = typeof id === 'string' && id ? id : '';
-      if (!tab) {
-        const unsubscribe = listen(dataListeners, listener);
-        feed.flushPending();
-        return unsubscribe;
-      }
+      if (!tab) return subscribeTermData(listener);
       let scoped = tabDataListeners.get(tab);
       if (!scoped) {
         scoped = new Set();

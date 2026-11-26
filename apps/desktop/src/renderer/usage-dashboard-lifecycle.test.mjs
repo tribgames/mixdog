@@ -17,7 +17,7 @@ import {
   USAGE_RESET_SETTLE_DELAY_MS as RESET_SETTLE,
 } from './usage-dashboard-store.ts';
 import { createRendererClock } from '../../scripts/test-renderer-clock.mjs';
-/** Node b6f10295a pplyStageChange (tui/session/turn-stream.mjs) for the one stage this test sends: a selection change is UI state,
+/** Mirrors applyStageChange (tui/session/turn-stream.mjs) for the one stage this test sends: a selection change is UI state,
  *  published as providerAccountChange, never a spinner phase or a transcript item. */
 async function applyStageChange(stream, stage, detail) {
   assert.equal(stage, 'account-changed');

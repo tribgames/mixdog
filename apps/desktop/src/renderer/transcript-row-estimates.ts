@@ -137,13 +137,10 @@ export function transcriptRowInitialPrior(
   const stepBefore = !dividerStep && partAbove;
   const afterChanges =
     stepBefore && (before?._tag === 'AssistantPart' || before?._tag === 'Error') && Boolean(before.turnChanges);
-  const topPadding = dividerStep
-    ? TRANSCRIPT_DIVIDER_STEP_PX
-    : afterChanges
-      ? TRANSCRIPT_AFTER_CHANGES_STEP_PX
-      : stepBefore
-        ? TRANSCRIPT_PART_STEP_PX
-        : 0;
+  let topPadding = 0;
+  if (dividerStep) topPadding = TRANSCRIPT_DIVIDER_STEP_PX;
+  else if (afterChanges) topPadding = TRANSCRIPT_AFTER_CHANGES_STEP_PX;
+  else if (stepBefore) topPadding = TRANSCRIPT_PART_STEP_PX;
   return base + topPadding;
 }
 

@@ -183,14 +183,18 @@ function pushBuilderItem(
     builder.previousRowWasUser = true;
     return;
   }
-  const row: TranscriptRowModel =
+  let row: TranscriptRowModel;
+  if (
     held?._tag === 'AssistantPart' &&
     held.key === key &&
     held.turnKey === turnKey &&
     held.completion === completion &&
     sameTurnChanges(held.turnChanges, turnChanges)
-      ? held
-      : { _tag: 'AssistantPart', key, turnKey, item, completion, ...(turnChanges ? { turnChanges } : {}) };
+  ) {
+    row = held;
+  } else {
+    row = { _tag: 'AssistantPart', key, turnKey, item, completion, ...(turnChanges ? { turnChanges } : {}) };
+  }
   if (row !== held) messageRows.set(item, row);
   builder.rows.push(row);
   builder.previousRowWasUser = false;
@@ -330,21 +334,23 @@ function pushCancelledPromptRow(
   if (!claimRowKey(builder, key)) return;
   beginBuilderTurn(builder, sessionKey, turnKey, item);
   const held = cancelledRows.get(item);
-  const row: TranscriptRowModel =
-    held && held.key === key && held.turnKey === turnKey
-      ? held
-      : {
-          _tag: 'AssistantPart',
-          key,
-          turnKey,
-          item: {
-            ...item,
-            kind: 'turndone',
-            status: 'cancelled',
-            ...(isProcessRestartStatusText(item.text) ? { cause: 'restart' } : {}),
-            elapsedMs: 0,
-          } as TranscriptItem,
-        };
+  let row: TranscriptRowModel;
+  if (held && held.key === key && held.turnKey === turnKey) {
+    row = held;
+  } else {
+    row = {
+      _tag: 'AssistantPart',
+      key,
+      turnKey,
+      item: {
+        ...item,
+        kind: 'turndone',
+        status: 'cancelled',
+        ...(isProcessRestartStatusText(item.text) ? { cause: 'restart' } : {}),
+        elapsedMs: 0,
+      } as TranscriptItem,
+    };
+  }
   if (row !== held) cancelledRows.set(item, row);
   builder.rows.push(row);
   builder.previousRowWasUser = false;

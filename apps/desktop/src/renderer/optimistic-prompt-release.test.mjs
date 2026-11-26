@@ -513,7 +513,7 @@ test('useConversationSubmission releases accepted queued prompt once session lan
   assert.deepEqual(latestSubmission.steerItems, []);
 });
 
-test('probe 1: phone follower authoritative snapshot and replay restores release zombie without restoreOwed or epoch change', async (t) => {
+test('phone follower authoritative snapshot and replay restores release zombie without restoreOwed or epoch change', async (t) => {
   const { root } = mountDom(t);
   const threadId = 't-phone-zombie';
   defaultSessionLaneStore.clear();
@@ -751,7 +751,7 @@ test('probe 1: phone follower authoritative snapshot and replay restores release
   assert.deepEqual(latestSubmission.steerItems, [], 'post-replay authoritative sync releases zombie');
 });
 
-test('probe 2: accepting during restore releases cleanly when restore finishes idle with prompt absent', async (t) => {
+test('accepting during restore releases cleanly when restore finishes idle with prompt absent', async (t) => {
   const pane = await mountPendingHarness(t, { queuedAtSubmit: true });
   await pane.show({ settledItems: baseRunning, busy: true, queued: [], restoring: true });
 
@@ -768,7 +768,7 @@ test('probe 2: accepting during restore releases cleanly when restore finishes i
   assert.deepEqual(pane.view.steerItems, []);
 });
 
-test('probe 2b: accepting during restore keeps prompt when post-restore snapshot contains it in queued', async (t) => {
+test('accepting during restore keeps prompt when post-restore snapshot contains it in queued', async (t) => {
   const pane = await mountPendingHarness(t, { queuedAtSubmit: true });
   await pane.show({ settledItems: baseRunning, busy: true, queued: [], restoring: true });
 
@@ -787,7 +787,7 @@ test('probe 2b: accepting during restore keeps prompt when post-restore snapshot
   assert.equal(pane.view.steerItems[0].steerLocal, undefined);
 });
 
-test('probe 3a: in-flight submit (accepted: false) seen in queued then dequeued is NOT dropped before RPC reply resolves', async (t) => {
+test('in-flight submit (accepted: false) seen in queued then dequeued is NOT dropped before RPC reply resolves', async (t) => {
   const pane = await mountPendingHarness(t, { queuedAtSubmit: true });
   await pane.show({ settledItems: baseRunning, busy: true, queued: [] });
 
@@ -818,7 +818,7 @@ test('probe 3a: in-flight submit (accepted: false) seen in queued then dequeued 
   assert.deepEqual(pane.view.steerItems, []);
 });
 
-test('probe 3b: prompt dequeued before idle auto-clear compaction stays visible during compaction, then settles or releases', async (t) => {
+test('prompt dequeued before idle auto-clear compaction stays visible during compaction, then settles or releases', async (t) => {
   const pane = await mountPendingHarness(t, { queuedAtSubmit: true });
   await pane.show({ settledItems: baseRunning, busy: true, compacting: false, queued: [] });
 
@@ -873,7 +873,7 @@ test('probe 3b: prompt dequeued before idle auto-clear compaction stays visible 
   assert.deepEqual(pane.view.steerItems, []);
 });
 
-test('probe 3c: two-prompt drain holds second bubble while first settles, and releases if second never lands', async (t) => {
+test('two-prompt drain holds second bubble while first settles, and releases if second never lands', async (t) => {
   const pane = await mountPendingHarness(t, { queuedAtSubmit: true });
   await pane.show({ settledItems: baseRunning, busy: true, queued: [] });
 
@@ -903,7 +903,7 @@ test('probe 3c: two-prompt drain holds second bubble while first settles, and re
   assert.deepEqual(pane.view.steerItems, []);
 });
 
-test('probe 4: failed steer (lost submit reply) releases when matching durable row settles or appears in queued', async (t) => {
+test('failed steer (lost submit reply) releases when matching durable row settles or appears in queued', async (t) => {
   // Synchronous render-level projection drops a failed steer as soon as its settled row exists.
   const failedItem = {
     id: 'sub-lost-reply',
@@ -957,7 +957,7 @@ test('probe 4: failed steer (lost submit reply) releases when matching durable r
   assert.deepEqual(pane.view.steerItems, [], 'cancelling real queued entry leaves no revived Send again card');
 });
 
-test('r2 probe 1: acceptance during restore batched with restore completion in one commit releases zombie (and keeps if queued)', async (t) => {
+test('acceptance during restore batched with restore completion in one commit releases zombie (and keeps if queued)', async (t) => {
   // Case A: harness — accept resolves while restoring: true, and restore completion (restoring: false, idle, empty queued)
   // lands in the exact same React commit with NO intermediate accepted: true && restoring: true render.
   const pane = await mountPendingHarness(t, { queuedAtSubmit: true });
@@ -1089,7 +1089,7 @@ test('r2 probe 1: acceptance during restore batched with restore completion in o
   assert.deepEqual(latestSubmission.steerItems, [], 'useConversationSubmission releases batched restore zombie');
 });
 
-test('r2 probe 2: real multi-prompt drain keeps both bubbles visible when queued: [] arrives before first durable user row', async (t) => {
+test('real multi-prompt drain keeps both bubbles visible when queued: [] arrives before first durable user row', async (t) => {
   const pane = await mountPendingHarness(t, { queuedAtSubmit: true });
   await pane.show({ settledItems: baseRunning, busy: true, queued: [], turnId: 'turn-1' });
 
@@ -1137,7 +1137,7 @@ test('r2 probe 2: real multi-prompt drain keeps both bubbles visible when queued
   assert.deepEqual(pane.view.steerItems, []);
 });
 
-test('r2 probe 3: phone follower replayPending intermediate idle frame does not prematurely drop un-echoed accepted steer', async (t) => {
+test('phone follower replayPending intermediate idle frame does not prematurely drop un-echoed accepted steer', async (t) => {
   const { root } = mountDom(t);
   const threadId = 't-phone-replay-pending';
   defaultSessionLaneStore.clear();
@@ -1424,7 +1424,7 @@ test('r2 probe 3: phone follower replayPending intermediate idle frame does not 
   assert.deepEqual(latestSubmission.steerItems, [], 'absent prompt releases once replayComplete clears replayPending');
 });
 
-test('r3 probe 1: post-compaction idle frames (with_facts) keep prompt visible until durable row or subsequent progress/restore', async (t) => {
+test('post-compaction idle frames (with_facts) keep prompt visible until durable row or subsequent progress/restore', async (t) => {
   const pane = await mountPendingHarness(t, { queuedAtSubmit: true });
   await pane.show({
     settledItems: baseRunning,
@@ -1584,7 +1584,7 @@ test('r3 probe 1: post-compaction idle frames (with_facts) keep prompt visible u
   assert.deepEqual(pane.view.optimisticPrompts, [], 'released on authoritative snapshotRevision advance');
 });
 
-test('r3 probe 2: queue echo before RPC reply records baseline so hasOlder drain keeps bubbles and skipped-idle turn change releases zombie', async (t) => {
+test('queue echo before RPC reply records baseline so hasOlder drain keeps bubbles and skipped-idle turn change releases zombie', async (t) => {
   // Case A: hasOlder: true — two prompts seen in queued before RPC replies resolve, both leave queued before replies arrive,
   // then replies resolve accepted: true before first durable user row. Both must stay visible (not misclassified as trimmed).
   const pane = await mountPendingHarness(t, { queuedAtSubmit: true });
@@ -1699,7 +1699,7 @@ test('r3 probe 2: queue echo before RPC reply records baseline so hasOlder drain
   assert.deepEqual(pane.view.steerItems, []);
 });
 
-test('r3 probe 3: lost RPC reply after queue echo + remote cancel releases instead of sticking as Send again', async (t) => {
+test('lost RPC reply after queue echo + remote cancel releases instead of sticking as Send again', async (t) => {
   const pane = await mountPendingHarness(t, { queuedAtSubmit: true });
   await pane.show({ settledItems: baseRunning, busy: true, turnId: 'turn-1', queued: [], snapshotRevision: 1 });
 

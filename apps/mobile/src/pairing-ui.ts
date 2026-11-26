@@ -232,17 +232,50 @@ function updateActions(phase: UpdatePhase, s: Strings): Action[][] {
   return [[act('update-get', label, true)], later];
 }
 
+function resultView(
+  result: ResultKind | undefined,
+  base: { readonly extra: 'none'; readonly error: string },
+  s: Strings
+): View {
+  const retry = [[act('retry', s.retry, true)], [act('cancel', s.cancel, false)]];
+  switch (result) {
+    case 'declined':
+      return { ...base, title: s.declinedTitle, sub: s.declinedSub, actions: retry };
+    case 'expired':
+      return { ...base, title: s.expiredTitle, sub: s.expiredSub, actions: retry };
+    case 'revoked':
+      return { ...base, title: s.revokedTitle, sub: s.revokedSub, actions: retry };
+    case 'outdated':
+      return {
+        ...base,
+        title: s.outdatedTitle,
+        sub: s.outdatedSub,
+        actions: [[act('scan', s.scan, true)], [act('cancel', s.cancel, false)]],
+      };
+    case 'scan-unavailable':
+    case 'camera-off': {
+      const camera = result === 'camera-off';
+      return {
+        ...base,
+        title: camera ? s.cameraOffTitle : s.scanUnavailableTitle,
+        sub: camera ? s.cameraOffSub : s.scanUnavailableSub,
+        actions: [[act('enter-code', s.enterCode, true)], [act('cancel', s.cancel, false)]],
+      };
+    }
+    default:
+      return { ...base, title: s.networkTitle, sub: s.networkSub, actions: retry };
+  }
+}
+
 /** What each step shows. Title, subtitle and actions exist for every step. */
 export function viewFor(state: ScreenState, s: Strings): View {
   const base = { extra: 'none', error: state.error ?? '' } as const;
   if (state.step === 'start' && !state.update && state.pcs?.length) {
-    // The saved PCs are the choices; scanning or a code adds another one.
     return {
       ...base,
       title: s.pickHeading,
       sub: s.pickNote,
       extra: 'pcs',
-      // While one PC opens, the only other choice is to stop it.
       actions: state.opening
         ? [[act('cancel', s.cancel, false)]]
         : [[act('scan', s.scan, false)], [act('enter-code', s.enterCode, false)]],
@@ -287,37 +320,10 @@ export function viewFor(state: ScreenState, s: Strings): View {
       actions: [[act('cancel', s.cancel, false)]],
     };
   }
-  const retry = [[act('retry', s.retry, true)], [act('cancel', s.cancel, false)]];
-  switch (state.result) {
-    case 'declined':
-      return { ...base, title: s.declinedTitle, sub: s.declinedSub, actions: retry };
-    case 'expired':
-      return { ...base, title: s.expiredTitle, sub: s.expiredSub, actions: retry };
-    case 'revoked':
-      return { ...base, title: s.revokedTitle, sub: s.revokedSub, actions: retry };
-    case 'outdated':
-      return {
-        ...base,
-        title: s.outdatedTitle,
-        sub: s.outdatedSub,
-        actions: [[act('scan', s.scan, true)], [act('cancel', s.cancel, false)]],
-      };
-    case 'scan-unavailable':
-    case 'camera-off': {
-      const camera = state.result === 'camera-off';
-      return {
-        ...base,
-        title: camera ? s.cameraOffTitle : s.scanUnavailableTitle,
-        sub: camera ? s.cameraOffSub : s.scanUnavailableSub,
-        actions: [[act('enter-code', s.enterCode, true)], [act('cancel', s.cancel, false)]],
-      };
-    }
-    default:
-      return { ...base, title: s.networkTitle, sub: s.networkSub, actions: retry };
-  }
+  return resultView(state.result, base, s);
 }
 
-/** A preview state as a screen state; `seconds` fills the rate-limit message. */
+/** A preview state as a screen state. */
 export function stateForPreview(name: PreviewState, s: Strings): ScreenState {
   switch (name) {
     case 'start-empty':
@@ -455,17 +461,25 @@ function codeEntry(root: HTMLElement, input: RenderInput, hooks: Hooks): { otp: 
 
 function subtitle(doc: Document, view: View): HTMLElement {
   const sub = el(doc, 'p', 'mxp-sub');
-  const at = view.subBold ? view.sub.indexOf(view.subBold) : -1;
-  if (at < 0) sub.textContent = view.sub;
-  else {
-    const name = el(doc, 'b', '', view.subBold);
-    sub.append(view.sub.slice(0, at), name, view.sub.slice(at + (view.subBold?.length ?? 0)));
+  const bold = view.subBold;
+  const at = bold ? view.sub.indexOf(bold) : -1;
+  if (!bold || at < 0) {
+    sub.textContent = view.sub;
+    return sub;
   }
+  sub.append(view.sub.slice(0, at), el(doc, 'b', '', bold), view.sub.slice(at + bold.length));
   return sub;
 }
 
+function pcMetaText(pc: SavedPc, busy: boolean, s: Strings): string {
+  if (busy) return s.connecting;
+  const parts: string[] = [];
+  if (pc.last) parts.push(s.pcLast);
+  if (pc.online !== undefined) parts.push(pc.online ? s.pcOnline : s.pcOffline);
+  return parts.join(' · ');
+}
+
 function pcRow(doc: Document, pc: SavedPc, input: RenderInput, hooks: Hooks): HTMLButtonElement {
-  const s = input.strings;
   const row = el(doc, 'button', 'mxp-step mxp-pc') as HTMLButtonElement;
   row.type = 'button';
   row.dataset.action = 'open-pc';
@@ -475,11 +489,7 @@ function pcRow(doc: Document, pc: SavedPc, input: RenderInput, hooks: Hooks): HT
   row.disabled = Boolean(input.state.opening);
   row.classList.toggle('busy', busy);
   if (busy) row.setAttribute('aria-busy', 'true');
-  const meta = busy
-    ? s.connecting
-    : [...(pc.last ? [s.pcLast] : []), ...(pc.online === undefined ? [] : [pc.online ? s.pcOnline : s.pcOffline])].join(
-        ' · '
-      );
+  const meta = pcMetaText(pc, busy, input.strings);
   row.append(el(doc, 'span', 'mxp-pc-name', pc.name));
   if (meta) row.append(el(doc, 'span', 'mxp-pc-meta', meta));
   row.addEventListener('click', () => hooks.onOpenHost(pc.url));
@@ -499,18 +509,13 @@ function updateText(update: NonNullable<ScreenState['update']>, s: Strings): str
 
 function actionsFooter(doc: Document, input: RenderInput, hooks: Hooks): HTMLElement {
   const footer = el(doc, 'footer', 'mxp-actions');
+  const updateBusy = input.state.update?.phase === 'downloading' || input.state.update?.phase === 'installing';
   for (const action of input.view.actions.flat()) {
-    footer.append(
-      actionButton(
-        doc,
-        action,
-        (action.id === 'connect' && (input.codeValue.length !== 6 || Boolean(input.state.busy))) ||
-          (action.id === 'update-get' &&
-            (input.state.update?.phase === 'downloading' || input.state.update?.phase === 'installing')),
-        hooks,
-        action.id === 'connect' && input.state.busy ? input.strings.connecting : undefined
-      )
-    );
+    const disabled =
+      (action.id === 'connect' && (input.codeValue.length !== 6 || Boolean(input.state.busy))) ||
+      (action.id === 'update-get' && updateBusy);
+    const label = action.id === 'connect' && input.state.busy ? input.strings.connecting : undefined;
+    footer.append(actionButton(doc, action, disabled, hooks, label));
   }
   return footer;
 }

@@ -21,6 +21,7 @@ import {
   rekeyFileTab,
   requestedPathsKey,
   requestedTargetsKey,
+  resolvedCanonicalKey,
   resolveFileTabKey,
   sameInline,
   summary,
@@ -124,12 +125,12 @@ function findHeldFileTabByRequested(
     ([id]) => shownIds.has(id) && hold.shown.turn.has(id) === turnOnly
   );
   const requestedKey = requestedTargetsKey(cwd, files);
-  const canonicalMatches = (info: { missing?: boolean; canonicalKey?: string }): boolean =>
-    info.missing
-      ? process.platform === 'win32'
-        ? info.canonicalKey?.toLowerCase() === canonicalKey.toLowerCase()
-        : info.canonicalKey === canonicalKey
-      : info.canonicalKey === canonicalKey;
+  const canonicalMatches = (info: { missing?: boolean; canonicalKey?: string }): boolean => {
+    if (info.missing && process.platform === 'win32') {
+      return info.canonicalKey?.toLowerCase() === canonicalKey.toLowerCase();
+    }
+    return info.canonicalKey === canonicalKey;
+  };
   const byExact = entries.find(
     ([, info]) =>
       info.targets.length === files.length &&
@@ -179,6 +180,17 @@ function findHeldFileTabByCanonical(
   );
 }
 
+function revealHeldTab(
+  deps: Pick<OpenContext['deps'], 'publish' | 'publishHost' | 'revokeInlinePage'> | undefined,
+  hold: TurnHold,
+  sessionId: string,
+  tabId: string
+): void {
+  selectShown(hold, tabId);
+  hold.picked = tabId;
+  publishShown(deps, hold, sessionId, { reveal: true, tab: tabId });
+}
+
 /** File-open counterpart to `viewsWithoutOpening`: matches frozen pre-turn tabs strictly against
  *  `hold.shown`, prioritizes exact/folded hidden verify tabs ahead of canonical fallbacks, and
  *  honors frozen closed history before matching live or turn-only tabs by canonical target. */
@@ -193,9 +205,7 @@ function viewFileWithoutOpening(
   if (!hold) return false;
   const selectOrOpen = (tabId: string): boolean => {
     if (shownAs(ctx, hold, sessionId, tabId) === 'live') return false;
-    selectShown(hold, tabId);
-    hold.picked = tabId;
-    publishShown(ctx.deps, hold, sessionId, { reveal: true, tab: tabId });
+    revealHeldTab(ctx.deps, hold, sessionId, tabId);
     return true;
   };
   const preTurnRequested = findHeldFileTabByRequested(hold, cwd, files, canonicalKey, { turnOnly: false });
@@ -232,9 +242,7 @@ function viewFileWithoutOpening(
     turnRequested.tabId ??
     (!turnRequested.closedHistory ? findHeldFileTabByCanonical(hold, canonicalKey, { turnOnly: true }) : undefined);
   if (!turnTab) return false;
-  selectShown(hold, turnTab);
-  hold.picked = turnTab;
-  publishShown(ctx.deps, hold, sessionId, { reveal: true, tab: turnTab });
+  revealHeldTab(ctx.deps, hold, sessionId, turnTab);
   return true;
 }
 
@@ -247,9 +255,7 @@ function selectHeldPicture(
   const hold = ctx.holds.get(sessionId);
   if (!hold || !tabId || hold.shown.turn.has(tabId)) return false;
   if (shownAs(ctx, hold, sessionId, tabId) !== 'past') return false;
-  selectShown(hold, tabId);
-  hold.picked = tabId;
-  publishShown(ctx.deps, hold, sessionId, { reveal: true, tab: tabId });
+  revealHeldTab(ctx.deps, hold, sessionId, tabId);
   return true;
 }
 
@@ -266,11 +272,7 @@ function addNewTab(
   fields: Pick<TabState, 'label' | 'key' | 'cwd'> & Partial<TabState>
 ): TabState {
   state.counter += 1;
-  const lastCanonicalKey =
-    fields.lastCanonicalKey ??
-    (fields.targets?.length && fields.targets.every((target) => target.path)
-      ? fileTargetsKey(fields.targets)
-      : undefined);
+  const lastCanonicalKey = fields.lastCanonicalKey ?? resolvedCanonicalKey(fields.targets);
   const tab: TabState = {
     id: `v${state.counter}`,
     revision: 0,
@@ -560,14 +562,7 @@ async function openInline(
   tab.versions = history.map(({ n, at, turns }) => ({ n, at, ...(turns?.length ? { turns } : {}) }));
   const versionError =
     request.version === undefined ? null : await selectRequested(ctx, sessionId, tab, request.version);
-  if (ctx.isSessionReleased?.(sessionId, releaseEpoch)) {
-    ctx.tabs.end(tab);
-    throw new Error(`visualize session "${sessionId}" was released`);
-  }
-  if (tab.lifetime.signal.aborted) {
-    ctx.tabs.end(tab);
-    throw new Error(`visualize tab "${tab.id}" was closed`);
-  }
+  assertOpenTabActive(ctx, sessionId, releaseEpoch, tab, false);
   const target = tab;
   return finishOpen(ctx, request, target, {
     releaseEpoch,
@@ -583,6 +578,25 @@ async function openInline(
     },
     recordsCwd: () => true,
   });
+}
+
+function assertOpenTabActive(
+  ctx: Pick<OpenContext, 'isSessionReleased' | 'tabs' | 'tabVersions'>,
+  sessionId: string,
+  releaseEpoch: number,
+  tab: TabState,
+  dropVersions: boolean
+): void {
+  if (ctx.isSessionReleased?.(sessionId, releaseEpoch)) {
+    ctx.tabs.end(tab);
+    if (dropVersions) ctx.tabVersions.dropVersions(sessionId, tab.id);
+    throw new Error(`visualize session "${sessionId}" was released`);
+  }
+  if (tab.lifetime.signal.aborted) {
+    ctx.tabs.end(tab);
+    if (dropVersions) ctx.tabVersions.dropVersions(sessionId, tab.id);
+    throw new Error(`visualize tab "${tab.id}" was closed`);
+  }
 }
 
 /** `open` of a web URL: handed to the session's browser panel; the tab
@@ -721,28 +735,10 @@ export function createOpenActions(ctx: OpenContext) {
     tab.compare = false;
     tab.pendingReload = false;
     await ctx.tabVersions.recordVersion(sessionId, tab);
-    if (ctx.isSessionReleased?.(sessionId, releaseEpoch)) {
-      ctx.tabs.end(tab);
-      ctx.tabVersions.dropVersions(sessionId, tab.id);
-      throw new Error(`visualize session "${sessionId}" was released`);
-    }
-    if (tab.lifetime.signal.aborted) {
-      ctx.tabs.end(tab);
-      ctx.tabVersions.dropVersions(sessionId, tab.id);
-      throw new Error(`visualize tab "${tab.id}" was closed`);
-    }
+    assertOpenTabActive(ctx, sessionId, releaseEpoch, tab, true);
     const versionError =
       request.version === undefined ? null : await selectRequested(ctx, sessionId, tab, request.version);
-    if (ctx.isSessionReleased?.(sessionId, releaseEpoch)) {
-      ctx.tabs.end(tab);
-      ctx.tabVersions.dropVersions(sessionId, tab.id);
-      throw new Error(`visualize session "${sessionId}" was released`);
-    }
-    if (tab.lifetime.signal.aborted) {
-      ctx.tabs.end(tab);
-      ctx.tabVersions.dropVersions(sessionId, tab.id);
-      throw new Error(`visualize tab "${tab.id}" was closed`);
-    }
+    assertOpenTabActive(ctx, sessionId, releaseEpoch, tab, true);
     const held = !user && heldTurn(ctx, sessionId) !== null;
     const target = tab;
     return finishOpen(ctx, request, target, {
@@ -752,8 +748,10 @@ export function createOpenActions(ctx: OpenContext) {
       versionError,
       what: describeFiles(cwd, files),
       live: 'live files',
-      note: () =>
-        target.verify ? '' : ` The tab reloads when ${files.length > 1 ? 'these files change' : 'the file changes'}.`,
+      note: () => {
+        if (target.verify) return '';
+        return ` The tab reloads when ${files.length > 1 ? 'these files change' : 'the file changes'}.`;
+      },
       settle: async () => {
         if (panes.some((pane) => pane.kind === 'html')) await ctx.problems.settle(target, 1);
       },

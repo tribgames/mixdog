@@ -4,15 +4,16 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 
-import type {
-  VisualizeGoneOpen,
-  VisualizeInlineContent,
-  VisualizeVersionTurn,
-  VisualizeVersionView,
+import {
+  deferInlineContent,
+  type VisualizeGoneOpen,
+  type VisualizeInlineContent,
+  type VisualizeVersionTurn,
+  type VisualizeVersionView,
 } from '../../shared/visualize';
 import type { VisualizeAnnotation } from '../../shared/visualize-annotations';
 import type { HistoryEntry } from './history';
-import { type FileTarget, fileTargetsKey, type SessionState, type TabState } from './tab-state';
+import { type FileTarget, resolvedCanonicalKey, type SessionState, type TabState } from './tab-state';
 
 export interface ParkedTab {
   id: string;
@@ -66,21 +67,17 @@ export const parkDirectoryFor = (versionsDir: string): string => {
 /** Lightweight history descriptors for parked sessions: drops inline sources so parked
  *  sessions do not retain up to MAX_HISTORY_INLINE_BYTES in RAM while hidden. */
 export function stripParkedHistory(entries: readonly HistoryEntry[]): HistoryEntry[] {
-  return entries.map((entry) =>
-    entry.content
-      ? {
-          ...entry,
-          targets: [...entry.targets],
-          content: {
-            kind: entry.content.kind,
-            source: '',
-            ...(entry.content.title ? { title: entry.content.title } : {}),
-            deferred: true as const,
-          },
-        }
-      : { ...entry, targets: [...entry.targets] }
-  );
+  return entries.map((entry) => ({
+    ...entry,
+    targets: [...entry.targets],
+    ...(entry.content ? { content: deferInlineContent(entry.content) } : {}),
+  }));
 }
+
+const serializeShown = (shown: NonNullable<TabState['shown']>): NonNullable<ParkedTab['shown']> => ({
+  n: shown.n,
+  ...(shown.restoreAssets.length ? { restoreAssets: shown.restoreAssets } : {}),
+});
 
 export function serializeSession(state: SessionState, cwd?: string): ParkedSession {
   return {
@@ -100,14 +97,7 @@ export function serializeSession(state: SessionState, cwd?: string): ParkedSessi
       revision: tab.revision,
       ...(tab.allowNetwork !== undefined ? { allowNetwork: tab.allowNetwork } : {}),
       ...(tab.versions ? { versions: tab.versions } : {}),
-      ...(tab.shown
-        ? {
-            shown: {
-              n: tab.shown.n,
-              ...(tab.shown.restoreAssets.length ? { restoreAssets: tab.shown.restoreAssets } : {}),
-            },
-          }
-        : {}),
+      ...(tab.shown ? { shown: serializeShown(tab.shown) } : {}),
       ...(tab.compare ? { compare: true } : {}),
       ...(tab.pendingReload ? { pendingReload: true } : {}),
       ...(tab.historyFull ? { historyFull: true } : {}),
@@ -203,16 +193,20 @@ export function createVisualizeParkStore(directory?: string, fsOverrides?: Parti
     return work;
   };
 
+  const removeTrackedFile = async (file: string): Promise<void> => {
+    try {
+      await fsOps.rm(file, { force: true });
+      writtenFiles.delete(file);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+        writtenFiles.delete(file);
+      }
+    }
+  };
+
   const sweepTrackedFiles = async (): Promise<void> => {
     for (const file of [...writtenFiles]) {
-      try {
-        await fsOps.rm(file, { force: true });
-        writtenFiles.delete(file);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
-          writtenFiles.delete(file);
-        }
-      }
+      await removeTrackedFile(file);
     }
     if (ownedTemp && rootPath) {
       const target = rootPath;
@@ -248,14 +242,7 @@ export function createVisualizeParkStore(directory?: string, fsOverrides?: Parti
           }
           if (disposed) {
             writtenFiles.add(target);
-            try {
-              await fsOps.rm(target, { force: true });
-              writtenFiles.delete(target);
-            } catch (error) {
-              if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
-                writtenFiles.delete(target);
-              }
-            }
+            await removeTrackedFile(target);
           }
         })()
       );
@@ -286,15 +273,7 @@ export function createVisualizeParkStore(directory?: string, fsOverrides?: Parti
         return;
       }
       if (!root) return;
-      const target = join(root, sessionFileName(sessionId));
-      try {
-        await fsOps.rm(target, { force: true });
-        writtenFiles.delete(target);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
-          writtenFiles.delete(target);
-        }
-      }
+      await removeTrackedFile(join(root, sessionFileName(sessionId)));
     },
     dispose(): void {
       if (disposed) return;
@@ -339,11 +318,7 @@ export function createVisualizeParkStore(directory?: string, fsOverrides?: Parti
 export type VisualizeParkStore = ReturnType<typeof createVisualizeParkStore>;
 
 export function createHydratedTab(parked: ParkedTab, panes: TabState['panes'], shown: TabState['shown']): TabState {
-  const lastCanonicalKey =
-    parked.lastCanonicalKey ??
-    (parked.targets.length && parked.targets.every((target) => target.path)
-      ? fileTargetsKey(parked.targets)
-      : undefined);
+  const lastCanonicalKey = parked.lastCanonicalKey ?? resolvedCanonicalKey(parked.targets);
   return {
     id: parked.id,
     label: parked.label,

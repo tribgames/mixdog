@@ -28,8 +28,12 @@ export function visualizeSourceLanguage(inline: VisualizeInlineKind | undefined)
       return 'json';
     case 'markdown':
       return 'markdown';
-    default:
+    case 'mermaid':
       return '';
+    default: {
+      const exhaustive: never = inline;
+      return exhaustive;
+    }
   }
 }
 

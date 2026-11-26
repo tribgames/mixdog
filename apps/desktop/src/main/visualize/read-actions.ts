@@ -107,6 +107,12 @@ async function readPagesOffscreen(
   return { answers, problems };
 }
 
+const countInspectionFindings = (answers: ReadonlyArray<{ result: unknown }>): number =>
+  answers.reduce((sum, { result }) => {
+    const parsed = visualizePageInspection(result);
+    return parsed && !('error' in parsed) ? sum + parsed.findingCount : sum;
+  }, 0);
+
 /** A tab checked without the panel (an agent turn leaves it alone): pages
  *  load in a hidden window (their load problems and layout findings), inline
  *  content renders off screen (a failed render is the problem). */
@@ -125,10 +131,7 @@ export async function checkTabOffscreen(
   const { size, panel } = offscreenSize(ctx, undefined);
   const read = await readPagesOffscreen(ctx, cwd, tab, { viewport: size });
   const problems = [...read.problems];
-  const findings = read.answers.reduce((sum, { result }) => {
-    const parsed = visualizePageInspection(result);
-    return parsed && !('error' in parsed) ? sum + parsed.findingCount : sum;
-  }, 0);
+  const findings = countInspectionFindings(read.answers);
   for (const pane of displayedPanes(tab)) {
     if (pane.kind !== 'inline' || !deps.exportBytes) continue;
     try {
@@ -207,11 +210,8 @@ async function actTab(
   const pane = panes[index];
   if (pane?.kind !== 'html') {
     if (request.pane === undefined) throw new Error(`act works on HTML pages only; tab ${tab.id} shows no HTML page`);
-    throw new Error(
-      pane
-        ? `pane ${index + 1} of tab ${tab.id} is not an HTML page`
-        : `tab ${tab.id} has ${panes.length} pane${panes.length === 1 ? '' : 's'}, no pane ${index + 1}`
-    );
+    if (pane) throw new Error(`pane ${index + 1} of tab ${tab.id} is not an HTML page`);
+    throw new Error(`tab ${tab.id} has ${panes.length} pane${panes.length === 1 ? '' : 's'}, no pane ${index + 1}`);
   }
   if ((tab.missing && pane.version === undefined) || !pane.url) {
     throw new Error(`tab ${tab.id}'s file is missing`);
@@ -278,10 +278,7 @@ export function createReadActions(ctx: ReadContext) {
     if (!deps.inspect || !displayedPanes(tab).some((pane) => pane.kind === 'html')) return 0;
     try {
       const answers = await deps.inspect(sessionId, view(tab), {});
-      return answers.reduce((sum, { result }) => {
-        const parsed = visualizePageInspection(result);
-        return parsed && !('error' in parsed) ? sum + parsed.findingCount : sum;
-      }, 0);
+      return countInspectionFindings(answers);
     } catch {
       return 0;
     }

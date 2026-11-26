@@ -46,20 +46,13 @@ test('a merge keeps the identity of every card whose rows are unchanged', () => 
     method: string;
     params: Obj;
   }[];
+  const stripLive = (frame: { method: string; params: Obj }) => {
+    if (!frame.params.item) return frame;
+    const item = JSON.parse(JSON.stringify(frame.params.item, (k, v) => (k === 'live' ? undefined : v)));
+    return { ...frame, params: { ...frame.params, item } };
+  };
   for (const live of [true, false]) {
-    const feed = live
-      ? frames
-      : frames.map((f) =>
-          f.params.item
-            ? {
-                ...f,
-                params: {
-                  ...f.params,
-                  item: JSON.parse(JSON.stringify(f.params.item, (k, v) => (k === 'live' ? undefined : v))),
-                },
-              }
-            : f
-        );
+    const feed = live ? frames : frames.map(stripLive);
     let fold = empty();
     for (const n of feed) fold = apply(fold, n.method, n.params);
     const before = desktopSessionState(fold, []).items as Obj[];

@@ -111,7 +111,8 @@ function useStreamFade(
   revision: number
 ): { timeline: StreamFadeTimeline | null; live: boolean } {
   // A first text past REVEAL_JOIN_CHARS showed at once: it opens unfaded.
-  const timeline = key ? streamFadeTimeline(key, streaming, text.length > REVEAL_JOIN_CHARS ? text : undefined) : null;
+  const joinedText = text.length > REVEAL_JOIN_CHARS ? text : undefined;
+  const timeline = key ? streamFadeTimeline(key, streaming, joinedText) : null;
   const subscribe = useCallback(
     (listener: () => void) => (timeline ? timeline.subscribe(listener) : () => {}),
     [timeline]
@@ -406,14 +407,12 @@ function useRowStreaming(item: TranscriptItem, revealKey: string, paced: boolean
   if (ending && typeof parserLoad === 'object') throw parserLoad.error;
   const [resolvedFinal, setResolvedFinal] = useState<{ text: string; root: MarkdownAstRoot } | null>(null);
   const waitingForParser = ending && parserLoad !== 'ready';
-  const knownFinalRoot =
-    ending && parserLoad === 'ready' && rawText
-      ? resolvedFinal?.text === rawText
-        ? resolvedFinal.root
-        : cachedFinal.current?.text === rawText
-          ? cachedFinal.current.root
-          : readCachedStreamingMarkdownAst(rawText)
-      : null;
+  let knownFinalRoot: MarkdownAstRoot | null = null;
+  if (ending && parserLoad === 'ready' && rawText) {
+    if (resolvedFinal?.text === rawText) knownFinalRoot = resolvedFinal.root;
+    else if (cachedFinal.current?.text === rawText) knownFinalRoot = cachedFinal.current.root;
+    else knownFinalRoot = readCachedStreamingMarkdownAst(rawText);
+  }
   // Long or math-bearing endings parse off-thread before leaving streaming so
   // the tail, its fade, and settlement commit together.
   const waitingForFinalParse =

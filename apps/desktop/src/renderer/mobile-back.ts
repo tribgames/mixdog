@@ -21,7 +21,8 @@ import { nativeAppInfo } from '../shared/native-app';
 import { useSurfaceActive } from './surface-activity';
 
 export type MobileBackPriority = 'tab' | 'shell' | 'shell-sub' | 'overlay' | 'modal';
-export type MobileBackCloseHandler = () => boolean | undefined | void;
+// biome-ignore lint/suspicious/noConfusingVoidType: handlers that return nothing must stay assignable; `undefined` alone rejects `() => void`.
+export type MobileBackCloseHandler = () => boolean | void;
 
 const PRIORITY_RANK: Record<MobileBackPriority, number> = {
   tab: 10,
@@ -175,14 +176,7 @@ function adoptCurrentSentinel(armed: boolean, fallbackBelowSeq?: number | null):
   const existingToken = readToken(history.state);
   const existingPos = existingToken !== null ? (tokenHistoryPos.get(existingToken) ?? null) : null;
   const existingSeq = readSeq(history.state);
-  let seq: number | null;
-  if (existingSeq !== null) {
-    seq = existingSeq;
-  } else if (typeof fallbackBelowSeq === 'number') {
-    seq = fallbackBelowSeq - 1;
-  } else {
-    seq = null;
-  }
+  const seq = existingSeq ?? (typeof fallbackBelowSeq === 'number' ? fallbackBelowSeq - 1 : null);
   const entry = createSentinelEntry(seq, false, existingPos);
   if (existingPos !== null) {
     tokenHistoryPos.set(entry.token, existingPos);
@@ -276,20 +270,23 @@ function adoptStaleSentinelIfPresent(): void {
   hasForwardAfterSentinel = true;
 }
 
+function detachPopStateListener(): void {
+  if (!armedWindow || !popStateAttached) return;
+  try {
+    armedWindow.removeEventListener('popstate', onPopState);
+  } catch {
+    /* ignore closed JSDOM windows */
+  }
+  popStateAttached = false;
+}
+
 function syncWindow(): void {
   if (typeof window === 'undefined' || typeof history === 'undefined') return;
   if (armedWindow !== window) {
     if (armedWindow) {
       // Only happens when a test swaps JSDOM windows: the previous window's
       // history and pending traversals are gone.
-      if (popStateAttached) {
-        try {
-          armedWindow.removeEventListener('popstate', onPopState);
-        } catch {
-          /* ignore closed JSDOM windows */
-        }
-        popStateAttached = false;
-      }
+      detachPopStateListener();
       resetInternalState();
     }
     armedWindow = window;
@@ -307,14 +304,7 @@ function syncWindow(): void {
 /** Test-only helper simulating a fresh renderer load (new nonce, empty stack)
  *  while preserving whatever `window.history.state` the browser retained. */
 export function __resetMobileBackForTest(): void {
-  if (armedWindow && popStateAttached) {
-    try {
-      armedWindow.removeEventListener('popstate', onPopState);
-    } catch {
-      /* ignore closed JSDOM windows */
-    }
-  }
-  popStateAttached = false;
+  detachPopStateListener();
   armedWindow = null;
   resetInternalState();
   syncWindow();
@@ -413,6 +403,177 @@ function armForStack(): void {
   armSentinel();
 }
 
+function advanceRestoreSentinel(landed: string | null, landedSeq: number | null): boolean {
+  if (landed === restoringSentinelToken) {
+    clearRestoringState();
+    topHistoryLength = history.length;
+    const top = topSentinel();
+    if (top && top.token === landed) {
+      writeSentinelState(top, stack.length > 0);
+    }
+    return true;
+  }
+  const pastTarget = landedSeq !== null && restoringTargetSeq !== null && landedSeq > restoringTargetSeq;
+  if (restoringStepsRemaining > 0) {
+    restoringStepsRemaining -= 1;
+    if (pastTarget) {
+      history.back();
+    } else {
+      history.forward();
+    }
+    return true;
+  }
+  clearRestoringState();
+  return false;
+}
+
+function handleForwardSentinel(landed: string | null, landedSeq: number): void {
+  forwardingDisarmed = false;
+  if (stack.length === 0) {
+    adoptCurrentSentinel(false);
+    return;
+  }
+  const existingPos = landed !== null ? (tokenHistoryPos.get(landed) ?? null) : null;
+  const entry = createSentinelEntry(landedSeq, false, existingPos);
+  if (existingPos !== null) {
+    tokenHistoryPos.set(entry.token, existingPos);
+  }
+  sentinelStack.push(entry);
+  writeSentinelState(entry, true);
+  topHistoryLength = history.length;
+}
+
+function continueForwardingDisarmed(landed: string | null, landedSeq: number | null, previousSeq: number | null): void {
+  if (stack.length > 0) {
+    forwardingDisarmed = false;
+    reconcileSentinelStack(landed);
+    armForStack();
+    return;
+  }
+  if (hasAnySentinelMarker(history.state)) {
+    if (landedSeq === null) {
+      if (previousSeq === null) {
+        // Unknown direction between sequenceless legacy entries: stop here.
+        forwardingDisarmed = false;
+        adoptCurrentSentinel(false);
+        return;
+      }
+      // Stamp a strictly decreasing seq onto this sequenceless legacy entry
+      // before stepping further back so if index 0 stops `history.back()`,
+      // any later Forward onto a stamped entry has landedSeq > previousSeq.
+      const stamped = createSentinelEntry(previousSeq - 1, false, null);
+      writeSentinelState(stamped, false);
+      history.back();
+      return;
+    }
+    if (previousSeq !== null && landedSeq >= previousSeq) {
+      forwardingDisarmed = false;
+      adoptCurrentSentinel(false);
+      return;
+    }
+    lastSentinelSeq = landedSeq;
+    history.back();
+    return;
+  }
+  forwardingDisarmed = false;
+  sentinelStack.length = 0;
+  topHistoryLength = null;
+  lastSentinelSeq = null;
+  history.back();
+}
+
+function handleArmedBackPop(priorSentinelStack: SentinelEntry[], wasTop: SentinelEntry, landed: string | null): void {
+  // Remove the entry FIRST so the owner's cleanup (unregister) sees it gone.
+  const top = stack.pop();
+  const vetoed = Boolean(top && top.close() === false && !top.released);
+  if (vetoed && top) {
+    insertEntry(top);
+  }
+  if (activeWatcher !== null) return;
+  if (vetoed) {
+    // Restore the exact popped sentinel via history.go(delta)/forward() so
+    // vetoed Back presses perform zero pushState calls inside popstate and
+    // jump atomically over any intermediate iframe or sentinel entries.
+    startRestoreSentinel(priorSentinelStack, wasTop, landed);
+    return;
+  }
+  if (stack.length > 0) {
+    // Keep sentinelStack aligned with the active layers so reopening a
+    // child pushes only the delta (1 entry) instead of rebuilding lower layers.
+    if (sentinelStack.length > stack.length) {
+      sentinelStack = sentinelStack.slice(-stack.length);
+    }
+    const current = topSentinel();
+    if (current && isOnTopSentinel()) {
+      // Landed directly on a pre-pushed lower sentinel: update in place
+      // with zero pushState inside popstate.
+      writeSentinelState(current, true);
+    } else if (hasAnySentinelMarker(history.state)) {
+      adoptCurrentSentinel(true, wasTop.seq);
+    } else {
+      // No lower sentinel beneath wasTop (e.g. a second layer opened
+      // during an earlier veto): step forward onto wasTop instead of
+      // calling pushState inside popstate.
+      startRestoreSentinel(priorSentinelStack, wasTop, landed);
+    }
+    return;
+  }
+  const current = topSentinel();
+  if (current && isOnTopSentinel()) {
+    // Closed the last open layer while landing on a spare owned sentinel:
+    // disarm in place with mixdogBack omitted.
+    sentinelStack = [current];
+    writeSentinelState(current, false);
+  } else if (hasAnySentinelMarker(history.state)) {
+    // Landed on a lower prior-boot/legacy sentinel after closing the last
+    // layer: preserve its seq (or assign strictly below wasTop.seq for
+    // legacy) so a subsequent Forward onto wasTop is never mistaken for Back.
+    adoptCurrentSentinel(false, wasTop.seq);
+  } else {
+    lastSentinelSeq = null;
+  }
+}
+
+function handleDisarmedBackPop(wasTop: SentinelEntry, landedSeq: number | null, previousSeq: number | null): void {
+  if (hasAnySentinelMarker(history.state)) {
+    // A sequenceless legacy entry is proven behind us ONLY when stepping
+    // directly off a sentinel pushed in this boot (which truncated forward
+    // history). Once on a prior-boot legacy entry, direction is unknown.
+    const provenBehind = wasTop.pushedInBoot || (landedSeq !== null && previousSeq !== null && landedSeq < previousSeq);
+    if (!provenBehind) {
+      adoptCurrentSentinel(false);
+      return;
+    }
+    // Another sentinel strictly behind us lies below: stamp sequenceless
+    // legacy entries with a strictly decreasing seq so hitting index 0 at
+    // the cap can never misclassify a later Forward as Back.
+    forwardingDisarmed = true;
+    sentinelStack.length = 0;
+    topHistoryLength = null;
+    if (landedSeq === null && previousSeq !== null) {
+      const stamped = createSentinelEntry(previousSeq - 1, false, null);
+      writeSentinelState(stamped, false);
+    } else {
+      lastSentinelSeq = landedSeq ?? (previousSeq !== null ? previousSeq - 1 : null);
+    }
+    history.back();
+    return;
+  }
+  // Unmarked state (e.g. `/app` or a fragment navigation like `/app#details`):
+  // only forward Back to `/previous` when this was a real Back traversal onto
+  // the same URL, never when a fragment link grew history or changed URL/hash.
+  const grewHistory = topHistoryLength !== null && history.length > topHistoryLength;
+  const hrefNow = currentHref();
+  const urlChanged = wasTop.href !== null && hrefNow !== null && hrefNow !== wasTop.href;
+  sentinelStack.length = 0;
+  topHistoryLength = null;
+  lastSentinelSeq = null;
+  if (grewHistory || urlChanged) {
+    return;
+  }
+  history.back();
+}
+
 function onPopState(): void {
   // Watcher layers answer to their own close event, never to history.
   if (activeWatcher !== null || closeWatcherConstructor() !== null) return;
@@ -425,27 +586,8 @@ function onPopState(): void {
   const landedSeq = readSeq(history.state);
   observeSeq(landedSeq);
 
-  if (restoringSentinelToken !== null) {
-    if (landed === restoringSentinelToken) {
-      clearRestoringState();
-      topHistoryLength = history.length;
-      const top = topSentinel();
-      if (top && top.token === landed) {
-        writeSentinelState(top, stack.length > 0);
-      }
-      return;
-    }
-    const pastTarget = landedSeq !== null && restoringTargetSeq !== null && landedSeq > restoringTargetSeq;
-    if (restoringStepsRemaining > 0) {
-      restoringStepsRemaining -= 1;
-      if (pastTarget) {
-        history.back();
-      } else {
-        history.forward();
-      }
-      return;
-    }
-    clearRestoringState();
+  if (restoringSentinelToken !== null && advanceRestoreSentinel(landed, landedSeq)) {
+    return;
   }
 
   const wasTop = topSentinel();
@@ -455,60 +597,12 @@ function onPopState(): void {
   // disarmed-Back logic so a higher finite seq immediately clears any
   // stuck `forwardingDisarmed` and stays at the user-selected entry.
   if (landedSeq !== null && previousSeq !== null && landedSeq > previousSeq) {
-    forwardingDisarmed = false;
-    if (stack.length === 0) {
-      adoptCurrentSentinel(false);
-    } else {
-      const existingPos = landed !== null ? (tokenHistoryPos.get(landed) ?? null) : null;
-      const entry = createSentinelEntry(landedSeq, false, existingPos);
-      if (existingPos !== null) {
-        tokenHistoryPos.set(entry.token, existingPos);
-      }
-      sentinelStack.push(entry);
-      writeSentinelState(entry, true);
-      topHistoryLength = history.length;
-    }
+    handleForwardSentinel(landed, landedSeq);
     return;
   }
 
   if (forwardingDisarmed) {
-    if (stack.length > 0) {
-      forwardingDisarmed = false;
-      reconcileSentinelStack(landed);
-      armForStack();
-      return;
-    }
-    if (hasAnySentinelMarker(history.state)) {
-      if (landedSeq === null) {
-        if (previousSeq === null) {
-          // Unknown direction between sequenceless legacy entries: stop here.
-          forwardingDisarmed = false;
-          adoptCurrentSentinel(false);
-          return;
-        }
-        // Stamp a strictly decreasing seq onto this sequenceless legacy entry
-        // before stepping further back so if index 0 stops `history.back()`,
-        // any later Forward onto a stamped entry has landedSeq > previousSeq.
-        const stampedSeq = previousSeq - 1;
-        const stamped = createSentinelEntry(stampedSeq, false, null);
-        writeSentinelState(stamped, false);
-        history.back();
-        return;
-      }
-      if (previousSeq !== null && landedSeq >= previousSeq) {
-        forwardingDisarmed = false;
-        adoptCurrentSentinel(false);
-        return;
-      }
-      lastSentinelSeq = landedSeq;
-      history.back();
-      return;
-    }
-    forwardingDisarmed = false;
-    sentinelStack.length = 0;
-    topHistoryLength = null;
-    lastSentinelSeq = null;
-    history.back();
+    continueForwardingDisarmed(landed, landedSeq, previousSeq);
     return;
   }
 
@@ -521,102 +615,13 @@ function onPopState(): void {
   }
 
   if (wasTop !== null) {
-    // User Back popped our top sentinel entry off the top of history.
     const priorSentinelStack = sentinelStack.slice();
     reconcileSentinelStack(landed);
-
     if (stack.length > 0) {
-      // Remove the entry FIRST so the owner's cleanup (unregister) sees it gone.
-      const top = stack.pop();
-      const vetoed = Boolean(top && top.close() === false && !top.released);
-      if (vetoed && top) {
-        insertEntry(top);
-      }
-      if (activeWatcher !== null) return;
-      if (vetoed) {
-        // Restore the exact popped sentinel via history.go(delta)/forward() so
-        // vetoed Back presses perform zero pushState calls inside popstate and
-        // jump atomically over any intermediate iframe or sentinel entries.
-        startRestoreSentinel(priorSentinelStack, wasTop, landed);
-        return;
-      }
-      if (stack.length > 0) {
-        // Keep sentinelStack aligned with the active layers so reopening a
-        // child pushes only the delta (1 entry) instead of rebuilding lower layers.
-        if (sentinelStack.length > stack.length) {
-          sentinelStack = sentinelStack.slice(-stack.length);
-        }
-        const current = topSentinel();
-        if (current && isOnTopSentinel()) {
-          // Landed directly on a pre-pushed lower sentinel: update in place
-          // with zero pushState inside popstate.
-          writeSentinelState(current, true);
-        } else if (hasAnySentinelMarker(history.state)) {
-          adoptCurrentSentinel(true, wasTop.seq);
-        } else {
-          // No lower sentinel beneath wasTop (e.g. a second layer opened
-          // during an earlier veto): step forward onto wasTop instead of
-          // calling pushState inside popstate.
-          startRestoreSentinel(priorSentinelStack, wasTop, landed);
-        }
-      } else {
-        const current = topSentinel();
-        if (current && isOnTopSentinel()) {
-          // Closed the last open layer while landing on a spare owned sentinel:
-          // disarm in place with mixdogBack omitted.
-          sentinelStack = [current];
-          writeSentinelState(current, false);
-        } else if (hasAnySentinelMarker(history.state)) {
-          // Landed on a lower prior-boot/legacy sentinel after closing the last
-          // layer: preserve its seq (or assign strictly below wasTop.seq for
-          // legacy) so a subsequent Forward onto wasTop is never mistaken for Back.
-          adoptCurrentSentinel(false, wasTop.seq);
-        } else {
-          lastSentinelSeq = null;
-        }
-      }
-      return;
+      handleArmedBackPop(priorSentinelStack, wasTop, landed);
+    } else {
+      handleDisarmedBackPop(wasTop, landedSeq, previousSeq);
     }
-
-    // `stack.length === 0`: user traversed off our disarmed sentinel.
-    if (hasAnySentinelMarker(history.state)) {
-      // A sequenceless legacy entry is proven behind us ONLY when stepping
-      // directly off a sentinel pushed in this boot (which truncated forward
-      // history). Once on a prior-boot legacy entry, direction is unknown.
-      const provenBehind =
-        wasTop.pushedInBoot || (landedSeq !== null && previousSeq !== null && landedSeq < previousSeq);
-      if (!provenBehind) {
-        adoptCurrentSentinel(false);
-        return;
-      }
-      // Another sentinel strictly behind us lies below: stamp sequenceless
-      // legacy entries with a strictly decreasing seq so hitting index 0 at
-      // the cap can never misclassify a later Forward as Back.
-      forwardingDisarmed = true;
-      sentinelStack.length = 0;
-      topHistoryLength = null;
-      if (landedSeq === null && previousSeq !== null) {
-        const stamped = createSentinelEntry(previousSeq - 1, false, null);
-        writeSentinelState(stamped, false);
-      } else {
-        lastSentinelSeq = landedSeq !== null ? landedSeq : previousSeq !== null ? previousSeq - 1 : null;
-      }
-      history.back();
-      return;
-    }
-    // Unmarked state (e.g. `/app` or a fragment navigation like `/app#details`):
-    // only forward Back to `/previous` when this was a real Back traversal onto
-    // the same URL, never when a fragment link grew history or changed URL/hash.
-    const grewHistory = topHistoryLength !== null && history.length > topHistoryLength;
-    const hrefNow = currentHref();
-    const urlChanged = wasTop.href !== null && hrefNow !== null && hrefNow !== wasTop.href;
-    sentinelStack.length = 0;
-    topHistoryLength = null;
-    lastSentinelSeq = null;
-    if (grewHistory || urlChanged) {
-      return;
-    }
-    history.back();
     return;
   }
 
@@ -643,6 +648,37 @@ function closeWatcherConstructor(): CloseWatcherConstructor | null {
   if (nativeAppInfo()) return null;
   const ctor = (window as unknown as { CloseWatcher?: CloseWatcherConstructor }).CloseWatcher;
   return typeof ctor === 'function' ? ctor : null;
+}
+
+function disarmSentinelOnEmptyStack(): void {
+  const top = topSentinel();
+  if (top && isOnTopSentinel()) {
+    // Disarm in place (mixdogBack omitted/undefined, never false) with zero
+    // programmatic history.back(). If an iframe changed history.length while
+    // armed, mint a fresh disarmed token recorded at current history.length
+    // (while leaving topHistoryLength unchanged so the next open pushes above
+    // the iframe instead of reusing in place).
+    if (topHistoryLength !== null && history.length !== topHistoryLength) {
+      const pos = history.length < HISTORY_ENTRY_CAP && !hasForwardAfterSentinel ? history.length : null;
+      const disarmed = createSentinelEntry(top.seq, top.pushedInBoot, pos);
+      if (pos !== null) {
+        tokenHistoryPos.set(disarmed.token, pos);
+      }
+      sentinelStack = [disarmed];
+      writeSentinelState(disarmed, false);
+    } else {
+      writeSentinelState(top, false);
+    }
+  } else if (typeof history !== 'undefined' && hasAnySentinelMarker(history.state)) {
+    // Stack reached 0 while sitting on a non-top sentinel (e.g., after a
+    // stalled veto restoration): always disarm history.state so mixdogBack
+    // is never left armed with zero open layers.
+    adoptCurrentSentinel(false);
+    hasForwardAfterSentinel = true;
+  } else {
+    sentinelStack.length = 0;
+    topHistoryLength = null;
+  }
 }
 
 /** Register an open transient layer; returns its unregister cleanup.
@@ -684,34 +720,7 @@ export function registerMobileBack(
       activeWatcher = null;
       return;
     }
-    const top = topSentinel();
-    if (top && isOnTopSentinel()) {
-      // Disarm in place (mixdogBack omitted/undefined, never false) with zero
-      // programmatic history.back(). If an iframe changed history.length while
-      // armed, mint a fresh disarmed token recorded at current history.length
-      // (while leaving topHistoryLength unchanged so the next open pushes above
-      // the iframe instead of reusing in place).
-      if (topHistoryLength !== null && history.length !== topHistoryLength) {
-        const pos = history.length < HISTORY_ENTRY_CAP && !hasForwardAfterSentinel ? history.length : null;
-        const disarmed = createSentinelEntry(top.seq, top.pushedInBoot, pos);
-        if (pos !== null) {
-          tokenHistoryPos.set(disarmed.token, pos);
-        }
-        sentinelStack = [disarmed];
-        writeSentinelState(disarmed, false);
-      } else {
-        writeSentinelState(top, false);
-      }
-    } else if (typeof history !== 'undefined' && hasAnySentinelMarker(history.state)) {
-      // Stack reached 0 while sitting on a non-top sentinel (e.g., after a
-      // stalled veto restoration): always disarm history.state so mixdogBack
-      // is never left armed with zero open layers.
-      adoptCurrentSentinel(false);
-      hasForwardAfterSentinel = true;
-    } else {
-      sentinelStack.length = 0;
-      topHistoryLength = null;
-    }
+    disarmSentinelOnEmptyStack();
   };
 }
 

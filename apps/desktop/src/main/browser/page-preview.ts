@@ -170,7 +170,8 @@ export function createBrowserPagePreviews(host: {
 
   function pump(): void {
     while (!disposed && active < PREVIEW_CONCURRENCY && queue.length) {
-      const url = queue.shift()!;
+      const url = queue.shift();
+      if (url === undefined) break;
       if (has(url)) continue;
       active++;
       void host

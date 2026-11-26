@@ -23,14 +23,12 @@ test('a reply streamed in deltas projects its completed lines and its unfinished
     const cut = text.lastIndexOf('\n') + 1;
     const rest = text.slice(cut);
     const identity = { id: 'a1', kind: 'assistant', streaming: true };
-    const partial =
-      cut > 0
-        ? rest
-          ? { id: 'a1', from: cut, text: rest }
-          : null
-        : text.trim()
-          ? { id: 'a1', from: 0, text, tail: identity }
-          : null;
+    let partial: { id: string; from: number; text: string; tail?: typeof identity } | null = null;
+    if (cut > 0) {
+      if (rest) partial = { id: 'a1', from: cut, text: rest };
+    } else if (text.trim()) {
+      partial = { id: 'a1', from: 0, text, tail: identity };
+    }
     if (partial) partialShown = true;
     assert.deepEqual(
       state.streamingTail,

@@ -14,6 +14,7 @@ import {
   viewportSize,
 } from './transcript-list-geometry';
 import { holdsReaderTop } from './transcript-list-reader-place';
+import { resolveMutationObserver } from './transcript-list-provisional-resize';
 import type { useReadingAnchor } from './transcript-list-reading-anchor';
 import type { TranscriptRowModel } from './transcript-rows';
 import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './transcript-scroll-diagnostics';
@@ -348,12 +349,7 @@ export function useVirtualizerResizePatch({
   }, [clearHeldTimer, clearHeldObserver]);
   const scheduleHeldSettle = useCallback(() => {
     const instance = patchedVirtualizer.current;
-    const Observer =
-      typeof MutationObserver === 'function'
-        ? MutationObserver
-        : typeof window !== 'undefined' && typeof window.MutationObserver === 'function'
-          ? window.MutationObserver
-          : null;
+    const Observer = resolveMutationObserver();
     const reparsing = instance && Observer ? held.reparsingElements(instance) : [];
     const sameObserved =
       reparsing.length === heldObserved.current.length &&

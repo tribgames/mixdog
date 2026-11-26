@@ -478,11 +478,6 @@ test('the version stepper walks kept versions; the newest is live', () => {
   }
 });
 
-test('there is no network toggle any more: the store exports no setter', async () => {
-  const store = await import('./visualize-store.ts');
-  assert.equal('setVisualizeNetwork' in store, false);
-});
-
 test('a web URL is handed to the browser panel as an agent request', () => {
   const requests = [];
   const stop = onBrowserPageRevealRequested((request) => requests.push(request));
@@ -1799,7 +1794,7 @@ test('stale rehydration snapshot reconciles only targeted eviction entries and p
     const emptied = [];
     const stopEmptied = onVisualizeEmptied((sessionId) => emptied.push(sessionId));
     try {
-      // Probe 2A: B is created, evicted, and visited while A's read is in flight.
+      // B is created, evicted, and visited while A's read is in flight.
       applyVisualizeEvent({ sessionId: stateA.sessionId, state: stateA });
       enforceRendererCacheBudget(0);
       setVisualizePanelOnScreen(stateA.sessionId, true);
@@ -1824,7 +1819,7 @@ test('stale rehydration snapshot reconciles only targeted eviction entries and p
       assert.equal(visualizeStateFor(stateB.sessionId).tabs.length, 1);
       assert.equal(isVisualizeStateRehydrating(stateB.sessionId), false);
 
-      // Probe 2B: A itself gets a newer event and re-eviction while its older read is in flight.
+      // A itself gets a newer event and re-eviction while its older read is in flight.
       setVisualizePanelOnScreen(stateA.sessionId, false);
       setVisualizePanelOnScreen(stateB.sessionId, false);
       enforceRendererCacheBudget(0);
@@ -1900,7 +1895,7 @@ test('host-confirmed empty state notifies subscribers, availability, and emptied
     await act(async () => root.render(React.createElement(AvailabilityProbe)));
     assert.equal(available, false);
 
-    // Probe 3A: reconnect clears evicted session when resident states and holds are unchanged.
+    // Reconnect clears evicted session when resident states and holds are unchanged.
     const tweakJson = JSON.stringify([
       { id: 'accent', label: 'Accent', type: 'color', var: '--accent', default: '#3366ff' },
     ]);
@@ -1931,7 +1926,7 @@ test('host-confirmed empty state notifies subscribers, availability, and emptied
     assert.deepEqual(visualizePaneTweaks(s1.sessionId, 'v1', 0), []);
     assert.equal(visualizeChoiceProposal(visualizeProposalKey(s1.sessionId, 'v1', 0)), null);
 
-    // Probe 3B: rehydration of an absent evicted session notifies emptied and clears tweaks/proposals.
+    // Rehydration of an absent evicted session notifies emptied and clears tweaks/proposals.
     const s2 = makeState('empty-rehydrate-1');
     await act(async () => {
       applyVisualizeEvent({ sessionId: s2.sessionId, state: s2 });

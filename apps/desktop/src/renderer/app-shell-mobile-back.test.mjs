@@ -449,7 +449,7 @@ test('mobile Back preserves tier order when Studio opens from an open drawer and
   };
 
   try {
-    // Finding #5: Open phone drawer FIRST, then select Studio (non-conversation tab) while drawer is open.
+    // Open phone drawer first, then select Studio (non-conversation tab) while drawer is open.
     state = { ...state, sidebarOpen: true };
     await rerender();
     state = { ...state, nonConversationTabOpen: true };
@@ -461,7 +461,7 @@ test('mobile Back preserves tier order when Studio opens from an open drawer and
     await rerender();
     assert.deepEqual(events, ['sidebar:false']);
 
-    // Finding #6: Dirty file confirm keeps non-conversation tab armed underneath pendingUnsavedClose.
+    // Dirty file confirm keeps non-conversation tab armed underneath pendingUnsavedClose.
     state = { ...state, stayOnNonConversation: true };
     await rerender();
     await afterPopState(dom, () => dom.window.history.back());
@@ -479,7 +479,7 @@ test('mobile Back preserves tier order when Studio opens from an open drawer and
     assert.deepEqual(events, ['sidebar:false', 'return-tab', 'cancel-unsaved', 'return-tab']);
     assert.equal(dom.window.history.state?.mixdogBack, undefined);
 
-    // Finding #7: Retained dock reopens with historyOpen already true in the same commit
+    // Retained dock reopens with historyOpen already true in the same commit
     // (child useEffect runs before parent useEffect). Back must close history first, then dock.
     events.length = 0;
     state = { ...state, dockOpen: false, historyOpen: true };

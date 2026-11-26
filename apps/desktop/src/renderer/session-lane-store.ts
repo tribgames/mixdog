@@ -141,6 +141,16 @@ function queuedIdentity(snapshot: Snapshot): string {
 
 const MAX_GONE_TOMBSTONES = 512;
 
+function sameStringSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  return a.size === b.size && [...a].every((id) => b.has(id));
+}
+
+function isStreamingSnapshot(snapshot: Snapshot | null): boolean {
+  return (
+    Boolean(snapshot?.streamingTail) || (Array.isArray(snapshot?.items) && snapshot.items.at(-1)?.streaming === true)
+  );
+}
+
 function streamingTailTransitioned(previous: Snapshot['streamingTail'], next: Snapshot['streamingTail']): boolean {
   if (previous === next) return false;
   if (!previous || !next) return true;
@@ -635,7 +645,7 @@ export function createSessionLaneStore({
   let shown: ReadonlySet<string> = new Set();
   let live: ReadonlySet<string> = new Set();
   const setLive = (next: ReadonlySet<string>): void => {
-    if (next.size === live.size && [...next].every((id) => live.has(id))) return;
+    if (sameStringSet(next, live)) return;
     live = next;
     for (const listener of [...approvalListeners]) listener();
   };
@@ -658,11 +668,11 @@ export function createSessionLaneStore({
       if (pending?.kind === 'question') nextQuestions.add(sessionId);
       else nextQuestions.delete(sessionId);
     }
-    const same = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
-      a.size === b.size && [...a].every((id) => b.has(id));
-    if (same(next, approvals) && same(nextQuestions, questions)) return;
-    if (!same(next, approvals)) approvals = next;
-    if (!same(nextQuestions, questions)) questions = nextQuestions;
+    const approvalsSame = sameStringSet(next, approvals);
+    const questionsSame = sameStringSet(nextQuestions, questions);
+    if (approvalsSame && questionsSame) return;
+    if (!approvalsSame) approvals = next;
+    if (!questionsSame) questions = nextQuestions;
     for (const listener of [...approvalListeners]) listener();
   };
   const notificationKey = (sessionId: string): object => {
@@ -836,28 +846,24 @@ export function createSessionLaneStore({
         noteCarried(snapshot.items, priorSnapshot.items, heldRows.count);
       }
       const now = Date.now();
-      const subscribed = (listeners.get(sessionId)?.size || 0) > 0;
+      const hasSubscribers = subscribed(sessionId);
       const priorViews = priorSnapshot as { transcriptViews?: unknown; transcriptViewItems?: unknown } | null;
       const nextViews = snapshot as { transcriptViews?: unknown; transcriptViewItems?: unknown };
       const viewsChanged =
         priorViews?.transcriptViews !== nextViews.transcriptViews ||
         priorViews?.transcriptViewItems !== nextViews.transcriptViewItems;
       const itemsChanged = priorSnapshot?.items !== snapshot.items;
-      const streamingFrame =
-        Boolean(snapshot.streamingTail) || (Array.isArray(snapshot.items) && snapshot.items.at(-1)?.streaming === true);
-      const priorStreaming =
-        Boolean(priorSnapshot?.streamingTail) ||
-        (Array.isArray(priorSnapshot?.items) && priorSnapshot.items.at(-1)?.streaming === true);
-      const streamingEnded = priorStreaming && !streamingFrame;
+      const streamingFrame = isStreamingSnapshot(snapshot);
+      const streamingEnded = isStreamingSnapshot(priorSnapshot) && !streamingFrame;
       const refreshEstimate =
-        !prior || viewsChanged || (!subscribed && now - prior.estimatedAt >= SESSION_LANE_ESTIMATE_INTERVAL_MS);
+        !prior || viewsChanged || (!hasSubscribers && now - prior.estimatedAt >= SESSION_LANE_ESTIMATE_INTERVAL_MS);
       const bytes = refreshEstimate ? estimateSessionSnapshotBytes(snapshot) : prior.bytes;
       const enforceBudget =
         !prior ||
         viewsChanged ||
         streamingEnded ||
         (!streamingFrame && itemsChanged) ||
-        (!subscribed && refreshEstimate);
+        (!hasSubscribers && refreshEstimate);
       // What the next frame is carried on from: the list handed over, only when the rows shown from `rawOffset` on are
       // its rows one for one under their own ids. A generation's own rows are not, and neither are rows shown under
       // other ids (`decorated.items !== raw`): which rows adopt which ids is decided over the whole of both lists and
@@ -892,7 +898,7 @@ export function createSessionLaneStore({
     }
     reportSessionReadFrame({ ...update, snapshot: nextSnapshot }, 'applied', performance.now() - readFrameStartedAt);
     noteStreamLaneFrame(sessionId, nextSnapshot?.streamingTail);
-    if ((listeners.get(sessionId)?.size || 0) === 0) {
+    if (!subscribed(sessionId)) {
       const key = notificationKeys.get(sessionId);
       if (key) cancelLayoutFrame(key);
       notificationKeys.delete(sessionId);

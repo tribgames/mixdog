@@ -14,7 +14,7 @@ function bodyPending(element: HTMLElement): boolean {
   return false;
 }
 
-function resolveMutationObserver(): typeof MutationObserver | null {
+export function resolveMutationObserver(): typeof MutationObserver | null {
   if (typeof MutationObserver === 'function') return MutationObserver;
   if (typeof window !== 'undefined' && typeof window.MutationObserver === 'function') return window.MutationObserver;
   return null;

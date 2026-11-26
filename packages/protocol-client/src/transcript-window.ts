@@ -108,7 +108,14 @@ function reading(held: HeldWindow, first: string, last: string, onEnd: boolean):
   const { upTo } = runLayout(held, run);
   const from = Math.min(at(first), at(last));
   const to = Math.max(at(first), at(last));
-  return { run, first: from, last: to, rowsBefore: upTo[from]!, rowsAfter: upTo[end + 1]! - upTo[to + 1]!, upTo };
+  return {
+    run,
+    first: from,
+    last: to,
+    rowsBefore: upTo[from] ?? 0,
+    rowsAfter: (upTo[end + 1] ?? 0) - (upTo[to + 1] ?? 0),
+    upTo,
+  };
 }
 
 /** A reader's view in a stretch: the places of the records of its first and last rows. */
@@ -132,9 +139,10 @@ function keptNear(held: HeldWindow, run: WindowRun, at: Stand): Set<string> {
   }
   // Rows between the view and the nearest record of the range.
   const away = (id: string): number => {
-    const { from, to } = spans.get(id)!;
-    if (from > at.last) return upTo[from]! - upTo[at.last + 1]!;
-    if (to < at.first) return upTo[at.first]! - upTo[to + 1]!;
+    const span = spans.get(id);
+    if (!span) return 0;
+    if (span.from > at.last) return (upTo[span.from] ?? 0) - (upTo[at.last + 1] ?? 0);
+    if (span.to < at.first) return (upTo[at.first] ?? 0) - (upTo[span.to + 1] ?? 0);
     return 0;
   };
   const kept = new Set(spans.keys());
@@ -181,6 +189,34 @@ export function windowOwes(held: HeldWindow, fresh = 0): boolean {
  *  for each reader, WINDOW_VIEW_MAX_ROWS and the page it asks for, however far any of them pages and however long
  *  another stands still. A tail past its bound is read anew all the same: a reader off its end keeps the rows around
  *  its view, as a stretch of its own. */
+interface OtherReaderHolds {
+  readonly apart: Set<string>;
+  readonly tail: Set<string>;
+  readonly stands: Stand[];
+}
+
+function collectOtherReaderHolds(held: HeldWindow, others: readonly TranscriptMove[]): OtherReaderHolds {
+  const holds: OtherReaderHolds = { apart: new Set(), tail: new Set(), stands: [] };
+  for (const other of others) {
+    if (other.kind === 'follow' || (other.kind === 'read' && other.end === true)) continue;
+    const run = standsIn(held, other);
+    const stand = run && standOf(held, run, other);
+    if (!run || !stand) continue;
+    for (const id of keptNear(held, run, stand)) (run.tail ? holds.tail : holds.apart).add(id);
+    if (run.tail) holds.stands.push(stand);
+  }
+  return holds;
+}
+
+function aroundStand(run: WindowRun, rows: readonly number[], stand: Stand): WindowRangeWant {
+  return {
+    at: 'around',
+    position: run.positions[stand.first] ?? '',
+    before: WINDOW_PAGE_ROWS,
+    after: (rows[stand.last + 1] ?? 0) - (rows[stand.first] ?? 0) + WINDOW_PAGE_ROWS,
+  };
+}
+
 export function windowWant(
   held: HeldWindow,
   move: TranscriptMove | { readonly kind: 'keep' },
@@ -190,20 +226,10 @@ export function windowWant(
 ): WindowWant | null {
   const runs = windowRuns(held);
   const tail = runs.find((run) => run.tail);
-  // What the other readers hold: in the stretches apart, and in the tail's (off its end). Read when a want is made:
-  // a move the window already serves looks at nobody else.
-  let known: { apart: Set<string>; tail: Set<string>; stands: Stand[] } | undefined;
-  const theirs = (): { apart: Set<string>; tail: Set<string>; stands: Stand[] } => {
-    if (known) return known;
-    known = { apart: new Set(), tail: new Set(), stands: [] };
-    for (const other of others) {
-      if (other.kind === 'follow' || (other.kind === 'read' && other.end === true)) continue;
-      const run = standsIn(held, other);
-      const stand = run && standOf(held, run, other);
-      if (!run || !stand) continue;
-      for (const id of keptNear(held, run, stand)) (run.tail ? known.tail : known.apart).add(id);
-      if (run.tail) known.stands.push(stand);
-    }
+  // Read lazily when a want is made: a move the window already serves looks at nobody else.
+  let known: OtherReaderHolds | undefined;
+  const theirs = (): OtherReaderHolds => {
+    known ??= collectOtherReaderHolds(held, others);
     return known;
   };
   // The followed tail's range is the standing hold on what arrives. It is kept while its stretch is within
@@ -211,18 +237,12 @@ export function windowWant(
   // let go by the core).
   const tailHeld = held.ranges.some((range) => range.id === TAIL_RANGE);
   const grown = owes;
-  const around = (run: WindowRun, rows: readonly number[], stand: Stand): WindowRangeWant => ({
-    at: 'around',
-    position: run.positions[stand.first]!,
-    before: WINDOW_PAGE_ROWS,
-    after: rows[stand.last + 1]! - rows[stand.first]! + WINDOW_PAGE_ROWS,
-  });
   // Through a tail read anew, each reader off its end keeps the rows around its view.
   const theirRows = (): WindowRangeWant[] => {
     const { stands } = theirs();
     if (!tail || !stands.length) return [];
     const { upTo } = runLayout(held, tail);
-    return stands.map((stand) => around(tail, upTo, stand));
+    return stands.map((stand) => aroundStand(tail, upTo, stand));
   };
   const asked = (kept: Iterable<string>, ...add: WindowRangeWant[]): WindowWant => ({
     ranges: [...[...new Set(kept)].map(retain), ...add],
@@ -262,17 +282,19 @@ export function windowWant(
         // view, as a stretch of its own until the tail read anew reaches it; one in a stretch apart keeps its rows there.
         if (!run.tail) return anew(keptNear(held, run, at));
         if (move.end === true) return anew([]);
-        return anew([], around(run, at.upTo, at));
+        return anew([], aroundStand(run, at.upTo, at));
       }
       // Near both ends (a short stretch), the older one is paged first; the other is asked by the reader's next move.
       const older = run.older !== null && at.rowsBefore < WINDOW_LEAD_ROWS;
       const newer = !run.tail && run.newer !== null && at.rowsAfter < WINDOW_LEAD_ROWS;
       if (!older && !newer) return null;
+      const edgePosition = older ? run.positions[0] : run.positions.at(-1);
+      if (edgePosition === undefined) return null;
       return within(
         keptNear(held, run, at),
         older
-          ? { at: 'before', position: run.positions[0]!, rows: WINDOW_PAGE_ROWS }
-          : { at: 'after', position: run.positions.at(-1)!, rows: WINDOW_PAGE_ROWS }
+          ? { at: 'before', position: edgePosition, rows: WINDOW_PAGE_ROWS }
+          : { at: 'after', position: edgePosition, rows: WINDOW_PAGE_ROWS }
       );
     }
     case 'at': {
@@ -374,6 +396,15 @@ function servedBy(client: ProtocolClient<SessionFold>, threadId: string, move: S
   return (client.store.thread(threadId)?.state.held?.units.get(move.position)?.rows.length ?? 0) > 0;
 }
 
+function mapFor<V>(store: WeakMap<object, Map<string, V>>, client: object): Map<string, V> {
+  let map = store.get(client);
+  if (!map) {
+    map = new Map();
+    store.set(client, map);
+  }
+  return map;
+}
+
 /** One move asked of the core, from the window the fold holds now. */
 async function step(client: ProtocolClient<SessionFold>, threadId: string, move: Step): Promise<boolean> {
   // What the window owes is read before a reader's move is decided from it.
@@ -394,9 +425,10 @@ async function step(client: ProtocolClient<SessionFold>, threadId: string, move:
   const want = wantOf(held);
   if (!want) return servedBy(client, threadId, move);
   for (let attempt = 0; ; attempt++) {
-    const base = client.store.thread(threadId)?.state.held?.version;
-    if (base === undefined) return false;
-    const now = attempt === 0 ? want : wantOf(client.store.thread(threadId)!.state.held!);
+    const current = client.store.thread(threadId)?.state.held;
+    if (!current) return false;
+    const base = current.version;
+    const now = attempt === 0 ? want : wantOf(current);
     if (!now) return servedBy(client, threadId, move);
     const moved = windowMoved(client, threadId, base);
     try {
@@ -412,14 +444,9 @@ async function step(client: ProtocolClient<SessionFold>, threadId: string, move:
       // asked again from the window held once that one is folded.
       if (!refused(error) || attempt >= 1) {
         moved.stop();
-        const now = client.store.thread(threadId)?.state.held;
-        if (owed && now) {
-          let failed = keepFailed.get(client);
-          if (!failed) {
-            failed = new Map();
-            keepFailed.set(client, failed);
-          }
-          failed.set(threadId, { version: base, rows: rangeRows(now, TAIL_RANGE) });
+        const latest = client.store.thread(threadId)?.state.held;
+        if (owed && latest) {
+          mapFor(keepFailed, client).set(threadId, { version: base, rows: rangeRows(latest, TAIL_RANGE) });
         }
         return false;
       }
@@ -428,14 +455,7 @@ async function step(client: ProtocolClient<SessionFold>, threadId: string, move:
     }
     await moved.landed;
     const read = owed ? client.store.thread(threadId)?.state.held : undefined;
-    if (read) {
-      let fresh = freshTail.get(client);
-      if (!fresh) {
-        fresh = new Map();
-        freshTail.set(client, fresh);
-      }
-      fresh.set(threadId, rangeRows(read, TAIL_RANGE));
-    }
+    if (read) mapFor(freshTail, client).set(threadId, rangeRows(read, TAIL_RANGE));
     return servedBy(client, threadId, move);
   }
 }
@@ -450,11 +470,7 @@ export function moveTranscriptWindow(
   threadId: string,
   move: TranscriptMove
 ): Promise<boolean> {
-  let stood = standing.get(client);
-  if (!stood) {
-    stood = new Map();
-    standing.set(client, stood);
-  }
+  const stood = mapFor(standing, client);
   let readers = stood.get(threadId);
   if (move.kind === 'follow') {
     readers?.delete(move.reader ?? '');
@@ -482,11 +498,7 @@ export function keepTranscriptWindow(client: ProtocolClient<SessionFold>, thread
 }
 
 function drive(client: ProtocolClient<SessionFold>, threadId: string, move: Step): Promise<boolean> {
-  let threads = driving.get(client);
-  if (!threads) {
-    threads = new Map();
-    driving.set(client, threads);
-  }
+  const threads = mapFor(driving, client);
   let d = threads.get(threadId);
   if (!d) {
     d = { queue: [], running: false };

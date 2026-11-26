@@ -96,23 +96,17 @@ function PaneResizeHandle({
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       const isRow = direction === 'row';
-      const delta = isRow
-        ? event.key === 'ArrowLeft'
-          ? -1
-          : event.key === 'ArrowRight'
-            ? 1
-            : 0
-        : event.key === 'ArrowUp'
-          ? -1
-          : event.key === 'ArrowDown'
-            ? 1
-            : 0;
+      const decKey = isRow ? 'ArrowLeft' : 'ArrowUp';
+      const incKey = isRow ? 'ArrowRight' : 'ArrowDown';
+      let delta = 0;
+      if (event.key === decKey) delta = -1;
+      else if (event.key === incKey) delta = 1;
       if (delta === 0) return;
       event.preventDefault();
       const step = event.shiftKey ? 0.1 : 0.05;
       const container = event.currentTarget.parentElement;
       const rect = container?.getBoundingClientRect();
-      const size = rect ? (isRow ? rect.width : rect.height) : 0;
+      const size = (isRow ? rect?.width : rect?.height) ?? 0;
       const next =
         size > 0
           ? clampPaneRatioForSizes(ratio + delta * step, size, firstMinimum, secondMinimum)

@@ -155,7 +155,7 @@ test('a synchronous replacement layer reuses the single sentinel without history
   assert.equal(dom.window.history.state?.mixdogBack, undefined);
 });
 
-test('Round-4 probe 1: next-microtask replacement makes zero history.back() calls and stays armed', async () => {
+test('next-microtask replacement makes zero history.back() calls and stays armed', async () => {
   const closed = [];
   let backCalls = 0;
   let pushCalls = 0;
@@ -270,7 +270,7 @@ test('CloseWatcher browsers share one watcher across stacked layers without touc
   }
 });
 
-test('Round-5 probe 1b: CloseWatcher works without transient user activation and never touches history', async () => {
+test('CloseWatcher works without transient user activation and never touches history', async () => {
   const { watchers, live, activation, triggerClose, uninstall } = installCloseWatcher();
   let releaseSheet = () => {};
   let releaseDock = () => {};
@@ -474,7 +474,7 @@ test('useMobileBack ignores inactive retained surfaces and re-arms when active',
   }
 });
 
-test('Round-3 probe 1: shell + UI-closed overlay + immediate replacement never dismisses replacement over 250 ms delay', async () => {
+test('shell + UI-closed overlay + immediate replacement never dismisses replacement over 250 ms delay', async () => {
   const closed = [];
   const releaseShell = registerMobileBack(() => closed.push('shell'), 'shell');
   const releaseOverlay = registerMobileBack(() => closed.push('overlay'), 'overlay');
@@ -508,7 +508,7 @@ test('Round-3 probe 1: shell + UI-closed overlay + immediate replacement never d
   assert.equal(dom.window.history.state?.mixdogBack, undefined);
 });
 
-test('Round-4 probe 2: 1 -> 0 + replacement triggers zero late cleanup traversal over 410 ms', async () => {
+test('1 -> 0 + replacement triggers zero late cleanup traversal over 410 ms', async () => {
   const closed = [];
   let backCalls = 0;
   const releaseFirst = registerMobileBack(() => closed.push('first'), 'overlay');
@@ -537,7 +537,7 @@ test('Round-4 probe 2: 1 -> 0 + replacement triggers zero late cleanup traversal
   assert.equal(dom.window.history.state?.mixdogBack, undefined);
 });
 
-test('Round-3 probe 3: shell + UI-closed overlay closes shell on the first physical Back even when iframes swallow history.back()', async () => {
+test('shell + UI-closed overlay closes shell on the first physical Back even when iframes swallow history.back()', async () => {
   const closed = [];
   const releaseShell = registerMobileBack(() => closed.push('shell'), 'shell');
   const releaseOverlay = registerMobileBack(() => closed.push('overlay'), 'overlay');
@@ -562,7 +562,7 @@ test('Round-3 probe 3: shell + UI-closed overlay closes shell on the first physi
   assert.equal(dom.window.history.state?.mixdogBack, undefined);
 });
 
-test('Round-4 probe 3a: iframe activity + programmatic 1 -> 0 close + replacement closes replacement on first real Back', async () => {
+test('iframe activity + programmatic 1 -> 0 close + replacement closes replacement on first real Back', async () => {
   dom.window.history.pushState({ page: 'previous' }, '', '/previous');
   dom.window.history.pushState({ page: 'app' }, '', '/app');
 
@@ -598,7 +598,7 @@ test('Round-4 probe 3a: iframe activity + programmatic 1 -> 0 close + replacemen
   assert.equal(dom.window.location.pathname, '/previous');
 });
 
-test('Round-4 probe 3b: programmatic 1 -> 0 close with no replacement forwards browser Back directly to /previous', async () => {
+test('programmatic 1 -> 0 close with no replacement forwards browser Back directly to /previous', async () => {
   dom.window.history.pushState({ page: 'previous' }, '', '/previous');
   dom.window.history.pushState({ page: 'app' }, '', '/app');
 
@@ -626,7 +626,7 @@ test('Round-4 probe 3b: programmatic 1 -> 0 close with no replacement forwards b
   assert.deepEqual(closed, []);
 });
 
-test('Round-4 probe 4a: reload immediately strips stale mixdogBack and Back with no open layer lands on /previous', async () => {
+test('reload immediately strips stale mixdogBack and Back with no open layer lands on /previous', async () => {
   dom.window.history.pushState({ page: 'previous' }, '', '/previous');
   dom.window.history.pushState({ page: 'app' }, '', '/app');
 
@@ -646,7 +646,7 @@ test('Round-4 probe 4a: reload immediately strips stale mixdogBack and Back with
   assert.equal(dom.window.location.pathname, '/previous');
 });
 
-test('Round-4 probe 4b: reload pushes a fresh sentinel for a new layer to truncate forward entries; Back 1 closes layer, Back 2 lands on /previous', async () => {
+test('reload pushes a fresh sentinel for a new layer to truncate forward entries; Back 1 closes layer, Back 2 lands on /previous', async () => {
   dom.window.history.pushState({ page: 'previous' }, '', '/previous');
   dom.window.history.pushState({ page: 'app' }, '', '/app');
 
@@ -715,7 +715,7 @@ test('returning false from Back handler re-arms layer so busy dialogs absorb rep
   assert.equal(dom.window.history.state?.mixdogBack, undefined);
 });
 
-test('Round-3 probe 2: single CloseWatcher ensures prompt veto in same activation never closes parent dock', async () => {
+test('single CloseWatcher ensures prompt veto in same activation never closes parent dock', async () => {
   const { watchers, live, triggerClose, uninstall } = installCloseWatcher();
   let releaseDock = () => {};
   let releasePrompt = () => {};
@@ -774,7 +774,7 @@ test('priority tiers close higher tiers first regardless of registration order, 
   assert.equal(dom.window.history.state?.mixdogBack, undefined);
 });
 
-test('Round-5 probe 1a: 2-layer history fallback closes layer 2 onto layer 1 sentinel with zero pushState in popstate', async () => {
+test('2-layer history fallback closes layer 2 onto layer 1 sentinel with zero pushState in popstate', async () => {
   dom.window.history.pushState({ page: 'previous' }, '', '/previous');
   dom.window.history.pushState({ page: 'app' }, '', '/app');
 
@@ -810,7 +810,7 @@ test('Round-5 probe 1a: 2-layer history fallback closes layer 2 onto layer 1 sen
   }
 });
 
-test('Round-5 probe 2: retained iframe push buries parent sentinel so replacement pushes fresh sentinel on top', async () => {
+test('retained iframe push buries parent sentinel so replacement pushes fresh sentinel on top', async () => {
   // Model browser joint session history where an embedded iframe appends an
   // entry that increases parent `history.length` without changing parent
   // `history.state`, and a Back press off an iframe entry only traverses the
@@ -914,7 +914,7 @@ test('Round-5 probe 2: retained iframe push buries parent sentinel so replacemen
   }
 });
 
-test('Round-5 probe 3: reload over sequenced 2-sentinel stack steps through both sentinels and /app to /previous', async () => {
+test('reload over sequenced 2-sentinel stack steps through both sentinels and /app to /previous', async () => {
   dom.window.history.pushState({ page: 'previous' }, '', '/previous');
   dom.window.history.pushState({ page: 'app' }, '', '/app');
   registerMobileBack(() => {}, 'shell');
@@ -928,7 +928,7 @@ test('Round-5 probe 3: reload over sequenced 2-sentinel stack steps through both
   assert.equal(dom.window.location.pathname, '/previous');
 });
 
-test('Round-5 probe 4: Forward onto a previously popped sentinel adopts it disarmed and Back lands on /previous', async () => {
+test('Forward onto a previously popped sentinel adopts it disarmed and Back lands on /previous', async () => {
   dom.window.history.pushState({ page: 'previous' }, '', '/previous');
   dom.window.history.pushState({ page: 'app' }, '', '/app');
 
@@ -952,7 +952,7 @@ test('Round-5 probe 4: Forward onto a previously popped sentinel adopts it disar
   assert.equal(dom.window.location.pathname, '/previous');
 });
 
-test('Round-6 probe 1: Back then retained iframe replacing forward entry (length 4 -> 4) pushes fresh sentinel on replacement', async () => {
+test('Back then retained iframe replacing forward entry (length 4 -> 4) pushes fresh sentinel on replacement', async () => {
   const entries = [
     { kind: 'parent', url: '/previous', state: { page: 'previous' } },
     { kind: 'parent', url: '/app', state: { page: 'app' } },
@@ -1065,7 +1065,7 @@ test('Round-6 probe 1: Back then retained iframe replacing forward entry (length
   }
 });
 
-test('Round-6 probe 2: dock + vetoing prompt pressed Back twice performs zero pushState inside popstate', async () => {
+test('dock + vetoing prompt pressed Back twice performs zero pushState inside popstate', async () => {
   dom.window.history.pushState({ page: 'previous' }, '', '/previous');
   dom.window.history.pushState({ page: 'app' }, '', '/app');
 
@@ -1117,7 +1117,7 @@ test('Round-6 probe 2: dock + vetoing prompt pressed Back twice performs zero pu
   }
 });
 
-test('Round-6 probe 3: 2 layers -> Back x2 -> Forward x2 stays on /app without calling history.back(), then Back lands on /previous', async () => {
+test('2 layers -> Back x2 -> Forward x2 stays on /app without calling history.back(), then Back lands on /previous', async () => {
   dom.window.history.pushState({ page: 'previous' }, '', '/previous');
   dom.window.history.pushState({ page: 'app' }, '', '/app');
 
@@ -1159,7 +1159,7 @@ test('Round-6 probe 3: 2 layers -> Back x2 -> Forward x2 stays on /app without c
   assert.equal(dom.window.location.pathname, '/previous');
 });
 
-test('Round-6 probe 4: non-native CloseWatcher browser reload over legacy sentinel leaves history.state untouched', async () => {
+test('non-native CloseWatcher browser reload over legacy sentinel leaves history.state untouched', async () => {
   const { watchers, triggerClose, uninstall } = installCloseWatcher();
   const originalReplace = dom.window.history.replaceState.bind(dom.window.history);
   let replaceCalls = 0;
@@ -1191,7 +1191,7 @@ test('Round-6 probe 4: non-native CloseWatcher browser reload over legacy sentin
   }
 });
 
-test('Round-7 probe 1: reload on upper sentinel -> open 1 layer -> Back -> Forward stays on /app without sending user to /prev', async () => {
+test('reload on upper sentinel -> open 1 layer -> Back -> Forward stays on /app without sending user to /prev', async () => {
   dom.window.history.pushState({ page: 'prev' }, '', '/prev');
   dom.window.history.pushState({ page: 'app' }, '', '/app');
 
@@ -1245,7 +1245,7 @@ test('Round-7 probe 1: reload on upper sentinel -> open 1 layer -> Back -> Forwa
   assert.equal(dom.window.location.pathname, '/prev');
 });
 
-test('Round-7 probe 2: reopening a child over a persistent parent keeps history.length constant across repeated cycles', async () => {
+test('reopening a child over a persistent parent keeps history.length constant across repeated cycles', async () => {
   const closed = [];
   const releaseParent = registerMobileBack(() => closed.push('parent'), 'shell');
   assert.equal(dom.window.history.state?.mixdogBack, 1);
@@ -1272,7 +1272,7 @@ test('Round-7 probe 2: reopening a child over a persistent parent keeps history.
   assert.equal(dom.window.history.state?.mixdogBack, undefined);
 });
 
-test('Round-7 probe 3a: at Chromium 50-entry history cap, UI close + replacement pushes fresh sentinel above iframe entry', async () => {
+test('at Chromium 50-entry history cap, UI close + replacement pushes fresh sentinel above iframe entry', async () => {
   const MAX_CAP = 50;
   const entries = [];
   for (let i = 0; i < MAX_CAP - 1; i += 1) {
@@ -1379,7 +1379,7 @@ test('Round-7 probe 3a: at Chromium 50-entry history cap, UI close + replacement
   }
 });
 
-test('Round-7 probe 3b: presence of an iframe in DOM prevents reusing a disarmed sentinel in place', async () => {
+test('presence of an iframe in DOM prevents reusing a disarmed sentinel in place', async () => {
   const iframe = dom.window.document.createElement('iframe');
   dom.window.document.body.appendChild(iframe);
   let pushCalls = 0;
@@ -1409,7 +1409,7 @@ test('Round-7 probe 3b: presence of an iframe in DOM prevents reusing a disarmed
   }
 });
 
-test('Round-8 probe 1: reload on lower legacy sequenceless sentinel -> Forward onto upper legacy sentinel stays on /app without history.back()', async () => {
+test('reload on lower legacy sequenceless sentinel -> Forward onto upper legacy sentinel stays on /app without history.back()', async () => {
   dom.window.history.pushState({ page: 'prev' }, '', '/prev');
   dom.window.history.pushState({ page: 'app' }, '', '/app');
   dom.window.history.pushState({ mixdogBack: 1 }, '', '/app');
@@ -1446,7 +1446,7 @@ test('Round-8 probe 1: reload on lower legacy sequenceless sentinel -> Forward o
   assert.equal(dom.window.location.pathname, '/prev');
 });
 
-test('Round-8 probe 2: forwardingDisarmed hitting oldest entry at history cap does not hijack a later Forward', async () => {
+test('forwardingDisarmed hitting oldest entry at history cap does not hijack a later Forward', async () => {
   // Simulate 50-entry cap where `/app` was evicted so index 0 is a disarmed sentinel.
   const entries = [
     { url: '/app', state: { mixdogBackToken: 'old:48', mixdogBackSeq: 48 } },
@@ -1516,7 +1516,7 @@ test('Round-8 probe 2: forwardingDisarmed hitting oldest entry at history cap do
   }
 });
 
-test('Round-8 probe 3: reload on lower sentinel pushes fresh sentinel when opening a layer, truncating stale forward entry', async () => {
+test('reload on lower sentinel pushes fresh sentinel when opening a layer, truncating stale forward entry', async () => {
   dom.window.history.pushState({ page: 'prev' }, '', '/prev');
   dom.window.history.pushState({ page: 'app' }, '', '/app');
 
@@ -1553,7 +1553,7 @@ test('Round-8 probe 3: reload on lower sentinel pushes fresh sentinel when openi
   assert.equal(dom.window.location.pathname, '/prev');
 });
 
-test('Round-8 probe 4: closing grandchild via UI then Back out of child keeps history.length constant when reopening child', async () => {
+test('closing grandchild via UI then Back out of child keeps history.length constant when reopening child', async () => {
   dom.window.history.pushState({ page: 'prev' }, '', '/prev');
   dom.window.history.pushState({ page: 'app' }, '', '/app');
 
@@ -1603,7 +1603,7 @@ test('Round-8 probe 4: closing grandchild via UI then Back out of child keeps hi
   assert.equal(dom.window.location.pathname, '/prev');
 });
 
-test('Round-8 probe 5: multi-step history jump across a vetoing top layer runs the veto callback only once', async () => {
+test('multi-step history jump across a vetoing top layer runs the veto callback only once', async () => {
   dom.window.history.pushState({ page: 'prev' }, '', '/prev');
   dom.window.history.pushState({ page: 'app' }, '', '/app');
 
@@ -1646,7 +1646,7 @@ test('Round-8 probe 5: multi-step history jump across a vetoing top layer runs t
   }
 });
 
-test('Round-9 probe 1: legacy Forward after reload + push + Back to /app + Forward twice stays put without history.back()', async () => {
+test('legacy Forward after reload + push + Back to /app + Forward twice stays put without history.back()', async () => {
   // Start at `/app` as the oldest entry (no `/prev`), with two legacy sentinels L1, L2.
   const entries = [
     { url: '/app', state: { page: 'app' } },
@@ -1723,7 +1723,7 @@ test('Round-9 probe 1: legacy Forward after reload + push + Back to /app + Forwa
   }
 });
 
-test('Round-9 probe 2a: veto restoration after history jump before iframe jumps atomically over iframe via history.go(delta)', async () => {
+test('veto restoration after history jump before iframe jumps atomically over iframe via history.go(delta)', async () => {
   const entries = [
     { kind: 'parent', url: '/prev', state: { page: 'prev' } },
     { kind: 'parent', url: '/app', state: { page: 'app' } },
@@ -1832,7 +1832,7 @@ test('Round-9 probe 2a: veto restoration after history jump before iframe jumps 
   }
 });
 
-test('Round-9 probe 2b: stalled veto restoration on iframe never blocks future layers from arming', async () => {
+test('stalled veto restoration on iframe never blocks future layers from arming', async () => {
   // Simulate cap-level restoration where historyPos is unavailable and
   // history.forward() advances onto an iframe entry (no parent popstate).
   const entries = [];
@@ -1937,7 +1937,7 @@ test('Round-9 probe 2b: stalled veto restoration on iframe never blocks future l
   }
 });
 
-test('Round-9 probe 3: reopening child when retained iframe navigated into vacated forward slot rebuilds both sentinels above iframe', async () => {
+test('reopening child when retained iframe navigated into vacated forward slot rebuilds both sentinels above iframe', async () => {
   const entries = [
     { kind: 'parent', url: '/prev', state: { page: 'prev' } },
     { kind: 'parent', url: '/app', state: { page: 'app' } },
@@ -2038,7 +2038,7 @@ test('Round-9 probe 3: reopening child when retained iframe navigated into vacat
   }
 });
 
-test('Round-9 probe 4: at 50-entry cap with NO iframe, repeated UI open/close reuses sentinel without evicting /prev', async () => {
+test('at 50-entry cap with NO iframe, repeated UI open/close reuses sentinel without evicting /prev', async () => {
   const MAX_CAP = 50;
   const entries = [];
   for (let i = 0; i < MAX_CAP - 2; i += 1) {
@@ -2114,7 +2114,7 @@ test('Round-9 probe 4: at 50-entry cap with NO iframe, repeated UI open/close re
   }
 });
 
-test('Round-10 probe 1: vetoed dialog after iframe navigation + UI close restores via +1 without go(+2) overshoot', async () => {
+test('vetoed dialog after iframe navigation + UI close restores via +1 without go(+2) overshoot', async () => {
   const entries = [{ kind: 'parent', url: '/app', state: { page: 'app' } }];
   let cursor = 0;
   let outOfRangeGo = 0;
@@ -2226,7 +2226,7 @@ test('Round-10 probe 1: vetoed dialog after iframe navigation + UI close restore
   }
 });
 
-test('Round-10 probe 2: closing all layers after stalled restore at 50-entry cap disarms mixdogBack', async () => {
+test('closing all layers after stalled restore at 50-entry cap disarms mixdogBack', async () => {
   const entries = [];
   for (let i = 0; i < 49; i += 1) {
     entries.push({ kind: 'parent', url: `/p-${i}`, state: { page: i } });
@@ -2324,7 +2324,7 @@ test('Round-10 probe 2: closing all layers after stalled restore at 50-entry cap
   }
 });
 
-test('Round-10 probe 3: Forward from oldest sequenceless legacy entry stays on L2 without history.back()', async () => {
+test('Forward from oldest sequenceless legacy entry stays on L2 without history.back()', async () => {
   // `/app` evicted: only two legacy sequenceless sentinels remain.
   const entries = [
     { url: '/app', state: { mixdogBack: 1 } },
@@ -2396,7 +2396,7 @@ test('Round-10 probe 3: Forward from oldest sequenceless legacy entry stays on L
   }
 });
 
-test('Round-10 probe 4: disarmed sentinel lets normal fragment navigation (/app -> /app#details) stand', async () => {
+test('disarmed sentinel lets normal fragment navigation (/app -> /app#details) stand', async () => {
   dom.window.history.pushState({ page: 'prev' }, '', '/prev');
   dom.window.history.pushState({ page: 'app' }, '', '/app');
 

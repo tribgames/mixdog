@@ -63,8 +63,8 @@ export function uuidv7(nowMs: number): string {
     b[i] = t % 256;
     t = Math.floor(t / 256);
   }
-  b[6] = (b[6]! & 0x0f) | 0x70;
-  b[8] = (b[8]! & 0x3f) | 0x80;
+  b[6] = ((b[6] ?? 0) & 0x0f) | 0x70;
+  b[8] = ((b[8] ?? 0) & 0x3f) | 0x80;
   const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
@@ -93,6 +93,9 @@ export function isTextMedia(mediaType: string): boolean {
  * lib versions reject a `Uint8Array<ArrayBufferLike>` there). */
 type DigestInput = Parameters<typeof crypto.subtle.digest>[1];
 
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+
 const fromB64 = (s: string): Uint8Array => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 const toB64 = (b: Uint8Array): string => {
   let s = '';
@@ -109,17 +112,18 @@ export function setClientFailureText(text: (detail: ClientErrorDetail) => string
   failureText = text;
 }
 
+function defaultFailureMessage(detail: ClientErrorDetail): string {
+  if (detail.kind === 'rpc') {
+    return `${detail.code} ${detail.reason ?? ''} ${detail.message}${refusedArgument(detail.data)}`;
+  }
+  if (detail.kind === 'requestTimeout') return `The core did not answer ${detail.method} in time.`;
+  return detail.kind;
+}
+
 export class ClientFailure extends Error implements ClientError {
   readonly detail: ClientErrorDetail;
   constructor(detail: ClientErrorDetail) {
-    super(
-      failureText?.(detail) ??
-        (detail.kind === 'rpc'
-          ? `${detail.code} ${detail.reason ?? ''} ${detail.message}${refusedArgument(detail.data)}`
-          : detail.kind === 'requestTimeout'
-            ? `The core did not answer ${detail.method} in time.`
-            : detail.kind)
-    );
+    super(failureText?.(detail) ?? defaultFailureMessage(detail));
     this.name = 'ClientError';
     this.detail = detail;
   }
@@ -978,7 +982,7 @@ class Engine implements ProtocolClient<Json> {
     const limit = this.server?.limits?.maxInboundFrameBytes;
     // A UTF-8 character is at most 3 bytes per UTF-16 unit, so a short enough text needs no encoding to be measured.
     if (limit !== undefined && text.length * 3 > limit) {
-      const bytes = new TextEncoder().encode(text).byteLength;
+      const bytes = textEncoder.encode(text).byteLength;
       if (bytes > limit)
         throw fail({
           kind: 'protocolViolation',
@@ -1114,7 +1118,8 @@ class Engine implements ProtocolClient<Json> {
             loop = false;
           }
         }
-        const next = this.inbox.shift()!;
+        const next = this.inbox.shift();
+        if (!next) break;
         if (next.conn !== this.connSeq) continue;
         if (next.text === null) this.onClosed();
         else this.onFrame(next.text);
@@ -1256,7 +1261,10 @@ class Engine implements ProtocolClient<Json> {
     if (snapshot) this.repeated.delete(f.id);
     else if (!fenced && this.repeats(f)) return;
     if (!snapshot && !fenced && (!cur || cur.epoch !== f.epoch || firstOf(f) !== cur.seq + 1)) {
-      this.feedGap(n, f, f.id === WIRE.appFeedId ? 'app' : tracked ? 'thread' : 'control');
+      let feedKind: 'app' | 'thread' | 'control' = 'control';
+      if (f.id === WIRE.appFeedId) feedKind = 'app';
+      else if (tracked) feedKind = 'thread';
+      this.feedGap(n, f, feedKind);
       return;
     }
     const order = this.received(f.id, f.epoch, f.seq);
@@ -1457,7 +1465,9 @@ class Engine implements ProtocolClient<Json> {
         await wait;
         if (!this.current(WIRE.appFeedId, gen, tok)) return;
       }
-      const r = owed[0]!.next();
+      const head = owed[0];
+      if (!head) break;
+      const r = head.next();
       if (r.done) owed.shift();
       else if (r.value) this.store.emit({ type: 'section', section: r.value.section, key: r.value.key });
     }
@@ -1484,7 +1494,7 @@ class Engine implements ProtocolClient<Json> {
     if (isBlobStub(v)) {
       if (!isTextMedia(v.blob.mediaType)) return v as unknown as Json;
       try {
-        return new TextDecoder().decode(await this.readPages(v.blob, true));
+        return textDecoder.decode(await this.readPages(v.blob, true));
       } catch (e) {
         const d = detailOf(e);
         if (isConnectionEnd(d)) throw e;
@@ -1573,6 +1583,21 @@ class Engine implements ProtocolClient<Json> {
     return this.requestResume(threadId, window, options);
   }
 
+  private effectiveResumeWindow(
+    threadId: string,
+    window: ResumeWindow,
+    follow: boolean | undefined,
+    current: Attach | undefined
+  ): ResumeWindow {
+    const requested =
+      current?.window ?? this.subs.get(threadId) ?? this.lostWindows.get(threadId) ?? this.foldedWindow.get(threadId);
+    if (follow && requested && !('none' in requested) && !windowCovers(window, requested)) window = requested;
+    window = retainWindow(window, this.lostWindows.get(threadId));
+    window = retainWindow(window, this.foldedWindow.get(threadId));
+    window = retainWindow(window, this.subs.get(threadId));
+    return retainWindow(window, current?.window);
+  }
+
   private requestResume(
     threadId: string,
     window: ResumeWindow,
@@ -1580,16 +1605,7 @@ class Engine implements ProtocolClient<Json> {
     restoring = false
   ): Promise<ThreadResumeResponse> {
     const current = this.resuming.get(threadId);
-    if (!restoring) {
-      const requested =
-        current?.window ?? this.subs.get(threadId) ?? this.lostWindows.get(threadId) ?? this.foldedWindow.get(threadId);
-      if (options?.follow && requested && !('none' in requested) && !windowCovers(window, requested))
-        window = requested;
-      window = retainWindow(window, this.lostWindows.get(threadId));
-      window = retainWindow(window, this.foldedWindow.get(threadId));
-      window = retainWindow(window, this.subs.get(threadId));
-      window = retainWindow(window, current?.window);
-    }
+    if (!restoring) window = this.effectiveResumeWindow(threadId, window, options?.follow, current);
     if (current && !current.done) {
       // One attach of a thread is out at a time, whoever asks and for whatever window: a caller it answers waits for it.
       if (windowCovers(current.window, window)) return this.awaitAttach(current, options, false);
@@ -1898,7 +1914,8 @@ class Engine implements ProtocolClient<Json> {
     return (
       feedIds.every((id) => live.has(id)) &&
       positions.every((head, i) => {
-        const id = active[i]!;
+        const id = active[i];
+        if (id === undefined) return false;
         const received = this.recv.get(id);
         return (
           head !== null && !this.awaitingSnapshot.has(id) && received?.epoch === head.epoch && received.seq >= head.seq
@@ -1963,6 +1980,25 @@ class Engine implements ProtocolClient<Json> {
 
   // ── calls ──
 
+  private callSyncHook(method: string, params: Json): ((v: Json) => void) | undefined {
+    if (startsControlThread(method, params)) return (v) => void this.holdStarted(v, true);
+    const feedId = (params as { feedId?: string } | null)?.feedId;
+    if (!feedId) return undefined;
+    if (method === 'feed/subscribe') return (v) => this.attached(feedId, v);
+    if (method === 'feed/unsubscribe') {
+      return () => {
+        this.recv.delete(feedId);
+        this.feedChains.delete(feedId);
+        if (!this.requestsFor.has(feedId)) this.threadLastEvent.delete(feedId);
+        this.repeated.delete(feedId);
+        this.awaitingSnapshot.delete(feedId);
+        this.dropToken(feedId);
+        this.subId.delete(feedId);
+      };
+    }
+    return undefined;
+  }
+
   call(method: string, params: unknown, options?: CallOptions): Promise<never> {
     const info = methodInfo(method);
     if (!info) return Promise.reject(fail({ kind: 'unknownMethod', method }));
@@ -1975,22 +2011,7 @@ class Engine implements ProtocolClient<Json> {
       } as Json;
     }
     const opId = info.mutation ? (p as { opId: string }).opId : null;
-    const feedId = (p as { feedId?: string } | null)?.feedId;
-    const sync = startsControlThread(method, p)
-      ? (v: Json) => void this.holdStarted(v, true)
-      : method === 'feed/subscribe' && feedId
-        ? (v: Json) => this.attached(feedId, v)
-        : method === 'feed/unsubscribe' && feedId
-          ? () => {
-              this.recv.delete(feedId);
-              this.feedChains.delete(feedId);
-              if (!this.requestsFor.has(feedId)) this.threadLastEvent.delete(feedId);
-              this.repeated.delete(feedId);
-              this.awaitingSnapshot.delete(feedId);
-              this.dropToken(feedId);
-              this.subId.delete(feedId);
-            }
-          : undefined;
+    const sync = this.callSyncHook(method, p);
     return this.bounded(method, options?.timeoutMs, opId, (limit) =>
       this.run(method, p, info, sync, false, options?.sent, limit)
     ) as Promise<never>;

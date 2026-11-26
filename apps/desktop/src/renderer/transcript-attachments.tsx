@@ -85,10 +85,10 @@ export function extractEscapedFileMarkers(text: string): ReturnType<typeof extra
 export function splitInlinePastes(text: string): Array<{ text: string } | { paste: number }> {
   return text
     .split(new RegExp(PASTE_INLINE_RE.source, 'g'))
-    .flatMap(
-      (part, index): Array<{ text: string } | { paste: number }> =>
-        index % 2 ? [{ paste: Number(part) }] : part.trim() ? [{ text: unescapeInlineSentinels(part) }] : []
-    );
+    .flatMap((part, index): Array<{ text: string } | { paste: number }> => {
+      if (index % 2) return [{ paste: Number(part) }];
+      return part.trim() ? [{ text: unescapeInlineSentinels(part) }] : [];
+    });
 }
 
 /** Strips `[Pasted text #N +K lines]` tokens into cards. A token whose
@@ -474,7 +474,6 @@ export function SentAttachments({
           const name = image.name || t('Attached image');
           return (
             <SentImageCard
-              // biome-ignore lint/suspicious/noArrayIndexKey: a sent message's images never reorder; the index separates images this window did not send.
               key={slot === undefined ? `listed-${index}` : `image-${slot}`}
               session={session}
               attachmentRef={image.attachmentRef}
@@ -489,7 +488,6 @@ export function SentAttachments({
           const slot = markerSlots[index]?.slot;
           return (
             <SentImageCard
-              // biome-ignore lint/suspicious/noArrayIndexKey: chips are parsed from a sent message and never reorder.
               key={slot === undefined ? `marker-${index}` : `image-${slot}`}
               session={session}
               attachmentRef={markerSlots[index]?.ref}
@@ -572,7 +570,9 @@ export function ReturnedAttachments({ records }: { records: TranscriptItem['atta
             />
           );
         }
-        const kind = record.kind === 'text' ? 'text-file' : record.mimeType === 'application/pdf' ? 'pdf' : 'office';
+        let kind: 'text-file' | 'pdf' | 'office' = 'office';
+        if (record.kind === 'text') kind = 'text-file';
+        else if (record.mimeType === 'application/pdf') kind = 'pdf';
         const source = { kind, name: record.name, stored: storedAttachmentRef(session, record.id) } as const;
         return (
           <AttachmentCard

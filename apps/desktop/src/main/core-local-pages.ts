@@ -65,11 +65,12 @@ export function createCoreLocalPages(invoke: Invoke, core?: Pick<ProtocolConnect
     if (owner && ownerId) {
       let ids = ownerIdsByOwner.get(owner);
       if (!ids) {
-        ids = new Set();
-        ownerIdsByOwner.set(owner, ids);
+        const created = new Set<string>();
+        ids = created;
+        ownerIdsByOwner.set(owner, created);
         owner.once('destroyed', () => {
-          const toRevoke = [...ids!];
-          ids!.clear();
+          const toRevoke = [...created];
+          created.clear();
           for (const id of toRevoke) {
             ownerSetById.delete(id);
             void sendRevoke(id);

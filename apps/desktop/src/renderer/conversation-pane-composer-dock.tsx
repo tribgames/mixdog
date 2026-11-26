@@ -259,10 +259,11 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
   const onScreen = useSurfaceActive();
   const handOver = useContext(PaneHandOverContext);
   const SessionRail = useDeferredModule(sessionRailModule, { load: Boolean(railSlot.element) })?.default;
+  const railDraftId = draftMode ? draftId : '';
   const railPlace = SessionRail
     ? sessionRailPlace(railSlot, {
         sessionId: railSessionId,
-        draftId: draftMode ? draftId : '',
+        draftId: railDraftId,
         onScreen,
         handOver,
       })
@@ -271,6 +272,9 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
   const contextControls = Boolean(showProjectSelector) && !agentMode;
   const railShown = railPlace.taken;
   const railHeld = useRailHeld(railShown);
+  let projectScope = routeProject;
+  if (draftMode) projectScope = activeProjectPath;
+  else if (held) projectScope = '';
   return (
     <>
       {SessionRail &&
@@ -366,7 +370,7 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
             draftMode ? `draft:${draftId || 'default'}` : selectedSessionId || sessionAddress || routeScope
           }
           recoveryScope={held ? transcriptRowNamespace(heldSessionId) : props.recoveryScope}
-          projectScope={draftMode ? activeProjectPath : held ? '' : routeProject}
+          projectScope={projectScope}
           sessionId={heldSessionId || routeSessionId}
           hasConversation={held || props.hasConversation}
           promptHistoryList={held ? undefined : routeSnapshot.promptHistoryList}

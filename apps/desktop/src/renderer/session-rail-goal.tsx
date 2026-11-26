@@ -1,6 +1,6 @@
 // The session panel's Goal and To-do categories, on the island's goal model.
 import { ChevronDown, ChevronRight, Pause, Pencil, Play, Square, X } from 'lucide-react';
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, type ReactNode, useEffect, useRef, useState } from 'react';
 import { CapabilityIcon } from './CapabilityIcon';
 import { ComposerGoalDialog } from './ComposerGoalDialog';
 import type { GoalSnapshot } from './desktop-types';
@@ -102,6 +102,80 @@ export function GoalSection({ model, open, onToggle }: { model: GoalModel; open:
     editOpener.current = opener;
     setEditing({ ...goal });
   };
+  const objectiveText = cutObjective ? objective : title;
+  const objectiveExpanded = cutObjective && detail;
+  const objectiveClassName = objectiveExpanded ? undefined : 'session-rail-cut';
+  const chevronIcon = detail ? (
+    <ChevronDown size={12} className="session-rail-cv" aria-hidden="true" />
+  ) : (
+    <ChevronRight size={12} className="session-rail-cv" aria-hidden="true" />
+  );
+  const titleNode = showObjective ? (
+    <button
+      type="button"
+      className="session-rail-row session-rail-goal-title"
+      aria-expanded={detail}
+      data-whole={objectiveExpanded || undefined}
+      onClick={() => setDetail(!detail)}
+    >
+      <CapabilityIcon name="goal" size={14} className="session-rail-ic" />
+      <span className={objectiveClassName}>{objectiveText}</span>
+      {chevronIcon}
+    </button>
+  ) : (
+    <p className="session-rail-goal-text session-rail-goal-marked">
+      <CapabilityIcon name="goal" size={14} className="session-rail-ic" />
+      <span>{title}</span>
+    </p>
+  );
+  let goalControls: ReactNode = null;
+  if (terminal) {
+    goalControls = (
+      <button
+        type="button"
+        className="session-rail-text-button"
+        disabled={pending}
+        onClick={() => void model.control('dismiss')}
+      >
+        {t('Dismiss goal')}
+      </button>
+    );
+  } else if (!confirming) {
+    const toggleControl = active
+      ? iconButton(t('Pause'), Pause, () => void model.control('pause'))
+      : iconButton(t('Resume'), Play, (button) => {
+          if (exhausted) edit(button);
+          else void model.control('resume');
+        });
+    goalControls = (
+      <>
+        {iconButton(t('Edit goal'), Pencil, edit)}
+        {toggleControl}
+        {iconButton(t('Stop goal'), Square, () => setConfirmStop(true), {
+          danger: true,
+          ref: (button) => {
+            stopButton.current = button;
+          },
+        })}
+        {/* A stalled Goal (paused, blocked, out of time) waits for the user: it can be let go, as on the island. */}
+        {model.dismissible && iconButton(t('Dismiss goal'), X, () => void model.control('dismiss'))}
+      </>
+    );
+  }
+  let noteNode: ReactNode = null;
+  if (error) {
+    noteNode = (
+      <p className="session-rail-note" data-tone="error" role="alert">
+        {error}
+      </p>
+    );
+  } else if (goal.blocker) {
+    noteNode = (
+      <p className="session-rail-note" data-tone={model.noteTone === 'blocked' ? 'warning' : undefined}>
+        {String(goal.blocker)}
+      </p>
+    );
+  }
   return (
     <RailSection
       category="goal"
@@ -111,68 +185,14 @@ export function GoalSection({ model, open, onToggle }: { model: GoalModel; open:
       summary={<GoalState model={model} />}
     >
       <div ref={root} className="session-rail-goal">
-        {showObjective ? (
-          <button
-            type="button"
-            className="session-rail-row session-rail-goal-title"
-            aria-expanded={detail}
-            data-whole={(cutObjective && detail) || undefined}
-            onClick={() => setDetail(!detail)}
-          >
-            <CapabilityIcon name="goal" size={14} className="session-rail-ic" />
-            {cutObjective && detail ? (
-              <span>{objective}</span>
-            ) : (
-              <span className="session-rail-cut">{cutObjective ? objective : title}</span>
-            )}
-            {detail ? (
-              <ChevronDown size={12} className="session-rail-cv" aria-hidden="true" />
-            ) : (
-              <ChevronRight size={12} className="session-rail-cv" aria-hidden="true" />
-            )}
-          </button>
-        ) : (
-          <p className="session-rail-goal-text session-rail-goal-marked">
-            <CapabilityIcon name="goal" size={14} className="session-rail-ic" />
-            <span>{title}</span>
-          </p>
-        )}
+        {titleNode}
         {showObjective && !cutObjective && detail && (
           <p className="session-rail-goal-text session-rail-muted">{objective}</p>
         )}
         <div ref={line} className="session-rail-goal-line" role="status">
           <GoalState model={model} />
           <span className="session-rail-grow" />
-          {terminal ? (
-            <button
-              type="button"
-              className="session-rail-text-button"
-              disabled={pending}
-              onClick={() => void model.control('dismiss')}
-            >
-              {t('Dismiss goal')}
-            </button>
-          ) : (
-            !confirming && (
-              <>
-                {iconButton(t('Edit goal'), Pencil, edit)}
-                {active
-                  ? iconButton(t('Pause'), Pause, () => void model.control('pause'))
-                  : iconButton(t('Resume'), Play, (button) => {
-                      if (exhausted) edit(button);
-                      else void model.control('resume');
-                    })}
-                {iconButton(t('Stop goal'), Square, () => setConfirmStop(true), {
-                  danger: true,
-                  ref: (button) => {
-                    stopButton.current = button;
-                  },
-                })}
-                {/* A stalled Goal (paused, blocked, out of time) waits for the user: it can be let go, as on the island. */}
-                {model.dismissible && iconButton(t('Dismiss goal'), X, () => void model.control('dismiss'))}
-              </>
-            )
-          )}
+          {goalControls}
         </div>
         {confirming && (
           // biome-ignore lint/a11y/useSemanticElements: a fieldset's border and padding would change the panel.
@@ -200,15 +220,7 @@ export function GoalSection({ model, open, onToggle }: { model: GoalModel; open:
             </button>
           </div>
         )}
-        {error ? (
-          <p className="session-rail-note" data-tone="error" role="alert">
-            {error}
-          </p>
-        ) : goal.blocker ? (
-          <p className="session-rail-note" data-tone={model.noteTone === 'blocked' ? 'warning' : undefined}>
-            {String(goal.blocker)}
-          </p>
-        ) : null}
+        {noteNode}
       </div>
       {editingShown && (
         <ComposerGoalDialog

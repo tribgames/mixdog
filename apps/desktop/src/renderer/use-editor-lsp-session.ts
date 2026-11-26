@@ -108,6 +108,38 @@ export function useEditorLspSession({
   );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `api` is the bridge object; its methods are read at call time.
+  const openAttachedDocument = useCallback(
+    (
+      model: import('monaco-editor').editor.ITextModel,
+      languageId: string,
+      epoch: number,
+      attachmentId: string
+    ): Promise<DesktopLspServerState | null> => {
+      if (!api?.lspDocument) return Promise.resolve(null);
+      const opening = api.lspDocument({
+        kind: 'open',
+        projectPath,
+        relPath,
+        languageId,
+        version: model.getVersionId(),
+        content: model.getValue(),
+        attachmentId,
+      });
+      lspOpenPromise.current = opening;
+      return opening.then((state) => {
+        if (epoch !== lspAttachmentEpoch.current || !lspAttached.current) return null;
+        acceptLspState(state, languageId);
+        if (state.available) {
+          lspEverOpened.current = true;
+          lspLastVersion.current = model.getVersionId();
+        }
+        return state;
+      });
+    },
+    [acceptLspState, api, projectPath, relPath]
+  );
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `api` is the bridge object; its methods are read at call time.
   const syncLsp = useCallback(
     async (kind: 'change' | 'save' = 'change'): Promise<boolean> => {
       const model = readModel();
@@ -118,25 +150,9 @@ export function useEditorLspSession({
         lspReopenAt.current = Date.now() + 5_000;
         const epoch = lspAttachmentEpoch.current;
         if (!lspAttachmentId.current) lspAttachmentId.current = createLspAttachmentId();
-        const attachmentId = lspAttachmentId.current;
-        const reopening = api.lspDocument({
-          kind: 'open',
-          projectPath,
-          relPath,
-          languageId: model.getLanguageId(),
-          version: model.getVersionId(),
-          content: model.getValue(),
-          attachmentId,
-        });
-        lspOpenPromise.current = reopening;
         try {
-          const state = await reopening;
-          if (epoch !== lspAttachmentEpoch.current || !lspAttached.current) return false;
-          acceptLspState(state, model.getLanguageId());
-          if (!state.available) return false;
-          lspEverOpened.current = true;
-          lspLastVersion.current = model.getVersionId();
-          return true;
+          const state = await openAttachedDocument(model, model.getLanguageId(), epoch, lspAttachmentId.current);
+          return Boolean(state?.available);
         } catch {
           return false;
         }
@@ -265,25 +281,9 @@ export function useEditorLspSession({
       lspAttachmentId.current = attachmentId;
       lspEverOpened.current = false;
       lspLanguageId.current = languageId;
-      const opening = api.lspDocument({
-        kind: 'open',
-        projectPath,
-        relPath,
-        languageId,
-        version: model.getVersionId(),
-        content: model.getValue(),
-        attachmentId,
-      });
-      lspOpenPromise.current = opening;
-      void opening
+      void openAttachedDocument(model, languageId, epoch, attachmentId)
         .then((state) => {
-          if (epoch !== lspAttachmentEpoch.current || !lspAttached.current) return;
-          acceptLspState(state, languageId);
-          if (state.available) {
-            lspEverOpened.current = true;
-            lspLastVersion.current = model.getVersionId();
-          }
-          void updateOutline();
+          if (state) void updateOutline();
         })
         .catch(() => {
           if (epoch === lspAttachmentEpoch.current) lspReady.current = false;
@@ -292,7 +292,17 @@ export function useEditorLspSession({
     }
     if (!lspAttached.current) return;
     closeAttachedDocument(model);
-  }, [acceptLspState, active, api, closeAttachedDocument, readModel, modelUri, projectPath, relPath, updateOutline]);
+  }, [
+    active,
+    api,
+    closeAttachedDocument,
+    modelUri,
+    openAttachedDocument,
+    projectPath,
+    readModel,
+    relPath,
+    updateOutline,
+  ]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `api` is the bridge object; its methods are read at call time.
   const disposeLsp = useCallback(

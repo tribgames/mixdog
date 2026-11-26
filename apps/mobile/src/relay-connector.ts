@@ -97,7 +97,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
   let release: (() => void) | null = null;
   let held: Promise<void> | null = null;
 
-  const away = (): boolean => suspended || (deps.visible ? !deps.visible() : false);
+  const away = (): boolean => suspended || deps.visible?.() === false;
   deps.signal?.addEventListener('abort', () => {
     release?.();
     // The abort ends every socket the connector still owns, a parked one (no session, no listener of its own) included.

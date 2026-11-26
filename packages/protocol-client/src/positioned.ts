@@ -117,7 +117,8 @@ function adoptHeldUnit(unit: HeldUnit, held: HeldUnit | undefined): HeldUnit {
   if (!held || held === unit) return unit;
   let rows: Obj[] | undefined;
   for (let at = 0; at < unit.rows.length; at += 1) {
-    const row = unit.rows[at]!;
+    const row = unit.rows[at];
+    if (!row) continue;
     const prior = held.rows.find((candidate) => candidate.id === row.id);
     if (!prior || prior === row) continue;
     if (!heldInPlace(row, prior)) adoptHeldText(row, prior);
@@ -187,14 +188,17 @@ export function windowChanged(held: HeldWindow | undefined, params: unknown, own
     return [{ id: range.id, older: edge(range.older), newer: edge(range.newer), positions }];
   });
   // A tail the change reads anew, or no longer lists, has no hole left from before.
-  const gap = held?.gap !== undefined && !added.has(TAIL_RANGE) && ranges.some((range) => range.id === TAIL_RANGE);
+  const gap =
+    held?.gap !== undefined && !added.has(TAIL_RANGE) && ranges.some((range) => range.id === TAIL_RANGE)
+      ? held.gap
+      : undefined;
   return pruned({
     version: typeof p.windowVersion === 'number' ? p.windowVersion : (held?.version ?? 0),
     lineage: typeof p.lineage === 'number' ? p.lineage : (held?.lineage ?? 0),
     followTail: p.followTail === true,
     ranges,
     units,
-    ...(gap ? { gap: held!.gap } : {}),
+    ...(gap !== undefined ? { gap } : {}),
   });
 }
 
@@ -225,7 +229,10 @@ const removeShownId = (ids: Map<unknown, string | Set<string>>, id: unknown, pos
   } else if (typeof existing !== 'string') {
     existing.delete(position);
     if (existing.size === 0) ids.delete(id);
-    else if (existing.size === 1) ids.set(id, existing.values().next().value!);
+    else if (existing.size === 1) {
+      const only = existing.values().next().value;
+      if (only !== undefined) ids.set(id, only);
+    }
   }
 };
 const noteShown = (ids: Map<unknown, string | Set<string>>, position: string, unit: HeldUnit): void => {
@@ -290,11 +297,17 @@ const layoutOf = new WeakMap<WindowRun, RunLayout>();
 export function runLayout(window: HeldWindow, run: WindowRun): RunLayout {
   let layout = layoutOf.get(run);
   if (!layout) {
-    layout = { index: new Map(), upTo: [0] };
-    run.positions.forEach((position, at) => {
-      layout!.index.set(position, at);
-      layout!.upTo.push(layout!.upTo[at]! + (window.units.get(position)?.rows.length ?? 0));
-    });
+    const index = new Map<string, number>();
+    const upTo = [0];
+    let total = 0;
+    for (let at = 0; at < run.positions.length; at += 1) {
+      const position = run.positions[at];
+      if (position === undefined) continue;
+      index.set(position, at);
+      total += window.units.get(position)?.rows.length ?? 0;
+      upTo.push(total);
+    }
+    layout = { index, upTo };
     if (work) work.copied += run.positions.length;
     layoutOf.set(run, layout);
   }
@@ -373,7 +386,10 @@ function toldUnits(
   if (work) work.copied += over.size;
   over.set(position, unit);
   const held = units.has(position);
-  return new ToldUnits(layered?.base ?? units, over, units.size + (unit ? (held ? 0 : 1) : held ? -1 : 0));
+  let delta = 0;
+  if (unit && !held) delta = 1;
+  else if (!unit && held) delta = -1;
+  return new ToldUnits(layered?.base ?? units, over, units.size + delta);
 }
 
 /** How many changes back a reader of a run looks for the units it last read: one that fell further behind reads again. */
@@ -421,7 +437,10 @@ export function runUnchanged(
   if (!now || !then || now.line !== then.line || now.seq < then.seq) return false;
   const { positions, first } = now.line;
   if (then.seq + 1 < first) return false;
-  for (let seq = then.seq + 1; seq <= now.seq; seq += 1) if (held.has(positions[seq - first]!)) return false;
+  for (let seq = then.seq + 1; seq <= now.seq; seq += 1) {
+    const position = positions[seq - first];
+    if (position !== undefined && held.has(position)) return false;
+  }
   return true;
 }
 
@@ -438,8 +457,9 @@ export interface Changed {
 export function transcriptChanged(held: HeldWindow, change: unknown, own: RowOwner): Changed | null {
   const c = asObj(change);
   if (c.op === 'remove') {
-    if (typeof c.position !== 'string' || !held.units.has(c.position)) return null;
-    const gone = held.units.get(c.position)!;
+    if (typeof c.position !== 'string') return null;
+    const gone = held.units.get(c.position);
+    if (!gone) return null;
     const ranges = held.ranges.map((range) =>
       range.positions.includes(c.position as string)
         ? { ...range, positions: range.positions.filter((position) => position !== c.position) }
@@ -455,8 +475,8 @@ export function transcriptChanged(held: HeldWindow, change: unknown, own: RowOwn
   const { position } = read;
   const unit = adoptHeldUnit(read.unit, held.units.get(position));
   if (c.op === 'replace') {
-    if (!held.units.has(position)) return null;
-    const was = held.units.get(position)!;
+    const was = held.units.get(position);
+    if (!was) return null;
     const units = toldUnits(held.units, position, unit);
     noteChange(held.units, units, position);
     carryShown(held.units, units, position);
@@ -483,7 +503,8 @@ export function transcriptChanged(held: HeldWindow, change: unknown, own: RowOwn
   carryShown(held.units, units, position);
   const ranges = held.ranges.slice();
   const at = ranges.findIndex((range) => range.id === TAIL_RANGE);
-  if (at < 0) {
+  const tail = at < 0 ? undefined : ranges[at];
+  if (!tail) {
     // The first record the followed tail holds makes its range; one stored before it is where the range continues.
     ranges.push({
       id: TAIL_RANGE,
@@ -492,15 +513,19 @@ export function transcriptChanged(held: HeldWindow, change: unknown, own: RowOwn
       positions: [position],
     });
   } else {
-    const tail = ranges[at]!;
     if (held.units.has(position) && tail.positions.includes(position)) {
       ranges[at] = { ...tail, newer: null };
     } else {
       // The record stands where its ordinal says, among the records the tail holds: after the newest one stored
       // before it. One that states no ordinal is the newest.
       let place = tail.positions.length;
-      if (unit.ordinal !== undefined)
-        while (place > 0 && (held.units.get(tail.positions[place - 1]!)?.ordinal ?? -1) > unit.ordinal) place -= 1;
+      if (unit.ordinal !== undefined) {
+        while (place > 0) {
+          const prevPos = tail.positions[place - 1];
+          if (prevPos === undefined || (held.units.get(prevPos)?.ordinal ?? -1) <= unit.ordinal) break;
+          place -= 1;
+        }
+      }
       const before = tail.positions[place - 1];
       // The core names the stored record shown before it. The tail holding another there has a hole between them; so
       // has a tail the record lands before all of: what lies between it and the tail's first record is not known.
@@ -534,7 +559,9 @@ export function transcriptChanged(held: HeldWindow, change: unknown, own: RowOwn
 function joined(a: readonly string[], b: readonly string[]): string[] | null {
   const inA = new Map(a.map((position, index) => [position, index]));
   for (let j = 0; j < b.length; j++) {
-    const i = inA.get(b[j]!);
+    const position = b[j];
+    if (position === undefined) continue;
+    const i = inA.get(position);
     if (i === undefined) continue;
     const prefix = i >= j ? a.slice(0, i) : b.slice(0, j);
     const suffix = a.length - i >= b.length - j ? a.slice(i) : b.slice(j);
@@ -549,10 +576,13 @@ function merged(window: HeldWindow, a: readonly string[], b: readonly string[]):
   const inA = new Set(a);
   if (!b.some((position) => inA.has(position))) return null;
   const all = [...a, ...b.filter((position) => !inA.has(position))];
-  const ordinals = all.map((position) => window.units.get(position)?.ordinal);
-  if (ordinals.some((ordinal) => ordinal === undefined)) return joined(a, b);
-  const order = new Map(all.map((position, at) => [position, ordinals[at]!]));
-  return all.sort((x, y) => order.get(x)! - order.get(y)!);
+  const order = new Map<string, number>();
+  for (const position of all) {
+    const ordinal = window.units.get(position)?.ordinal;
+    if (ordinal === undefined) return joined(a, b);
+    order.set(position, ordinal);
+  }
+  return all.sort((x, y) => (order.get(x) ?? 0) - (order.get(y) ?? 0));
 }
 
 const runsOf = new WeakMap<HeldWindow, readonly WindowRun[]>();
@@ -574,7 +604,7 @@ function carryRuns(prior: HeldWindow, next: HeldWindow, position: string, unit: 
   const layout = layoutOf.get(tail);
   if (layout && layout.upTo.length === tail.positions.length + 1) {
     layout.index.set(position, tail.positions.length);
-    layout.upTo.push(layout.upTo.at(-1)! + unit.rows.length);
+    layout.upTo.push((layout.upTo.at(-1) ?? 0) + unit.rows.length);
     layoutOf.set(longer, layout);
   }
   runsOf.set(

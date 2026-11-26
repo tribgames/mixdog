@@ -109,8 +109,6 @@ export function endVisualizeCapture(): void {
   capturesInFlight = Math.max(0, capturesInFlight - 1);
 }
 
-// ── Choice proposals (no gesture token): one confirm bar per pane ────────
-
 /** Fewest ms between two bar updates of one pane; faster proposals drop. */
 export const VISUALIZE_PROPOSAL_MIN_INTERVAL_MS = 300;
 /** A bar left alone dismisses itself after this long. */
@@ -181,20 +179,23 @@ export function useVisualizeChoiceProposal(key: string): VisualizeChoiceProposal
   );
 }
 
+function dropProposals(shouldDrop: (key: string) => boolean): void {
+  for (const key of [...proposedAt.keys()]) if (shouldDrop(key)) proposedAt.delete(key);
+  const kept = new Map([...proposals].filter(([key]) => !shouldDrop(key)));
+  if (kept.size === proposals.size) return;
+  proposals = kept;
+  emitProposals();
+}
+
 /** A tab closed (every pane), a compare pane went away (`fromPane`), or the
  *  session was deleted (no tab): their confirm bars, with the page-reset
  *  closures they hold, go. */
 export function releaseVisualizeProposals(sessionId: string, tabId?: string, fromPane = 0): void {
-  const owned = (key: string): boolean => {
+  dropProposals((key) => {
     const [session, tab, pane] = key.split('\0');
     if (session !== sessionId) return false;
     return tabId === undefined || (tab === tabId && Number(pane) >= fromPane);
-  };
-  for (const key of [...proposedAt.keys()]) if (owned(key)) proposedAt.delete(key);
-  const kept = new Map([...proposals].filter(([key]) => !owned(key)));
-  if (kept.size === proposals.size) return;
-  proposals = kept;
-  emitProposals();
+  });
 }
 
 /** Reconcile a session's choice proposals against its surviving `tabs`: drops
@@ -208,17 +209,12 @@ export function pruneVisualizeProposals(
     return;
   }
   const paneCounts = new Map(tabs.map((tab) => [tab.id, tab.panes.length]));
-  const stale = (key: string): boolean => {
+  dropProposals((key) => {
     const [session, tab, pane] = key.split('\0');
     if (session !== sessionId) return false;
     const count = paneCounts.get(tab);
     return count === undefined || Number(pane) >= count;
-  };
-  for (const key of [...proposedAt.keys()]) if (stale(key)) proposedAt.delete(key);
-  const kept = new Map([...proposals].filter(([key]) => !stale(key)));
-  if (kept.size === proposals.size) return;
-  proposals = kept;
-  emitProposals();
+  });
 }
 
 /** Test seam. */

@@ -39,7 +39,8 @@ export function historyPositionOf(row: unknown, direction: 'before' | 'after' = 
   const own = positions.get(row);
   if (own) return own[direction];
   const edges = cardEdges.get(row);
-  return edges ? historyPositionOf(direction === 'before' ? edges.first : edges.last, direction) : undefined;
+  if (!edges) return undefined;
+  return historyPositionOf(direction === 'before' ? edges.first : edges.last, direction);
 }
 const standsAt = <T extends object>(card: T, first: object, last: object): T => {
   cardEdges.set(card, { first, last });
@@ -153,19 +154,24 @@ export function batchEntries(content: string, details: Obj): BatchEntry[] {
   let from = 0;
   for (const [at, id] of (ids as string[]).entries()) {
     const opening = `<task-notification>\n<task-id>${escapeField(id)}</task-id>\n`;
-    const found = at === 0 ? (content.startsWith(opening) ? 0 : -1) : content.indexOf(`\n${opening}`, from) + 1 || -1;
+    let found: number;
+    if (at === 0) found = content.startsWith(opening) ? 0 : -1;
+    else {
+      const next = content.indexOf(`\n${opening}`, from);
+      found = next < 0 ? -1 : next + 1;
+    }
     if (found < 0) return [];
     starts.push(found);
     from = found + 1;
   }
-  return starts.map((start, at) => ({
-    start,
-    end: at === starts.length - 1 ? content.length : (starts[at + 1] as number) - 1,
-    execution:
-      envelopeExecution(
-        content.slice(start, at === starts.length - 1 ? content.length : (starts[at + 1] as number) - 1)
-      ) ?? {},
-  }));
+  return starts.map((start, at) => {
+    const end = at === starts.length - 1 ? content.length : (starts[at + 1] as number) - 1;
+    return {
+      start,
+      end,
+      execution: envelopeExecution(content.slice(start, end)) ?? {},
+    };
+  });
 }
 
 /** `parseTaskNotification`'s outer fields (task id, status, surface) of one envelope; null when it has none of a task's. */
@@ -181,15 +187,24 @@ function envelopeExecution(envelope: string): Obj | null {
   const status = field('status');
   const summary = field('summary');
   if (!id || !summary || !/^(completed|failed|cancelled)$/.test(status)) return null;
-  const surface = summary.startsWith('Agent "')
-    ? 'agent'
-    : summary.startsWith('Shell task ')
-      ? 'shell'
-      : /^(\S+) task /.exec(summary)?.[1] || 'tool';
+  let surface: string;
+  if (summary.startsWith('Agent "')) surface = 'agent';
+  else if (summary.startsWith('Shell task ')) surface = 'shell';
+  else surface = /^(\S+) task /.exec(summary)?.[1] || 'tool';
   return { id, status, surface };
 }
 
 type ImportedTool = { name: string; count: number };
+
+function clipImportedToolName(name: string, codePoints: boolean): string {
+  if (codePoints) {
+    const chars = Array.from(name);
+    return chars.length > 40 ? `${chars.slice(0, 39).join('')}…` : name;
+  }
+  if (name.length <= 40) return name;
+  // A UTF-16 cut between surrogates is serialized by the Rust importer as U+FFFD.
+  return `${name.slice(0, 39).replace(/[\uD800-\uDBFF]$/, '\uFFFD')}…`;
+}
 
 /** The canonical marker written by the importers. The Rust importer clips names by UTF-16, the older importer by code point. */
 function importedToolLine(tools: ImportedTool[], codePoints: boolean): string {
@@ -197,13 +212,7 @@ function importedToolLine(tools: ImportedTool[], codePoints: boolean): string {
   let body = '';
   let shown = 0;
   for (const { name, count } of tools) {
-    const chars = codePoints ? Array.from(name) : name;
-    const clipped = chars.slice(0, 39);
-    // A UTF-16 cut between surrogates is serialized by the Rust importer as U+FFFD.
-    const display =
-      chars.length > 40
-        ? `${typeof clipped === 'string' ? clipped.replace(/[\uD800-\uDBFF]$/, '�') : clipped.join('')}…`
-        : name;
+    const display = clipImportedToolName(name, codePoints);
     const next = `${shown ? `${body}, ` : ''}${display} ×${count}`;
     if (shown && `[ran tools: ${next}${suffix(tools.length - shown - 1)}]`.length > 400) break;
     body = next;
@@ -247,10 +256,12 @@ function importedAssistantRows(item: Obj, m: Obj): Obj[] | undefined {
   if (typeof item.text !== 'string' || !Array.isArray(item.importedToolRuns) || !item.importedToolRuns.length)
     return undefined;
   const content = item.text;
-  const assistant = rowOf(item)!;
+  const assistant = rowOf(item);
+  if (!assistant) return undefined;
+  const baseId: Json = assistant.id ?? null;
   const rows: Obj[] = [];
   // The core uses `:<n>` for other items attached to this same stored message.
-  const nextId = () => (rows.length === 0 ? assistant.id! : `${String(assistant.id)}:import:${rows.length}`);
+  const nextId = (): Json => (rows.length === 0 ? baseId : `${String(baseId)}:import:${rows.length}`);
   const pushText = (raw: string) => {
     const prose = raw.trim();
     if (prose) rows.push({ ...assistant, id: nextId(), text: prose });
@@ -483,6 +494,12 @@ function toolRow(
   const completedAt = live && finite(run.completedAt) ? run.completedAt : m.at;
   // A card the core extended with later responses (`agent_response`) states how many it covers on its run.
   const count = Number.isInteger(run.count) && (run.count as number) >= 1 ? (run.count as number) : 1;
+  const timing: Obj = {};
+  if (finite(m.at)) {
+    timing.at = m.at;
+    timing.startedAt = live && finite(run.startedAt) ? run.startedAt : m.at;
+    if (finished) timing.completedAt = completedAt as Json;
+  }
   const row: Obj = {
     kind: 'tool',
     id: item.id as Json,
@@ -491,13 +508,7 @@ function toolRow(
     expanded: false,
     count,
     completedCount: finished ? count : 0,
-    ...(finite(m.at)
-      ? {
-          at: m.at,
-          startedAt: live && finite(run.startedAt) ? run.startedAt : m.at,
-          ...(finished ? { completedAt } : {}),
-        }
-      : {}),
+    ...timing,
     ...present('callId', run.callId ?? ext.callId),
     ...present('messageId', m.messageId),
   };
@@ -560,10 +571,13 @@ const runCards = new WeakMap<Obj, { live: boolean; rows: readonly Obj[]; card: O
 const standaloneCards = new WeakMap<Obj, Obj>();
 /** A live card with its sealed header, by the card: [open, sealed]. */
 const sealedCards = new WeakMap<Obj, [Obj | undefined, Obj | undefined]>();
-const heldRunCard = (members: readonly { item: Obj }[], live: boolean): Obj | undefined => {
-  const held = runCards.get(members[0]!.item);
+type RunMember = { item: Obj; category: string };
+type NonEmptyRunMembers = readonly [RunMember, ...RunMember[]];
+
+const heldRunCard = (members: NonEmptyRunMembers, live: boolean): Obj | undefined => {
+  const held = runCards.get(members[0].item);
   if (!held || held.live !== live || held.rows.length !== members.length) return undefined;
-  return held.rows.every((row, i) => row === members[i]!.item) ? held.card : undefined;
+  return held.rows.every((row, i) => row === members[i]?.item) ? held.card : undefined;
 };
 const sealed = (card: Obj, headerFinalized: boolean): Obj => {
   const held = sealedCards.get(card) ?? [undefined, undefined];
@@ -614,37 +628,49 @@ export function mergeToolRowsFrom(
   same?: { readonly until: number; readonly moved: number }
 ): Obj[] {
   const marks = held && mergeMarks.get(held);
-  let at = marks ? marks.length : 0;
-  while (at > 0 && marks![at - 2]! > from) at -= 2;
-  if (!held || !marks || at === 0) return mergeToolRows(rows);
-  const kept = marks[at - 1]!;
+  if (!held || !marks) return mergeToolRows(rows);
+  let at = marks.length;
+  while (at >= 2 && (marks[at - 2] ?? 0) > from) at -= 2;
+  const kept = marks[at - 1];
+  const resumeFrom = marks[at - 2];
+  if (at === 0 || kept === undefined || resumeFrom === undefined) return mergeToolRows(rows);
   // The first mark of `held` whose own row lies in the stretch shared with it.
   let stop = -1;
+  let end = rows.length;
   if (same) {
     for (let next = at; next < marks.length; next += 2) {
-      if (marks[next]! - 1 < same.until - same.moved) continue;
-      if (marks[next]! + same.moved <= rows.length) stop = next;
+      const markPos = marks[next];
+      if (markPos === undefined || markPos - 1 < same.until - same.moved) continue;
+      if (markPos + same.moved <= rows.length) {
+        stop = next;
+        end = markPos + same.moved;
+      }
       break;
     }
   }
-  const end = stop < 0 ? rows.length : marks[stop]! + same!.moved;
   const merged = runToEnd(
     mergeToolRowsSteps(rows, {
       rows: held.slice(0, kept),
       marks: marks.slice(0, at),
-      from: marks[at - 2]!,
+      from: resumeFrom,
       end,
     })
   );
-  if (stop >= 0) {
-    const made = mergeMarks.get(merged)!;
+  if (stop >= 0 && same) {
+    const made = mergeMarks.get(merged);
+    const resume = marks[stop + 1];
     // The merge ended on the mark the shared stretch has there: what follows is what `held` made after it.
-    if (made.at(-2) === end && made.at(-1) === merged.length) {
-      const resume = marks[stop + 1]!;
+    if (made && resume !== undefined && made.at(-2) === end && made.at(-1) === merged.length) {
       const grew = merged.length - resume;
-      for (let next = stop + 2; next < marks.length; next += 2)
-        made.push(marks[next]! + same!.moved, marks[next + 1]! + grew);
-      for (let index = resume; index < held.length; index += 1) merged.push(held[index]!);
+      for (let next = stop + 2; next < marks.length; next += 2) {
+        const pos = marks[next];
+        const out = marks[next + 1];
+        if (pos !== undefined && out !== undefined) made.push(pos + same.moved, out + grew);
+      }
+      for (let index = resume; index < held.length; index += 1) {
+        const row = held[index];
+        if (row !== undefined) merged.push(row);
+      }
     } else {
       return mergeToolRowsFrom(held, rows, from);
     }
@@ -675,7 +701,8 @@ export function rowsHeldFrom(rows: readonly unknown[], held: readonly unknown[])
   if (prior.version + 1 < first) return undefined;
   let count = held.length;
   for (let version = prior.version + 1; version <= next.version; version += 1) {
-    count = Math.min(count, kept[version - first]!);
+    const keptAt = kept[version - first];
+    if (keptAt !== undefined) count = Math.min(count, keptAt);
   }
   return count;
 }
@@ -686,7 +713,7 @@ export function* mergeToolRowsSteps(
 ): Generator<void, Obj[], void> {
   const merged: Obj[] = resume?.rows ?? [];
   const marks: number[] = resume?.marks ?? [];
-  let run: { bucket: string; live: boolean; members: { item: Obj; category: string }[] } | null = null;
+  let run: { bucket: string; live: boolean; members: [RunMember, ...RunMember[]] } | null = null;
   // A run of any length aggregates in steps too: one step per `ROWS_PER_STEP` of its members.
   function* flushRun(): Generator<void, void, void> {
     if (!run) return;
@@ -703,8 +730,10 @@ export function* mergeToolRowsSteps(
       const card = yield* aggregateRowSteps(members, live);
       // Node archives the card itself (compaction-view.mjs `archivedItem`): a card of calls a compaction took dims as they do.
       const shown = members.every((member) => member.item.archived === true) ? { ...card, archived: true } : card;
-      standsAt(shown, members[0]!.item, members.at(-1)!.item);
-      runCards.set(members[0]!.item, { live, rows: members.map((member) => member.item), card: shown });
+      const firstMember = members[0].item;
+      const lastMember = members.at(-1)?.item ?? firstMember;
+      standsAt(shown, firstMember, lastMember);
+      runCards.set(firstMember, { live, rows: members.map((member) => member.item), card: shown });
       merged.push(shown);
     } else for (const member of members) merged.push(member.item);
   }
@@ -716,7 +745,8 @@ export function* mergeToolRowsSteps(
   const end = resume?.end ?? rows.length;
   if (mergeCount) mergeCount.merged += end - (resume?.from ?? 0);
   for (let index = resume?.from ?? 0; index < end; index += 1) {
-    const item = rows[index]!;
+    const item = rows[index];
+    if (!item) continue;
     if (++seen % ROWS_PER_STEP === 0) yield;
     if (item.kind === 'tool' && isTranscriptHiddenToolRow(item)) continue;
     const live = liveRows.has(item);
@@ -750,9 +780,15 @@ export function* mergeToolRowsSteps(
   }
   yield* flushRun();
   let lastOther = merged.length - 1;
-  while (lastOther >= 0 && (merged[lastOther]!.kind === 'tool' || isLiveOnlyTranscriptRow(merged[lastOther]!)))
+  while (lastOther >= 0) {
+    const row = merged[lastOther];
+    if (!row || (row.kind !== 'tool' && !isLiveOnlyTranscriptRow(row))) break;
     lastOther--;
-  for (const { at, stopped } of liveCards) merged[at] = sealed(merged[at]!, stopped || at < lastOther);
+  }
+  for (const { at, stopped } of liveCards) {
+    const card = merged[at];
+    if (card) merged[at] = sealed(card, stopped || at < lastOther);
+  }
   mergeMarks.set(merged, marks);
   return merged;
 }
@@ -830,10 +866,7 @@ function aggregateCall(item: Obj, category: string, live: boolean): AggregateCal
   };
 }
 
-function* aggregateRowSteps(
-  members: readonly { item: Obj; category: string }[],
-  live: boolean
-): Generator<void, Obj, void> {
+function* aggregateRowSteps(members: NonEmptyRunMembers, live: boolean): Generator<void, Obj, void> {
   const header: AggregateHeader = { categories: new Map(), categoryOrder: [] };
   const calls: AggregateCall[] = [];
   for (const { item, category } of members) {
@@ -845,7 +878,7 @@ function* aggregateRowSteps(
     calls.push(aggregateCall(item, category, live));
   }
   const loadingTargets = yield* node.aggregateLoadingTargetsSteps(calls);
-  const first = members[0]!.item;
+  const first = members[0].item;
   // Ownership belongs to the individual call, not to an aggregate that can contain different owners; so does how it ended.
   function* restoreMemberMetadata(toolMembers: Obj[]): Generator<void, Obj[], void> {
     for (const [i, member] of toolMembers.entries()) {
@@ -889,16 +922,17 @@ function* aggregateRowSteps(
   let latestUiDiff: Obj | undefined;
   for (let i = members.length - 1; i >= 0; i--) {
     if ((members.length - i) % ROWS_PER_STEP === 0) yield;
-    if (Object.hasOwn(members[i]!.item, 'uiDiff')) {
-      latestUiDiff = members[i]!.item;
+    const item = members[i]?.item;
+    if (item && Object.hasOwn(item, 'uiDiff')) {
+      latestUiDiff = item;
       break;
     }
   }
-  const last = members[members.length - 1]!.item;
+  const last = members.at(-1)?.item ?? first;
   const callIds: Json[] = [];
   for (let i = 0; i < members.length; i++) {
     if (i % ROWS_PER_STEP === ROWS_PER_STEP - 1) yield;
-    const callId = members[i]!.item.callId;
+    const callId = members[i]?.item.callId;
     if (callId) callIds.push(callId as Json);
   }
   const doneCategories = yield* node.aggregateDoneCategoriesSteps(calls);
@@ -908,6 +942,9 @@ function* aggregateRowSteps(
     const detail = node.withCancelledResultMarker((outcomePatch as Obj).result, outcomePatch as Obj);
     Object.assign(outcomePatch as Obj, { result: detail, text: detail });
   }
+  let displayMeta: Obj = {};
+  if (live) displayMeta = { deferredDisplayReady: true };
+  else if (first.at != null) displayMeta = { at: first.at };
   return {
     kind: 'tool',
     id: first.id as Json,
@@ -925,7 +962,7 @@ function* aggregateRowSteps(
     ...(latestUiDiff ? { uiDiff: latestUiDiff.uiDiff } : {}),
     expanded: false,
     headerFinalized: true,
-    ...(live ? { deferredDisplayReady: true } : first.at != null ? { at: first.at } : {}),
+    ...displayMeta,
     ...(first.startedAt != null ? { startedAt: first.startedAt } : {}),
     ...(last.completedAt != null ? { completedAt: last.completedAt } : {}),
   };
@@ -1082,24 +1119,30 @@ function taskRoutineNotice(routine: Obj, attachmentSources: unknown[]): Obj {
 /** `routineResultNotice` (routine-result.mjs): the line, tone and `routine` payload of a stored routine result. */
 function routineNotice(ext: Obj, attachments: unknown): Obj {
   const routine = asObj(ext.routine);
-  if (Number(routine.omitted) > 0)
+  if (routine.omitted !== undefined && Number(routine.omitted) > 0)
     return {
       text: `⏱ Routine results omitted: ${routine.omitted}`,
       tone: 'info',
-      routine: { omitted: routine.omitted! },
+      routine: { omitted: routine.omitted },
     };
-  if (Number(routine.relayFailed) > 0) {
+  if (routine.relayFailed !== undefined && Number(routine.relayFailed) > 0) {
     return {
       text: `⚠ Task results not relayed: ${routine.relayFailed} — they are shown above`,
       tone: 'warn',
-      routine: { relayFailed: routine.relayFailed! },
+      routine: { relayFailed: routine.relayFailed },
     };
   }
   if (routine.kind === 'task') return taskRoutineNotice(routine, [attachments, ext.attachments]);
   const webhook = routine.kind === 'webhook';
   const failed = routine.status === 'failed';
   const summary = String(routine.summary || '');
-  const detail = failed ? (summary ? `Failed: ${summary}` : 'Failed') : summary;
+  let detail = summary;
+  if (failed) detail = summary ? `Failed: ${summary}` : 'Failed';
+  const failureMeta: Obj = {};
+  if (failed) {
+    Object.assign(failureMeta, present('reason', routine.reason));
+    if (routine.paused) failureMeta.paused = true;
+  }
   return {
     text: `${webhook ? '🔗 Webhook' : '⏱ Schedule'} · ${String(routine.name || '')}${detail ? ` — ${detail}` : ''}`,
     tone: failed ? 'warn' : 'info',
@@ -1110,7 +1153,7 @@ function routineNotice(ext: Obj, attachments: unknown): Obj {
       summary,
       ...present('runId', routine.runId),
       ...present('runSessionId', routine.runSessionId),
-      ...(failed ? { ...present('reason', routine.reason), ...(routine.paused ? { paused: true } : {}) } : {}),
+      ...failureMeta,
     },
   };
 }
@@ -1271,8 +1314,8 @@ function roomRowItem(item: Obj, m: Obj): Obj {
     : stored;
   const messageId = text(m.messageId);
   const user = room.kind === 'user';
-  const sender: Obj =
-    user && room.fromSession ? (room.fromAgent ? { fromAgent: room.fromAgent } : { sender: 'lead' }) : {};
+  let sender: Obj = {};
+  if (user && room.fromSession) sender = room.fromAgent ? { fromAgent: room.fromAgent } : { sender: 'lead' };
   return {
     kind: user ? 'user' : 'notice',
     id: user && messageId ? messageId : (item.id as Json),

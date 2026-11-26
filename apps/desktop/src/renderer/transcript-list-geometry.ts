@@ -70,7 +70,7 @@ export function ceilRowHeight(height: number): number {
       ? window.devicePixelRatio
       : 1;
   const ceiled = Math.ceil(height * dpr - 1e-6) / dpr;
-  return ceiled < height ? height : ceiled;
+  return Math.max(height, ceiled);
 }
 
 export function rememberRowHeight(element: HTMLElement, height: number): number {

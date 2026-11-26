@@ -214,9 +214,17 @@ test('stopWorkers avoids untracked CSS/JSON worker respawns from DiagnosticsAdap
       },
       html: () => ({ kind: 'html' }),
     },
-    getLanguageDefaults: (label) => (label === 'css' ? cssDefaults : label === 'json' ? jsonDefaults : undefined),
+    getLanguageDefaults: (label) => {
+      if (label === 'css') return cssDefaults;
+      if (label === 'json') return jsonDefaults;
+      return undefined;
+    },
     stopEditorWorker: () => {},
-    hasLiveModels: (label) => (label === 'css' ? liveCssModels > 0 : label === 'json' ? liveJsonModels > 0 : false),
+    hasLiveModels: (label) => {
+      if (label === 'css') return liveCssModels > 0;
+      if (label === 'json') return liveJsonModels > 0;
+      return false;
+    },
   });
 
   lifecycle.createWorker('css');

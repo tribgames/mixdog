@@ -21,7 +21,9 @@ test("an upload's last chunk is its call's frame, and each accepted chunk is its
   const scoped = scopeClient(
     client,
     firstFrame((sent) => void frames.push(sent)),
-    () => void (progress += 1)
+    () => {
+      progress += 1;
+    }
   );
   await scoped.putBlob(new Uint8Array(1), 'application/octet-stream');
   assert.equal(frames.length, 1, 'the call learns its upload has left, so its silence probe can start');

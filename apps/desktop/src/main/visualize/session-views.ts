@@ -12,10 +12,10 @@ import type { VisualizeServiceContext } from './context';
 import { type HistoryEntry, historyId, historyItems, rememberHistory } from './history';
 import { joinShown, noteReveal, publishShown, type TurnHold } from './turn-hold';
 import {
-  fileTargetsKey,
   paneKindOf,
   remoteLabelOf,
   remoteTargetOf,
+  resolvedCanonicalKey,
   type SessionState,
   shownLayout,
   type TabState,
@@ -34,17 +34,17 @@ const inlineHost = (pane: VisualizePaneView, extra: Partial<VisualizeHostPane> =
 });
 
 /** The live panes of a tab as the remote mirror sees them. */
-const liveHostPanes = (tab: TabState): VisualizeHostPane[] =>
-  tab.inline
-    ? tab.panes.map((pane) => inlineHost(pane))
-    : tab.targets.map((target) => ({
-        kind: target.kind,
-        label: target.label,
-        target: target.target,
-        path: tab.missing ? '' : target.path,
-        remoteTarget: remoteTargetOf(target),
-        root: target.root,
-      }));
+const liveHostPanes = (tab: TabState): VisualizeHostPane[] => {
+  if (tab.inline) return tab.panes.map((pane) => inlineHost(pane));
+  return tab.targets.map((target) => ({
+    kind: target.kind,
+    label: target.label,
+    target: target.target,
+    path: tab.missing ? '' : target.path,
+    remoteTarget: remoteTargetOf(target),
+    root: target.root,
+  }));
+};
 
 /** The shown kept version's panes, served from its snapshot folder. */
 function keptHostPanes(tab: TabState): VisualizeHostPane[] {
@@ -118,10 +118,7 @@ export function createSessionViews(
           target: target.target,
           remoteTarget: remoteTargetOf(target),
         }));
-    const canonicalKey =
-      !tab.inline && tab.targets.length && tab.targets.every((target) => target.path)
-        ? fileTargetsKey(tab.targets)
-        : undefined;
+    const canonicalKey = (!tab.inline ? resolvedCanonicalKey(tab.targets) : undefined) ?? previous?.canonicalKey;
     const entry: HistoryEntry = {
       id: historyId(tab.key),
       key: tab.key,
@@ -130,7 +127,7 @@ export function createSessionViews(
       kind: tab.inline ? tab.inline.kind : paneKindOf(tab),
       targets: tab.inline ? [] : tab.targets.map((target) => target.target),
       ...(!tab.inline ? { cwd: tab.cwd } : {}),
-      ...(canonicalKey ? { canonicalKey } : previous?.canonicalKey ? { canonicalKey: previous.canonicalKey } : {}),
+      ...(canonicalKey ? { canonicalKey } : {}),
       ...(tab.inline ? { content: tab.inline } : {}),
       at: touch || !previous ? Date.now() : previous.at,
       versions: tab.versions?.length ?? 1,
@@ -191,6 +188,13 @@ export function createSessionViews(
 
 export type SessionViews = ReturnType<typeof createSessionViews>;
 
+const withHoldMetadata = <T extends VisualizeSessionState | VisualizeHostState>(held: TurnHold, state: T): T => ({
+  ...state,
+  held: true,
+  heldSince: held.shown.since,
+  ...(held.shown.calls.length ? { heldCalls: held.shown.calls } : {}),
+});
+
 /** Every session as a consumer that reads it now gets it (a window that loads, the remote mirror on a claim): what an event
  *  would carry, so a read and the live events agree. A session whose turn's work is kept back reads as what it shows
  *  (turn-hold.ts `shown`), marked `held` and since when; the read tells its consumer of the hold. */
@@ -206,14 +210,7 @@ export function readStates<T extends VisualizeSessionState | VisualizeHostState>
     // must know to keep that turn's cards back.
     if (held) {
       held.dirty = true;
-      return [
-        {
-          ...shown(held),
-          held: true,
-          heldSince: held.shown.since,
-          ...(held.shown.calls.length ? { heldCalls: held.shown.calls } : {}),
-        },
-      ];
+      return [withHoldMetadata(held, shown(held))];
     }
     const state = live(sessionId);
     return state.tabs.length > 0 || state.history?.length ? [state] : [];
@@ -226,12 +223,7 @@ export function readStates<T extends VisualizeSessionState | VisualizeHostState>
         held.dirty = true;
         const shownState = shown(held);
         if (shownState.tabs.length > 0 || shownState.history?.length) {
-          result.push({
-            ...shownState,
-            held: true,
-            heldSince: held.shown.since,
-            ...(held.shown.calls.length ? { heldCalls: held.shown.calls } : {}),
-          });
+          result.push(withHoldMetadata(held, shownState));
         }
         continue;
       }

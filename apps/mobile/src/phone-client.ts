@@ -102,6 +102,46 @@ export function createRedialSchedule(random: () => number): { next(ask: RedialAs
   };
 }
 
+interface RedialWaiter {
+  sleep(_libraryMs: number): Promise<void>;
+  wake(): void;
+}
+
+function createRedialWaiter(
+  options: Pick<PhoneClientOptions, 'signal' | 'visible' | 'redialIn'>,
+  nextDelay: () => { silent: boolean; ms: number }
+): RedialWaiter {
+  const sleepers = new Set<() => void>();
+  const away = (): boolean => options.visible?.() === false;
+  return {
+    sleep: (_libraryMs: number): Promise<void> =>
+      new Promise((done) => {
+        // Rule A: nothing waits for an attempt that was already aborted.
+        if (options.signal?.aborted) return done();
+        const { silent, ms } = nextDelay();
+        // A silent redial runs inside the close handler, ahead of whatever the close settles; any other redial is a timer, however short.
+        if (silent && ms === 0 && !away()) return done();
+        if (ms > 0) options.redialIn?.(ms);
+        const finish = (): void => {
+          clearTimeout(timer);
+          sleepers.delete(finish);
+          options.signal?.removeEventListener('abort', finish);
+          done();
+        };
+        // No redial is armed while the page is hidden, and a timer that fires after the page was hidden waits for the
+        // wake that brings it back; a pairing reset (abort) ends every wait.
+        const timer = setTimeout(() => {
+          if (options.signal?.aborted || !away()) finish();
+        }, ms);
+        options.signal?.addEventListener('abort', finish);
+        sleepers.add(finish);
+      }),
+    wake: () => {
+      for (const finish of [...sleepers]) finish();
+    },
+  };
+}
+
 /**
  * Connects, retrying the first connection on the client library's ladder (the library itself only reconnects a connection
  * that was ready once). A revoked pairing or a version mismatch is terminal: it is reported, the client is closed, and no
@@ -118,44 +158,18 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
     options.onConnection(state);
     void client?.close();
   };
-  // Redial pacing: the library asks for a wait before each dial; what the page knows of the last end decides how long (see createRedialSchedule).
   let offline = false;
   let spread = false;
   let quiet = false;
   let silent = false;
   const schedule = createRedialSchedule(random);
-  const redialDelay = (): number => {
-    const ask = { fleet: spread, offline, quiet: silent };
+  const waiter = createRedialWaiter(options, () => {
+    const silentRedial = silent;
+    const ask = { fleet: spread, offline, quiet: silentRedial };
     spread = false;
     silent = false;
-    return schedule.next(ask);
-  };
-  // A wake cuts the running redial wait short: waiting out a grown backoff after the user came back is the gap they watch.
-  const sleepers = new Set<() => void>();
-  const sleep = (_libraryMs: number): Promise<void> =>
-    new Promise((done) => {
-      // Rule A: nothing waits for an attempt that was already aborted.
-      if (options.signal?.aborted) return done();
-      const silentRedial = silent;
-      const ms = redialDelay();
-      const away = (): boolean => (options.visible ? !options.visible() : false);
-      // A silent redial runs inside the close handler, ahead of whatever the close settles; any other redial is a timer, however short.
-      if (silentRedial && ms === 0 && !away()) return done();
-      if (ms > 0) options.redialIn?.(ms);
-      const finish = (): void => {
-        clearTimeout(timer);
-        sleepers.delete(finish);
-        options.signal?.removeEventListener('abort', finish);
-        done();
-      };
-      // No redial is armed while the page is hidden, and a timer that fires after the page was hidden waits for the
-      // wake that brings it back; a pairing reset (abort) ends every wait.
-      const timer = setTimeout(() => {
-        if (options.signal?.aborted || !away()) finish();
-      }, ms);
-      options.signal?.addEventListener('abort', finish);
-      sleepers.add(finish);
-    });
+    return { silent: silentRedial, ms: schedule.next(ask) };
+  });
   let last: PhoneConnection | undefined;
   const connector = createRelayConnector({
     ...options,
@@ -198,40 +212,41 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
       // A wake never inherits a grown backoff: the redial that follows it is the gap the user watches.
       schedule.reset();
       const probing = connector.wake(wakeOptions);
-      for (const finish of [...sleepers]) finish();
+      waiter.wake();
       return probing;
     },
   };
   options.linked?.(link);
   options.onConnection({ state: 'connecting' });
+  const connectConfig = {
+    target: { id: options.deviceId },
+    connector,
+    clientInfo: {
+      name: 'mixdog-phone',
+      title: 'Mixdog Phone',
+      version: options.version,
+      kind: 'phone' as const,
+      build: options.build,
+    },
+    // `feedRanges`: the protocol client folds a coalesced text append (`feed.from`), so the core batches this phone's appends.
+    // `toolOutput`: the core cuts each tool output to what the phone shows (the rest is read on request, `thread/items/read`).
+    capabilities: {
+      optOutNotificationMethods: [],
+      experimentalApi: false,
+      feedRanges: true,
+      toolOutput: REMOTE_TOOL_OUTPUT_DISPLAY,
+    },
+    threadReducer: options.threadReducer ?? sessionReducer,
+    // The phone holds a window of each transcript the core keeps for it, not the conversation.
+    positionedTranscripts: true,
+    clock: { sleep: waiter.sleep },
+    random,
+    ladder: DEFAULT_LADDER,
+  };
   for (;;) {
     if (options.signal?.aborted) throw new Error('aborted');
     try {
-      client = await connect<SessionFold>({
-        target: { id: options.deviceId },
-        connector,
-        clientInfo: {
-          name: 'mixdog-phone',
-          title: 'Mixdog Phone',
-          version: options.version,
-          kind: 'phone',
-          build: options.build,
-        },
-        // `feedRanges`: the protocol client folds a coalesced text append (`feed.from`), so the core batches this phone's appends.
-        // `toolOutput`: the core cuts each tool output to what the phone shows (the rest is read on request, `thread/items/read`).
-        capabilities: {
-          optOutNotificationMethods: [],
-          experimentalApi: false,
-          feedRanges: true,
-          toolOutput: REMOTE_TOOL_OUTPUT_DISPLAY,
-        },
-        threadReducer: options.threadReducer ?? sessionReducer,
-        // The phone holds a window of each transcript the core keeps for it, not the conversation.
-        positionedTranscripts: true,
-        clock: { sleep },
-        random,
-        ladder: DEFAULT_LADDER,
-      });
+      client = await connect<SessionFold>(connectConfig);
     } catch (error) {
       if (terminal || options.signal?.aborted) throw error;
       const detail = error instanceof ClientFailure ? error.detail : undefined;
@@ -239,7 +254,7 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
         settle({ state: 'update-required', reason: detail.reason });
         throw error;
       }
-      await sleep(0);
+      await waiter.sleep(0);
       continue;
     }
     break;

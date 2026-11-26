@@ -63,8 +63,11 @@ const changed = (version: number, ranges: O[], added: O[]) => ({
   added,
   followTail: true,
 });
-const snapshot = (tail: O[], loose: O[] = [], older = true) =>
-  sessionReducer.initial({
+const snapshot = (tail: O[], loose: O[] = [], older = true) => {
+  const firstTail = tail[0];
+  const tailRange: O[] = [];
+  if (firstTail) tailRange.push({ id: 'tail', older: older ? cont(firstTail.position) : end, newer: end });
+  return sessionReducer.initial({
     thread: { id: 't' },
     state: {},
     items: loose,
@@ -72,11 +75,12 @@ const snapshot = (tail: O[], loose: O[] = [], older = true) =>
     window: {
       windowVersion: 10,
       lineage: 1,
-      ranges: tail.length ? [{ id: 'tail', older: older ? cont(tail[0]!.position) : end, newer: end }] : [],
+      ranges: tailRange,
       added: tail.length ? [{ range: 'tail', units: tail }] : [],
       followTail: true,
     },
   } as unknown as Json);
+};
 
 test('a record that joins the tail stands where its ordinal says, whatever order the frames arrive in', () => {
   let s = snapshot([unit('r1', 10), unit('r2', 20)]);
@@ -580,7 +584,7 @@ test("two readers of one window: one's move never lets go of the stretch the oth
   const inHit = { kind: 'read', first: 'a1', last: 'a3', reader: 'left' } as const;
   const inTail = { kind: 'read', first: 'g1000', last: 'g1010', reader: 'right' } as const;
   const retained = (want: O | null) =>
-    want && want.ranges.filter((range: O) => range.at === 'retain').map((range: O) => range.id);
+    want?.ranges.filter((range: O) => range.at === 'retain').map((range: O) => range.id) ?? null;
   // A reader off the end of a tail past its bound keeps its own rows and the other's stretch.
   const offEnd = windowWant(held, inTail, [inHit]);
   assert.deepEqual(retained(offEnd), ['q:hit']);

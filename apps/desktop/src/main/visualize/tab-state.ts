@@ -205,6 +205,14 @@ const normalizeRequestedPath = (cwd: string, raw: string): string =>
 export const fileTargetsKey = (files: readonly Pick<FileTarget, 'path'>[]): string =>
   files.map((target) => target.path).join('\0');
 
+/** Resolved canonical key when every target has a non-empty path, else undefined. */
+export const resolvedCanonicalKey = (targets: readonly Pick<FileTarget, 'path'>[] | undefined): string | undefined =>
+  targets?.length && targets.every((target) => target.path) ? fileTargetsKey(targets) : undefined;
+
+/** Canonical key for an open tab, falling back to `lastCanonicalKey` while missing. */
+export const tabCanonicalKey = (tab: Pick<TabState, 'missing' | 'lastCanonicalKey' | 'targets'>): string | undefined =>
+  tab.missing ? tab.lastCanonicalKey : resolvedCanonicalKey(tab.targets);
+
 /** Requested-path identity of a file tab (before symlink resolution, preserving exact case). */
 export const requestedPathsKey = (cwd: string, targets: readonly string[]): string =>
   targets.map((raw) => normalizeRequestedPath(cwd, raw)).join('\0');
@@ -227,7 +235,8 @@ const isDirectTargetsRequest = (cwd: string, files: readonly Pick<FileTarget, 't
   });
 
 const entryRequestedPaths = (entry: HistoryEntry): string[] | null => {
-  if (entry.cwd !== undefined) return entry.targets.map((raw) => normalizeRequestedPath(entry.cwd as string, raw));
+  const { cwd } = entry;
+  if (cwd !== undefined) return entry.targets.map((raw) => normalizeRequestedPath(cwd, raw));
   if (entry.targets.every((raw) => isAbsolute(raw))) return entry.targets.map((raw) => resolve(raw));
   return null;
 };
@@ -305,11 +314,7 @@ const historyEntryIsOpen = (
         historyEntryMatchesRequestedTab(entry, {
           cwd: other.cwd,
           targets: other.targets.map((target) => target.target),
-          canonicalKey: other.missing
-            ? other.lastCanonicalKey
-            : other.targets.length && other.targets.every((target) => target.path)
-              ? fileTargetsKey(other.targets)
-              : undefined,
+          canonicalKey: tabCanonicalKey(other),
         })
     );
 };
@@ -350,6 +355,17 @@ export function findClosedRequestedHistory(
   return state.history.find((entry) => !isOpen(entry) && foldedRequestedHistoryMatch(entry, cwd, files, canonicalKey));
 }
 
+const matchesFoldedRequested = (
+  candidate: TabState,
+  foldedRequestedKey: string,
+  canonicalKey: string,
+  foldedCanonicalKey: string
+): boolean =>
+  requestedTargetsKey(candidate.cwd, candidate.targets).toLowerCase() === foldedRequestedKey &&
+  (candidate.missing
+    ? candidate.lastCanonicalKey?.toLowerCase() === foldedCanonicalKey
+    : fileTargetsKey(candidate.targets) === canonicalKey);
+
 /** Find an open file tab with strict exact-before-folded precedence across open tabs and closed
  *  history, falling back to a non-missing open tab with the canonical key (or resolved canonical
  *  targets) only when no closed history entry owns the requested path. */
@@ -383,10 +399,7 @@ export function findFileTab(
         !candidate.url &&
         !candidate.inline &&
         candidate.targets.length === files.length &&
-        requestedTargetsKey(candidate.cwd, candidate.targets).toLowerCase() === foldedRequestedKey &&
-        (candidate.missing
-          ? candidate.lastCanonicalKey?.toLowerCase() === foldedCanonicalKey
-          : fileTargetsKey(candidate.targets) === canonicalKey)
+        matchesFoldedRequested(candidate, foldedRequestedKey, canonicalKey, foldedCanonicalKey)
     );
     if (byFoldedRequested) return byFoldedRequested;
   }
@@ -426,12 +439,8 @@ export function findVerifyRequestedTab(
   if (process.platform !== 'win32') return undefined;
   const foldedRequestedKey = requestedKey.toLowerCase();
   const foldedCanonicalKey = canonicalKey.toLowerCase();
-  return candidates.find(
-    (candidate) =>
-      requestedTargetsKey(candidate.cwd, candidate.targets).toLowerCase() === foldedRequestedKey &&
-      (candidate.missing
-        ? candidate.lastCanonicalKey?.toLowerCase() === foldedCanonicalKey
-        : fileTargetsKey(candidate.targets) === canonicalKey)
+  return candidates.find((candidate) =>
+    matchesFoldedRequested(candidate, foldedRequestedKey, canonicalKey, foldedCanonicalKey)
   );
 }
 

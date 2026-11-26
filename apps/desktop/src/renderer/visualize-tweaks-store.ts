@@ -116,20 +116,23 @@ export function resetVisualizeTweaks(
   changed();
 }
 
-/** A tab closed (every pane), a compare pane went away (`fromPane`), or the
- *  session was deleted (no tab): what those panes declared and set goes. */
-export function releaseVisualizeTweaks(sessionId: string, tabId?: string, fromPane = 0): void {
-  const owned = (key: string): boolean => {
-    const [session, tab, pane] = key.split('\0');
-    if (session !== sessionId) return false;
-    return tabId === undefined || (tab === tabId && Number(pane) >= fromPane);
-  };
-  const nextDefs = new Map([...defs].filter(([key]) => !owned(key)));
-  const nextValues = new Map([...values].filter(([key]) => !owned(key)));
+function dropTweaks(shouldDrop: (key: string) => boolean): void {
+  const nextDefs = new Map([...defs].filter(([key]) => !shouldDrop(key)));
+  const nextValues = new Map([...values].filter(([key]) => !shouldDrop(key)));
   if (nextDefs.size === defs.size && nextValues.size === values.size) return;
   defs = nextDefs;
   values = nextValues;
   changed();
+}
+
+/** A tab closed (every pane), a compare pane went away (`fromPane`), or the
+ *  session was deleted (no tab): what those panes declared and set goes. */
+export function releaseVisualizeTweaks(sessionId: string, tabId?: string, fromPane = 0): void {
+  dropTweaks((key) => {
+    const [session, tab, pane] = key.split('\0');
+    if (session !== sessionId) return false;
+    return tabId === undefined || (tab === tabId && Number(pane) >= fromPane);
+  });
 }
 
 /** Reconcile a session's stored tweaks against its surviving `tabs`: drops any
@@ -140,18 +143,12 @@ export function pruneVisualizeTweaks(sessionId: string, tabs: readonly Pick<Visu
     return;
   }
   const paneCounts = new Map(tabs.map((tab) => [tab.id, tab.panes.length]));
-  const stale = (key: string): boolean => {
+  dropTweaks((key) => {
     const [session, tab, pane] = key.split('\0');
     if (session !== sessionId) return false;
     const count = paneCounts.get(tab);
     return count === undefined || Number(pane) >= count;
-  };
-  const nextDefs = new Map([...defs].filter(([key]) => !stale(key)));
-  const nextValues = new Map([...values].filter(([key]) => !stale(key)));
-  if (nextDefs.size === defs.size && nextValues.size === values.size) return;
-  defs = nextDefs;
-  values = nextValues;
-  changed();
+  });
 }
 
 /** Test seam. */

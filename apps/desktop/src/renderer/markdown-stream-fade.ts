@@ -56,10 +56,11 @@ function stretchesOf(node: FadeNode, own: number, base: number): FadeStretch[] {
  *  its characters sit (`offset`, `jumps`; unplaced if `node` was). */
 export function placedTextSlice<Node extends FadeNode>(node: Node, from: number, to: number): Node {
   const value = (node.value ?? '').slice(from, to);
-  if (node.offset === undefined) return { type: 'text', value } as Node;
+  const baseOffset = node.offset;
+  if (baseOffset === undefined) return { type: 'text', value } as Node;
   const jumps = node.jumps ?? [];
   const offsetAt = (index: number) => {
-    let offset = node.offset! + index;
+    let offset = baseOffset + index;
     for (let at = 0; at < jumps.length && jumps[at] <= index; at += 2) offset = jumps[at + 1] + index - jumps[at];
     return offset;
   };

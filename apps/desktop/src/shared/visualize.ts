@@ -31,6 +31,16 @@ export interface VisualizeInlineContent {
   deferred?: true;
 }
 
+/** Inline content with its source omitted (kind and title kept). */
+export function deferInlineContent(inline: VisualizeInlineContent): VisualizeInlineContent {
+  return {
+    kind: inline.kind,
+    source: '',
+    ...(inline.title ? { title: inline.title } : {}),
+    deferred: true,
+  };
+}
+
 /** `state` with every inline source left out (kind and title kept): a
  *  device's snapshot lists every session's tabs, and the sources (up to
  *  512 KB each) were nearly all of it. */
@@ -39,19 +49,7 @@ export function withDeferredInline(state: VisualizeSessionState): VisualizeSessi
     ...state,
     tabs: state.tabs.map((tab) => ({
       ...tab,
-      panes: tab.panes.map((pane) =>
-        pane.inline
-          ? {
-              ...pane,
-              inline: {
-                kind: pane.inline.kind,
-                source: '',
-                ...(pane.inline.title ? { title: pane.inline.title } : {}),
-                deferred: true as const,
-              },
-            }
-          : pane
-      ),
+      panes: tab.panes.map((pane) => (pane.inline ? { ...pane, inline: deferInlineContent(pane.inline) } : pane)),
     })),
   };
 }
@@ -578,6 +576,17 @@ function remoteVisualizeTab(tab: VisualizeHostState['tabs'][number]): VisualizeS
   };
 }
 
+function remoteHeldFields(state: VisualizeHostState): Partial<VisualizeSessionState> {
+  if (state.held !== true) return {};
+  return {
+    held: true,
+    ...(Number.isFinite(state.heldSince) ? { heldSince: state.heldSince } : {}),
+    ...(Array.isArray(state.heldCalls) && state.heldCalls.length
+      ? { heldCalls: state.heldCalls.map(String).filter(Boolean) }
+      : {}),
+  };
+}
+
 /** The client view of a host state: no host paths (only cwd-relative targets
  *  and file names), and no URL a client could load (remote panes fetch their
  *  bytes by tab id and pane index). */
@@ -585,15 +594,7 @@ export function remoteVisualizeState(state: VisualizeHostState): VisualizeSessio
   return {
     sessionId: state.sessionId,
     active: state.active,
-    ...(state.held === true
-      ? {
-          held: true,
-          ...(Number.isFinite(state.heldSince) ? { heldSince: state.heldSince } : {}),
-          ...(Array.isArray(state.heldCalls) && state.heldCalls.length
-            ? { heldCalls: state.heldCalls.map(String).filter(Boolean) }
-            : {}),
-        }
-      : {}),
+    ...remoteHeldFields(state),
     ...(Array.isArray(state.goneOpens) && state.goneOpens.length
       ? {
           goneOpens: state.goneOpens

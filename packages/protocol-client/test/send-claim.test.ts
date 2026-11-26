@@ -232,7 +232,9 @@ test('a chunk failing mid-way fails the put once with its error, and no chunk is
   const chunk = options.initializeResult.limits.maxBlobPutChunkBytes as number;
   let progress = 0;
   const uploaded = client.putBlob(new Uint8Array(chunk * 3), 'application/octet-stream', {
-    onChunkAccepted: () => void (progress += 1),
+    onChunkAccepted: () => {
+      progress += 1;
+    },
   });
   const outcome = uploaded.then(
     () => 'resolved',

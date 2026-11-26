@@ -13,25 +13,18 @@ const rowChars = new WeakMap<object, number>();
 const fieldChars = new WeakMap<object, number>();
 const snapshotChars = new WeakMap<Snapshot, number>();
 
-function rowWeight(row: unknown): number {
-  if (!row || typeof row !== 'object') return estimateRetainedChars(row, MEASURE_LIMIT);
-  let own = rowChars.get(row);
+function cachedWeight(cache: WeakMap<object, number>, value: unknown): number {
+  if (!value || typeof value !== 'object') return estimateRetainedChars(value, MEASURE_LIMIT);
+  let own = cache.get(value);
   if (own === undefined) {
-    own = estimateRetainedChars(row, MEASURE_LIMIT);
-    rowChars.set(row, own);
+    own = estimateRetainedChars(value, MEASURE_LIMIT);
+    cache.set(value, own);
   }
   return own;
 }
 
-function fieldWeight(value: unknown): number {
-  if (!value || typeof value !== 'object') return estimateRetainedChars(value, MEASURE_LIMIT);
-  let own = fieldChars.get(value);
-  if (own === undefined) {
-    own = estimateRetainedChars(value, MEASURE_LIMIT);
-    fieldChars.set(value, own);
-  }
-  return own;
-}
+const rowWeight = (row: unknown): number => cachedWeight(rowChars, row);
+const fieldWeight = (value: unknown): number => cachedWeight(fieldChars, value);
 
 function rowsChars(rows: readonly unknown[]): number {
   let chars = listChars.get(rows);

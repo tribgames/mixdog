@@ -71,14 +71,15 @@ function finishSection(section: ToolOutputSection, tool: SectionTool): ToolOutpu
     section.line = first;
     section.language = toolActivityCodeLanguage(section.path);
     if (!section.meta) {
-      section.meta =
-        tool === 'read'
-          ? first === last
-            ? String(first)
-            : `${first}–${last}`
-          : tExisting('{{count}} matches', `${numbered.length} ${numbered.length === 1 ? 'match' : 'matches'}`, {
-              count: numbered.length,
-            });
+      if (tool === 'read') {
+        section.meta = first === last ? String(first) : `${first}–${last}`;
+      } else {
+        section.meta = tExisting(
+          '{{count}} matches',
+          `${numbered.length} ${numbered.length === 1 ? 'match' : 'matches'}`,
+          { count: numbered.length }
+        );
+      }
     }
   }
   return section;

@@ -328,6 +328,20 @@ export function DesktopBootGate({
     };
   }, [handoffComplete, brandSettled]);
   const brandHandoff = enabled ? 'desktop' : 'browser';
+  let bootCoverBody: ReactNode = null;
+  if (!handoffComplete) {
+    if (bootUpdating && coreLink !== 'open') {
+      bootCoverBody = (
+        <DesktopLoadingSurface label={t('Installing the update…')} brand caption={t('Installing the update…')} />
+      );
+    } else if (bootFailure && coreLink !== 'open') {
+      bootCoverBody = <DesktopBootFailure failure={bootFailure} />;
+    } else if (coreLink === 'failed') {
+      bootCoverBody = <DesktopBootFailure failure={{ message: linkFailure, stderrPath: null, blocked: null }} />;
+    } else {
+      bootCoverBody = <DesktopLoadingSurface label={label} brand progress={bootProgress} />;
+    }
+  }
   return (
     <div
       ref={gateRef}
@@ -349,15 +363,7 @@ export function DesktopBootGate({
         <div className="desktop-boot-cover" data-leaving={coverLeaving ? 'true' : undefined}>
           {/* Every start ends in the workspace or here: the update's quit, a start that failed (main's confirmed failure, or this
               window's own first open that gave up) with why and a way out, or the wait with what the core is doing. */}
-          {bootUpdating && coreLink !== 'open' ? (
-            <DesktopLoadingSurface label={t('Installing the update…')} brand caption={t('Installing the update…')} />
-          ) : bootFailure && coreLink !== 'open' ? (
-            <DesktopBootFailure failure={bootFailure} />
-          ) : coreLink === 'failed' ? (
-            <DesktopBootFailure failure={{ message: linkFailure, stderrPath: null, blocked: null }} />
-          ) : (
-            <DesktopLoadingSurface label={label} brand progress={bootProgress} />
-          )}
+          {bootCoverBody}
           {remote && <RemoteConnectionBanner boot />}
         </div>
       )}

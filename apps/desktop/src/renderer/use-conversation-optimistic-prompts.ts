@@ -26,6 +26,59 @@ type DrainState = {
   sawBusySinceDrain: boolean;
 };
 
+type PromptReleaseTracking = {
+  seen: Set<string>;
+  compactionHeld: Set<string>;
+  draining: Map<string, DrainState>;
+  baselines: Map<string, AcceptedBaseline>;
+};
+
+type ReleaseFrame = {
+  settledIds: ReadonlySet<string>;
+  settledCount: number;
+  firstSettledId: string | undefined;
+  tailId: string | undefined;
+  tailKind: TranscriptItem['kind'] | undefined;
+  hasQueuedList: boolean;
+  queuedIds: ReadonlySet<string>;
+  authoritative: boolean;
+  currentBusy: boolean | undefined;
+  isCompacting: boolean;
+  hasOlder: boolean;
+  currentTurnId: string;
+  snapshotRevision: string | number | null | undefined;
+};
+
+function createPromptReleaseTracking(): PromptReleaseTracking {
+  return {
+    seen: new Set(),
+    compactionHeld: new Set(),
+    draining: new Map(),
+    baselines: new Map(),
+  };
+}
+
+function clearPromptTracking(tracking: PromptReleaseTracking): void {
+  if (tracking.seen.size > 0) tracking.seen.clear();
+  if (tracking.compactionHeld.size > 0) tracking.compactionHeld.clear();
+  if (tracking.draining.size > 0) tracking.draining.clear();
+  if (tracking.baselines.size > 0) tracking.baselines.clear();
+}
+
+function deletePromptTracking(tracking: PromptReleaseTracking, id: string): void {
+  tracking.seen.delete(id);
+  tracking.compactionHeld.delete(id);
+  tracking.draining.delete(id);
+  tracking.baselines.delete(id);
+}
+
+function prunePromptTracking(tracking: PromptReleaseTracking, activeIds: ReadonlySet<string>): void {
+  for (const id of tracking.seen) if (!activeIds.has(id)) tracking.seen.delete(id);
+  for (const id of tracking.compactionHeld) if (!activeIds.has(id)) tracking.compactionHeld.delete(id);
+  for (const id of tracking.draining.keys()) if (!activeIds.has(id)) tracking.draining.delete(id);
+  for (const id of tracking.baselines.keys()) if (!activeIds.has(id)) tracking.baselines.delete(id);
+}
+
 function isDisjoint(current: ReadonlySet<string>, baseline: ReadonlySet<string>): boolean {
   if (current.size === 0 || baseline.size === 0) return false;
   for (const id of current) {
@@ -34,34 +87,241 @@ function isDisjoint(current: ReadonlySet<string>, baseline: ReadonlySet<string>)
   return true;
 }
 
+function hasRevisionAdvanced(
+  current: string | number | null | undefined,
+  baseline: string | number | null | undefined
+): boolean {
+  return (
+    current !== undefined && current !== null && baseline !== undefined && baseline !== null && current !== baseline
+  );
+}
+
+function isTrimmedPastBaseline(frame: ReleaseFrame, baseline: AcceptedBaseline | undefined): boolean {
+  return (
+    frame.hasOlder &&
+    frame.settledCount > 0 &&
+    (!baseline || baseline.settledCount === 0 || isDisjoint(frame.settledIds, baseline.settledIds))
+  );
+}
+
 function snapshotBaseline(
-  authoritative: boolean,
-  confirmedPostRestore: boolean,
-  snapshotRevision: string | number | null | undefined,
-  settledIds: ReadonlySet<string>,
-  settledCount: number,
-  tailId: string | undefined,
-  windowStart: string | undefined,
-  busy: boolean,
-  compacting: boolean,
-  hadQueued: boolean,
-  turnId: string
+  frame: ReleaseFrame,
+  overrides: {
+    authoritative: boolean;
+    confirmedPostRestore: boolean;
+    snapshotRevision: string | number | null | undefined;
+    hadQueued: boolean;
+  }
 ): AcceptedBaseline {
   return {
-    authoritative,
-    sawNonAuthoritative: !authoritative,
-    confirmedPostRestore,
-    snapshotRevision,
-    settledIds: new Set(settledIds),
-    settledCount,
-    tailId,
-    windowStart,
-    busy,
-    compacting,
-    hadQueued,
-    sawBusy: busy,
-    turnId,
+    authoritative: overrides.authoritative,
+    sawNonAuthoritative: !overrides.authoritative,
+    confirmedPostRestore: overrides.confirmedPostRestore,
+    snapshotRevision: overrides.snapshotRevision,
+    settledIds: new Set(frame.settledIds),
+    settledCount: frame.settledCount,
+    tailId: frame.tailId,
+    windowStart: frame.firstSettledId,
+    busy: frame.currentBusy === true,
+    compacting: frame.isCompacting,
+    hadQueued: overrides.hadQueued,
+    sawBusy: frame.currentBusy === true,
+    turnId: frame.currentTurnId,
   };
+}
+
+function buildReleaseFrame({
+  settledItems,
+  queued,
+  busy,
+  compacting,
+  hasOlder,
+  turnId,
+  snapshotRevision,
+  snapshotPreview,
+  restoring,
+}: {
+  settledItems: readonly TranscriptItem[];
+  queued?: unknown;
+  busy?: boolean;
+  compacting?: boolean;
+  hasOlder?: boolean;
+  turnId?: string;
+  snapshotRevision?: string | number | null;
+  snapshotPreview?: boolean;
+  restoring?: boolean;
+}): ReleaseFrame {
+  const settledIds = new Set<string>();
+  let firstSettledId: string | undefined;
+  let tailId: string | undefined;
+  for (const item of settledItems) {
+    if (item?.id === undefined || item.id === null) continue;
+    const id = String(item.id);
+    if (firstSettledId === undefined) firstSettledId = id;
+    tailId = id;
+    settledIds.add(id);
+  }
+  const hasQueuedList = Array.isArray(queued);
+  const queuedIds = new Set<string>();
+  if (hasQueuedList) {
+    for (const entry of queued) {
+      const id = String(asRecord(entry)?.id ?? '').trim();
+      if (id) queuedIds.add(id);
+    }
+  }
+  return {
+    settledIds,
+    settledCount: settledItems.length,
+    firstSettledId,
+    tailId,
+    tailKind: settledItems.at(-1)?.kind,
+    hasQueuedList,
+    queuedIds,
+    authoritative: snapshotPreview !== true && restoring !== true,
+    currentBusy: typeof busy === 'boolean' ? busy : undefined,
+    isCompacting: compacting === true,
+    hasOlder: hasOlder === true,
+    currentTurnId: typeof turnId === 'string' ? turnId : '',
+    snapshotRevision,
+  };
+}
+
+function shouldReleaseDequeuedPrompt(
+  item: PendingPromptItem,
+  id: string,
+  frame: ReleaseFrame,
+  tracking: PromptReleaseTracking
+): boolean {
+  if (frame.isCompacting) {
+    tracking.compactionHeld.add(id);
+    return false;
+  }
+
+  const wasCompactionHeld = tracking.compactionHeld.delete(id);
+  const baseline = tracking.baselines.get(id);
+  const baselineRevision = baseline?.snapshotRevision ?? item.acceptedSnapshotRevision;
+  const revisionAdvanced = hasRevisionAdvanced(frame.snapshotRevision, baselineRevision);
+  const restoreCompleted =
+    (item.acceptedWhileRestoring === true && !baseline?.confirmedPostRestore) ||
+    (baseline ? !baseline.authoritative || baseline.sawNonAuthoritative : false);
+  const trimmedPastBaseline = isTrimmedPastBaseline(frame, baseline);
+  const turnChanged =
+    Boolean(baseline?.turnId) && Boolean(frame.currentTurnId) && frame.currentTurnId !== baseline?.turnId;
+
+  if (!revisionAdvanced && !restoreCompleted && !trimmedPastBaseline && !turnChanged) {
+    const activeDrain = tracking.draining.get(id);
+    if (wasCompactionHeld) {
+      tracking.draining.set(id, {
+        settledCount: frame.settledCount,
+        tailId: frame.tailId,
+        afterCompaction: true,
+        sawBusySinceDrain: frame.currentBusy === true,
+      });
+      return false;
+    }
+    if (!activeDrain) {
+      if (frame.currentBusy !== false) {
+        const settledMovedPastUser =
+          baseline !== undefined &&
+          (frame.settledCount !== baseline.settledCount || frame.tailId !== baseline.tailId) &&
+          frame.tailKind !== 'user';
+        if (!settledMovedPastUser) {
+          tracking.draining.set(id, {
+            settledCount: frame.settledCount,
+            tailId: frame.tailId,
+            afterCompaction: false,
+            sawBusySinceDrain: frame.currentBusy === true,
+          });
+          return false;
+        }
+      }
+    } else {
+      if (frame.currentBusy === true) activeDrain.sawBusySinceDrain = true;
+      const progressedBeyondUserDrain =
+        (frame.settledCount !== activeDrain.settledCount || frame.tailId !== activeDrain.tailId) &&
+        frame.tailKind !== 'user';
+      const turnEndedAfterDrain =
+        frame.currentBusy === false && (!activeDrain.afterCompaction || activeDrain.sawBusySinceDrain);
+      if (!progressedBeyondUserDrain && !turnEndedAfterDrain) {
+        activeDrain.settledCount = frame.settledCount;
+        activeDrain.tailId = frame.tailId;
+        return false;
+      }
+      tracking.draining.delete(id);
+    }
+  }
+  return true;
+}
+
+function shouldReleaseUnqueuedAcceptedPrompt(
+  item: PendingPromptItem,
+  id: string,
+  frame: ReleaseFrame,
+  tracking: PromptReleaseTracking
+): boolean {
+  const baseline = tracking.baselines.get(id);
+  if (!baseline) {
+    const acceptedRevisionAdvanced = hasRevisionAdvanced(frame.snapshotRevision, item.acceptedSnapshotRevision);
+    if (item.acceptedWhileRestoring === true || acceptedRevisionAdvanced) {
+      if (!frame.isCompacting) return true;
+      tracking.baselines.set(
+        id,
+        snapshotBaseline(frame, {
+          authoritative: false,
+          confirmedPostRestore: false,
+          snapshotRevision: item.acceptedSnapshotRevision ?? frame.snapshotRevision,
+          hadQueued: frame.queuedIds.size > 0,
+        })
+      );
+      return false;
+    }
+    tracking.baselines.set(
+      id,
+      snapshotBaseline(frame, {
+        authoritative: true,
+        confirmedPostRestore: false,
+        snapshotRevision: item.acceptedSnapshotRevision ?? frame.snapshotRevision,
+        hadQueued: frame.queuedIds.size > 0,
+      })
+    );
+    return false;
+  }
+
+  if (!baseline.authoritative || baseline.sawNonAuthoritative) {
+    return !frame.isCompacting;
+  }
+
+  if (frame.currentBusy === true) baseline.sawBusy = true;
+  if (frame.isCompacting) baseline.compacting = true;
+  if (
+    (baseline.snapshotRevision === undefined || baseline.snapshotRevision === null) &&
+    frame.snapshotRevision !== undefined &&
+    frame.snapshotRevision !== null
+  ) {
+    baseline.snapshotRevision = frame.snapshotRevision;
+  }
+
+  const revisionAdvanced = hasRevisionAdvanced(frame.snapshotRevision, baseline.snapshotRevision);
+  const trimmedPastBaseline = isTrimmedPastBaseline(frame, baseline);
+  const settledChanged =
+    frame.settledCount !== baseline.settledCount ||
+    frame.tailId !== baseline.tailId ||
+    frame.firstSettledId !== baseline.windowStart;
+  const idleAndQueueEmpty =
+    frame.currentBusy === false && !frame.isCompacting && frame.hasQueuedList && frame.queuedIds.size === 0;
+  const idleAfterProgress =
+    idleAndQueueEmpty &&
+    (item.queuedBehindTurn
+      ? baseline.busy || baseline.compacting || baseline.hadQueued || settledChanged
+      : baseline.sawBusy || baseline.compacting);
+  const nextTurnWithEmptyQueue =
+    Boolean(baseline.turnId) &&
+    Boolean(frame.currentTurnId) &&
+    frame.currentTurnId !== baseline.turnId &&
+    frame.hasQueuedList &&
+    frame.queuedIds.size === 0;
+
+  return revisionAdvanced || trimmedPastBaseline || idleAfterProgress || nextTurnWithEmptyQueue;
 }
 
 /** Drops optimistic prompt cards: on navigation away from the session, once
@@ -109,18 +369,12 @@ export function useConversationOptimisticPromptRelease({
   restoring?: boolean;
 }) {
   const previousTranscriptSessionKey = useRef(transcriptSessionKey);
-  const seenInQueueIds = useRef(new Set<string>());
-  const compactionHeldIds = useRef(new Set<string>());
-  const drainingIds = useRef(new Map<string, DrainState>());
-  const acceptedBaselines = useRef(new Map<string, AcceptedBaseline>());
+  const trackingRef = useRef<PromptReleaseTracking>(createPromptReleaseTracking());
 
   useEffect(() => {
     if (previousTranscriptSessionKey.current === transcriptSessionKey) return;
     previousTranscriptSessionKey.current = transcriptSessionKey;
-    seenInQueueIds.current.clear();
-    compactionHeldIds.current.clear();
-    drainingIds.current.clear();
-    acceptedBaselines.current.clear();
+    clearPromptTracking(trackingRef.current);
     if (promotedOwnDraft.current) {
       promotedOwnDraft.current = false;
       return;
@@ -129,314 +383,107 @@ export function useConversationOptimisticPromptRelease({
   }, [promotedOwnDraft, setOptimisticPrompts, transcriptSessionKey]);
 
   useEffect(() => {
-    const seen = seenInQueueIds.current;
-    const compactionHeld = compactionHeldIds.current;
-    const draining = drainingIds.current;
-    const baselines = acceptedBaselines.current;
+    const tracking = trackingRef.current;
     if (optimisticPrompts.length === 0) {
-      if (seen.size > 0) seen.clear();
-      if (compactionHeld.size > 0) compactionHeld.clear();
-      if (draining.size > 0) draining.clear();
-      if (baselines.size > 0) baselines.clear();
+      clearPromptTracking(tracking);
       return;
     }
 
     const activeIds = new Set<string>();
     for (const item of optimisticPrompts) activeIds.add(String(item.id));
-    for (const id of seen) if (!activeIds.has(id)) seen.delete(id);
-    for (const id of compactionHeld) if (!activeIds.has(id)) compactionHeld.delete(id);
-    for (const id of draining.keys()) if (!activeIds.has(id)) draining.delete(id);
-    for (const id of baselines.keys()) if (!activeIds.has(id)) baselines.delete(id);
+    prunePromptTracking(tracking, activeIds);
 
-    const settledIds = new Set<string>();
-    let firstSettledId: string | undefined;
-    let tailId: string | undefined;
-    for (const item of settledItems) {
-      if (item?.id === undefined || item.id === null) continue;
-      const id = String(item.id);
-      if (firstSettledId === undefined) firstSettledId = id;
-      tailId = id;
-      settledIds.add(id);
-    }
-    const tailKind = settledItems.at(-1)?.kind;
-
-    const hasQueuedList = Array.isArray(queued);
-    const queuedIds = new Set<string>();
-    if (hasQueuedList) {
-      for (const entry of queued) {
-        const id = String(asRecord(entry)?.id ?? '').trim();
-        if (id) queuedIds.add(id);
-      }
-    }
-
-    const authoritative = snapshotPreview !== true && restoring !== true;
-    const currentBusy = typeof busy === 'boolean' ? busy : undefined;
-    const isCompacting = compacting === true;
-    const currentTurnId = typeof turnId === 'string' ? turnId : '';
+    const frame = buildReleaseFrame({
+      settledItems,
+      queued,
+      busy,
+      compacting,
+      hasOlder,
+      turnId,
+      snapshotRevision,
+      snapshotPreview,
+      restoring,
+    });
     const toRelease = new Set<string>();
 
     for (const item of optimisticPrompts) {
       const id = String(item.id);
-      if (settledIds.has(id)) {
+      if (frame.settledIds.has(id)) {
         toRelease.add(id);
         continue;
       }
       if (item.steer === 'failed') {
-        if (authoritative && hasQueuedList && queuedIds.has(id)) {
+        if (frame.authoritative && frame.hasQueuedList && frame.queuedIds.has(id)) {
           toRelease.add(id);
           continue;
         }
         // Only preserve genuinely unreceived failed steers; once the server was
         // already observed queuing this id, a lost reply releases normally.
-        if (!seen.has(id)) {
-          compactionHeld.delete(id);
-          draining.delete(id);
-          baselines.delete(id);
+        if (!tracking.seen.has(id)) {
+          tracking.compactionHeld.delete(id);
+          tracking.draining.delete(id);
+          tracking.baselines.delete(id);
           continue;
         }
       }
 
-      if (!authoritative) {
-        if (item.accepted === true || seen.has(id)) {
-          const existing = baselines.get(id);
+      if (!frame.authoritative) {
+        if (item.accepted === true || tracking.seen.has(id)) {
+          const existing = tracking.baselines.get(id);
           if (existing) {
             existing.sawNonAuthoritative = true;
           } else {
-            baselines.set(
+            tracking.baselines.set(
               id,
-              snapshotBaseline(
-                false,
-                false,
-                item.acceptedSnapshotRevision ?? snapshotRevision,
-                settledIds,
-                settledItems.length,
-                tailId,
-                firstSettledId,
-                currentBusy === true,
-                isCompacting,
-                queuedIds.size > 0,
-                currentTurnId
-              )
+              snapshotBaseline(frame, {
+                authoritative: false,
+                confirmedPostRestore: false,
+                snapshotRevision: item.acceptedSnapshotRevision ?? frame.snapshotRevision,
+                hadQueued: frame.queuedIds.size > 0,
+              })
             );
           }
         } else {
-          baselines.delete(id);
+          tracking.baselines.delete(id);
         }
         continue;
       }
 
-      if (hasQueuedList && queuedIds.has(id)) {
-        seen.add(id);
-        compactionHeld.delete(id);
-        draining.delete(id);
-        baselines.set(
+      if (frame.hasQueuedList && frame.queuedIds.has(id)) {
+        tracking.seen.add(id);
+        tracking.compactionHeld.delete(id);
+        tracking.draining.delete(id);
+        tracking.baselines.set(
           id,
-          snapshotBaseline(
-            true,
-            item.accepted === true,
-            snapshotRevision,
-            settledIds,
-            settledItems.length,
-            tailId,
-            firstSettledId,
-            currentBusy === true,
-            isCompacting,
-            true,
-            currentTurnId
-          )
+          snapshotBaseline(frame, {
+            authoritative: true,
+            confirmedPostRestore: item.accepted === true,
+            snapshotRevision: frame.snapshotRevision,
+            hadQueued: true,
+          })
         );
         continue;
       }
 
-      const serverAccepted = item.accepted === true || (item.steer === 'failed' && seen.has(id));
+      const serverAccepted = item.accepted === true || (item.steer === 'failed' && tracking.seen.has(id));
       if (!serverAccepted) {
-        if (!seen.has(id)) {
-          baselines.delete(id);
-        } else if (hasQueuedList && isCompacting) {
-          compactionHeld.add(id);
+        if (!tracking.seen.has(id)) {
+          tracking.baselines.delete(id);
+        } else if (frame.hasQueuedList && frame.isCompacting) {
+          tracking.compactionHeld.add(id);
         }
         continue;
       }
 
-      if (hasQueuedList && seen.has(id)) {
-        if (isCompacting) {
-          compactionHeld.add(id);
-          continue;
-        }
-
-        const wasCompactionHeld = compactionHeld.delete(id);
-        const baseline = baselines.get(id);
-        const baselineRevision = baseline?.snapshotRevision ?? item.acceptedSnapshotRevision;
-        const revisionAdvanced =
-          snapshotRevision !== undefined &&
-          snapshotRevision !== null &&
-          baselineRevision !== undefined &&
-          baselineRevision !== null &&
-          snapshotRevision !== baselineRevision;
-        const restoreCompleted =
-          (item.acceptedWhileRestoring === true && !baseline?.confirmedPostRestore) ||
-          (baseline ? !baseline.authoritative || baseline.sawNonAuthoritative : false);
-        const trimmedPastBaseline =
-          hasOlder === true &&
-          settledItems.length > 0 &&
-          (!baseline || baseline.settledCount === 0 || isDisjoint(settledIds, baseline.settledIds));
-        const turnChanged = Boolean(baseline?.turnId) && Boolean(currentTurnId) && currentTurnId !== baseline?.turnId;
-
-        if (!revisionAdvanced && !restoreCompleted && !trimmedPastBaseline && !turnChanged) {
-          const activeDrain = draining.get(id);
-          if (wasCompactionHeld) {
-            draining.set(id, {
-              settledCount: settledItems.length,
-              tailId,
-              afterCompaction: true,
-              sawBusySinceDrain: currentBusy === true,
-            });
-            continue;
-          }
-          if (!activeDrain) {
-            if (currentBusy !== false) {
-              const settledMovedPastUser =
-                baseline !== undefined &&
-                (settledItems.length !== baseline.settledCount || tailId !== baseline.tailId) &&
-                tailKind !== 'user';
-              if (!settledMovedPastUser) {
-                draining.set(id, {
-                  settledCount: settledItems.length,
-                  tailId,
-                  afterCompaction: false,
-                  sawBusySinceDrain: currentBusy === true,
-                });
-                continue;
-              }
-            }
-          } else {
-            if (currentBusy === true) activeDrain.sawBusySinceDrain = true;
-            const progressedBeyondUserDrain =
-              (settledItems.length !== activeDrain.settledCount || tailId !== activeDrain.tailId) &&
-              tailKind !== 'user';
-            const turnEndedAfterDrain =
-              currentBusy === false && (!activeDrain.afterCompaction || activeDrain.sawBusySinceDrain);
-            if (!progressedBeyondUserDrain && !turnEndedAfterDrain) {
-              activeDrain.settledCount = settledItems.length;
-              activeDrain.tailId = tailId;
-              continue;
-            }
-            draining.delete(id);
-          }
-        }
-        toRelease.add(id);
-        continue;
-      }
-
-      const baseline = baselines.get(id);
-      if (!baseline) {
-        const acceptedRevisionAdvanced =
-          item.acceptedSnapshotRevision !== undefined &&
-          item.acceptedSnapshotRevision !== null &&
-          snapshotRevision !== undefined &&
-          snapshotRevision !== null &&
-          snapshotRevision !== item.acceptedSnapshotRevision;
-        if (item.acceptedWhileRestoring === true || acceptedRevisionAdvanced) {
-          if (!isCompacting) {
-            toRelease.add(id);
-          } else {
-            baselines.set(
-              id,
-              snapshotBaseline(
-                false,
-                false,
-                item.acceptedSnapshotRevision ?? snapshotRevision,
-                settledIds,
-                settledItems.length,
-                tailId,
-                firstSettledId,
-                currentBusy === true,
-                isCompacting,
-                queuedIds.size > 0,
-                currentTurnId
-              )
-            );
-          }
-          continue;
-        }
-        baselines.set(
-          id,
-          snapshotBaseline(
-            true,
-            false,
-            item.acceptedSnapshotRevision ?? snapshotRevision,
-            settledIds,
-            settledItems.length,
-            tailId,
-            firstSettledId,
-            currentBusy === true,
-            isCompacting,
-            queuedIds.size > 0,
-            currentTurnId
-          )
-        );
-        continue;
-      }
-
-      if (!baseline.authoritative || baseline.sawNonAuthoritative) {
-        if (!isCompacting) {
-          toRelease.add(id);
-        }
-        continue;
-      }
-
-      if (currentBusy === true) baseline.sawBusy = true;
-      if (isCompacting) baseline.compacting = true;
-      if (
-        (baseline.snapshotRevision === undefined || baseline.snapshotRevision === null) &&
-        snapshotRevision !== undefined &&
-        snapshotRevision !== null
-      ) {
-        baseline.snapshotRevision = snapshotRevision;
-      }
-
-      const revisionAdvanced =
-        snapshotRevision !== undefined &&
-        snapshotRevision !== null &&
-        baseline.snapshotRevision !== undefined &&
-        baseline.snapshotRevision !== null &&
-        snapshotRevision !== baseline.snapshotRevision;
-
-      const trimmedPastBaseline =
-        hasOlder === true &&
-        settledItems.length > 0 &&
-        (baseline.settledCount === 0 || isDisjoint(settledIds, baseline.settledIds));
-
-      const settledChanged =
-        settledItems.length !== baseline.settledCount ||
-        tailId !== baseline.tailId ||
-        firstSettledId !== baseline.windowStart;
-      const idleAndQueueEmpty = currentBusy === false && !isCompacting && hasQueuedList && queuedIds.size === 0;
-      const idleAfterProgress =
-        idleAndQueueEmpty &&
-        (item.queuedBehindTurn
-          ? baseline.busy || baseline.compacting || baseline.hadQueued || settledChanged
-          : baseline.sawBusy || baseline.compacting);
-
-      const nextTurnWithEmptyQueue =
-        Boolean(baseline.turnId) &&
-        Boolean(currentTurnId) &&
-        currentTurnId !== baseline.turnId &&
-        hasQueuedList &&
-        queuedIds.size === 0;
-
-      if (revisionAdvanced || trimmedPastBaseline || idleAfterProgress || nextTurnWithEmptyQueue) {
-        toRelease.add(id);
-      }
+      const shouldRelease =
+        frame.hasQueuedList && tracking.seen.has(id)
+          ? shouldReleaseDequeuedPrompt(item, id, frame, tracking)
+          : shouldReleaseUnqueuedAcceptedPrompt(item, id, frame, tracking);
+      if (shouldRelease) toRelease.add(id);
     }
 
     if (toRelease.size === 0) return;
-    for (const id of toRelease) {
-      seen.delete(id);
-      compactionHeld.delete(id);
-      draining.delete(id);
-      baselines.delete(id);
-    }
+    for (const id of toRelease) deletePromptTracking(tracking, id);
     // Out for good: a window that later drops the row does not bring the card back.
     setOptimisticPrompts((current) => {
       const kept = current.filter((item) => !toRelease.has(String(item.id)));

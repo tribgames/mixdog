@@ -68,6 +68,11 @@ export function followSessionStates(
     const origin = client.store.thread(threadId)?.state.origin;
     return origin ? snapshotRevisionFor(origin) : fallbackRevisions.get(threadId);
   };
+  const advanceThreadRevision = (threadId: string): void => {
+    const origin = client.store.thread(threadId)?.state.origin;
+    const nextRev = advanceSnapshotRevision(origin);
+    if (!origin) fallbackRevisions.set(threadId, nextRev);
+  };
   const show = (threadId: string, state: unknown, streamPosition?: DesktopStreamPosition): void => {
     shown.add(threadId);
     released.delete(threadId);
@@ -81,13 +86,15 @@ export function followSessionStates(
         : undefined;
     if (!snapshot) {
       const base = options.decorate(state);
-      snapshot = base
-        ? ({
-            ...base,
-            ...(snapshotRevision !== undefined ? { snapshotRevision } : {}),
-            ...(replayPending ? { replayPending: true as const } : {}),
-          } as SessionSnapshot)
-        : base;
+      if (base) {
+        snapshot = {
+          ...base,
+          ...(snapshotRevision !== undefined ? { snapshotRevision } : {}),
+          ...(replayPending ? { replayPending: true as const } : {}),
+        } as SessionSnapshot;
+      } else {
+        snapshot = base;
+      }
       if (state && typeof state === 'object') {
         decorated.set(state, { revision: snapshotRevision, replayPending, snapshot });
       }
@@ -98,6 +105,12 @@ export function followSessionStates(
       frameSource: 'live',
       ...(streamPosition ? { streamPosition } : {}),
     });
+  };
+  const showCurrent = (threadId: string): boolean => {
+    const state = options.stateOf(threadId);
+    if (state === undefined) return false;
+    show(threadId, state, positionOf(threadId));
+    return true;
   };
   const unload = (threadId: string): void => {
     if (!shown.delete(threadId)) return;
@@ -116,9 +129,7 @@ export function followSessionStates(
   // Advance the authoritative revision before `subscribeFramedSessionStates` runs so any post-replay frame carries it.
   const offReplayBefore = client.store.subscribe((change) => {
     if (stopped || change.type !== 'thread' || !change.replayComplete) return;
-    const origin = client.store.thread(change.threadId)?.state.origin;
-    const nextRev = advanceSnapshotRevision(origin);
-    if (!origin) fallbackRevisions.set(change.threadId, nextRev);
+    advanceThreadRevision(change.threadId);
     if (library.threadSubscription(change.threadId).followed) {
       pendingReplayPublish.add(change.threadId);
     }
@@ -138,11 +149,8 @@ export function followSessionStates(
     ) {
       const sub = library.threadSubscription(change.feedId);
       if (sub.followed && !sub.snapshotPending && !sub.replayPending) {
-        const origin = client.store.thread(change.feedId)?.state.origin;
-        const nextRev = advanceSnapshotRevision(origin);
-        if (!origin) fallbackRevisions.set(change.feedId, nextRev);
-        const state = options.stateOf(change.feedId);
-        if (state !== undefined) show(change.feedId, state, positionOf(change.feedId));
+        advanceThreadRevision(change.feedId);
+        showCurrent(change.feedId);
       }
       return;
     }
@@ -153,8 +161,7 @@ export function followSessionStates(
       pendingReplayPublish.delete(change.threadId) &&
       library.threadSubscription(change.threadId).followed
     ) {
-      const state = options.stateOf(change.threadId);
-      if (state !== undefined) show(change.threadId, state, positionOf(change.threadId));
+      showCurrent(change.threadId);
     }
   });
   const offDeleted = client.on((event) => {
@@ -169,10 +176,7 @@ export function followSessionStates(
       for (const threadId of [...shown]) if (!library.threadSubscription(threadId).followed) unload(threadId);
     },
     republish(threadId) {
-      const state = options.stateOf(threadId);
-      if (stopped || state === undefined) return false;
-      show(threadId, state, positionOf(threadId));
-      return true;
+      return !stopped && showCurrent(threadId);
     },
     stop() {
       stopped = true;

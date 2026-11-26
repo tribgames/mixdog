@@ -56,7 +56,7 @@ function serve(path, options) {
   const beforeSend = (url, details = {}) => {
     const hook = globalThis.__mediaBeforeSend;
     let headers = { ...(details.headers ?? {}) };
-    if (hook && hook.filter?.urls?.some((pattern) => url.startsWith(pattern.replace(/\*$/, '')))) {
+    if (hook?.filter?.urls?.some((pattern) => url.startsWith(pattern.replace(/\*$/, '')))) {
       hook.fn(
         {
           url,

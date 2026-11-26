@@ -211,11 +211,8 @@ export function useConversationComposerActions({
     if (!queuedBehindTurnAtSubmit.current) {
       goalSubmission.current = { id: submissionId, scope: goalSubmitScopeRef.current };
     }
-    const showPendingRow = () => {
-      setOptimisticPrompts((current) => [...current.filter((item) => item.id !== submissionId), optimistic]);
-      armFollowOnSubmitRef.current();
-    };
-    showPendingRow();
+    setOptimisticPrompts((current) => [...current.filter((item) => item.id !== submissionId), optimistic]);
+    armFollowOnSubmitRef.current();
     window.mixdogDesktop?.perfLog?.(`prompt-submit phase=renderer-queued id=${submissionId}`);
     const acceptedStartedAt = performance.now();
     // The bubble owns the failed message (and its retry); the composer treats
@@ -229,6 +226,10 @@ export function useConversationComposerActions({
         )
       );
       return true;
+    };
+    const rollbackPendingFlags = () => {
+      if (materializingDraft) suppressDraftSubmitPaintHandoff.current = false;
+      if (goalSubmission.current?.id === submissionId) goalSubmission.current = null;
     };
     let accepted: unknown;
     try {
@@ -245,8 +246,7 @@ export function useConversationComposerActions({
           ? await composerActions.current.invokeResult(send)
           : await send();
     } catch (error) {
-      if (materializingDraft) suppressDraftSubmitPaintHandoff.current = false;
-      if (goalSubmission.current?.id === submissionId) goalSubmission.current = null;
+      rollbackPendingFlags();
       if (optimistic.queuedBehindTurn) return keepFailedSteer();
       setOptimisticPrompts((current) => current.filter((item) => String(item.id) !== submissionId));
       throw error;
@@ -255,10 +255,7 @@ export function useConversationComposerActions({
     // a failed send stays there as "Not sent · Send again" (with the composer
     // cleared) instead of moving back into the editor.
     if (accepted !== true && optimistic.queuedBehindTurn) return keepFailedSteer();
-    if (accepted !== true && materializingDraft) {
-      suppressDraftSubmitPaintHandoff.current = false;
-    }
-    if (accepted !== true && goalSubmission.current?.id === submissionId) goalSubmission.current = null;
+    if (accepted !== true) rollbackPendingFlags();
     const acceptContext = acceptSnapshotContextRef?.current;
     const acceptedSnapshotRevision = acceptContext?.snapshotRevision;
     const acceptedWhileRestoring = Boolean(acceptContext?.restoring || acceptContext?.snapshotPreview);
@@ -467,6 +464,159 @@ function errorRowNode(
   );
 }
 
+function toolActivityPartKey(part: ToolActivityPart, cardKey: string | undefined, seen: Map<string, number>): string {
+  let base: string;
+  if (part.tools) {
+    const first = part.tools[0];
+    base = `tools:${String(first?.id ?? first?.callId ?? first?.name ?? 'group')}`;
+  } else if (part.asked) {
+    base = String(part.asked.id ?? part.asked.callId ?? 'asked');
+  } else {
+    base = `waiting:${cardKey ?? 'live'}`;
+  }
+  const count = seen.get(base) ?? 0;
+  seen.set(base, count + 1);
+  return count === 0 ? base : `${base}#${count}`;
+}
+
+function toolActivityRowNode(
+  row: Extract<TranscriptRowModel, { _tag: 'ToolActivity' }>,
+  {
+    disclosureScope,
+    settledItems,
+    settledTurnKeys,
+    liveItems,
+    snapshot,
+    questionCard,
+    quietTools,
+    turnCards,
+  }: {
+    disclosureScope: string;
+    settledItems: readonly TranscriptItem[];
+    settledTurnKeys: readonly string[];
+    liveItems: readonly TranscriptItem[];
+    snapshot: Snapshot;
+    questionCard?: ReactNode;
+    quietTools: boolean;
+    turnCards?: TurnCardsSeat;
+  }
+): ReactNode {
+  // Questions leave the tool roll-up: a waiting one is the live card, an
+  // answered one stays as its summary.
+  // Exactly one call holds the card (askUserCardKey).
+  const cardKey = questionCard ? askUserCardKey(liveItems, String(snapshot.toolApproval?.toolCallId ?? '')) : undefined;
+  const parts = toolActivityParts(row.items, cardKey !== undefined, cardKey);
+  const record = turnRecordOf(settledItems, settledTurnKeys, row.turnKey);
+  if (parts.length === 1 && parts[0]?.tools) {
+    return quietTools ? null : (
+      <ToolTurnProvider {...record} visualized={turnCards?.visualized}>
+        <ToolActivityGroup
+          items={row.items}
+          disclosureScope={disclosureScope}
+          turnKey={row.turnKey}
+          running={row.open === true}
+        />
+      </ToolTurnProvider>
+    );
+  }
+  const lastPart = parts.at(-1);
+  const seenKeys = new Map<string, number>();
+  return (
+    <ToolTurnProvider {...record} visualized={turnCards?.visualized}>
+      {parts.map((part) => {
+        const key = toolActivityPartKey(part, cardKey, seenKeys);
+        if (part.tools) {
+          return quietTools ? null : (
+            <ToolActivityGroup
+              key={key}
+              items={part.tools}
+              disclosureScope={disclosureScope}
+              turnKey={row.turnKey}
+              running={row.open === true && part === lastPart}
+            />
+          );
+        }
+        if (part.asked) return <AskUserRecord key={key} item={part.asked} />;
+        return <Fragment key={key}>{questionCard}</Fragment>;
+      })}
+    </ToolTurnProvider>
+  );
+}
+
+function assistantRowNode(
+  row: Extract<TranscriptRowModel, { _tag: 'AssistantPart' }>,
+  {
+    disclosureScope,
+    renderAssistantRow,
+    latestCompletion,
+    snapshot,
+    quietTools,
+    turnCards,
+  }: {
+    disclosureScope: string;
+    renderAssistantRow?: (props: TranscriptAssistantRowProps) => ReactNode;
+    latestCompletion: TranscriptItem | undefined;
+    snapshot: Snapshot;
+    quietTools: boolean;
+    turnCards?: TurnCardsSeat;
+  }
+): ReactNode {
+  const completionRow = row.completion ?? (row.item?.kind === 'turndone' ? row.item : undefined);
+  const isLatestCompletion =
+    Boolean(completionRow) &&
+    !snapshot.busy &&
+    Boolean(latestCompletion) &&
+    (row.completion === latestCompletion || row.item === latestCompletion);
+  const sessionId = String(snapshot.sessionId || '').trim();
+  const turnIdentity = submissionIdentity(row.turnKey);
+  const assistantProps: TranscriptAssistantRowProps = {
+    item: row.item,
+    live: Boolean(row.live),
+    revealKey: row.key,
+    // The coding transcript paces its live text; agent chat shows it whole.
+    paced: !quietTools,
+    completion: row.completion,
+    backgroundWork: isLatestCompletion ? backgroundWorkCounts(snapshot) : undefined,
+    animateComplete: hadLiveActivity(sessionId, turnIdentity),
+    completionActivityKey: completionActivityKey(sessionId, turnIdentity),
+    disclosureScope,
+  };
+  // Coding mode: a turn's status line is the last thing of the turn, so with
+  // cards the footer follows them instead of sitting inside the message.
+  const footerAfterCards =
+    !quietTools &&
+    Boolean(row.turnChanges) &&
+    Boolean(row.completion) &&
+    row.item?.kind === 'assistant' &&
+    showsResponseFooter(row.item, row.completion);
+  if (footerAfterCards) assistantProps.footerAfterCards = true;
+  const assistant = renderAssistantRow ? (
+    renderAssistantRow(assistantProps)
+  ) : (
+    <TranscriptAssistantRow {...assistantProps} />
+  );
+  return row.turnChanges ? (
+    <>
+      {assistant}
+      {seatTurnCards(turnCards)}
+      <PreviewedTurnChangesCard turnChanges={row.turnChanges} visualized={turnCards?.visualized} />
+      {footerAfterCards && row.item && row.completion && (
+        <TranscriptResponseFooter
+          trailing
+          revealKey={assistantProps.revealKey}
+          item={row.item}
+          completion={row.completion}
+          animateComplete={assistantProps.animateComplete}
+          completionActivityKey={assistantProps.completionActivityKey}
+          backgroundWork={assistantProps.backgroundWork}
+        />
+      )}
+    </>
+  ) : (
+    assistant
+  );
+}
+
 /** One projected row as elements. Row kinds are a closed set, so this dispatch
  *  is the whole mapping from the row model to the transcript's chrome. */
 export function transcriptRowNode(
@@ -541,100 +691,25 @@ export function transcriptRowNode(
     return <TranscriptRow item={row.item} disclosureScope={disclosureScope} attachedUser={row.attachedUser} />;
   }
   if (row._tag === 'ToolActivity') {
-    // Questions leave the tool roll-up: a waiting one is the live card, an
-    // answered one stays as its summary.
-    // Exactly one call holds the card (askUserCardKey).
-    const cardKey = questionCard
-      ? askUserCardKey(liveItems, String(snapshot.toolApproval?.toolCallId ?? ''))
-      : undefined;
-    const parts = toolActivityParts(row.items, cardKey !== undefined, cardKey);
-    const record = turnRecordOf(settledItems, settledTurnKeys, row.turnKey);
-    if (parts.length === 1 && parts[0]?.tools) {
-      return quietTools ? null : (
-        <ToolTurnProvider {...record} visualized={turnCards?.visualized}>
-          <ToolActivityGroup
-            items={row.items}
-            disclosureScope={disclosureScope}
-            turnKey={row.turnKey}
-            running={row.open === true}
-          />
-        </ToolTurnProvider>
-      );
-    }
-    return (
-      <ToolTurnProvider {...record} visualized={turnCards?.visualized}>
-        {parts.map((part, index) => {
-          if (part.tools) {
-            return quietTools ? null : (
-              <ToolActivityGroup
-                key={`tools:${index}`}
-                items={part.tools}
-                disclosureScope={disclosureScope}
-                turnKey={row.turnKey}
-                running={row.open === true && index === parts.length - 1}
-              />
-            );
-          }
-          if (part.asked) return <AskUserRecord key={String(part.asked.id ?? `asked:${index}`)} item={part.asked} />;
-          return <Fragment key={`waiting:${index}`}>{questionCard}</Fragment>;
-        })}
-      </ToolTurnProvider>
-    );
+    return toolActivityRowNode(row, {
+      disclosureScope,
+      settledItems,
+      settledTurnKeys,
+      liveItems,
+      snapshot,
+      questionCard,
+      quietTools,
+      turnCards,
+    });
   }
-  const completionRow = row.completion ?? (row.item?.kind === 'turndone' ? row.item : undefined);
-  const isLatestCompletion =
-    Boolean(completionRow) &&
-    !snapshot.busy &&
-    Boolean(latestCompletion) &&
-    (row.completion === latestCompletion || row.item === latestCompletion);
-  const sessionId = String(snapshot.sessionId || '').trim();
-  const turnIdentity = submissionIdentity(row.turnKey);
-  const assistantProps: TranscriptAssistantRowProps = {
-    item: row.item,
-    live: Boolean(row.live),
-    revealKey: row.key,
-    // The coding transcript paces its live text; agent chat shows it whole.
-    paced: !quietTools,
-    completion: row.completion,
-    backgroundWork: isLatestCompletion ? backgroundWorkCounts(snapshot) : undefined,
-    animateComplete: hadLiveActivity(sessionId, turnIdentity),
-    completionActivityKey: completionActivityKey(sessionId, turnIdentity),
+  return assistantRowNode(row, {
     disclosureScope,
-  };
-  // Coding mode: a turn's status line is the last thing of the turn, so with
-  // cards the footer follows them instead of sitting inside the message.
-  const footerAfterCards =
-    !quietTools &&
-    Boolean(row.turnChanges) &&
-    Boolean(row.completion) &&
-    row.item?.kind === 'assistant' &&
-    showsResponseFooter(row.item, row.completion);
-  if (footerAfterCards) assistantProps.footerAfterCards = true;
-  const assistant = renderAssistantRow ? (
-    renderAssistantRow(assistantProps)
-  ) : (
-    <TranscriptAssistantRow {...assistantProps} />
-  );
-  return row.turnChanges ? (
-    <>
-      {assistant}
-      {seatTurnCards(turnCards)}
-      <PreviewedTurnChangesCard turnChanges={row.turnChanges} visualized={turnCards?.visualized} />
-      {footerAfterCards && row.item && row.completion && (
-        <TranscriptResponseFooter
-          trailing
-          revealKey={assistantProps.revealKey}
-          item={row.item}
-          completion={row.completion}
-          animateComplete={assistantProps.animateComplete}
-          completionActivityKey={assistantProps.completionActivityKey}
-          backgroundWork={assistantProps.backgroundWork}
-        />
-      )}
-    </>
-  ) : (
-    assistant
-  );
+    renderAssistantRow,
+    latestCompletion,
+    snapshot,
+    quietTools,
+    turnCards,
+  });
 }
 
 /** The turn's visualize cards, seated once above its changed-files card. */

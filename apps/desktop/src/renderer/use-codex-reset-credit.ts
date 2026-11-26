@@ -60,14 +60,18 @@ function createResetAttemptId(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-function codexResetAttempt(offerRevision: string): string {
+function readStoredResetAttempt(): UsageRecord | null {
   try {
-    const stored = record(JSON.parse(window.localStorage.getItem(SIDEBAR_CODEX_RESET_ATTEMPT_KEY) || 'null'));
-    if (stored.offerRevision === offerRevision && typeof stored.idempotencyKey === 'string') {
-      return stored.idempotencyKey;
-    }
+    return record(JSON.parse(window.localStorage.getItem(SIDEBAR_CODEX_RESET_ATTEMPT_KEY) || 'null'));
   } catch {
-    // A corrupt retry record is replaced with a fresh scoped attempt below.
+    return null;
+  }
+}
+
+function codexResetAttempt(offerRevision: string): string {
+  const stored = readStoredResetAttempt();
+  if (stored?.offerRevision === offerRevision && typeof stored.idempotencyKey === 'string') {
+    return stored.idempotencyKey;
   }
   const idempotencyKey = createResetAttemptId();
   try {
@@ -84,6 +88,19 @@ function codexResetAttempt(offerRevision: string): string {
   return idempotencyKey;
 }
 
+const AUTHORITATIVE_RESET_OUTCOMES = new Set(['reset', 'alreadyRedeemed', 'nothingToReset', 'noCredit']);
+
+function isAuthoritativeResetResult(status: unknown, outcome: string): boolean {
+  return status === 'offerChanged' || AUTHORITATIVE_RESET_OUTCOMES.has(outcome);
+}
+
+function resetFailureNotice(cause: unknown): string {
+  const reason = cause instanceof Error && cause.message ? cause.message.trim() : '';
+  return reason
+    ? t('Reset could not be confirmed ({{reason}}). Retrying is safe.', { reason })
+    : t('Reset could not be confirmed. Retrying is safe.');
+}
+
 function resetOutcomeNotice(status: unknown, outcome: unknown): string {
   if (status === 'offerChanged') return t('Reset availability changed. Review the latest Codex usage.');
   if (outcome === 'reset') return '';
@@ -93,11 +110,10 @@ function resetOutcomeNotice(status: unknown, outcome: unknown): string {
 }
 
 function clearCodexResetAttempt(offerRevision: string): void {
+  const stored = readStoredResetAttempt();
+  if (stored?.offerRevision !== offerRevision) return;
   try {
-    const stored = record(JSON.parse(window.localStorage.getItem(SIDEBAR_CODEX_RESET_ATTEMPT_KEY) || 'null'));
-    if (stored.offerRevision === offerRevision) {
-      window.localStorage.removeItem(SIDEBAR_CODEX_RESET_ATTEMPT_KEY);
-    }
+    window.localStorage.removeItem(SIDEBAR_CODEX_RESET_ATTEMPT_KEY);
   } catch {
     // The next attempt replaces an unreadable record.
   }
@@ -172,13 +188,7 @@ export function useCodexResetCredit(api: UsageApi, dashboard: unknown, sidebarOp
       // Authoritative provider vocabulary (oauth-usage.mjs): every consume that
       // the runtime recognises carries one of these, plus a rebuilt dashboard.
       const outcome = String(result.outcome || '');
-      const authoritative =
-        result.status === 'offerChanged' ||
-        outcome === 'reset' ||
-        outcome === 'alreadyRedeemed' ||
-        outcome === 'nothingToReset' ||
-        outcome === 'noCredit';
-      if (!authoritative) {
+      if (!isAuthoritativeResetResult(result.status, outcome)) {
         // Unrecognised outcome: the durable idempotency key SURVIVES so a retry
         // reuses this operation instead of spending a second credit, and the
         // surface says so.
@@ -195,12 +205,7 @@ export function useCodexResetCredit(api: UsageApi, dashboard: unknown, sidebarOp
       // Keep the durable idempotency key: retrying an unknown provider outcome
       // must reuse the same operation rather than spend a second credit.
       console.error('Codex reset-credit consume failed:', cause);
-      const reason = cause instanceof Error && cause.message ? cause.message.trim() : '';
-      setNotice(
-        reason
-          ? t('Reset could not be confirmed ({{reason}}). Retrying is safe.', { reason })
-          : t('Reset could not be confirmed. Retrying is safe.')
-      );
+      setNotice(resetFailureNotice(cause));
     } finally {
       setResetting(false);
     }

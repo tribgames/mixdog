@@ -1,7 +1,22 @@
+import type { VisualizeVersionView } from '../../shared/visualize';
 import type { VisualizeServiceContext } from './context';
 import type { TabState } from './tab-state';
 import { step, type TabWork, whileOpen } from './tabs';
 import { changedRestoreAssets, VersionHistoryFullError } from './versions';
+
+/** Project a file tab's kept versions into renderer/host views. */
+export function versionViewsOf(
+  versions: NonNullable<VisualizeServiceContext['versions']>,
+  sessionId: string,
+  tabId: string
+): VisualizeVersionView[] {
+  return versions.list(sessionId, tabId).map(({ n, at, label, turns }) => ({
+    n,
+    at,
+    ...(label ? { label } : {}),
+    ...(turns?.length ? { turns } : {}),
+  }));
+}
 
 /** The "no such version" error, listing what the tab keeps. */
 export const noVersion = (tab: TabState, n: number, kept: number[]): Error =>
@@ -17,12 +32,7 @@ export function createTabVersions(ctx: Pick<VisualizeServiceContext, 'versions' 
     if (!versions) return;
     for (const tab of sessions.get(sessionId)?.tabs ?? []) {
       if (tab.url || tab.inline) continue;
-      tab.versions = versions.list(sessionId, tab.id).map(({ n, at, label, turns }) => ({
-        n,
-        at,
-        ...(label ? { label } : {}),
-        ...(turns?.length ? { turns } : {}),
-      }));
+      tab.versions = versionViewsOf(versions, sessionId, tab.id);
     }
   };
 

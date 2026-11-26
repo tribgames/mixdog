@@ -336,16 +336,14 @@ export function supersededAgentSessionPanels(
     const oldRow = bySession.get(target.sessionId);
     if (oldRow && oldRow.released !== true) continue;
     const rowIdentity = oldRow ? poolRowIdentity(oldRow) : null;
-    const identity =
-      rowIdentity && remembered
-        ? {
-            ...rowIdentity,
-            at:
-              rowIdentity.at > 0 && remembered.at > 0
-                ? Math.min(rowIdentity.at, remembered.at)
-                : rowIdentity.at || remembered.at,
-          }
-        : (rowIdentity ?? remembered ?? null);
+    let identity = rowIdentity ?? remembered ?? null;
+    if (rowIdentity && remembered) {
+      const at =
+        rowIdentity.at > 0 && remembered.at > 0
+          ? Math.min(rowIdentity.at, remembered.at)
+          : rowIdentity.at || remembered.at;
+      identity = { ...rowIdentity, at };
+    }
     if (!identity) continue;
     const replacement = latestByTag.get(scopeTagKey(identity));
     if (!replacement || replacement.sessionId === target.sessionId) continue;

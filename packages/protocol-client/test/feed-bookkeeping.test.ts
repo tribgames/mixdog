@@ -149,9 +149,6 @@ test('a closed client holds no fold chain, last-event mark or window', async () 
   assert.equal(held.tokenWindow.size, 0);
 });
 
-
-
-
 test('a call that gives up while the link is down leaves no request, mark or ready waiter behind', async () => {
   const { conn, client, held } = await rig();
   conn.serverClose(1006);

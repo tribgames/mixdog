@@ -65,11 +65,8 @@ function titleBarOverlay(light = false, zoom = 1) {
 const defaultTitleBarOverlay = Object.freeze(titleBarOverlay());
 
 function currentTitleBarOverlay(window: DesktopTitleBarWindow) {
-  const base = titleBarOverlay(
-    titleBarThemes.get(window as object) ?? false,
-    titleBarZoomFactors.get(window as object) ?? 1
-  );
-  const dim = titleBarDims.get(window as object);
+  const base = titleBarOverlay(titleBarThemes.get(window) ?? false, titleBarZoomFactors.get(window) ?? 1);
+  const dim = titleBarDims.get(window);
   // The band pixels are the DOM's own (transparent overlay), so a scrim dims
   // them natively — only the SYMBOL ink still needs the composited push.
   if (!dim) return base;
@@ -91,11 +88,8 @@ export function setDesktopTitleBarTheme(window: DesktopTitleBarWindow, value: un
   let band: 'system' | 'light' | 'dark' = 'dark';
   if (systemPreference) band = 'system';
   else if (light) band = 'light';
-  titleBarThemes.set(window as object, light);
   pinNativeThemeSource(band);
-  // A Mica window stays clear: the material follows the pinned native theme.
-  if (micaWindows.has(window as object)) window.setBackgroundColor(CLEAR_BACKGROUND_COLOR);
-  else window.setBackgroundColor(light ? DESKTOP_LIGHT_BACKGROUND_COLOR : DESKTOP_BACKGROUND_COLOR);
+  setWindowTitleBarBand(window, light);
   // Remember the applied band for the NEXT launch: the window constructor
   // reads it so a light-theme start never flashes the dark default band
   // (user-reported titlebar/tab pop right after launch).
@@ -104,8 +98,6 @@ export function setDesktopTitleBarTheme(window: DesktopTitleBarWindow, value: un
       /* best effort */
     });
   }
-  if (!HAS_TITLEBAR_OVERLAY) return;
-  window.setTitleBarOverlay(currentTitleBarOverlay(window));
 }
 
 /** The WCO caption controls are NATIVE: DOM scrims cannot cover them, so a
@@ -113,8 +105,8 @@ export function setDesktopTitleBarTheme(window: DesktopTitleBarWindow, value: un
  *  (the dim never reached it). The renderer sends the composited
  *  scrim-over-band colors while a modal is open; null restores the theme. */
 export function setDesktopTitleBarDim(window: DesktopTitleBarWindow, dim: DesktopTitleBarDim | null): void {
-  if (dim) titleBarDims.set(window as object, dim);
-  else titleBarDims.delete(window as object);
+  if (dim) titleBarDims.set(window, dim);
+  else titleBarDims.delete(window);
   if (!HAS_TITLEBAR_OVERLAY) return;
   window.setTitleBarOverlay(currentTitleBarOverlay(window));
 }
@@ -189,7 +181,7 @@ function nativeThemePrefersDark(): boolean {
 
 export function setDesktopTitleBarZoom(window: DesktopTitleBarWindow, zoom: number): void {
   const normalized = Number.isFinite(zoom) ? Math.min(10, Math.max(0.2, zoom)) : 1;
-  titleBarZoomFactors.set(window as object, normalized);
+  titleBarZoomFactors.set(window, normalized);
   if (!HAS_TITLEBAR_OVERLAY) return;
   window.setTitleBarOverlay(currentTitleBarOverlay(window));
 }
@@ -227,8 +219,9 @@ export const DESKTOP_TITLEBAR_WINDOW_OPTIONS = Object.freeze({
  *  other-PC remote window follows its page): unlike setDesktopTitleBarTheme it
  *  neither pins the native theme nor persists the choice. */
 export function setWindowTitleBarBand(window: DesktopTitleBarWindow, light: boolean): void {
-  titleBarThemes.set(window as object, light);
-  if (micaWindows.has(window as object)) window.setBackgroundColor(CLEAR_BACKGROUND_COLOR);
+  titleBarThemes.set(window, light);
+  // A Mica window stays clear: the material follows the pinned native theme.
+  if (micaWindows.has(window)) window.setBackgroundColor(CLEAR_BACKGROUND_COLOR);
   else window.setBackgroundColor(light ? DESKTOP_LIGHT_BACKGROUND_COLOR : DESKTOP_BACKGROUND_COLOR);
   if (!HAS_TITLEBAR_OVERLAY) return;
   window.setTitleBarOverlay(currentTitleBarOverlay(window));

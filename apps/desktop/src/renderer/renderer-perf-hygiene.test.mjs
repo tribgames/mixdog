@@ -187,7 +187,7 @@ test('mirrorTextareaBox reads geometry before style writes and caches static com
 test('useDockCellWidth coalesces ResizeObserver callbacks onto one rAF without flushSync', async (t) => {
   const resizeCallbacks = [];
   const frames = [];
-  const { window, document, root } = installTestDom(t, {
+  const { window, root } = installTestDom(t, {
     rootId: 'root',
     expose: ['HTMLElement'],
     globals: {

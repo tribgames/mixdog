@@ -5,7 +5,7 @@ import type { ProtocolConnection } from './protocol/connection';
 import { hasConfigStub, readSettings, withPagedConfig } from './protocol/section-reads';
 
 /** The `config` subtrees `desktopSettingsFromConfig` reads. */
-const SETTINGS_SUBTREES: ReadonlySet<string | null> = new Set(['desktop', 'agent']);
+const SETTINGS_SUBTREES: ReadonlySet<string> = new Set(['desktop', 'agent']);
 
 export interface CoreObserversOptions {
   connection: Pick<ProtocolConnection, 'onStoreChange' | 'onEvent' | 'snapshot' | 'call'>;
@@ -25,14 +25,18 @@ export function observeCoreForMain({
   let latest = 0;
   let closed = false;
   const offStore = connection.onStoreChange((change) => {
-    if (change.type !== 'section' || change.section !== 'config' || !SETTINGS_SUBTREES.has(change.key ?? null)) return;
+    if (
+      change.type !== 'section' ||
+      change.section !== 'config' ||
+      typeof change.key !== 'string' ||
+      !SETTINGS_SUBTREES.has(change.key)
+    )
+      return;
     const mine = ++latest;
     const held = connection.snapshot();
-    if (!hasConfigStub(held, [...SETTINGS_SUBTREES] as string[])) return applyDesktopSettings(readSettings(held));
+    if (!hasConfigStub(held, [...SETTINGS_SUBTREES])) return applyDesktopSettings(readSettings(held));
     // A subtree over the inline limit arrives as a stub: it is read in full before the settings are applied.
-    void withPagedConfig(held, (method, params) => connection.call(method, params), [
-      ...SETTINGS_SUBTREES,
-    ] as string[]).then(
+    void withPagedConfig(held, (method, params) => connection.call(method, params), [...SETTINGS_SUBTREES]).then(
       (snapshot) => {
         if (!closed && mine === latest) applyDesktopSettings(readSettings(snapshot));
       },

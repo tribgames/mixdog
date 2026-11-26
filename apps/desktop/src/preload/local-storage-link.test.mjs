@@ -192,7 +192,7 @@ test('unload clears the probe interval, storage listener, and hidden iframe', (t
   });
 
   watchLink(taking(null), pageStorage(), false);
-  assert.ok(appended && appended.hidden, 'hidden probe iframe is appended');
+  assert.ok(appended?.hidden, 'hidden probe iframe is appended');
   assert.equal(intervals.size, 1, 'probe interval is active');
   assert.equal(innerListeners.get('storage')?.size, 1, 'inner storage listener is active');
 

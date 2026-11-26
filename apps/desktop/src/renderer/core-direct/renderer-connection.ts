@@ -49,6 +49,27 @@ const toStatus = (state: string): DesktopProtocolStatus => {
   if (state === 'ready' || state === 'closed') return state;
   return 'reconnecting';
 };
+const notificationFeedId = (notification: {
+  method: string;
+  params?: unknown;
+  feed?: { id: string };
+}): string | undefined => {
+  if (notification.feed?.id !== undefined) return notification.feed.id;
+  const { method, params } = notification;
+  if (
+    (method === 'feed/snapshot' || method === 'feed/closed' || method === 'feed/ended') &&
+    params &&
+    typeof params === 'object' &&
+    typeof (params as { feedId?: unknown }).feedId === 'string'
+  ) {
+    return (params as { feedId: string }).feedId;
+  }
+  return undefined;
+};
+const listenSet = <T>(listeners: Set<T>, listener: T): (() => void) => {
+  listeners.add(listener);
+  return () => void listeners.delete(listener);
+};
 
 /** What a window of this connection hears: the scoped-feed notifications (`fs/changed`, `system/ports/updated`, login
  *  updates), the loss of a sign-in feed, the section changes of the scoped feeds it watches (`push`), and optionally
@@ -421,19 +442,14 @@ export function createRendererConnection({
         if (next !== 'ready') for (const [flowId, feed] of loginFeeds) loseLoginFeed(flowId, feed);
         publishState();
       } else if (event.type === 'notification') {
-        const { method, params } = (event as { notification: { method: string; params?: unknown } }).notification;
+        const notification = (event as { notification: { method: string; params?: unknown; feed?: { id: string } } })
+          .notification;
+        const { method, params } = notification;
         const login = loginUpdateOf(method, params);
         const followed = login ? loginFeeds.get(login.flowId) : undefined;
         if (login && followed) followed.state = login.state;
         for (const window of [...windows]) window.notification(method, params);
-        const feedId =
-          (event as { notification: { feed?: { id: string } } }).notification.feed?.id ??
-          ((method === 'feed/snapshot' || method === 'feed/closed' || method === 'feed/ended') &&
-          params &&
-          typeof params === 'object' &&
-          typeof (params as { feedId?: unknown }).feedId === 'string'
-            ? (params as { feedId: string }).feedId
-            : undefined);
+        const feedId = notificationFeedId(notification);
         const route = feedId === undefined ? undefined : feedWatches.get(feedId);
         if (route && feedId !== undefined) {
           if (method === 'feed/closed' || method === 'feed/ended') {
@@ -514,18 +530,9 @@ export function createRendererConnection({
       newest = run;
       return track(run);
     },
-    onState(listener) {
-      stateListeners.add(listener);
-      return () => void stateListeners.delete(listener);
-    },
-    onReopening(listener) {
-      reopeningListeners.add(listener);
-      return () => void reopeningListeners.delete(listener);
-    },
-    onReplaced(listener) {
-      replacedListeners.add(listener);
-      return () => void replacedListeners.delete(listener);
-    },
+    onState: (listener) => listenSet(stateListeners, listener),
+    onReopening: (listener) => listenSet(reopeningListeners, listener),
+    onReplaced: (listener) => listenSet(replacedListeners, listener),
     snapshot(): DesktopSectionsSnapshot {
       if (!client) return { status, link, entries: [] };
       const { store } = client;
@@ -606,18 +613,12 @@ export function createRendererConnection({
     async unsubscribeThread(threadId) {
       return withDirectErrors((await connectedAfterFirstOpen()).unsubscribeThread(threadId));
     },
-    onStoreChange(listener) {
-      storeListeners.add(listener);
-      return () => void storeListeners.delete(listener);
-    },
+    onStoreChange: (listener) => listenSet(storeListeners, listener),
     loginFeed(flowId) {
       const feed = loginFeeds.get(flowId);
       return feed ? { ...feed } : { state: null, lost: true };
     },
-    onEvent(listener) {
-      eventListeners.add(listener);
-      return () => void eventListeners.delete(listener);
-    },
+    onEvent: (listener) => listenSet(eventListeners, listener),
     notify: (method, params) => connected().notify(method, params),
     respond: (id: string | number, answer: ServerRequestAnswer) => connected().respond(id, answer),
     pendingServerRequests: () => client?.pendingServerRequests() ?? [],

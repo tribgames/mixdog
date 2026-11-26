@@ -32,6 +32,14 @@ function keyVariants(key: string): string[] {
 
 function boundedMap<V>(limit: number, onEvict?: (value: V) => void) {
   const map = new Map<string, V>();
+  const evictOverflow = (): void => {
+    while (map.size > limit) {
+      const oldestKey = map.keys().next().value as string;
+      const evicted = map.get(oldestKey);
+      map.delete(oldestKey);
+      if (evicted !== undefined) onEvict?.(evicted);
+    }
+  };
   return {
     has: (key: string) => map.has(key),
     /** Oldest first, so replaying them restores the recency order. */
@@ -47,12 +55,7 @@ function boundedMap<V>(limit: number, onEvict?: (value: V) => void) {
     set(key: string, value: V): void {
       map.delete(key);
       map.set(key, value);
-      while (map.size > limit) {
-        const oldestKey = map.keys().next().value as string;
-        const evicted = map.get(oldestKey);
-        map.delete(oldestKey);
-        if (evicted !== undefined) onEvict?.(evicted);
-      }
+      evictOverflow();
     },
     deleteIf(key: string, expected: V): boolean {
       if (map.get(key) !== expected) return false;
@@ -69,12 +72,7 @@ function boundedMap<V>(limit: number, onEvict?: (value: V) => void) {
         map.delete(key);
         map.set(key, value);
       }
-      while (map.size > limit) {
-        const oldestKey = map.keys().next().value as string;
-        const evicted = map.get(oldestKey);
-        map.delete(oldestKey);
-        if (evicted !== undefined) onEvict?.(evicted);
-      }
+      evictOverflow();
     },
   };
 }

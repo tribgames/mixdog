@@ -209,11 +209,14 @@ function tick(entry: RevealEntry): void {
     }
     return;
   }
-  const stepChars = entry.draining
-    ? backlog <= REVEAL_STEP_CHARS * 4
-      ? backlog
-      : Math.min(REVEAL_DRAIN_MAX_STEP_CHARS, Math.max(REVEAL_STEP_CHARS * 3, Math.ceil(backlog / 4)))
-    : revealStepChars(backlog, elapsed);
+  let stepChars: number;
+  if (!entry.draining) {
+    stepChars = revealStepChars(backlog, elapsed);
+  } else if (backlog <= REVEAL_STEP_CHARS * 4) {
+    stepChars = backlog;
+  } else {
+    stepChars = Math.min(REVEAL_DRAIN_MAX_STEP_CHARS, Math.max(REVEAL_STEP_CHARS * 3, Math.ceil(backlog / 4)));
+  }
   const end = pacedRevealStep(entry.text, Math.max(entry.shown, first), entry.ceiling, stepChars);
   if (entry.draining && (end >= entry.ceiling || end <= entry.shown)) {
     entry.shown = entry.ceiling;

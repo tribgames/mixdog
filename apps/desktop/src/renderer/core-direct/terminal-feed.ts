@@ -21,6 +21,22 @@ export type TerminalSession = {
 
 /** `a` is a later terminal of the id than `b`, or another run's: what `b` was attached for does not show it. */
 const replaces = (a: TerminalId, b: TerminalId): boolean => (compareTerminals(a, b) ?? 1) > 0;
+const terminalKey = (terminal: TerminalId): string => `${terminal.core}\0${terminal.incarnation}`;
+const isEarlierTerminal = (candidate: TerminalId | undefined, reference: TerminalId | undefined): boolean => {
+  if (!candidate || !reference) return false;
+  const cmp = compareTerminals(candidate, reference);
+  return cmp !== undefined && cmp < 0;
+};
+const matchesTerminal = (frameTerminal: TerminalId | undefined, target: TerminalId | undefined): boolean =>
+  !(target && frameTerminal && compareTerminals(frameTerminal, target) !== 0);
+const isSupersededByAttach = (feed: unknown, value: unknown): boolean => {
+  const sub = (value as { subscription?: { epoch?: unknown; startSeq?: unknown } }).subscription;
+  if (typeof sub?.epoch !== 'string' || typeof sub?.startSeq !== 'number') return false;
+  const stamp = feed as { epoch?: unknown; seq?: unknown } | undefined;
+  if (!stamp || typeof stamp.epoch !== 'string') return false;
+  if (stamp.epoch !== sub.epoch) return true;
+  return typeof stamp.seq === 'number' && stamp.seq < sub.startSeq;
+};
 
 /** The output of a tab is coalesced for this long before it reaches the page. */
 const OUTPUT_COALESCE_MS = 5;
@@ -192,14 +208,8 @@ export function createTerminalFeed(
       if (detaching.get(tab) === pending) detaching.delete(tab);
     });
   };
-  const terminalKey = (terminal: TerminalId): string => `${terminal.core}\0${terminal.incarnation}`;
   const isRetiredTerminal = (tab: string, terminal: TerminalId | undefined): boolean =>
     terminal !== undefined && (retiredTerminals.get(tab)?.has(terminalKey(terminal)) ?? false);
-  const isEarlierTerminal = (candidate: TerminalId | undefined, reference: TerminalId | undefined): boolean => {
-    if (!candidate || !reference) return false;
-    const cmp = compareTerminals(candidate, reference);
-    return cmp !== undefined && cmp < 0;
-  };
   const retireTerminal = (tab: string, terminal: TerminalId | undefined): void => {
     if (!terminal) return;
     let retired = retiredTerminals.get(tab);
@@ -255,16 +265,6 @@ export function createTerminalFeed(
     );
     if (keepWanted) retireTerminal(tab, exitedTerminal);
     clearTerminalState(tab, !keepWanted);
-  };
-  const matchesTerminal = (frameTerminal: TerminalId | undefined, target: TerminalId | undefined): boolean =>
-    !(target && frameTerminal && compareTerminals(frameTerminal, target) !== 0);
-  const isSupersededByAttach = (feed: unknown, value: unknown): boolean => {
-    const sub = (value as { subscription?: { epoch?: unknown; startSeq?: unknown } }).subscription;
-    if (typeof sub?.epoch !== 'string' || typeof sub?.startSeq !== 'number') return false;
-    const stamp = feed as { epoch?: unknown; seq?: unknown } | undefined;
-    if (!stamp || typeof stamp.epoch !== 'string') return false;
-    if (stamp.epoch !== sub.epoch) return true;
-    return typeof stamp.seq === 'number' && stamp.seq < sub.startSeq;
   };
   const applyHeldEvents = (
     id: string,
@@ -351,7 +351,6 @@ export function createTerminalFeed(
             }
             throw new TerminalAttachCancelledError(id);
           }
-          const session = value ? sessionOf(value) : null;
           // A newer attach has the say over the tab: a new link's relink.
           if (attaching.get(id) !== request) {
             const resolved = resolveSuperseded(id, request);
@@ -363,71 +362,68 @@ export function createTerminalFeed(
             if (!hadServerSub) serverSubscribed.delete(id);
             const wantedAdvanced = (wantedSeq.get(id) ?? 0) !== startWantedSeq;
             clearTerminalState(id, !wantedAdvanced);
-          } else {
-            const resolvedTerminal = session?.terminal ?? expected ?? wanted.get(id);
-            const wantedAdvanced = (wantedSeq.get(id) ?? 0) !== startWantedSeq;
-            const currentWanted = wanted.get(id);
-            const prevAttached = attached.get(id)?.terminal;
-            if (
-              prevAttached &&
-              resolvedTerminal &&
-              compareTerminals(resolvedTerminal, prevAttached) !== 0 &&
-              !(wantedAdvanced && currentWanted && compareTerminals(prevAttached, currentWanted) === 0)
-            ) {
-              retireTerminal(id, prevAttached);
-            }
-            attached.set(id, {
-              terminal: resolvedTerminal,
-              client: heldEntry.client,
-              linkGen: heldEntry.linkGen,
-            });
-            serverSubscribed.set(id, heldEntry.client);
-            if (wantedAdvanced && currentWanted) {
-              // Another caller (e.g. an explicit ensure for a replacement shell) advanced `wanted` while this attach was in flight:
-              // only advance further if this reply is strictly later on the same core; never retire or overwrite the newer `wanted`.
-              const cmp = resolvedTerminal ? compareTerminals(resolvedTerminal, currentWanted) : undefined;
-              if (cmp !== undefined && cmp > 0) {
-                advanceWanted(id, resolvedTerminal);
-              } else if (resolvedTerminal && cmp !== 0) {
-                retireTerminal(id, resolvedTerminal);
-              }
-            } else {
+            return null;
+          }
+          const session = sessionOf(value);
+          const resolvedTerminal = session.terminal ?? expected ?? wanted.get(id);
+          const wantedAdvanced = (wantedSeq.get(id) ?? 0) !== startWantedSeq;
+          const currentWanted = wanted.get(id);
+          const prevAttached = attached.get(id)?.terminal;
+          if (
+            prevAttached &&
+            resolvedTerminal &&
+            compareTerminals(resolvedTerminal, prevAttached) !== 0 &&
+            !(wantedAdvanced && currentWanted && compareTerminals(prevAttached, currentWanted) === 0)
+          ) {
+            retireTerminal(id, prevAttached);
+          }
+          attached.set(id, {
+            terminal: resolvedTerminal,
+            client: heldEntry.client,
+            linkGen: heldEntry.linkGen,
+          });
+          serverSubscribed.set(id, heldEntry.client);
+          if (wantedAdvanced && currentWanted) {
+            // Another caller (e.g. an explicit ensure for a replacement shell) advanced `wanted` while this attach was in flight:
+            // only advance further if this reply is strictly later on the same core; never retire or overwrite the newer `wanted`.
+            const cmp = resolvedTerminal ? compareTerminals(resolvedTerminal, currentWanted) : undefined;
+            if (cmp !== undefined && cmp > 0) {
               advanceWanted(id, resolvedTerminal);
+            } else if (resolvedTerminal && cmp !== 0) {
+              retireTerminal(id, resolvedTerminal);
             }
-            if (relink && attachNeedsRedraw(value, resumed)) {
-              const gen = ++nextFeedGen;
-              feedGen.set(id, gen);
-              sessionGenerations.set(session!, gen);
-              latestSession.set(id, session!);
-              // What the page shows is not this screen's past: a half character left from the old link is dropped, the feed's
-              // position is the snapshot's (frames follow from startSeq), and the page draws the screen anew.
-              output.end(id);
-              positions.forget(id);
-              noteAttached(id, value);
-              buffer.reset(id, session!.replay);
-              if (events.length) applyHeldEvents(id, events, resolvedTerminal, value);
-            } else if (!relink) {
-              const gen = ++nextFeedGen;
-              feedGen.set(id, gen);
-              sessionGenerations.set(session!, gen);
-              latestSession.set(id, session!);
+          } else {
+            advanceWanted(id, resolvedTerminal);
+          }
+          const needsRedraw = relink && attachNeedsRedraw(value, resumed);
+          if (!relink || needsRedraw) {
+            const gen = ++nextFeedGen;
+            feedGen.set(id, gen);
+            sessionGenerations.set(session, gen);
+            latestSession.set(id, session);
+            if (!relink) {
               // Drop any unflushed coalesced deltas from a previous shell/snapshot before delivering post-cut deltas.
               buffer.release(id);
-              output.end(id);
-              positions.forget(id);
-              noteAttached(id, value);
-              if (events.length) applyHeldEvents(id, events, resolvedTerminal, value);
-            } else {
-              const gen = feedGen.get(id) ?? ++nextFeedGen;
-              feedGen.set(id, gen);
-              sessionGenerations.set(session!, gen);
-              const baseline = latestSession.get(id);
-              if (!baseline) latestSession.set(id, session!);
-              noteAttached(id, value);
-              if (events.length) applyHeldEvents(id, events, resolvedTerminal, value);
-              if (baseline && hasConsumer && !hasConsumer(id)) return baseline;
             }
+            output.end(id);
+            positions.forget(id);
+            noteAttached(id, value);
+            if (needsRedraw) {
+              // What the page shows is not this screen's past: a half character left from the old link is dropped, the feed's
+              // position is the snapshot's (frames follow from startSeq), and the page draws the screen anew.
+              buffer.reset(id, session.replay);
+            }
+            if (events.length) applyHeldEvents(id, events, resolvedTerminal, value);
+            return session;
           }
+          const gen = feedGen.get(id) ?? ++nextFeedGen;
+          feedGen.set(id, gen);
+          sessionGenerations.set(session, gen);
+          const baseline = latestSession.get(id);
+          if (!baseline) latestSession.set(id, session);
+          noteAttached(id, value);
+          if (events.length) applyHeldEvents(id, events, resolvedTerminal, value);
+          if (baseline && hasConsumer && !hasConsumer(id)) return baseline;
           return session;
         },
         (error: unknown) => {
@@ -478,32 +474,29 @@ export function createTerminalFeed(
   const invalidateCurrentLink = (fromReplaced = false, preserveCurrentHolding = false): Set<string> => {
     const previousLinkGen = linkGen;
     const liveClient = currentClient();
-    const sameReadyClient =
-      fromReplaced && liveClient !== undefined && liveClient !== null && liveClient === activeLinkClient;
-    if (!sameReadyClient) {
+    const isSameLiveClient = (candidate: unknown): boolean =>
+      fromReplaced && liveClient !== undefined && liveClient !== null && candidate === liveClient;
+    if (!isSameLiveClient(activeLinkClient)) {
       linkGen += 1;
       activeLinkClient = liveClient;
     }
     const preserved = new Set<string>();
     for (const [id, current] of [...attached.entries()]) {
-      const keepAttached =
-        fromReplaced && liveClient !== undefined && liveClient !== null && current.client === liveClient;
-      if (keepAttached) {
+      if (isSameLiveClient(current.client)) {
         preserved.add(id);
       } else {
         attached.delete(id);
       }
     }
     for (const [id, client] of [...serverSubscribed.entries()]) {
-      const keepSub = fromReplaced && liveClient !== undefined && liveClient !== null && client === liveClient;
-      if (!keepSub) serverSubscribed.delete(id);
+      if (!isSameLiveClient(client)) serverSubscribed.delete(id);
     }
     for (const [id, entry] of [...holding.entries()]) {
       if (attaching.get(id) === entry.request) {
         const isCurrentLink =
           fromReplaced &&
           (liveClient !== undefined
-            ? entry.client !== undefined && entry.client !== null && entry.client === liveClient
+            ? isSameLiveClient(entry.client)
             : preserveCurrentHolding && entry.linkGen === previousLinkGen);
         if (isCurrentLink) {
           preserved.add(id);

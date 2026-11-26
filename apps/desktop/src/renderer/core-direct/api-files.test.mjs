@@ -147,11 +147,10 @@ test('a file larger than one answer is read a window at a time from one read and
     { content: 'cd', encoding: 'utf8', readId: 'r1', nextChar: 4 },
     { content: 'e', encoding: 'utf8' },
   ];
-  const { api, sent } = await world((method, params) =>
-    method === 'projectFs/readText'
-      ? windows[params.fromChar === undefined ? 0 : params.fromChar / 2]
-      : defaults(method, params)
-  );
+  const { api, sent } = await world((method, params) => {
+    if (method !== 'projectFs/readText') return defaults(method, params);
+    return windows[params.fromChar === undefined ? 0 : params.fromChar / 2];
+  });
   assert.deepEqual(await api.readProjectFile('C:/outside', 'big.txt', 'tok'), { content: 'abcde', encoding: 'utf8' });
   assert.deepEqual(sent(), [
     ['projectFs/readText', { root: 'C:/outside', rel: 'big.txt', accessToken: 'tok', maxChars: 2097152 }],
@@ -376,13 +375,11 @@ test('a core refusal comes out as the IPC path returned it', async () => {
 });
 
 test('a start call publishes its blank snapshot as the window shell snapshot', async () => {
-  const { api, ctx } = await world((method, params) =>
-    method === 'project/taskWorkspace'
-      ? { path: 'T' }
-      : method === 'project/create'
-        ? { project: { path: params.path } }
-        : {}
-  );
+  const { api, ctx } = await world((method, params) => {
+    if (method === 'project/taskWorkspace') return { path: 'T' };
+    if (method === 'project/create') return { project: { path: params.path } };
+    return {};
+  });
   const seen = [];
   sessionLanesOf(ctx).shell.subscribe((snapshot) => seen.push(snapshot.cwd));
   await api.startTask();

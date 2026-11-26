@@ -5,6 +5,7 @@ import {
   rememberRowHeight,
   type TranscriptVirtualizer,
 } from './transcript-list-geometry';
+import { resolveMutationObserver } from './transcript-list-provisional-resize';
 import type { useReadingAnchor } from './transcript-list-reading-anchor';
 import type { TranscriptRowModel } from './transcript-rows';
 
@@ -270,7 +271,7 @@ export function useMountedRowMeasurement({
         }
         if (record.type === 'attributes') {
           const row = rowForMutationTarget(root, record.target);
-          if (!row || !row.isConnected) continue;
+          if (!row?.isConnected) continue;
           trackRow(row);
           const marks = neighbourMarks(row);
           const changed = readRows.get(row) !== marks || record.attributeName === 'data-timeline-key';
@@ -300,12 +301,7 @@ export function useMountedRowMeasurement({
       if (tracker.root === root) return [];
       disconnectTracker();
       tracker.root = root;
-      const MutationObserverCtor =
-        typeof MutationObserver === 'function'
-          ? MutationObserver
-          : typeof window !== 'undefined' && typeof window.MutationObserver === 'function'
-            ? window.MutationObserver
-            : null;
+      const MutationObserverCtor = resolveMutationObserver();
       if (MutationObserverCtor) {
         const handleMutations = (records: MutationRecord[]) => {
           const dirty = collectDirtyFromRecords(root, records);

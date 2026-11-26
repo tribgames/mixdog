@@ -14,10 +14,6 @@ import { discardUnopenedView } from './terminal-view-discard';
 import { TerminalImeGuard } from './terminal-ime-guard';
 import { attachTerminalClipboardKeys } from './terminal-clipboard-keys';
 import { copyTextToClipboard } from './text-format';
-
-const IS_LINUX =
-  typeof navigator !== 'undefined' && /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);
-const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
 import { TerminalWritePump } from './terminal-write-pump';
 import { trackReplay, viewPaintsAtOnce } from './terminal-replay-state';
 import { createTerminalConnectGate, type TerminalConnectMode } from './terminal-connect-gate';
@@ -49,6 +45,10 @@ import {
   sendSizeOwnerRelease,
 } from './terminal-size-owner';
 import { emptyStateHost } from './empty-state-host';
+
+const IS_LINUX =
+  typeof navigator !== 'undefined' && /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);
+const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
 
 /** Quiet period before a layout change re-fits and resizes the PTY. */
 const FIT_DEBOUNCE_MS = 50;
@@ -122,12 +122,21 @@ function readStoredRecord<T>(storageKey: string): Record<string, T> {
 function readTerminalViewState(key: string): TerminalViewState | null {
   try {
     const state = readStoredRecord<Partial<TerminalViewState>>(TERMINAL_VIEW_STATE_KEY)[key];
-    if (!state || !Number.isFinite(state.cols) || !Number.isFinite(state.rows) || !Number.isFinite(state.scrollY))
+    if (
+      !state ||
+      typeof state.cols !== 'number' ||
+      !Number.isFinite(state.cols) ||
+      typeof state.rows !== 'number' ||
+      !Number.isFinite(state.rows) ||
+      typeof state.scrollY !== 'number' ||
+      !Number.isFinite(state.scrollY)
+    ) {
       return null;
+    }
     return {
-      cols: Math.max(2, Math.round(state.cols as number)),
-      rows: Math.max(1, Math.round(state.rows as number)),
-      scrollY: Math.max(0, Math.round(state.scrollY as number)),
+      cols: Math.max(2, Math.round(state.cols)),
+      rows: Math.max(1, Math.round(state.rows)),
+      scrollY: Math.max(0, Math.round(state.scrollY)),
       atBottom: state.atBottom === true,
     };
   } catch {
@@ -287,18 +296,21 @@ function subscribeViewTermData(view: TerminalView) {
   const subscribe = window.mixdogDesktop.subscribeTermData as
     | ((listener: (event: { id: string; data: string; reset?: true }, gen?: number) => void) => () => void)
     | undefined;
-  if (!subscribeTab && !subscribe) return undefined;
-  return (listener: (event: { id: string; data: string; reset?: true }, gen?: number) => void) => {
-    const wrapped = (event: { id: string; data: string; reset?: true }, gen?: number) => {
+  const tabId = view.id;
+  const register =
+    subscribeTab && tabId
+      ? (listener: (event: { id: string; data: string; reset?: true }, gen?: number) => void) =>
+          subscribeTab(tabId, listener)
+      : subscribe;
+  if (!register) return undefined;
+  return (listener: (event: { id: string; data: string; reset?: true }, gen?: number) => void) =>
+    register((event, gen) => {
       if (event.reset === true && event.id === view.id) {
         const currentGen = getTerminalFeedGeneration(event.id);
         if (typeof currentGen === 'number') view.feedGen = currentGen;
       }
       listener(event, gen);
-    };
-    if (subscribeTab && view.id) return subscribeTab(view.id, wrapped);
-    return subscribe!(wrapped);
-  };
+    });
 }
 
 /** Releases xterm, addons, write pump and DOM without terminating the backend PTY when `keepPtyAlive` is true. */
@@ -1064,6 +1076,25 @@ export default function TerminalPane({
     const view = terminalViews.get(key);
     view?.sendInput?.(terminalBarSequence(barKey, view.term.modes.applicationCursorKeysMode));
   };
+  let connectionNote = null;
+  if (serverLink?.terminalsAvailable === false) {
+    connectionNote = (
+      <div
+        className="terminal-connection-note mx-empty-state mx-empty-state-cover"
+        ref={emptyStateHost}
+        data-kind="unavailable"
+        role="note"
+      >
+        {t('Terminals are not available on this server.')}
+      </div>
+    );
+  } else if (isConnectionDown(serverLink)) {
+    connectionNote = (
+      <div className="terminal-connection-note" role="status">
+        {t('Disconnected — reconnecting…')}
+      </div>
+    );
+  }
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop file target; the terminal surface is not a control
     <div
@@ -1100,20 +1131,7 @@ export default function TerminalPane({
       }}
     >
       <div className="dock-terminal" ref={host} />
-      {serverLink?.terminalsAvailable === false ? (
-        <div
-          className="terminal-connection-note mx-empty-state mx-empty-state-cover"
-          ref={emptyStateHost}
-          data-kind="unavailable"
-          role="note"
-        >
-          {t('Terminals are not available on this server.')}
-        </div>
-      ) : isConnectionDown(serverLink) ? (
-        <div className="terminal-connection-note" role="status">
-          {t('Disconnected — reconnecting…')}
-        </div>
-      ) : null}
+      {connectionNote}
       {phoneLayout && active ? <TerminalKeyBar modifiers={modifiers} onKey={sendBarKey} /> : null}
     </div>
   );

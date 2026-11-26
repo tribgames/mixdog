@@ -29,6 +29,91 @@ type SubmissionPaneProps = Pick<
   | 'onInheritSession'
 >;
 
+function createLaneProgress(scope: string, restoring: boolean, streamEpoch: string) {
+  return {
+    scope,
+    wasRestoring: restoring,
+    restoreGeneration: 0,
+    lastEpoch: streamEpoch,
+    epochGeneration: 0,
+  };
+}
+
+function useSessionLaneSnapshotState(
+  shownSessionId: string,
+  transcriptSessionKey: string,
+  snapshot: SubmissionPaneProps['snapshot']
+): { restoring: boolean; snapshotRevision: string } {
+  const subscribeLane = useCallback(
+    (listener: () => void) => {
+      if (!shownSessionId) return () => {};
+      const offLane = defaultSessionLaneStore.subscribe(shownSessionId, listener);
+      const offPosition = defaultSessionLaneStore.subscribeStreamPosition(shownSessionId, listener);
+      return () => {
+        offLane();
+        offPosition();
+      };
+    },
+    [shownSessionId]
+  );
+  const laneMarker = useSyncExternalStore(subscribeLane, () => {
+    if (!shownSessionId) return '';
+    const laneSnap = defaultSessionLaneStore.get(shownSessionId);
+    const isRestoring = laneSnap?.restoreOwed === true || laneSnap?.replayPending === true ? '1' : '0';
+    const epoch = defaultSessionLaneStore.streamPosition(shownSessionId)?.epoch ?? '';
+    return `${isRestoring}:${epoch}`;
+  });
+  const restoring = laneMarker.startsWith('1:') || snapshot.restoreOwed === true || snapshot.replayPending === true;
+  const streamEpoch = laneMarker ? laneMarker.slice(2) : '';
+  const laneProgressRef = useRef(createLaneProgress(transcriptSessionKey, restoring, streamEpoch));
+  if (laneProgressRef.current.scope !== transcriptSessionKey) {
+    laneProgressRef.current = createLaneProgress(transcriptSessionKey, restoring, streamEpoch);
+  } else {
+    if (laneProgressRef.current.wasRestoring && !restoring) {
+      laneProgressRef.current.restoreGeneration += 1;
+    }
+    laneProgressRef.current.wasRestoring = restoring;
+    if (streamEpoch) {
+      if (laneProgressRef.current.lastEpoch && laneProgressRef.current.lastEpoch !== streamEpoch) {
+        laneProgressRef.current.epochGeneration += 1;
+      }
+      laneProgressRef.current.lastEpoch = streamEpoch;
+    }
+  }
+  const transcriptGeneration = typeof snapshot.transcriptGeneration === 'number' ? snapshot.transcriptGeneration : 0;
+  const authoritativeSnapshotRevision = typeof snapshot.snapshotRevision === 'number' ? snapshot.snapshotRevision : 0;
+  const snapshotRevision = `${authoritativeSnapshotRevision}:${laneProgressRef.current.restoreGeneration}:${laneProgressRef.current.epochGeneration}:${transcriptGeneration}`;
+  return { restoring, snapshotRevision };
+}
+
+/** A slash command sent while a turn runs that the session holds for the
+ *  turn's end (/compact) shows inline as a held message until the turn ends. */
+function useHeldSlashCommands(busy: boolean, transcriptSessionKey: string) {
+  const [heldCommands, setHeldCommands] = useState<PendingPromptItem[]>([]);
+  useEffect(() => {
+    if (!busy) setHeldCommands((current) => (current.length ? [] : current));
+  }, [busy]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: transcriptSessionKey is the reset trigger; the body does not read it
+  useEffect(() => setHeldCommands((current) => (current.length ? [] : current)), [transcriptSessionKey]);
+  const holdSlashCommand = useCallback((text: string) => {
+    setHeldCommands((current) => [
+      ...current,
+      {
+        id: nextComposerSubmissionId(),
+        kind: 'user',
+        text,
+        pending: true,
+        accepted: true,
+        submittedAt: Date.now(),
+        queuedBehindTurn: true,
+        steer: 'held',
+        steerLocal: true,
+      },
+    ]);
+  }, []);
+  return { heldCommands, holdSlashCommand };
+}
+
 /** The composer's pane-local actions and the optimistic prompts they submit. */
 export function useConversationSubmission(
   pane: SubmissionPaneProps,
@@ -78,60 +163,11 @@ export function useConversationSubmission(
     routeSnapshot: pane.routeSnapshot,
     onInheritSession: pane.onInheritSession,
   });
-  const subscribeLane = useCallback(
-    (listener: () => void) => {
-      if (!shownSessionId) return () => {};
-      const offLane = defaultSessionLaneStore.subscribe(shownSessionId, listener);
-      const offPosition = defaultSessionLaneStore.subscribeStreamPosition(shownSessionId, listener);
-      return () => {
-        offLane();
-        offPosition();
-      };
-    },
-    [shownSessionId]
+  const { restoring, snapshotRevision } = useSessionLaneSnapshotState(
+    shownSessionId,
+    transcriptSessionKey,
+    pane.snapshot
   );
-  const laneMarker = useSyncExternalStore(subscribeLane, () => {
-    if (!shownSessionId) return '';
-    const laneSnap = defaultSessionLaneStore.get(shownSessionId);
-    const isRestoring = laneSnap?.restoreOwed === true || laneSnap?.replayPending === true ? '1' : '0';
-    const epoch = defaultSessionLaneStore.streamPosition(shownSessionId)?.epoch ?? '';
-    return `${isRestoring}:${epoch}`;
-  });
-  const restoring =
-    laneMarker.startsWith('1:') || pane.snapshot.restoreOwed === true || pane.snapshot.replayPending === true;
-  const streamEpoch = laneMarker ? laneMarker.slice(2) : '';
-  const laneProgressRef = useRef({
-    scope: transcriptSessionKey,
-    wasRestoring: restoring,
-    restoreGeneration: 0,
-    lastEpoch: streamEpoch,
-    epochGeneration: 0,
-  });
-  if (laneProgressRef.current.scope !== transcriptSessionKey) {
-    laneProgressRef.current = {
-      scope: transcriptSessionKey,
-      wasRestoring: restoring,
-      restoreGeneration: 0,
-      lastEpoch: streamEpoch,
-      epochGeneration: 0,
-    };
-  } else {
-    if (laneProgressRef.current.wasRestoring && !restoring) {
-      laneProgressRef.current.restoreGeneration += 1;
-    }
-    laneProgressRef.current.wasRestoring = restoring;
-    if (streamEpoch) {
-      if (laneProgressRef.current.lastEpoch && laneProgressRef.current.lastEpoch !== streamEpoch) {
-        laneProgressRef.current.epochGeneration += 1;
-      }
-      laneProgressRef.current.lastEpoch = streamEpoch;
-    }
-  }
-  const transcriptGeneration =
-    typeof pane.snapshot.transcriptGeneration === 'number' ? pane.snapshot.transcriptGeneration : 0;
-  const authoritativeSnapshotRevision =
-    typeof pane.snapshot.snapshotRevision === 'number' ? pane.snapshot.snapshotRevision : 0;
-  const snapshotRevision = `${authoritativeSnapshotRevision}:${laneProgressRef.current.restoreGeneration}:${laneProgressRef.current.epochGeneration}:${transcriptGeneration}`;
   const commandActive =
     Boolean(pane.snapshot.commandBusy) ||
     (pane.snapshot.commandStatus != null && pane.snapshot.commandStatus.active !== false);
@@ -185,31 +221,7 @@ export function useConversationSubmission(
     setOptimisticPrompts,
     suppressDraftSubmitPaintHandoff,
   });
-  // A slash command sent while a turn runs that the session holds for the
-  // turn's end (/compact) shows inline as a held message until the turn ends.
-  const [heldCommands, setHeldCommands] = useState<PendingPromptItem[]>([]);
-  const busy = Boolean(pane.snapshot.busy);
-  useEffect(() => {
-    if (!busy) setHeldCommands((current) => (current.length ? [] : current));
-  }, [busy]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: transcriptSessionKey is the reset trigger; the body does not read it
-  useEffect(() => setHeldCommands((current) => (current.length ? [] : current)), [transcriptSessionKey]);
-  const holdSlashCommand = useCallback((text: string) => {
-    setHeldCommands((current) => [
-      ...current,
-      {
-        id: nextComposerSubmissionId(),
-        kind: 'user',
-        text,
-        pending: true,
-        accepted: true,
-        submittedAt: Date.now(),
-        queuedBehindTurn: true,
-        steer: 'held',
-        steerLocal: true,
-      },
-    ]);
-  }, []);
+  const { heldCommands, holdSlashCommand } = useHeldSlashCommands(Boolean(pane.snapshot.busy), transcriptSessionKey);
   const steerItems = useMemo(
     () => (heldCommands.length ? [...pending.steerItems, ...heldCommands] : pending.steerItems),
     [heldCommands, pending.steerItems]

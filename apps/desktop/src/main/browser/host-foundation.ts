@@ -199,9 +199,10 @@ function createBrowserHostStorage(
     nativeImporterPath: defaultNativeBrowserImporterPath(),
   });
 
-  const lazyDelegate = <T extends object>(resolve: () => T): T =>
+  const lazyDelegate = <T extends object>(resolve: () => T, overrides?: Partial<Record<keyof T, unknown>>): T =>
     new Proxy({} as T, {
       get(_target, prop) {
+        if (overrides && Object.hasOwn(overrides, prop)) return overrides[prop as keyof T];
         const target = resolve();
         const value = Reflect.get(target, prop, target);
         return typeof value === 'function' ? value.bind(target) : value;
@@ -237,29 +238,13 @@ function createBrowserHostStorage(
     },
   };
 
-  const cookieJar: ReturnType<typeof createBrowserCookieJar> = new Proxy(
-    {} as ReturnType<typeof createBrowserCookieJar>,
-    {
-      get(_target, prop) {
-        if (prop === 'dispose') return () => (created ? created.cookieJar.dispose() : Promise.resolve());
-        const target = ensure().cookieJar;
-        const value = Reflect.get(target, prop, target);
-        return typeof value === 'function' ? value.bind(target) : value;
-      },
-    }
-  );
+  const cookieJar = lazyDelegate(() => ensure().cookieJar, {
+    dispose: () => (created ? created.cookieJar.dispose() : Promise.resolve()),
+  });
 
-  const sessionStore: ReturnType<typeof createBrowserSessionStore> = new Proxy(
-    {} as ReturnType<typeof createBrowserSessionStore>,
-    {
-      get(_target, prop) {
-        if (prop === 'save') return () => (created ? created.sessionStore.save() : Promise.resolve());
-        const target = ensure().sessionStore;
-        const value = Reflect.get(target, prop, target);
-        return typeof value === 'function' ? value.bind(target) : value;
-      },
-    }
-  );
+  const sessionStore = lazyDelegate(() => ensure().sessionStore, {
+    save: () => (created ? created.sessionStore.save() : Promise.resolve()),
+  });
 
   const stopSessionAutosave = (): void => {
     created?.stopSessionAutosave();

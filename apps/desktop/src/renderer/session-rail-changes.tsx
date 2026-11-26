@@ -18,7 +18,11 @@ import type { TurnReviewFileEntry } from './turn-review-model';
 
 /** Deterministic path order so mid-turn line-count updates never reshuffle rows. */
 export function railChangedFiles(files: ReadonlyMap<string, TurnReviewFileEntry>): [string, TurnReviewFileEntry][] {
-  return [...files.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return [...files.entries()].sort(([a], [b]) => {
+    if (a < b) return -1;
+    if (a > b) return 1;
+    return 0;
+  });
 }
 
 const folderWidth = textWidths();
@@ -99,6 +103,14 @@ export function ChangesSection({
   // reaches the branch's files); another source stays so its picker can switch back.
   if (empty && !(status?.repository && status.ahead > 0)) return null;
   const files = railChangedFiles(view.files);
+  const fileRows = files.map(([path, entry]) => (
+    <FileRow
+      key={path}
+      path={path}
+      entry={entry}
+      onOpen={onOpenChangeFile ? () => onOpenChangeFile(path) : undefined}
+    />
+  ));
   const { additions, deletions, hasLineStats } = view.headlineStats;
   return (
     <RailSection
@@ -127,18 +139,7 @@ export function ChangesSection({
         )
       }
     >
-      {files.length === 0 ? (
-        <p className="session-rail-note session-rail-muted">{view.emptyText}</p>
-      ) : (
-        files.map(([path, entry]) => (
-          <FileRow
-            key={path}
-            path={path}
-            entry={entry}
-            onOpen={onOpenChangeFile ? () => onOpenChangeFile(path) : undefined}
-          />
-        ))
-      )}
+      {files.length === 0 ? <p className="session-rail-note session-rail-muted">{view.emptyText}</p> : fileRows}
     </RailSection>
   );
 }

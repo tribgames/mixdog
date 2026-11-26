@@ -139,7 +139,8 @@ function MediaFigure({
         disabled={!openable}
         onClick={(event) => {
           if (!video) setLightbox({ items: lightboxItemsFor(event.currentTarget), startId: id });
-          if (video && !original && !clip && loadClip) loadClip().catch((reason) => {
+          if (video && !original && !clip && loadClip)
+            loadClip().catch((reason) => {
               if (!(reason instanceof ClipLoadCancelled)) setFailed(true);
             });
           setExpanded(true);
@@ -196,7 +197,9 @@ function MediaFigure({
           >
             <X size={16} aria-hidden="true" />
           </button>
-          {artifact.assetId && isRemoteHostRenderer() && <MediaDownloadButton artifact={artifact} />}
+          {artifact.assetId && isRemoteHostRenderer() && (
+            <MediaDownloadButton assetId={artifact.assetId} name={artifact.name} />
+          )}
           {/* biome-ignore lint/a11y/useMediaCaption: generated media carries no caption track to offer. */}
           {playable && <video src={playable} poster={preview || undefined} controls preload="none" playsInline />}
         </dialog>
@@ -210,7 +213,7 @@ function MediaFigure({
 
 /** A paired device's action on generated media: download the original to
  *  this device (and share it), or the reason it cannot. */
-function MediaDownloadButton({ artifact }: { artifact: TranscriptArtifact }) {
+function MediaDownloadButton({ assetId, name }: { assetId: string; name: string }) {
   const sessionId = useContext(MarkdownSessionContext);
   const blocked =
     fileDownloadBlockedReason(useFileDownloadSupport(true)) ||
@@ -225,7 +228,7 @@ function MediaDownloadButton({ artifact }: { artifact: TranscriptArtifact }) {
       aria-disabled={blocked ? 'true' : undefined}
       onClick={() => {
         if (blocked) showDesktopToast(blocked, 'error');
-        else startFileDownload({ kind: 'media', sessionId, assetId: artifact.assetId! }, artifact.name);
+        else startFileDownload({ kind: 'media', sessionId, assetId }, name);
       }}
     >
       <Download size={14} aria-hidden="true" />
@@ -233,9 +236,17 @@ function MediaDownloadButton({ artifact }: { artifact: TranscriptArtifact }) {
   );
 }
 
-function GeneratedMedia({ artifact, square }: { artifact: TranscriptArtifact; square: boolean }) {
+function GeneratedMedia({
+  artifact,
+  assetId,
+  square,
+}: {
+  artifact: TranscriptArtifact;
+  assetId: string;
+  square: boolean;
+}) {
   const api = window.mixdogDesktop;
-  const id = artifact.assetId!;
+  const id = assetId;
   const remote = isRemoteHostRenderer();
   const openLabel = isSshConnectionWindow() ? t('Download to this PC and open') : t('Open file');
   const folderLabel = isSshConnectionWindow() ? t('Reveal in Files') : t('Open Folder');
@@ -273,7 +284,7 @@ function GeneratedMedia({ artifact, square }: { artifact: TranscriptArtifact; sq
             icon-button + tooltip, never a native grey text button. The host's
             OS cannot open anything for a paired device: it downloads instead. */}
           {remote ? (
-            <MediaDownloadButton artifact={artifact} />
+            <MediaDownloadButton assetId={id} name={artifact.name} />
           ) : (
             <button
               type="button"
@@ -499,7 +510,7 @@ export function TranscriptArtifacts({ items }: { items: readonly TranscriptItem[
         <div className={square ? 'transcript-artifact-grid' : 'transcript-artifact-row'}>
           {media.map((artifact) =>
             artifact.assetId ? (
-              <GeneratedMedia key={artifact.key} artifact={artifact} square={square} />
+              <GeneratedMedia key={artifact.key} artifact={artifact} assetId={artifact.assetId} square={square} />
             ) : (
               <LocalImageArtifact key={artifact.key} artifact={artifact} square={square} />
             )

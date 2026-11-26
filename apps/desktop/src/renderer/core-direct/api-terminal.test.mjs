@@ -47,7 +47,8 @@ function setup({ answers = {}, sections = {}, deferredDetachTimeoutMs, client } 
     call: async (method, params) => {
       calls.push({ method, params });
       const answer = answers[method];
-      return typeof answer === 'function' ? answer(params) : method in answers ? answer : {};
+      if (typeof answer === 'function') return answer(params);
+      return method in answers ? answer : {};
     },
   };
   const api = createTerminalApi(ctx, deferredDetachTimeoutMs === undefined ? undefined : { deferredDetachTimeoutMs });

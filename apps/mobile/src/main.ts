@@ -97,7 +97,6 @@ let navigationWatchdog = 0;
 // Reopening a saved PC keeps #screen blank (the page background) until the
 // picker is actually needed; this stays false until the first render.
 let drawn = false;
-// Navigation to the saved host was requested.
 let navigating = false;
 
 function render(): void {
@@ -268,7 +267,6 @@ async function connectWithCode(): Promise<void> {
   if (!code || redeeming) return;
   redeeming = true;
   const attempt = ++openGeneration;
-  // Immediate pending state: input and button wait for the one redemption.
   ui = { ...ui, busy: true };
   render();
   try {
@@ -349,6 +347,15 @@ async function scan(): Promise<void> {
   }
 }
 
+function updatePhaseOf(status: string, requested: boolean): UpdatePhase {
+  if (status === 'downloading' || (status === 'available' && requested)) return 'downloading';
+  // A finished download ('ready', or 'needs-permission' waiting on settings) offers Install.
+  if (status === 'ready' || status === 'needs-permission') return 'downloaded';
+  if (status === 'installing') return 'installing';
+  if (status === 'failed') return 'failed';
+  return 'available';
+}
+
 /** Mirror the native update state into the screen. */
 function applyUpdate(state: AppUpdateReply | null): void {
   const version = state?.version;
@@ -356,17 +363,7 @@ function applyUpdate(state: AppUpdateReply | null): void {
     if (ui.update) ui = { ...ui, update: undefined };
     return;
   }
-  // A finished download ('ready', or 'needs-permission' waiting on settings) offers Install.
-  const phase: UpdatePhase =
-    state.status === 'downloading' || (state.status === 'available' && updateRequested)
-      ? 'downloading'
-      : state.status === 'ready' || state.status === 'needs-permission'
-        ? 'downloaded'
-        : state.status === 'installing'
-          ? 'installing'
-          : state.status === 'failed'
-            ? 'failed'
-            : 'available';
+  const phase = updatePhaseOf(state.status, updateRequested);
   const percent =
     phase === 'downloading' && state.totalBytes && state.receivedBytes !== undefined
       ? Math.min(100, Math.floor((state.receivedBytes / state.totalBytes) * 100))

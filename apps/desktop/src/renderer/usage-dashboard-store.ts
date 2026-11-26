@@ -343,10 +343,7 @@ function settlePendingWaiter(retired: boolean): void {
   settle?.(retired);
 }
 
-/** Retires only the in-flight request and its timeout timer without wiping
- *  unrelated providers' armed retries or scheduled reset timers. */
-function retireInFlight(win: Window | null): void {
-  epoch += 1;
+function resetPendingFields(): void {
   pending = null;
   pendingId = 0;
   pendingStartedAt = 0;
@@ -355,6 +352,13 @@ function retireInFlight(win: Window | null): void {
   pendingIsRetry = false;
   pendingForAuth = false;
   pendingOutcome = null;
+}
+
+/** Retires only the in-flight request and its timeout timer without wiping
+ *  unrelated providers' armed retries or scheduled reset timers. */
+function retireInFlight(win: Window | null): void {
+  epoch += 1;
+  resetPendingFields();
   activeResetRefreshId = 0;
   inFlightResetKeys.clear();
   clearPendingTimers(win);
@@ -366,14 +370,7 @@ function retireInFlight(win: Window | null): void {
 function retire(): void {
   epoch += 1;
   fullRetireGeneration += 1;
-  pending = null;
-  pendingId = 0;
-  pendingStartedAt = 0;
-  pendingProviders = null;
-  pendingRawProviders = undefined;
-  pendingIsRetry = false;
-  pendingForAuth = false;
-  pendingOutcome = null;
+  resetPendingFields();
   retryStates.clear();
   activeResetRefreshId = 0;
   inFlightResetKeys.clear();
@@ -766,6 +763,32 @@ function pruneResetTracking(windows: readonly DashboardResetWindow[], now: numbe
   }
 }
 
+function resolveWindowReadAt(
+  window: DashboardResetWindow,
+  readStartedAt: number | undefined,
+  checkedAt: number | null,
+  now: number
+): number {
+  if (readStartedAt !== undefined) return Math.min(readStartedAt, now);
+  if (window.updatedAt !== null && window.updatedAt > 0) {
+    return Math.min(window.updatedAt, checkedAt ?? now, now);
+  }
+  if (checkedAt !== null) return Math.min(checkedAt, now);
+  return now;
+}
+
+function advanceElapsedResetAttempt(entry: ElapsedResetState, now: number): void {
+  const nextAttempts = entry.attempts + 1;
+  entry.attempts = nextAttempts;
+  if (nextAttempts > USAGE_RESET_FOLLOWUP_DELAYS_MS.length) {
+    entry.nextDueAt = null;
+    entry.status = 'exhausted';
+  } else {
+    entry.nextDueAt = now + USAGE_RESET_FOLLOWUP_DELAYS_MS[nextAttempts - 1];
+    entry.status = 'verifying';
+  }
+}
+
 function reconcileElapsedResetsAfterAccept(
   dashboard: UsageRecord,
   windows: readonly DashboardResetWindow[],
@@ -780,15 +803,7 @@ function reconcileElapsedResetsAfterAccept(
     if (window.resetAt > now) continue;
     if (!providerInScope(window.provider, providerScope)) continue;
     if (preservedProviders?.has(providerKey(window.provider))) continue;
-    const rowUpdatedAt = window.updatedAt !== null && window.updatedAt > 0 ? window.updatedAt : null;
-    const windowReadAt =
-      readStartedAt !== undefined
-        ? Math.min(readStartedAt, now)
-        : rowUpdatedAt !== null
-          ? Math.min(rowUpdatedAt, checkedAt ?? now, now)
-          : checkedAt !== null
-            ? Math.min(checkedAt, now)
-            : now;
+    const windowReadAt = resolveWindowReadAt(window, readStartedAt, checkedAt, now);
     const entry = elapsedResetState.get(window.key);
     if (!entry) {
       const settleAt = window.resetAt + USAGE_RESET_SETTLE_DELAY_MS;
@@ -819,32 +834,14 @@ function reconcileElapsedResetsAfterAccept(
     if (entry.status === 'transport-failed') {
       const minReadAt = entry.failedAt ?? window.resetAt + USAGE_RESET_SETTLE_DELAY_MS;
       if (windowReadAt < minReadAt) continue;
-      const nextAttempts = entry.attempts + 1;
       entry.failedAt = null;
       entry.retryAttempts = 0;
-      if (nextAttempts > USAGE_RESET_FOLLOWUP_DELAYS_MS.length) {
-        entry.attempts = nextAttempts;
-        entry.nextDueAt = null;
-        entry.status = 'exhausted';
-      } else {
-        entry.attempts = nextAttempts;
-        entry.nextDueAt = now + USAGE_RESET_FOLLOWUP_DELAYS_MS[nextAttempts - 1];
-        entry.status = 'verifying';
-      }
+      advanceElapsedResetAttempt(entry, now);
       continue;
     }
 
     if (entry.nextDueAt !== null && windowReadAt >= entry.nextDueAt) {
-      const nextAttempts = entry.attempts + 1;
-      if (nextAttempts > USAGE_RESET_FOLLOWUP_DELAYS_MS.length) {
-        entry.attempts = nextAttempts;
-        entry.nextDueAt = null;
-        entry.status = 'exhausted';
-      } else {
-        entry.attempts = nextAttempts;
-        entry.nextDueAt = now + USAGE_RESET_FOLLOWUP_DELAYS_MS[nextAttempts - 1];
-        entry.status = 'verifying';
-      }
+      advanceElapsedResetAttempt(entry, now);
     }
   }
 }
@@ -1048,6 +1045,12 @@ function isFresh(providerScope: ReadonlySet<string> | null = null): boolean {
   return now - snapshot.refreshedAt < USAGE_DASHBOARD_TTL_MS;
 }
 
+function markInFlightResetWindows(due: readonly DueResetWindow[], now: number): void {
+  inFlightResetKeys.clear();
+  for (const { window } of due) inFlightResetKeys.add(window.key);
+  publishResetVerificationState(now);
+}
+
 async function runResetRefresh(win: Window, timerGeneration: number): Promise<void> {
   if (host !== win || resetTimerGeneration !== timerGeneration || cadenceHolders === 0 || !canReadUsage(cadenceApi))
     return;
@@ -1064,9 +1067,7 @@ async function runResetRefresh(win: Window, timerGeneration: number): Promise<vo
   let wasRetired = false;
   try {
     for (let pass = 0; pass < 2; pass += 1) {
-      inFlightResetKeys.clear();
-      for (const { window } of due) inFlightResetKeys.add(window.key);
-      publishResetVerificationState(Date.now());
+      markInFlightResetWindows(due, Date.now());
 
       let waitedForScoped = false;
       while (pending !== null && !scopeCovers(pendingProviders, null)) {
@@ -1080,9 +1081,7 @@ async function runResetRefresh(win: Window, timerGeneration: number): Promise<vo
         const recheckNow = Date.now();
         due = dueResetWindows(recheckNow, win.document?.visibilityState === 'hidden');
         if (due.length === 0) break;
-        inFlightResetKeys.clear();
-        for (const { window } of due) inFlightResetKeys.add(window.key);
-        publishResetVerificationState(recheckNow);
+        markInFlightResetWindows(due, recheckNow);
       }
 
       const adoptedExisting = pending !== null;
@@ -1159,8 +1158,10 @@ function syncResetRefresh(win: Window): void {
     const entry = elapsedResetState.get(window.key);
     if (!entry) {
       consider(Math.min(Math.max(0, window.resetAt + USAGE_RESET_SETTLE_DELAY_MS - now), MAX_RESET_TIMER_DELAY_MS));
-    } else if (entry.status === 'exhausted') {
-    } else if (entry.status === 'transport-failed') {
+      continue;
+    }
+    if (entry.status === 'exhausted') continue;
+    if (entry.status === 'transport-failed') {
       if (!hidden && isSchedulableTransportRetry(entry) && entry.nextDueAt !== null) {
         consider(Math.min(Math.max(0, entry.nextDueAt - now), MAX_RESET_TIMER_DELAY_MS));
       }
@@ -1238,9 +1239,7 @@ function syncRetryTimer(win: Window): void {
   const api = cadenceApi;
   if (!canReadUsage(api)) return;
   const now = Date.now();
-  if (pending === null && dispatchDueRetries(win, now)) {
-    // Dispatched due retry; re-check whether later entries still need a timer.
-  }
+  if (pending === null) dispatchDueRetries(win, now);
   let soonestDueAt: number | null = null;
   for (const entry of retryStates.values()) {
     if (entry.dueAt === null) continue;
@@ -1555,11 +1554,105 @@ type KeepNewerOptions = {
   preserveWhenUnmeasured?: boolean;
 };
 
-/** A provider's reading taken before the one it shows was overtaken on its way (a refresh answered from the read
- *  already running, a section snapshot older than a push): the shown row stays. An unmeasured/empty row cannot
- *  overwrite a measured row for the same account outside an explicit auth refresh. */
-function keepNewerReadings(
-  incoming: UsageRecord,
+type RowReconcileResult = {
+  row: UsageRecord;
+  kept: boolean;
+  preserved: boolean;
+};
+
+function reconcileAuthRefreshRow(
+  current: UsageRecord,
+  row: UsageRecord,
+  id: string,
+  key: string,
+  shownAccount: string | null,
+  sentAccount: string | null,
+  at: number | null,
+  currentAt: number | null,
+  published: ProviderPublication | undefined,
+  incomingStartedAtSeq: number | undefined
+): RowReconcileResult {
+  if (published !== undefined && incomingStartedAtSeq !== undefined && incomingStartedAtSeq < published.seq) {
+    return { row: current, kept: true, preserved: true };
+  }
+  const sameStamp = Boolean(shownAccount && sentAccount && shownAccount === sentAccount);
+  if (sameStamp && at === null && currentAt !== null) {
+    return { row: current, kept: true, preserved: true };
+  }
+  const newerForAuth = sameAccountReadings(current, row, id) ? currentAt : null;
+  if (at !== null && newerForAuth !== null && at < newerForAuth) {
+    return { row: current, kept: true, preserved: true };
+  }
+  if (key) providerPublished.delete(key);
+  if (sameStamp && row.status === 'partial' && current.resetCredits !== undefined && row.resetCredits === undefined) {
+    return { row: { ...row, resetCredits: current.resetCredits }, kept: true, preserved: false };
+  }
+  return { row, kept: false, preserved: false };
+}
+
+function protectedWindowKeysForRow(
+  row: UsageRecord,
+  source: KeepNewerOptions['source'],
+  published: ProviderPublication | undefined,
+  analysis: RowWindowAnalysis,
+  dropsResetCredits: boolean
+): Set<string> {
+  const keepKeys = new Set<string>();
+  if (row.status === 'partial') {
+    if (published !== undefined) {
+      for (const wKey of published.protectedWindowKeys) {
+        if (!analysis.rolledKeys.has(wKey)) keepKeys.add(wKey);
+      }
+      for (const wKey of analysis.regressedKeys) keepKeys.add(wKey);
+    } else if (dropsResetCredits) {
+      for (const entry of analysis.currentEntries) {
+        if (!analysis.rolledKeys.has(entry.key)) keepKeys.add(entry.key);
+      }
+      for (const wKey of analysis.regressedKeys) keepKeys.add(wKey);
+    }
+    return keepKeys;
+  }
+  if (
+    source === 'section' &&
+    published !== undefined &&
+    !published.unresolvedPreFailure &&
+    (analysis.regressed || dropsResetCredits)
+  ) {
+    for (const wKey of published.protectedWindowKeys) {
+      if (!analysis.rolledKeys.has(wKey)) keepKeys.add(wKey);
+    }
+    for (const wKey of analysis.regressedKeys) keepKeys.add(wKey);
+  }
+  return keepKeys;
+}
+
+function settlePublishedAfterAccept(
+  key: string,
+  source: KeepNewerOptions['source'],
+  row: UsageRecord,
+  published: ProviderPublication,
+  analysis: RowWindowAnalysis
+): void {
+  if (
+    (source === 'refresh' && row.status !== 'partial') ||
+    published.unresolvedPreFailure ||
+    (published.protectedWindowKeys.size === 0 && analysis.advancesReset)
+  ) {
+    if (key) providerPublished.delete(key);
+    return;
+  }
+  for (const wKey of analysis.rolledKeys) published.protectedWindowKeys.delete(wKey);
+  if (published.protectedWindowKeys.size === 0 && analysis.rolledKeys.size > 0 && key) {
+    providerPublished.delete(key);
+  }
+}
+
+function reconcileIncomingRow(
+  row: UsageRecord,
+  current: UsageRecord,
+  id: string,
+  key: string,
+  now: number,
   {
     source,
     incomingStartedAtSeq,
@@ -1567,7 +1660,116 @@ function keepNewerReadings(
     forAuth = false,
     preserveWhenUnmeasured = false,
   }: KeepNewerOptions
+): RowReconcileResult {
+  if (providerScope !== null && key.length > 0 && !providerInScope(key, providerScope)) {
+    return { row: current, kept: true, preserved: true };
+  }
+
+  const shownAccount = accountOf(current);
+  const sentAccount = accountOf(row);
+  if (row.authenticated === false || (shownAccount && sentAccount && shownAccount !== sentAccount)) {
+    if (key) providerPublished.delete(key);
+    return { row, kept: false, preserved: false };
+  }
+
+  const at = readingTime(row);
+  const currentAt = readingTime(current);
+  const published = key ? providerPublished.get(key) : undefined;
+
+  if (source === 'refresh' && forAuth) {
+    return reconcileAuthRefreshRow(
+      current,
+      row,
+      id,
+      key,
+      shownAccount,
+      sentAccount,
+      at,
+      currentAt,
+      published,
+      incomingStartedAtSeq
+    );
+  }
+
+  if (current.status === 'checking') {
+    if (published !== undefined && incomingStartedAtSeq !== undefined && incomingStartedAtSeq < published.seq) {
+      return { row: current, kept: true, preserved: true };
+    }
+    if (key) providerPublished.delete(key);
+    return { row, kept: false, preserved: false };
+  }
+
+  const newer = sameAccountReadings(current, row, id) ? currentAt : null;
+  if (at !== null && newer !== null && at < newer) {
+    return { row: current, kept: true, preserved: true };
+  }
+
+  if (source === 'publish') {
+    if (preserveWhenUnmeasured && at === null && currentAt !== null) {
+      return { row: current, kept: true, preserved: true };
+    }
+    return { row, kept: false, preserved: false };
+  }
+
+  const incomplete = isErrorOrEmptyRow(row, current);
+  if (at === null && currentAt !== null) {
+    return { row: current, kept: true, preserved: true };
+  }
+  if (incomplete && (currentAt !== null || published !== undefined || current.resetCredits !== undefined)) {
+    return { row: current, kept: true, preserved: true };
+  }
+
+  const analysis = analyzeRowWindows(current, row, now);
+  const dropsResetCredits = current.resetCredits !== undefined && row.resetCredits === undefined;
+
+  if (
+    source === 'refresh' &&
+    published !== undefined &&
+    incomingStartedAtSeq !== undefined &&
+    incomingStartedAtSeq < published.seq &&
+    (!published.unresolvedPreFailure ||
+      incomplete ||
+      analysis.regressed ||
+      (row.status === 'partial' && !analysis.advancesReset))
+  ) {
+    return { row: current, kept: true, preserved: true };
+  }
+
+  const keepKeys = protectedWindowKeysForRow(row, source, published, analysis, dropsResetCredits);
+  if (keepKeys.size > 0) {
+    const hasAddedWindows = analysis.incomingEntries.some((entry) => !keepKeys.has(entry.key));
+    const allCurrentKept =
+      !hasAddedWindows &&
+      analysis.currentEntries.length > 0 &&
+      analysis.currentEntries.every((entry) => keepKeys.has(entry.key));
+    if (allCurrentKept) {
+      return { row: current, kept: true, preserved: true };
+    }
+    if (published !== undefined) {
+      for (const wKey of analysis.rolledKeys) published.protectedWindowKeys.delete(wKey);
+    }
+    return { row: mergeProtectedWindows(current, row, analysis, keepKeys, true), kept: true, preserved: false };
+  }
+
+  if (published !== undefined) {
+    settlePublishedAfterAccept(key, source, row, published, analysis);
+  }
+
+  if (row.status === 'partial' && dropsResetCredits) {
+    return { row: { ...row, resetCredits: current.resetCredits }, kept: true, preserved: false };
+  }
+
+  return { row, kept: false, preserved: false };
+}
+
+/** A provider's reading taken before the one it shows was overtaken on its way (a refresh answered from the read
+ *  already running, a section snapshot older than a push): the shown row stays. An unmeasured/empty row cannot
+ *  overwrite a measured row for the same account outside an explicit auth refresh. */
+function keepNewerReadings(
+  incoming: UsageRecord,
+  options: KeepNewerOptions
 ): { dashboard: UsageRecord; preservedProviders: Set<string> } {
+  const { providerScope = null } = options;
   const shown = new Map(dashboardRows(snapshot.dashboard).map((row) => [String(row.id || ''), row]));
   const preservedProviders = new Set<string>();
   const now = Date.now();
@@ -1576,183 +1778,13 @@ function keepNewerReadings(
   const rows = dashboardRows(incoming).map((row) => {
     const id = String(row.id || '');
     incomingIds.add(id);
-    const key = providerKey(usageResetRowProvider(row, ''));
     const current = shown.get(id);
     if (!current) return row;
-
-    const outOfScope = providerScope !== null && key.length > 0 && !providerInScope(key, providerScope);
-    if (outOfScope) {
-      kept = true;
-      preservedProviders.add(key);
-      return current;
-    }
-
-    const shownAccount = accountOf(current);
-    const sentAccount = accountOf(row);
-    if (row.authenticated === false) {
-      if (key) providerPublished.delete(key);
-      return row;
-    }
-    if (shownAccount && sentAccount && shownAccount !== sentAccount) {
-      if (key) providerPublished.delete(key);
-      return row;
-    }
-
-    const at = readingTime(row);
-    const currentAt = readingTime(current);
-    const published = key ? providerPublished.get(key) : undefined;
-
-    if (source === 'refresh' && forAuth) {
-      if (published !== undefined && incomingStartedAtSeq !== undefined && incomingStartedAtSeq < published.seq) {
-        kept = true;
-        if (key) preservedProviders.add(key);
-        return current;
-      }
-      const sameStamp = Boolean(shownAccount && sentAccount && shownAccount === sentAccount);
-      if (sameStamp && at === null && currentAt !== null) {
-        kept = true;
-        if (key) preservedProviders.add(key);
-        return current;
-      }
-      const newerForAuth = sameAccountReadings(current, row, id) ? currentAt : null;
-      if (at !== null && newerForAuth !== null && at < newerForAuth) {
-        kept = true;
-        if (key) preservedProviders.add(key);
-        return current;
-      }
-      if (key) providerPublished.delete(key);
-      if (
-        sameStamp &&
-        row.status === 'partial' &&
-        current.resetCredits !== undefined &&
-        row.resetCredits === undefined
-      ) {
-        kept = true;
-        return { ...row, resetCredits: current.resetCredits };
-      }
-      return row;
-    }
-
-    if (current.status === 'checking') {
-      if (published !== undefined && incomingStartedAtSeq !== undefined && incomingStartedAtSeq < published.seq) {
-        kept = true;
-        if (key) preservedProviders.add(key);
-        return current;
-      }
-      if (key) providerPublished.delete(key);
-      return row;
-    }
-
-    const newer = sameAccountReadings(current, row, id) ? currentAt : null;
-    if (at !== null && newer !== null && at < newer) {
-      kept = true;
-      if (key) preservedProviders.add(key);
-      return current;
-    }
-
-    if (source === 'publish') {
-      if (preserveWhenUnmeasured && at === null && currentAt !== null) {
-        kept = true;
-        if (key) preservedProviders.add(key);
-        return current;
-      }
-      return row;
-    }
-
-    const incomplete = isErrorOrEmptyRow(row, current);
-    if (at === null && currentAt !== null) {
-      kept = true;
-      if (key) preservedProviders.add(key);
-      return current;
-    }
-    if (incomplete && (currentAt !== null || published !== undefined || current.resetCredits !== undefined)) {
-      kept = true;
-      if (key) preservedProviders.add(key);
-      return current;
-    }
-
-    const analysis = analyzeRowWindows(current, row, now);
-    const dropsResetCredits = current.resetCredits !== undefined && row.resetCredits === undefined;
-
-    if (
-      source === 'refresh' &&
-      published !== undefined &&
-      incomingStartedAtSeq !== undefined &&
-      incomingStartedAtSeq < published.seq
-    ) {
-      if (
-        !published.unresolvedPreFailure ||
-        incomplete ||
-        analysis.regressed ||
-        (row.status === 'partial' && !analysis.advancesReset)
-      ) {
-        kept = true;
-        if (key) preservedProviders.add(key);
-        return current;
-      }
-    }
-
-    const keepKeys = new Set<string>();
-    if (row.status === 'partial') {
-      if (published !== undefined) {
-        for (const wKey of published.protectedWindowKeys) {
-          if (!analysis.rolledKeys.has(wKey)) keepKeys.add(wKey);
-        }
-        for (const wKey of analysis.regressedKeys) keepKeys.add(wKey);
-      } else if (dropsResetCredits) {
-        for (const entry of analysis.currentEntries) {
-          if (!analysis.rolledKeys.has(entry.key)) keepKeys.add(entry.key);
-        }
-        for (const wKey of analysis.regressedKeys) keepKeys.add(wKey);
-      }
-    } else if (source === 'section' && published !== undefined && !published.unresolvedPreFailure) {
-      if (analysis.regressed || dropsResetCredits) {
-        for (const wKey of published.protectedWindowKeys) {
-          if (!analysis.rolledKeys.has(wKey)) keepKeys.add(wKey);
-        }
-        for (const wKey of analysis.regressedKeys) keepKeys.add(wKey);
-      }
-    }
-
-    if (keepKeys.size > 0) {
-      const hasAddedWindows = analysis.incomingEntries.some((entry) => !keepKeys.has(entry.key));
-      const allCurrentKept =
-        !hasAddedWindows &&
-        analysis.currentEntries.length > 0 &&
-        analysis.currentEntries.every((entry) => keepKeys.has(entry.key));
-      if (allCurrentKept) {
-        kept = true;
-        if (key) preservedProviders.add(key);
-        return current;
-      }
-      if (published !== undefined) {
-        for (const wKey of analysis.rolledKeys) published.protectedWindowKeys.delete(wKey);
-      }
-      kept = true;
-      return mergeProtectedWindows(current, row, analysis, keepKeys, true);
-    }
-
-    if (published !== undefined) {
-      if (
-        (source === 'refresh' && row.status !== 'partial') ||
-        published.unresolvedPreFailure ||
-        (published.protectedWindowKeys.size === 0 && analysis.advancesReset)
-      ) {
-        if (key) providerPublished.delete(key);
-      } else {
-        for (const wKey of analysis.rolledKeys) published.protectedWindowKeys.delete(wKey);
-        if (published.protectedWindowKeys.size === 0 && analysis.rolledKeys.size > 0) {
-          if (key) providerPublished.delete(key);
-        }
-      }
-    }
-
-    if (row.status === 'partial' && dropsResetCredits) {
-      kept = true;
-      return { ...row, resetCredits: current.resetCredits };
-    }
-
-    return row;
+    const key = providerKey(usageResetRowProvider(row, ''));
+    const result = reconcileIncomingRow(row, current, id, key, now, options);
+    if (result.kept) kept = true;
+    if (result.preserved && key) preservedProviders.add(key);
+    return result.row;
   });
   if (providerScope !== null) {
     for (const [id, current] of shown) {
@@ -2015,6 +2047,51 @@ export function refreshUsageDashboardAfterAuth(
   });
 }
 
+function narrowUnheldProviders(providers: readonly string[] | undefined, now: number): readonly string[] | undefined {
+  if (providers?.length) {
+    const unheld = providers.filter((provider) => !isScopeEntryHeld(retryStates.get(providerKey(provider)), now));
+    return unheld.length > 0 && unheld.length < providers.length ? unheld : providers;
+  }
+  const unheld = unheldDashboardProviders(now);
+  return unheld !== null && unheld.length > 0 ? unheld : providers;
+}
+
+function clearExhaustedRetryScopes(providers: readonly string[] | undefined): void {
+  if (providers?.length) {
+    for (const provider of providers) {
+      const key = providerKey(provider);
+      const existing = key ? retryStates.get(key) : undefined;
+      if (existing && existing.dueAt === null) retryStates.delete(key);
+    }
+    return;
+  }
+  for (const [key, existing] of [...retryStates]) {
+    if (existing.dueAt === null) retryStates.delete(key);
+  }
+}
+
+function adoptDueResetsForRefresh(
+  win: Window,
+  readStartedAt: number,
+  providerScope: ReadonlySet<string> | null,
+  fromReset: boolean,
+  retry: boolean
+): { adoptedDue: DueResetWindow[]; adoptedResetRefreshId: number; chargedTransportKeys: string[] } {
+  const adoptedDue =
+    !fromReset && !retry && providerScope === null && activeResetRefreshId === 0
+      ? dueResetWindows(readStartedAt, false)
+      : [];
+  if (adoptedDue.length === 0) {
+    return { adoptedDue, adoptedResetRefreshId: 0, chargedTransportKeys: [] };
+  }
+  clearResetTimer(win);
+  const chargedTransportKeys = chargeDispatchedTransportRetries(adoptedDue, readStartedAt, providerScope);
+  const adoptedResetRefreshId = ++resetRefreshSequence;
+  activeResetRefreshId = adoptedResetRefreshId;
+  markInFlightResetWindows(adoptedDue, readStartedAt);
+  return { adoptedDue, adoptedResetRefreshId, chargedTransportKeys };
+}
+
 function startUsageRefresh(
   api: UsageApi | undefined,
   {
@@ -2032,21 +2109,8 @@ function startUsageRefresh(
   } = {}
 ): Promise<void> {
   const win = ensureHost();
-  let effectiveProviders = providers;
-  if (!force && !retry && !fromReset && win) {
-    const now = Date.now();
-    if (providers?.length) {
-      const unheld = providers.filter((provider) => !isScopeEntryHeld(retryStates.get(providerKey(provider)), now));
-      if (unheld.length > 0 && unheld.length < providers.length) {
-        effectiveProviders = unheld;
-      }
-    } else {
-      const unheld = unheldDashboardProviders(now);
-      if (unheld !== null && unheld.length > 0) {
-        effectiveProviders = unheld;
-      }
-    }
-  }
+  const effectiveProviders =
+    !force && !retry && !fromReset && win ? narrowUnheldProviders(providers, Date.now()) : providers;
   const providerScope = normalizeProviderScope(effectiveProviders);
   if (pending) {
     const waitFor = pendingWaiter ?? pending.then(() => false);
@@ -2074,17 +2138,7 @@ function startUsageRefresh(
   }
   if (!force && isFresh(providerScope)) return Promise.resolve();
   if (force && !retry && !fromReset) {
-    if (effectiveProviders?.length) {
-      for (const provider of effectiveProviders) {
-        const key = providerKey(provider);
-        const existing = key ? retryStates.get(key) : undefined;
-        if (existing && existing.dueAt === null) retryStates.delete(key);
-      }
-    } else {
-      for (const [key, existing] of [...retryStates]) {
-        if (existing.dueAt === null) retryStates.delete(key);
-      }
-    }
+    clearExhaustedRetryScopes(effectiveProviders);
   }
   const id = ++requestSequence;
   const generation = epoch;
@@ -2098,21 +2152,13 @@ function startUsageRefresh(
       globalRetry.dueAt = null;
     }
   }
-  const adoptedDue =
-    !fromReset && !retry && providerScope === null && activeResetRefreshId === 0
-      ? dueResetWindows(readStartedAt, false)
-      : [];
-  let adoptedResetRefreshId = 0;
-  let chargedTransportKeys: string[] = [];
-  if (adoptedDue.length > 0) {
-    clearResetTimer(win);
-    chargedTransportKeys = chargeDispatchedTransportRetries(adoptedDue, readStartedAt, providerScope);
-    adoptedResetRefreshId = ++resetRefreshSequence;
-    activeResetRefreshId = adoptedResetRefreshId;
-    inFlightResetKeys.clear();
-    for (const { window } of adoptedDue) inFlightResetKeys.add(window.key);
-    publishResetVerificationState(readStartedAt);
-  }
+  const { adoptedDue, adoptedResetRefreshId, chargedTransportKeys } = adoptDueResetsForRefresh(
+    win,
+    readStartedAt,
+    providerScope,
+    fromReset,
+    retry
+  );
   const outcome: RefreshOutcome = {
     id,
     failed: false,
@@ -2156,14 +2202,7 @@ function startUsageRefresh(
       settleWaiter(true);
       return;
     }
-    pendingId = 0;
-    pending = null;
-    pendingStartedAt = 0;
-    pendingProviders = null;
-    pendingRawProviders = undefined;
-    pendingIsRetry = false;
-    pendingForAuth = false;
-    pendingOutcome = null;
+    resetPendingFields();
     if (pendingWaiter === waiter) {
       pendingWaiter = null;
       releasePendingWaiter = null;

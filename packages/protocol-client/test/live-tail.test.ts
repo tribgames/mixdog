@@ -47,7 +47,9 @@ test('a transcript carried on from the one held is the transcript merged whole, 
     else if (roll < 0.28) item = { type: 'turnEnd', id: `e${next++}`, status: 'done', elapsedMs: 1, meta: { at: 5 } };
     else if (roll < 0.32) item = { type: 'reasoning', id: `r${next++}`, summary: [], content: [], meta: {} };
     else if (roll < 0.62 || running.length === 0) {
-      item = open(`t${next++}`, random() < 0.7 ? 'read' : random() < 0.5 ? 'shell' : 'agent', random() < 0.7);
+      let toolName = 'read';
+      if (random() >= 0.7) toolName = random() < 0.5 ? 'shell' : 'agent';
+      item = open(`t${next++}`, toolName, random() < 0.7);
       running.push(item);
     } else {
       const [call] = running.splice(Math.floor(random() * running.length), 1);

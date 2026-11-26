@@ -84,6 +84,7 @@ const PONG_DEADLINE_MS = 10_000;
 const WAKE_PROBE_MS = 2_500;
 export const WAKE_TRAFFIC_PROOF_MS = 1_000;
 const PING = '{"ping":1}';
+const textEncoder = new TextEncoder();
 const monotonicNow = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 const timers = {
@@ -221,10 +222,7 @@ export class RelaySession {
     if (this.finished) return;
     this.unproven = true;
     this.wakeGeneration += 1;
-    if (this.wakeTimer !== undefined) {
-      clearTimeout(this.wakeTimer);
-      this.wakeTimer = undefined;
-    }
+    this.clearWakeTimer();
   }
 
   /** False for a socket that is still opening or handshaking: nothing to prove yet, and a wake must not recycle a healthy first dial. */
@@ -277,10 +275,7 @@ export class RelaySession {
   suspend(): void {
     this.quiet = true;
     this.wakeGeneration += 1;
-    if (this.wakeTimer !== undefined) {
-      clearTimeout(this.wakeTimer);
-      this.wakeTimer = undefined;
-    }
+    this.clearWakeTimer();
     this.outbound = this.outbound
       .then(() => this.peer?.suspend())
       .catch(() => undefined)
@@ -291,6 +286,12 @@ export class RelaySession {
 
   private readonly onAbort = (): void => this.fail(CLOSE_NORMAL, 'aborted', true);
 
+  private clearWakeTimer(): void {
+    if (this.wakeTimer === undefined) return;
+    clearTimeout(this.wakeTimer);
+    this.wakeTimer = undefined;
+  }
+
   private arm(ms: number): void {
     clearTimeout(this.deadline);
     this.deadline = setTimeout(() => this.fail(CLOSE_HANDSHAKE_TIMEOUT, 'relay handshake timed out'), ms);
@@ -299,8 +300,7 @@ export class RelaySession {
   private stopTimers(): void {
     clearTimeout(this.deadline);
     this.deadline = undefined;
-    clearTimeout(this.wakeTimer);
-    this.wakeTimer = undefined;
+    this.clearWakeTimer();
     clearInterval(this.keepalive);
     if (this.state.current === this) this.state.current = null;
   }
@@ -413,8 +413,7 @@ export class RelaySession {
     if (wakeGeneration === this.wakeGeneration) this.awaitingPong = false;
     if ('pong' in word) {
       if (this.wakeTimer !== undefined && wakeGeneration === this.wakeGeneration) {
-        clearTimeout(this.wakeTimer);
-        this.wakeTimer = undefined;
+        this.clearWakeTimer();
         this.proven();
       }
       return true;
@@ -463,7 +462,8 @@ export class RelaySession {
     this.binaryFrames = challenge.binaryFrames === 1;
     this.offerSeen = challenge.transportWebrtc === 1 && challenge.binaryFrames === 1;
     this.arm(HANDSHAKE_DEADLINE_MS);
-    const optIn = this.deps.webrtc !== undefined && remoteTransportOptIn(challenge, true);
+    const webrtc = this.deps.webrtc;
+    const optIn = webrtc !== undefined && remoteTransportOptIn(challenge, true);
     const handshake = await createRelayE2EEClientHandshake(
       this.pairing,
       challenge,
@@ -474,12 +474,15 @@ export class RelaySession {
     const channel = handshake.channel;
     this.channel = channel;
     this.mediaSid = challenge.challenge;
-    if (channel.transportEnabled) this.startPeer(channel, challenge.challenge);
+    if (channel.transportEnabled && webrtc) this.startPeer(channel, challenge.challenge, webrtc);
     this.ws.send(JSON.stringify(handshake.hello));
   }
 
-  private startPeer(channel: RelayE2EEChannel, sessionId: string): void {
-    const webrtc = this.deps.webrtc!;
+  private startPeer(
+    channel: RelayE2EEChannel,
+    sessionId: string,
+    webrtc: NonNullable<RelayConnectorDeps['webrtc']>
+  ): void {
     const hold = webrtc.holdSignals?.();
     const created = createRemoteTransportPeer({
       channel,
@@ -522,7 +525,8 @@ export class RelaySession {
     // A transcript answers an offer; one with no offer means the relay stripped the offer.
     if (hello.transcript !== undefined && !this.offerSeen)
       throw new Error('relay encryption handshake transcript mismatch');
-    const channel = this.channel!;
+    const channel = this.channel;
+    if (!channel) throw new Error('relay data before the encryption handshake');
     channel.confirmHandshake(hello);
     this.peer?.confirm();
     this.ready = true;
@@ -537,7 +541,7 @@ export class RelaySession {
 
   private sendPlain(data: string | Uint8Array): void {
     this.ws.send(data);
-    this.wsDeparture.enqueue(typeof data === 'string' ? new TextEncoder().encode(data).byteLength : data.byteLength);
+    this.wsDeparture.enqueue(typeof data === 'string' ? textEncoder.encode(data).byteLength : data.byteLength);
   }
 
   private send(text: string, claim?: SentClaim): void {

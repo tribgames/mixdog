@@ -83,7 +83,8 @@ export function joinTranscriptWindows<T extends RowIdentity>(
     if (length > newer.length) continue;
     if (
       !older.slice(start).every((row, index) => {
-        const next = newer[index]!;
+        const next = newer[index];
+        if (!next) return false;
         const position = historyPositionOf(row);
         const nextPosition = historyPositionOf(next);
         return (
@@ -123,14 +124,15 @@ export function windowAnchored(previous: readonly RowIdentity[], at: number): bo
   const anchor = previous[at];
   if (!anchor || !hasOwnId(anchor)) return false;
   const anchorId = String(anchor.id);
-  const first = at > 0 && hasOwnId(previous[0]!) ? String(previous[0]!.id) : null;
+  const firstRow = at > 0 ? previous[0] : undefined;
+  const first = firstRow && hasOwnId(firstRow) ? String(firstRow.id) : null;
   for (let index = 0; index < at; index += 1) {
-    const row = previous[index]!;
-    if (hasOwnId(row) && String(row.id) === anchorId) return false;
+    const row = previous[index];
+    if (row && hasOwnId(row) && String(row.id) === anchorId) return false;
   }
   for (let index = at + 1; index < previous.length; index += 1) {
-    const row = previous[index]!;
-    if (!hasOwnId(row)) return false;
+    const row = previous[index];
+    if (!row || !hasOwnId(row)) return false;
     const id = String(row.id);
     if (id === anchorId || id === first) return false;
   }
@@ -158,14 +160,17 @@ export function heldWindowGoesOn(
   const overlap = Math.min(previous.length - at, incoming.length);
   const above = Math.min(at, incoming.length - held);
   for (let index = held; index < incoming.length; index += 1) {
-    const row = incoming[index]!;
-    if (!hasOwnId(row)) return false;
+    const row = incoming[index];
+    if (!row || !hasOwnId(row)) return false;
     const id = String(row.id);
     if (id === anchorId) return false;
-    if (index < overlap && !sameRowId(previous[at + index]!, row)) return false;
+    if (index < overlap) {
+      const prior = previous[at + index];
+      if (!prior || !sameRowId(prior, row)) return false;
+    }
     for (let head = 0; head < above; head += 1) {
-      const kept = previous[head]!;
-      if (hasOwnId(kept) && String(kept.id) === id) return false;
+      const kept = previous[head];
+      if (kept && hasOwnId(kept) && String(kept.id) === id) return false;
     }
   }
   return true;

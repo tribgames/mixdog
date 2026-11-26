@@ -23,7 +23,10 @@ export interface CorePortBridge {
 }
 /** The part of `window` the connector uses. */
 export interface PortMessageHost {
-  addEventListener(type: 'message', listener: (event: any) => void): void;
+  addEventListener(
+    type: 'message',
+    listener: (event: { source?: unknown; data?: unknown; ports?: ReadonlyArray<unknown> }) => void
+  ): void;
 }
 
 export const PORT_TAKE_TIMEOUT_MS = 10_000;
@@ -76,28 +79,38 @@ function bindPort(port: PortLike, sink: TransportSink): TransportWriter {
     if (ended) return;
     if (typeof data === 'string') {
       sink.frame(data);
-    } else if (data && typeof data === 'object' && (data as { t?: unknown }).t === 'sent') {
-      const { token, ok } = data as { token?: unknown; ok?: unknown };
-      const write = typeof token === 'number' ? writes.get(token) : undefined;
-      if (!write) return;
-      writes.delete(token as number);
-      if (ok === true) write.ok();
-      else write.fail(new Error('The write to the core failed.'));
-    } else if (data && typeof data === 'object' && (data as { t?: unknown }).t === 'settled') {
-      const token = (data as { token?: unknown }).token;
-      const release = typeof token === 'number' ? barriers.get(token) : undefined;
-      if (!release) return;
-      barriers.delete(token as number);
-      release();
-    } else if (data && typeof data === 'object' && (data as { t?: unknown }).t === 'progress') {
-      // The main process saw bytes of a message arrive on the core's socket that is not whole yet.
-      if (!closedSeen) sink.progress?.();
-    } else if (data && typeof data === 'object' && (data as { t?: unknown }).t === 'closed') {
-      if (closedSeen) return;
-      closedSeen = true;
-      end('The core port closed.');
-      const { code, reason } = data as { code?: unknown; reason?: unknown };
-      sink.closed(typeof code === 'number' ? code : 1006, typeof reason === 'string' ? reason : '');
+      return;
+    }
+    if (!data || typeof data !== 'object') return;
+    const msg = data as { t?: unknown; token?: unknown; ok?: unknown; code?: unknown; reason?: unknown };
+    switch (msg.t) {
+      case 'sent': {
+        if (typeof msg.token !== 'number') return;
+        const write = writes.get(msg.token);
+        if (!write) return;
+        writes.delete(msg.token);
+        if (msg.ok === true) write.ok();
+        else write.fail(new Error('The write to the core failed.'));
+        return;
+      }
+      case 'settled': {
+        if (typeof msg.token !== 'number') return;
+        const release = barriers.get(msg.token);
+        if (!release) return;
+        barriers.delete(msg.token);
+        release();
+        return;
+      }
+      case 'progress':
+        // The main process saw bytes of a message arrive on the core's socket that is not whole yet.
+        if (!closedSeen) sink.progress?.();
+        return;
+      case 'closed':
+        if (closedSeen) return;
+        closedSeen = true;
+        end('The core port closed.');
+        sink.closed(typeof msg.code === 'number' ? msg.code : 1006, typeof msg.reason === 'string' ? msg.reason : '');
+        return;
     }
   };
   return {
@@ -146,9 +159,9 @@ export function createPortConnector(
 
   host.addEventListener('message', (event) => {
     if (event.source !== host) return;
-    const data = event.data;
+    const data = event.data as { type?: unknown; generation?: unknown; slot?: unknown } | null | undefined;
     if (data?.type !== 'mixdog-core-port' || typeof data.generation !== 'number') return;
-    const port: PortLike | undefined = event.ports?.[0];
+    const port = event.ports?.[0] as PortLike | undefined;
     if (!port) return;
     const slot: PortSlot = data.slot === 'pc' ? 'pc' : 'primary';
     const latest = newest.get(slot) ?? -Infinity;

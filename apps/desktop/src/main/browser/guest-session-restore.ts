@@ -10,9 +10,7 @@ import type { BrowserUrlPolicy } from './url-policy';
 
 // Only small navigation descriptors survive runtime eviction, never
 // WebContents, screenshots, DOM state, or a second browser idle timer.
-type SavedPage = {
-  name?: string;
-  kind: 'primary' | BackgroundPage['kind'];
+type SavedPageBase = {
   url: string;
   active: boolean;
   keepAlive?: boolean;
@@ -25,22 +23,22 @@ type SavedPage = {
   size: [number, number];
 };
 
+type SavedPrimaryPage = SavedPageBase & { kind: 'primary' };
+type SavedBackgroundPage = SavedPageBase & { kind: BackgroundPage['kind']; name: string };
+type SavedPage = SavedPrimaryPage | SavedBackgroundPage;
+
 /** One live page as the descriptor a later restore replays: where it was, how
  *  it was sized and zoomed, and whether it was the selected page. */
-function savedPageDescriptor(
+function savedPageBase(
   guest: WebContents,
   selected: WebContents | null,
-  kind: SavedPage['kind'],
   id: string,
   standIn: boolean,
-  name?: string,
   keepAlive?: boolean
-): SavedPage {
+): SavedPageBase {
   return {
     id,
     standIn,
-    name,
-    kind,
     keepAlive,
     url: guest.getURL() || 'about:blank',
     active: guest === selected,
@@ -80,26 +78,25 @@ export function createBrowserSessionRestore(host: {
   function releaseSession(sessionId: string, restore = false): void {
     if (restore && !restoringSessions.has(sessionId)) {
       const selected = sessions.currentGuest(sessionId);
-      const pages = [
-        ...sessions
-          .visibleGuests(sessionId)
-          .map((guest) =>
-            savedPageDescriptor(guest, selected, 'primary', host.pageId(guest), host.isStandIn(sessionId, guest))
-          ),
+      const pages: SavedPage[] = [
+        ...sessions.visibleGuests(sessionId).map((guest) => ({
+          kind: 'primary' as const,
+          ...savedPageBase(guest, selected, host.pageId(guest), host.isStandIn(sessionId, guest)),
+        })),
         ...[...sessions.backgroundPages(sessionId)]
           .filter(([, page]) => !page.guest.isDestroyed())
-          .map(([name, page]) =>
-            savedPageDescriptor(
+          .map(([name, page]) => ({
+            kind: page.kind,
+            name,
+            ...savedPageBase(
               page.guest,
               selected,
-              page.kind,
               host.pageId(page.guest),
               // An agent's scratch tab no one kept stands in for nothing once blank.
               page.kind === 'agent' && !page.keepAlive,
-              name,
               page.keepAlive
-            )
-          ),
+            ),
+          })),
       ];
       const restorable = restorablePages(pages, urlPolicy).map(({ page }) => page);
       if (restorable.length) suspendedSessions.set(sessionId, restorable);
@@ -134,30 +131,33 @@ export function createBrowserSessionRestore(host: {
         // Pages with nothing to come back to (the host's own blank stand-in,
         // an address no longer admitted) are dropped.
         const restorable = restorablePages(saved, urlPolicy);
-        const urls = new Map(restorable.map(({ page, url }) => [page, url]));
-        const backgrounds = restorable.map(({ page }) => page).filter((page) => page.kind !== 'primary');
+        const backgrounds = restorable.filter(
+          (entry): entry is { page: SavedBackgroundPage; url: string } => entry.page.kind !== 'primary'
+        );
         if (backgrounds.length) host.admitBackgroundPages(sessionId, backgrounds.length);
-        const primaryState = restorable.find(({ page }) => page.kind === 'primary')?.page;
-        const primary = primaryState ? await host.ensurePrimaryPage(sessionId, primaryState.id) : null;
+        const primaryEntry = restorable.find(
+          (entry): entry is { page: SavedPrimaryPage; url: string } => entry.page.kind === 'primary'
+        );
+        const primary = primaryEntry ? await host.ensurePrimaryPage(sessionId, primaryEntry.page.id) : null;
         if (primary) created.push(primary);
         assertStillRestoring();
         // Saved without being a stand-in, so it is not one again: the next unload keeps it.
         if (primary) host.claimPage(sessionId, primary);
         let selected: WebContents | null = primary;
-        const apply = (guest: WebContents, page: SavedPage) => {
+        const apply = (guest: WebContents, page: SavedPage, url: string) => {
           browserPageWindow(guest)?.setContentSize(page.size[0], page.size[1]);
           setBrowserPageZoom(guest, page.zoom);
           if (page.active) selected = guest;
           // Restoration is a normal reload, not form/JS/opener resurrection.
           // Admission still runs through the partition and navigation handlers.
-          void guest.loadURL(urls.get(page)!).catch(() => {});
+          void guest.loadURL(url).catch(() => {});
         };
-        if (primary && primaryState) apply(primary, primaryState);
-        for (const page of backgrounds) {
+        if (primary && primaryEntry) apply(primary, primaryEntry.page, primaryEntry.url);
+        for (const { page, url } of backgrounds) {
           const entry = host.restoreBackgroundPage(
             sessionId,
-            page.name!,
-            page.kind === 'popup' ? 'user' : (page.kind as BackgroundPage['kind']),
+            page.name,
+            page.kind === 'popup' ? 'user' : page.kind,
             page.id
           );
           created.push(entry.guest);
@@ -167,7 +167,7 @@ export function createBrowserSessionRestore(host: {
           assertStillRestoring();
           entry.keepAlive = page.keepAlive || page.kind === 'popup';
           selected ??= entry.guest;
-          apply(entry.guest, page);
+          apply(entry.guest, page, url);
         }
         if (selected) sessions.selectGuest(sessionId, selected);
         suspendedSessions.delete(sessionId);

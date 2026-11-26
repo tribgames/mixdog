@@ -513,6 +513,8 @@ export function ContextSection({
       ? [...held, { key: 'free', label: t('Free space'), tokens: mix.free }]
       : [];
   const share = (tokens: number) => (mix && mix.windowTokens > 0 ? (tokens / mix.windowTokens) * 100 : 0);
+  const usedPrefix = estimate === null ? '' : '~';
+  const usedLabel = used === null ? '—' : `${usedPrefix}${compactTokens(used)}`;
   return (
     <RailSection
       category="context"
@@ -520,7 +522,7 @@ export function ContextSection({
       // The window's figures as its rows write them: 19k / 256k · 7.5%.
       meta={
         <span title={estimate === null ? usage.title : t('Estimated usage by category')}>
-          {`${used === null ? '—' : `${estimate === null ? '' : '~'}${compactTokens(used)}`} / ${compactTokens(usage.limit)}${percent === null ? '' : ' · '}`}
+          {`${usedLabel} / ${compactTokens(usage.limit)}${percent === null ? '' : ' · '}`}
           {percent !== null && (
             <span className="session-rail-context-percent" data-tone={usage.tone || undefined}>
               {`${percent.toFixed(1)}%`}
@@ -553,6 +555,7 @@ export function ContextSection({
       }
     >
       <div className="session-rail-context">
+        {/* biome-ignore lint/a11y/useSemanticElements: multi-segment stacked bar; native <meter> cannot render child category segments. */}
         <div
           className="session-rail-meter"
           data-tone={usage.tone || undefined}

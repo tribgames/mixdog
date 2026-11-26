@@ -266,7 +266,7 @@ test('the moves a reader asks for: a page above, a bounded stretch, a hit opened
   };
   const keptAt = (row: string): string[] | null => {
     const want = windowWant(paged.held!, { kind: 'read', first: row, last: row });
-    return want && want.ranges.filter((range) => range.at === 'retain').map((range) => (range as O).id);
+    return want?.ranges.filter((range) => range.at === 'retain').map((range) => (range as O).id) ?? null;
   };
   for (let page = 0; page < 6; page++) grow(page);
   assert.equal(keptAt(oldest[2]!), null, 'in the middle of the rows held, nothing is asked for');

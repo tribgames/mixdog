@@ -73,6 +73,129 @@ export interface PhoneBoot {
 
 const REGISTRATION_REFUSED = new Set([401, 403, 409]);
 
+interface ForegroundGate {
+  hidden(): boolean;
+  release(): void;
+  pause(ms: number): Promise<void>;
+  untilForeground(assertCurrent: () => void): Promise<void>;
+}
+
+/** Coordinates waits before the first socket: every wait releases on foreground wake or pairing reset, and never finishes while hidden or suspended. */
+function createForegroundGate(isSuspended: () => boolean): ForegroundGate {
+  const holders = new Set<() => void>();
+  const hidden = (): boolean => document.visibilityState === 'hidden';
+  return {
+    hidden,
+    release: () => {
+      const all = [...holders];
+      holders.clear();
+      for (const release of all) release();
+    },
+    pause: (ms: number) =>
+      new Promise((done) => {
+        const finish = (): void => {
+          clearTimeout(timer);
+          holders.delete(finish);
+          done();
+        };
+        const timer = setTimeout(() => {
+          if (!hidden() && !isSuspended()) finish();
+        }, ms);
+        holders.add(finish);
+      }),
+    untilForeground: async (assertCurrent: () => void) => {
+      // Rule B: no socket opens while the page is hidden or suspended.
+      while (isSuspended() || hidden()) {
+        await new Promise<void>((release) => holders.add(release));
+        assertCurrent();
+      }
+    },
+  };
+}
+
+async function registerClient(
+  ctx: RemoteShimContext,
+  gate: ForegroundGate,
+  random: () => number,
+  assertCurrent: () => void
+): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    assertCurrent();
+    try {
+      await ctx.ensureClientRegistration();
+      return;
+    } catch (error) {
+      assertCurrent();
+      const status = (error as { status?: number } | null)?.status;
+      reportRemoteConnectionIssue('registration-failed', error, status);
+      // This credential was revoked or its slot is gone: only a new approval fixes it. Anything else retries.
+      if (status !== undefined && REGISTRATION_REFUSED.has(status)) {
+        ctx.resetApprovalAndAsk(earlyUiT('Your PC disconnected this device.'));
+        throw error;
+      }
+      const delay = ladderDelay(attempt, random());
+      setRemoteRedialAt(Date.now() + delay);
+      await gate.pause(delay);
+      setRemoteRedialAt(null);
+      assertCurrent();
+      await gate.untilForeground(assertCurrent);
+    }
+  }
+}
+
+function applyReadyHello(
+  ctx: RemoteShimContext,
+  hello: Readonly<Record<string, unknown>>,
+  media?: { sid: string; key: CryptoKey }
+): void {
+  if (media) {
+    ctx.mediaSid = media.sid;
+    publishMediaKey(media.sid, media.key, { base: ctx.serverBase || location.origin, token: ctx.currentToken });
+  }
+  ctx.limits.learnRoutingCaps(hello);
+  setRemoteHostOpenAccess(hello.remoteOpenAccess === 1);
+  if (typeof hello.hostName === 'string') {
+    setRemoteHostName(hello.hostName);
+    savePcName(currentDeviceId(), hello.hostName);
+  }
+}
+
+/** Deduplicates wake-triggered feed verification checks and triggers leg recovery when the core cannot confirm feeds. */
+function createWakeVerifier(
+  getView: () => ViewManager | undefined,
+  getLanes: () => LaneFeeds | undefined,
+  onRecover: () => void
+): (hint?: boolean) => void {
+  let wakeCheck: Promise<void> | undefined;
+  let hintedDuringCheck = false;
+  const wakeView = (hint = false): void => {
+    const waking = getView();
+    if (!waking) return;
+    if (wakeCheck) {
+      hintedDuringCheck ||= hint;
+      return;
+    }
+    let recovering = false;
+    const recover = (): void => {
+      if (getView() !== waking) return;
+      recovering = true;
+      onRecover();
+    };
+    wakeCheck = waking
+      .wake(getLanes()?.expected())
+      .then((confirmed) => {
+        if (!confirmed) recover();
+      }, recover)
+      .finally(() => {
+        wakeCheck = undefined;
+        const again = hintedDuringCheck;
+        hintedDuringCheck = false;
+        if (again && !recovering) wakeView();
+      });
+  };
+  return wakeView;
+}
+
 export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
   const random = env.random ?? Math.random;
   let phone: PhoneClient | undefined;
@@ -91,6 +214,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
   let explicitSelection: readonly string[] = [];
   let dial: AbortController | undefined;
   let versionRefused = false;
+  const gate = createForegroundGate(() => ctx.backgroundSuspended);
   const clearMedia = (): void => {
     if (ctx.mediaSid) revokeMediaKey(ctx.mediaSid);
     ctx.mediaSid = null;
@@ -100,7 +224,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     clearMedia();
     dial?.abort();
     dialLink = undefined;
-    releaseHolders();
+    gate.release();
     starting = undefined;
     view?.stop();
     view = undefined;
@@ -111,40 +235,11 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     for (const listener of pairingResetListeners) listener();
     void retired?.client.close();
   };
-  // The page told the PC it is in the background.
   let background = false;
   // A page that was away, or whose connection ended, resyncs on its next wake, and only once the relay
   // has answered that wake's probe (a leg that does not answer is replaced by a connection that syncs on its own).
   let resyncOnWake = false;
   let resyncAfterProbe = false;
-  const hidden = (): boolean => document.visibilityState === 'hidden';
-  // The first connection's one owner of wake, hide, suspend and abort, registration included: every wait before the first socket is a
-  // holder, released by a foreground wake or a pairing reset, and none ends while the page is hidden or suspended.
-  const holders = new Set<() => void>();
-  const releaseHolders = (): void => {
-    const all = [...holders];
-    holders.clear();
-    for (const release of all) release();
-  };
-  const pause = (ms: number): Promise<void> =>
-    new Promise((done) => {
-      const finish = (): void => {
-        clearTimeout(timer);
-        holders.delete(finish);
-        done();
-      };
-      const timer = setTimeout(() => {
-        if (!hidden() && !ctx.backgroundSuspended) finish();
-      }, ms);
-      holders.add(finish);
-    });
-  const untilForeground = async (assertCurrent: () => void): Promise<void> => {
-    // Rule B: no socket opens while the page is hidden or suspended.
-    while (ctx.backgroundSuspended || hidden()) {
-      await new Promise<void>((release) => holders.add(release));
-      assertCurrent();
-    }
-  };
 
   const onConnection = (next: PhoneConnection): void => {
     switch (next.state) {
@@ -158,7 +253,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
         return;
       case 'connected':
         // A new leg is unknown to the PC until the screen reporter tells it; each connection states its visibility once.
-        background = hidden();
+        background = gate.hidden();
         resyncOnWake = false;
         ctx.connectionReady = true;
         // Connection history is recorded at once, so a first connection that dies before its first sync completes still
@@ -192,39 +287,18 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     }
   };
 
-  // A relay pong permits the check; only the core's answer can establish that the feeds need no recovery.
-  let wakeCheck: Promise<void> | undefined;
-  let hintedDuringCheck = false;
   let gapGeneration: number | undefined;
-  const wakeView = (hint = false): void => {
-    const waking = view;
-    if (!waking) return;
-    if (wakeCheck) {
-      hintedDuringCheck ||= hint;
-      return;
-    }
-    let recovering = false;
-    const recover = (): void => {
-      if (view !== waking) return;
-      recovering = true;
+  // A relay pong permits the check; only the core's answer can establish that the feeds need no recovery.
+  const wakeView = createWakeVerifier(
+    () => view,
+    () => lanes,
+    () => {
       gapGeneration = pairingGeneration;
       // A missed feed is not repaired by reattaching only the app and thread feeds. Replace the leg so every wanted feed
       // is reattached once, with its own cursor, and no late attach can replace the recovered subscription.
       phone?.link.retire();
-    };
-    const check = waking
-      .wake(lanes?.expected())
-      .then((confirmed) => {
-        if (!confirmed) recover();
-      }, recover)
-      .finally(() => {
-        wakeCheck = undefined;
-        const again = hintedDuringCheck;
-        hintedDuringCheck = false;
-        if (again && !recovering) wakeView();
-      });
-    wakeCheck = check;
-  };
+    }
+  );
 
   const onSynced = (): void => {
     ctx.restoredVisibleSessionIds = [];
@@ -242,31 +316,6 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     }
   };
 
-  const register = async (assertCurrent: () => void): Promise<void> => {
-    for (let attempt = 0; ; attempt++) {
-      assertCurrent();
-      try {
-        await ctx.ensureClientRegistration();
-        return;
-      } catch (error) {
-        assertCurrent();
-        const status = (error as { status?: number } | null)?.status;
-        reportRemoteConnectionIssue('registration-failed', error, status);
-        // This credential was revoked or its slot is gone: only a new approval fixes it. Anything else retries.
-        if (status !== undefined && REGISTRATION_REFUSED.has(status)) {
-          ctx.resetApprovalAndAsk(earlyUiT('Your PC disconnected this device.'));
-          throw error;
-        }
-        const delay = ladderDelay(attempt, random());
-        setRemoteRedialAt(Date.now() + delay);
-        await pause(delay);
-        setRemoteRedialAt(null);
-        assertCurrent();
-        await untilForeground(assertCurrent);
-      }
-    }
-  };
-
   const run = async (): Promise<PhoneClient> => {
     const generation = pairingGeneration;
     const assertCurrent = (): void => {
@@ -276,20 +325,23 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     dial = controller;
     await ctx.waitForCredential();
     assertCurrent();
-    await untilForeground(assertCurrent);
-    await register(assertCurrent);
+    await gate.untilForeground(assertCurrent);
+    await registerClient(ctx, gate, random, assertCurrent);
     assertCurrent();
     // A registration that finished after the background grace opens no socket until the page is back.
-    await untilForeground(assertCurrent);
+    await gate.untilForeground(assertCurrent);
     setRemoteConnectionPhase('websocket');
     const connected = await connectPhone({
       deviceId: ctx.deviceId,
       version: env.version,
       ...(env.build ? { build: env.build } : {}),
-      pairing: () => ctx.e2eePairing!,
+      pairing: () => {
+        if (!ctx.e2eePairing) throw remoteConnectionInterruptedError();
+        return ctx.e2eePairing;
+      },
       socketUrl: () => ctx.wsUrl(),
       createSocket: env.createSocket,
-      visible: () => !hidden(),
+      visible: () => !gate.hidden(),
       linked: (link) => {
         if (generation === pairingGeneration) dialLink = link;
       },
@@ -318,8 +370,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
       encrypting: () => setRemoteConnectionPhase('encryption'),
       unresponsive: () => reportRemoteConnectionIssue('heartbeat-timeout'),
       probeAnswered: () => {
-        if (generation !== pairingGeneration) return;
-        if (!resyncAfterProbe) return;
+        if (generation !== pairingGeneration || !resyncAfterProbe) return;
         resyncAfterProbe = false;
         wakeView();
       },
@@ -331,17 +382,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
         wakeView(true);
       },
       ready: (hello, media) => {
-        if (generation !== pairingGeneration) return;
-        if (media) {
-          ctx.mediaSid = media.sid;
-          publishMediaKey(media.sid, media.key, { base: ctx.serverBase || location.origin, token: ctx.currentToken });
-        }
-        ctx.limits.learnRoutingCaps(hello);
-        setRemoteHostOpenAccess(hello.remoteOpenAccess === 1);
-        if (typeof hello.hostName === 'string') {
-          setRemoteHostName(hello.hostName);
-          savePcName(currentDeviceId(), hello.hostName);
-        }
+        if (generation === pairingGeneration) applyReadyHello(ctx, hello, media);
       },
       screen: {
         active: () => !background,
@@ -385,7 +426,6 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     lanes.use(pendingLanes);
     // Each client the page dials (a re-pairing makes a new one in the same page) is handed to whoever reads its events.
     for (const listener of [...clientListeners]) listener(connected.client);
-    // The first sync, and every later connection's, is the view machine's own.
     return connected;
   };
 
@@ -402,7 +442,12 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     return starting;
   };
 
-  // Page lifecycle: the grace before a hidden page lets go of the relay, the report to the PC, and the wake.
+  const readyView = async (): Promise<ViewManager> => {
+    await start();
+    if (!view) throw remoteConnectionInterruptedError();
+    return view;
+  };
+
   let graceTimer: ReturnType<typeof setTimeout> | undefined;
   let frozen = false;
   const beginBackgroundGrace = (): void => {
@@ -416,7 +461,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     if (graceTimer !== undefined) return;
     graceTimer = setTimeout(() => {
       graceTimer = undefined;
-      if (hidden()) suspend();
+      if (gate.hidden()) suspend();
     }, BACKGROUND_GRACE_MS);
   };
   const suspend = (): void => {
@@ -427,24 +472,21 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     setRemoteConnectionState('connecting');
     currentLink()?.suspend();
   };
+  const isRedundantFocus = (event?: Event): boolean =>
+    event?.type === 'focus' &&
+    !background &&
+    !ctx.backgroundSuspended &&
+    !resyncOnWake &&
+    Boolean(phone) &&
+    !phone?.link.silentFor(WAKE_TRAFFIC_PROOF_MS);
   const wake = (event?: Event): void => {
     if (versionRefused) return;
     if (event?.type === 'resume') frozen = false;
-    if (hidden()) {
+    if (gate.hidden()) {
       beginBackgroundGrace();
       return;
     }
-    if (frozen) return;
-    if (
-      event?.type === 'focus' &&
-      !background &&
-      !ctx.backgroundSuspended &&
-      !resyncOnWake &&
-      phone &&
-      !phone.link.silentFor(WAKE_TRAFFIC_PROOF_MS)
-    ) {
-      return;
-    }
+    if (frozen || isRedundantFocus(event)) return;
     clearTimeout(graceTimer);
     graceTimer = undefined;
     if (background) {
@@ -457,7 +499,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     if (!phone) {
       // Before the first connection the redial wait (up to 60 s) and a suspension are the link's: a wake releases both.
       dialLink?.wake({ force });
-      releaseHolders();
+      gate.release();
       void start().catch(() => undefined);
       return;
     }
@@ -497,17 +539,14 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     },
     resetPairing,
     synced: async () => {
-      await start();
-      await view!.synced();
+      await (await readyView()).synced();
     },
     appSynced: async () => {
-      await start();
-      await view!.appSynced();
+      await (await readyView()).appSynced();
     },
     setVisibleSessions: async (threadIds) => {
       explicitSelection = [...threadIds];
-      await start();
-      return view!.set(threadIds);
+      return (await readyView()).set(threadIds);
     },
     refreshScreen: () => phone?.screen?.refresh(),
     useLanes: (set) => {
