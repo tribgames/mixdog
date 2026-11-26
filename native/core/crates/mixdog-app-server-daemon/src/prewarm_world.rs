@@ -1,6 +1,6 @@
 //! The runtime's side of the code-graph prewarm timer (`PrewarmWorld`, flip-ce-12): the settings of
 //! `runtime-tunables.mjs`, the busy reason of `timer-arm.mjs:29`, the current folder, and the graph
-//! build of `CodeGraphTool::prewarm_if_project`.
+//! build of `CodeGraphTool::prewarm_if_project` in a code graph helper that runs (it never starts one).
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -19,7 +19,6 @@ use crate::compose_domains::EnvReader;
 
 pub struct DaemonPrewarmWorld {
     pub tool: Arc<CodeGraphTool>,
-    pub io: mixdog_rt::MaintenanceIo,
     /// `rt.closeRequested` (cancelled when the release begins: `ComposedCore::set_stop_reason`).
     pub close_requested: CancellationToken,
     /// Ends an in-flight build with the process.
@@ -113,8 +112,9 @@ impl PrewarmWorld for DaemonPrewarmWorld {
         self.cwd.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
+    /// Warms a helper that runs: a background warm is no demand, so it never starts one.
     async fn prewarm(&self, cwd: &str) -> Result<bool, String> {
-        Ok(self.tool.prewarm_if_project(std::path::Path::new(cwd), self.io, &self.cancel).await)
+        self.tool.prewarm_if_project(std::path::Path::new(cwd), mixdog_graph_host::Start::IfRunning, &self.cancel).await.map_err(|error| error.to_string())
     }
 
     /// `bootProfile(event, detail)`.

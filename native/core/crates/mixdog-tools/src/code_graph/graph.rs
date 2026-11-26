@@ -1,7 +1,7 @@
 //! The project graph a `code_graph` query answers from: one node per indexed source file,
 //! built from `mixdog-graph`'s parse (symbols, call sites, tokens, raw imports) and the
 //! import edges resolved over the indexed file set.
-#![allow(clippy::disallowed_methods, reason = "blocking filesystem reads; the whole call runs as one maintenance-lane job (CodeGraphTool::call)")]
+#![allow(clippy::disallowed_methods, reason = "blocking filesystem reads; the whole call runs on the graph helper's build thread (engine::GraphEngine::query)")]
 
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher as _;
@@ -26,9 +26,10 @@ use super::roots::{identity_key, path_key};
 use super::symbols::{Sym, Symbols};
 
 // File versions. A file's *discovery* fingerprint is `(size, mtime_ns)`: a file whose fingerprint equals the one a record
-// was made at is not read again (nobody hashes unchanged files). Session writes record a ledger revision (`note_changed`)
+// was made at is not read again (nobody hashes unchanged files). Session writes record a ledger revision (`note_identities`)
 // so same-stamp writes are still re-parsed; when a query reads a file's source or targets an explicit file anchor, that
-// file's digest is verified against disk and a mismatch re-parses only that file.
+// file's digest is verified against disk and a mismatch re-parses only that file. A disk record written by another lifetime
+// of the ledger saw none of this lifetime's notices: its source is read and digested once before the record is reused.
 
 /// SHA-256 of a file's bytes: the version of what a record was parsed from.
 pub(super) fn digest_of(bytes: &[u8]) -> [u8; 32] {
@@ -1042,20 +1043,20 @@ impl Graph {
             (None, None) => Origin::new(root, None),
         };
         // Each cached file is taken at most once, by the worker whose file still matches it.
-        let (previous, disk_receipts): (HashMap<String, Mutex<Option<CachedFile>>>, Receipts) = match (base, cache) {
+        let (previous, disk_receipts, foreign): (HashMap<String, Mutex<Option<CachedFile>>>, Receipts, bool) = match (base, cache) {
             (None, Some(cache)) => {
                 let started = std::time::Instant::now();
-                let (files, receipts) = cache.load_with_receipts(root).unwrap_or_default();
-                let loaded = files.into_iter().map(|(rel, file)| (rel, Mutex::new(Some(file)))).collect();
+                let copy = cache.load_with_receipts(root).unwrap_or_default();
+                let loaded = copy.files.into_iter().map(|(rel, file)| (rel, Mutex::new(Some(file)))).collect();
                 super::cache::note(|t| t.cache_load_ms += super::cache::elapsed_ms(started));
-                (loaded, receipts)
+                (loaded, copy.receipts, copy.foreign)
             }
-            _ => (HashMap::new(), Receipts::new()),
+            _ => (HashMap::new(), Receipts::new(), false),
         };
         let no_receipts = Receipts::new();
         let base_receipts = base.map_or(&no_receipts, |b| &b.receipts);
         let old: HashMap<&str, &Node> = base.map(|b| b.nodes.iter().map(|n| (n.rel.as_str(), n)).collect()).unwrap_or_default();
-        let (from_disk, carried, parsed) = (AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0));
+        let (from_disk, carried, parsed, verified) = (AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0));
         let whole_set_cached = !previous.is_empty();
         let previous_len = previous.len();
         let one = |entry: &Entry| -> Result<Slot, String> {
@@ -1082,6 +1083,21 @@ impl Graph {
                 }
             });
             let record = match hit {
+                Some(file) if foreign => {
+                    verified.fetch_add(1, Ordering::Relaxed);
+                    let digest = digest_from_hex(&file.digest).expect("checked above");
+                    match verified_from_cache(root, entry, file, digest, &origin)? {
+                        Some((record, true)) => {
+                            from_disk.fetch_add(1, Ordering::Relaxed);
+                            record
+                        }
+                        Some((record, false)) => {
+                            parsed.fetch_add(1, Ordering::Relaxed);
+                            record
+                        }
+                        None => return Ok(Slot::Unverified(entry.rel.clone())),
+                    }
+                }
                 Some(file) => {
                     from_disk.fetch_add(1, Ordering::Relaxed);
                     let digest = digest_from_hex(&file.digest).expect("checked above");
@@ -1119,6 +1135,7 @@ impl Graph {
             t.reused += carried.load(Ordering::Relaxed) + from_disk.load(Ordering::Relaxed);
             t.parsed += parsed.load(Ordering::Relaxed);
             t.omitted += unverified.len();
+            t.verified += verified.load(Ordering::Relaxed);
         });
         // Cached files that no longer match are not needed past here.
         drop(previous);
@@ -1634,13 +1651,40 @@ fn read_observed(root: &Path, rel: &Path) -> Option<(Vec<u8>, (u64, u64))> {
     let after = stamp_of(&file.metadata(&mixdog_fsio::Unlaned).ok()?)?;
     (before == after && before.0 == bytes.len() as u64 && before.0 <= MAX_FILE_BYTES && source_here(&file, &path)).then_some((bytes, before))
 }
+fn relative_to<'a>(root: &Path, path: &'a Path) -> Result<&'a Path, String> {
+    path.strip_prefix(root).map_err(|e| format!("path is outside graph root ({}): {e}", path.display()))
+}
+
 /// Parses one file and drops its text: only what the graph keeps survives. `None`: the file could not be verified.
 fn parse_record(root: &Path, path: &Path, lang: &'static str, origin: &Origin) -> Result<Option<Record>, String> {
     #[cfg(test)]
     PARSED.with(|n| n.set(n.get() + 1));
-    let relative = path.strip_prefix(root).map_err(|e| format!("path is outside graph root ({}): {e}", path.display()))?;
+    let relative = relative_to(root, path)?;
     let Some((bytes, fingerprint)) = read_observed(root, relative) else { return Ok(None) };
     let digest = digest_of(&bytes);
+    Ok(Some(record_of(relative, path, bytes, digest, fingerprint, lang, origin)))
+}
+
+/// The record of a cached file another lifetime of the ledger wrote: its stamp may be the stamp of other bytes (a rewrite
+/// inside the clock's granularity that no notice of this lifetime covers), so the source is read once, and the record stands
+/// when those bytes are the ones it was parsed from; otherwise the bytes read are parsed (`false`). `None`: the source could
+/// not be verified.
+fn verified_from_cache(root: &Path, entry: &Entry, file: CachedFile, digest: [u8; 32], origin: &Origin) -> Result<Option<(Record, bool)>, String> {
+    #[cfg(test)]
+    VERIFIED_READS.with(|n| n.set(n.get() + 1));
+    let relative = relative_to(root, &entry.path)?;
+    let Some((bytes, fingerprint)) = read_observed(root, relative) else { return Ok(None) };
+    let read = digest_of(&bytes);
+    if read == digest && Some(fingerprint) == entry.stamp {
+        return Ok(Some((record_from_cache(file, digest, &entry.path, entry.lang, origin), true)));
+    }
+    #[cfg(test)]
+    PARSED.with(|n| n.set(n.get() + 1));
+    Ok(Some((record_of(relative, &entry.path, bytes, read, fingerprint, entry.lang, origin), false)))
+}
+
+/// The record of `bytes`, read from `path` at `fingerprint`.
+fn record_of(relative: &Path, path: &Path, bytes: Vec<u8>, digest: [u8; 32], fingerprint: (u64, u64), lang: &'static str, origin: &Origin) -> Record {
     let rel = relative.to_string_lossy().replace('\\', "/");
     let (text, parse_error) = match String::from_utf8(bytes) {
         Ok(text) => (text, String::new()),
@@ -1653,27 +1697,25 @@ fn parse_record(root: &Path, path: &Path, lang: &'static str, origin: &Origin) -
     };
     let calls = if parse_error.is_empty() { extraction.calls } else { None };
     let top_level_types = extract_top_level_types(&text, lang);
-    Ok(Some(
-        Record {
-            rel,
-            lang,
-            scan_lang,
-            parse_error,
-            symbols: Symbols::from(extraction.symbols),
-            raw_imports: extraction.imports,
-            package_name: extraction.package_name,
-            namespace_name: extraction.namespace_name,
-            go_package_name: extraction.go_package_name,
-            top_level_types,
-            tokens: origin.intern(&extraction.tokens),
-            calls_bytes: calls.as_ref().map(|calls| 24 + calls.iter().map(|c| 8 + call_bytes(c)).sum::<u64>()),
-            fingerprint: Some(fingerprint),
-            digest,
-            weight: 0,
-            words: origin.words.clone(),
-        }
-        .weigh(),
-    ))
+    Record {
+        rel,
+        lang,
+        scan_lang,
+        parse_error,
+        symbols: Symbols::from(extraction.symbols),
+        raw_imports: extraction.imports,
+        package_name: extraction.package_name,
+        namespace_name: extraction.namespace_name,
+        go_package_name: extraction.go_package_name,
+        top_level_types,
+        tokens: origin.intern(&extraction.tokens),
+        calls_bytes: calls.as_ref().map(|calls| 24 + calls.iter().map(|c| 8 + call_bytes(c)).sum::<u64>()),
+        fingerprint: Some(fingerprint),
+        digest,
+        weight: 0,
+        words: origin.words.clone(),
+    }
+    .weigh()
 }
 /// Links, and links again while a file the resolver looked at changed after (or while) it was looked at: the edges
 /// are only kept with inputs whose stamps are the ones they were made from.

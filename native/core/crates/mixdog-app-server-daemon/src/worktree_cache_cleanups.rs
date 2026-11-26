@@ -9,8 +9,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_core_review::turn_review::TurnReview;
+use mixdog_graph_host::GraphHost;
+use mixdog_graph_host::wire::ForgetRoot;
+use mixdog_graph_host::wire::Forgot;
 use mixdog_scm::worktree::removal::RootCleanup;
-use mixdog_tools::code_graph::GraphCache;
+use mixdog_tools::code_graph::engine::DiskCatalog;
 
 fn kept_error(kept: &[PathBuf]) -> Result<(), String> {
     if kept.is_empty() {
@@ -43,15 +46,17 @@ impl RootCleanup for TurnSnapshotCleanup {
 }
 
 /// `code-graph`: the resident graph of the root (`forgetCodeGraphStateRoot`) and its disk cache
-/// (`forgetDiskCodeGraphRoot`).
+/// (`forgetDiskCodeGraphRoot`). A running helper forgets both behind the root's refresh; with none, the root's manifest row,
+/// payload and heap note under `cache_dir` go on the lane while no helper can start.
 pub struct CodeGraphCleanup {
-    cache: Arc<GraphCache>,
+    host: Arc<GraphHost>,
+    cache_dir: PathBuf,
     lane: mixdog_rt::MaintenanceIo,
 }
 
 impl CodeGraphCleanup {
-    pub fn new(cache: Arc<GraphCache>, lane: mixdog_rt::MaintenanceIo) -> Self {
-        Self { cache, lane }
+    pub fn new(host: Arc<GraphHost>, cache_dir: PathBuf, lane: mixdog_rt::MaintenanceIo) -> Self {
+        Self { host, cache_dir, lane }
     }
 }
 
@@ -62,8 +67,16 @@ impl RootCleanup for CodeGraphCleanup {
     }
 
     async fn run(&self, root: &Path, _entry_id: &str) -> Result<(), String> {
-        let (_removed, kept) = self.cache.forget_root(self.lane, &tokio_util::sync::CancellationToken::new(), root).await.map_err(|error| error.to_string())?;
-        kept_error(&kept)
+        let (dir, lane) = (self.cache_dir.clone(), self.lane);
+        // Idempotent: the host may run it after a helper that was sent the removal died before answering.
+        let on_disk = move |forget: ForgetRoot| async move {
+            let cancel = tokio_util::sync::CancellationToken::new();
+            let (removed, kept) =
+                mixdog_scm::repo::on_lane(lane, &cancel, move || DiskCatalog::new(dir).forget(&forget.root)).await.map_err(|error| error.to_string())?;
+            Ok::<_, String>(Forgot { removed, kept })
+        };
+        let forgot = self.host.forget_root(ForgetRoot { root: root.to_path_buf() }, on_disk).await.map_err(|error| error.to_string())?;
+        kept_error(&forgot.kept)
     }
 }
 
@@ -124,15 +137,21 @@ impl RootCleanup for TrustedRootCleanup {
 mod tests {
     use super::*;
 
-    /// `WORKTREE_CACHE_CLEANUPS['code-graph']` over a root nothing was cached for: nothing to clean is never a failure, and
-    /// the cache directory is not created (`forgetDiskCodeGraphRoot`: "Never creates the cache directory").
+    /// `WORKTREE_CACHE_CLEANUPS['code-graph']` over a root nothing was cached for, with no helper running: nothing to clean is
+    /// never a failure, no helper is started for it, and the cache directory is not created (`forgetDiskCodeGraphRoot`: "Never
+    /// creates the cache directory").
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn the_code_graph_cleanup_of_an_uncached_root_cleans_nothing_and_creates_nothing() {
         let tmp = tempfile::tempdir().expect("tmp");
         let dir = tmp.path().join("cache");
-        let cleanup = CodeGraphCleanup::new(Arc::new(GraphCache::new(dir.clone())), mixdog_rt::testing::tokens().maintenance_io);
+        let config = mixdog_graph_host::HostConfig::new(mixdog_graph_host::OwnedCommand::new(tmp.path().join("no-helper")), std::time::Duration::from_secs(1));
+        let (host, driver) = GraphHost::new(config);
+        drop(tokio::spawn(driver));
+        let host = Arc::new(host);
+        let cleanup = CodeGraphCleanup::new(host.clone(), dir.clone(), mixdog_rt::testing::tokens().maintenance_io);
         assert_eq!(cleanup.name(), "code-graph");
         cleanup.run(&tmp.path().join("gone"), "entry").await.expect("cleaned");
+        assert_eq!(host.status().state, mixdog_graph_host::HostState::Absent, "no helper was started");
         assert!(!dir.exists());
         assert_eq!(kept_error(&[PathBuf::from("a"), PathBuf::from("b")]), Err("kept: a, b".to_owned()));
     }

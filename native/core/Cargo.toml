@@ -41,6 +41,7 @@ members = [
     "crates/mixdog-scm",
     "crates/mixdog-remote",
     "crates/mixdog-exthost",
+    "crates/mixdog-graph-host",
     "crates/mixdog-core-base",
     "crates/mixdog-core-review",
     "crates/mixdog-core-config",
@@ -226,6 +227,7 @@ mixdog-workspace = { path = "crates/mixdog-workspace" }
 mixdog-scm = { path = "crates/mixdog-scm" }
 mixdog-remote = { path = "crates/mixdog-remote" }
 mixdog-exthost = { path = "crates/mixdog-exthost" }
+mixdog-graph-host = { path = "crates/mixdog-graph-host" }
 mixdog-core-base = { path = "crates/mixdog-core-base" }
 mixdog-core-review = { path = "crates/mixdog-core-review" }
 mixdog-core-config = { path = "crates/mixdog-core-config" }

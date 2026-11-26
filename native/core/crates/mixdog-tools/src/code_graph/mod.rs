@@ -1,8 +1,11 @@
-//! `code_graph` (T §3.7): code structure and relations answered from `mixdog-graph`'s parse.
+//! `code_graph` (T §3.7): code structure and relations answered from `mixdog-graph`'s parse. The parse, the graphs and their
+//! cache live in the code graph helper ([`engine`], `graph-worker`); the core guards a call's arguments, reads the roots it may
+//! federate over, asks the helper's host ([`CodeGraphHost`]) and maps the answer to the tool's result.
 
 mod args;
 mod cache;
 mod dispatch;
+pub mod engine;
 mod exports;
 mod federation;
 #[cfg(test)]
@@ -17,8 +20,17 @@ mod roots;
 mod symbols;
 #[cfg(test)]
 mod tests;
+#[cfg(any(test, feature = "test-support"))]
+pub mod testing;
 mod util;
 mod workspace;
+
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::tool::Tool;
@@ -29,7 +41,12 @@ use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolOutput;
 use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_core_api::domain::tool::ToolSpec;
+use mixdog_graph_host::GraphHost;
+use mixdog_graph_host::HostError;
+use mixdog_graph_host::Start;
+use mixdog_graph_host::wire;
 use mixdog_protocol::JsonValue;
+use mixdog_rt::CancellationToken;
 
 const SPEC: &str = include_str!("specs/code_graph.json");
 
@@ -58,10 +75,46 @@ pub fn dependency_roots(output: &ToolOutput) -> Option<Vec<String>> {
     (!roots.is_empty()).then_some(roots)
 }
 
-pub use cache::GraphCache;
+#[cfg(test)]
+use cache::GraphCache;
 pub use cache::is_tmp_name;
 pub use federation::TrustedRoots;
 pub use workspace::WorkspaceCodeGraph;
+
+/// The code graph helper as the tool asks it: the composition's one [`GraphHost`]; in tests, [`testing::InProcessHost`].
+#[async_trait]
+pub trait CodeGraphHost: Send + Sync {
+    /// One call. Cancelling `cancel`, or dropping the future, withdraws it.
+    async fn query(&self, query: wire::Query, cancel: &CancellationToken) -> Result<wire::Answer, HostError>;
+
+    /// Builds the graph of the project `prewarm.cwd` belongs to; `start` says whether it may start a helper.
+    async fn prewarm(&self, prewarm: wire::Prewarm, start: Start, cancel: &CancellationToken) -> Result<wire::Warmed, HostError>;
+}
+
+#[async_trait]
+impl CodeGraphHost for GraphHost {
+    async fn query(&self, query: wire::Query, cancel: &CancellationToken) -> Result<wire::Answer, HostError> {
+        GraphHost::query(self, query, cancel).await
+    }
+
+    async fn prewarm(&self, prewarm: wire::Prewarm, start: Start, cancel: &CancellationToken) -> Result<wire::Warmed, HostError> {
+        GraphHost::prewarm(self, prewarm, start, cancel).await
+    }
+}
+
+/// The write notices of the files the session's own tools wrote (`ReadState`'s invalidation signal), in their order: each path
+/// resolved now to the identity the helper keys it by ([`engine::change_identities`]), the unknown location for one that has
+/// none. What [`GraphHost::changed`] sends.
+pub fn changed_files(paths: &[String]) -> wire::Changed {
+    let files = engine::change_identities(paths)
+        .into_iter()
+        .map(|identity| match identity {
+            Some(identity) => wire::FileIdentity::Known { identity },
+            None => wire::FileIdentity::Unknown,
+        })
+        .collect();
+    wire::Changed { files }
+}
 
 /// The modes the schema offers (`CODE_GRAPH_MODES`) and the file modes among them (`CODE_GRAPH_FILE_MODES`); `prewarm` is the
 /// hidden one a call may also name.
@@ -71,62 +124,51 @@ const FILE_MODES: [&str; 5] = ["overview", "imports", "dependents", "related", "
 
 pub struct CodeGraphTool {
     spec: ToolSpec,
-    trust: std::sync::Arc<dyn TrustedRoots>,
-    cache: std::sync::Arc<GraphCache>,
-    #[cfg(test)]
-    output_budget: Option<usize>,
+    trust: Arc<dyn TrustedRoots>,
+    host: Arc<dyn CodeGraphHost>,
 }
 
 impl CodeGraphTool {
-    /// `trust` is where federated calls find the registered and selected project roots; `cache`
-    /// is the on-disk graph cache, whose manifest also supplies the cached roots.
-    pub fn new(trust: std::sync::Arc<dyn TrustedRoots>, cache: std::sync::Arc<GraphCache>) -> Self {
-        Self {
-            spec: crate::orch::util::spec_from_def(SPEC, true, &[]),
-            trust,
-            cache,
-            #[cfg(test)]
-            output_budget: None,
-        }
+    /// `trust` is where a call finds the registered and selected project roots it may federate over; `host` answers it (the
+    /// helper owns the graph cache, whose manifest also supplies the cached roots).
+    pub fn new(trust: Arc<dyn TrustedRoots>, host: Arc<dyn CodeGraphHost>) -> Self {
+        Self { spec: crate::orch::util::spec_from_def(SPEC, true, &[]), trust, host }
     }
 }
 
 /// The calls made so far: a request's number in its trace row.
-static NEXT_REQUEST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-/// What the lane job measured of one call.
-#[derive(Default)]
-struct CallStages {
-    lane_wait_ms: u64,
-    run_ms: u64,
-    prune_ms: u64,
-    spent: cache::Timings,
-}
+static NEXT_REQUEST: AtomicU64 = AtomicU64::new(0);
 
 /// One call's trace row (`target: "code_graph"`, `event = "call"`).
 struct CallRow<'a> {
     request: u64,
     mode: &'a str,
     outcome: &'static str,
-    stages: CallStages,
-    wrap_ms: u64,
+    /// Where the helper spent the call's time; all zero when it answered none.
+    timings: wire::Timings,
     total_ms: u64,
 }
 
 impl CallRow<'_> {
-    /// What the graph work does not account for inside the run: the query itself.
-    fn query_ms(&self) -> u64 {
-        self.stages.run_ms.saturating_sub(self.stages.spent.graph_ms())
+    /// The durations that are the graph's own.
+    fn graph_ms(&self) -> u64 {
+        let t = &self.timings;
+        t.root_wait_ms + t.inventory_ms + t.verify_ms + t.resolver_check_ms + t.cache_load_ms + t.parse_ms + t.link_ms + t.assemble_ms + t.admission_ms
     }
 
-    /// What no stage accounts for.
+    /// What the graph work does not account for inside the run: the query itself.
+    fn query_ms(&self) -> u64 {
+        self.timings.run_ms.saturating_sub(self.graph_ms())
+    }
+
+    /// What no stage accounts for: in the core, the wait for the host and the helper's pipes.
     fn other_ms(&self) -> u64 {
-        let stages = &self.stages;
-        self.total_ms.saturating_sub(stages.lane_wait_ms + stages.run_ms + stages.prune_ms + self.wrap_ms)
+        let t = &self.timings;
+        self.total_ms.saturating_sub(t.queue_ms + t.run_ms + t.prune_ms + t.wrap_ms)
     }
 
     fn emit(&self) {
-        let (stages, graph) = (&self.stages, &self.stages.spent);
+        let t = &self.timings;
         let (query_ms, other_ms) = (self.query_ms(), self.other_ms());
         tracing::info!(
             target: "code_graph",
@@ -134,55 +176,32 @@ impl CallRow<'_> {
             request = self.request,
             mode = self.mode,
             outcome = self.outcome,
-            lane_wait_ms = stages.lane_wait_ms,
-            root_wait_ms = graph.root_wait_ms,
-            inventory_ms = graph.inventory_ms,
-            verify_ms = graph.verify_ms,
-            resolver_check_ms = graph.resolver_check_ms,
-            cache_load_ms = graph.cache_load_ms,
-            parse_ms = graph.parse_ms,
-            link_ms = graph.link_ms,
-            assemble_ms = graph.assemble_ms,
-            admission_ms = graph.admission_ms,
+            queue_ms = t.queue_ms,
+            root_wait_ms = t.root_wait_ms,
+            inventory_ms = t.inventory_ms,
+            verify_ms = t.verify_ms,
+            resolver_check_ms = t.resolver_check_ms,
+            cache_load_ms = t.cache_load_ms,
+            parse_ms = t.parse_ms,
+            link_ms = t.link_ms,
+            assemble_ms = t.assemble_ms,
+            admission_ms = t.admission_ms,
             query_ms,
-            prune_ms = stages.prune_ms,
-            wrap_ms = self.wrap_ms,
+            prune_ms = t.prune_ms,
+            wrap_ms = t.wrap_ms,
             other_ms,
             total_ms = self.total_ms,
-            files_reused = graph.reused,
-            files_parsed = graph.parsed,
-            files_omitted = graph.omitted,
-            files_verified = graph.verified,
-            retained = ?graph.retained,
-            generation = graph.generation,
+            files_reused = t.files_reused,
+            files_parsed = t.files_parsed,
+            files_omitted = t.files_omitted,
+            files_verified = t.files_verified,
+            retained = ?t.retained,
+            generation = t.generation,
             "code_graph call"
         );
     }
 }
 
-/// The build behind [`CodeGraphTool::prewarm_if_project`]: `true` when `cwd` belongs to a project and its build ran.
-async fn warm_project(cache: std::sync::Arc<GraphCache>, cwd: std::path::PathBuf, io: mixdog_rt::MaintenanceIo, cancel: &mixdog_rt::CancellationToken) -> bool {
-    let built = mixdog_scm::repo::on_lane(io, cancel, {
-        let cache = cache.clone();
-        move || {
-            let root = roots::find_dir_project_root(&cwd, true)?;
-            // Fills the shared graph cache, or finds it valid already; builds nothing the cache cannot keep.
-            cache.prewarm(&root);
-            Some(root)
-        }
-    })
-    .await;
-    cache.schedule_flush(io);
-    matches!(built, Ok(Some(_)))
-}
-
-/// Why a call produced no answer.
-enum Failure {
-    /// The dispatcher refused the call (Node throws an `Error` with this message).
-    Refused(String),
-    /// The lane job did not complete.
-    Lane(mixdog_scm::error::ScmFailure),
-}
 /// `validateBuiltinArgs('code_graph', args)` (`arg-guard.mjs`): the null drops and list normalisation that come first, then
 /// `guardCodeGraph`. The arguments the call runs with, or the refusal text Node answers with.
 fn guard_args(args: JsonValue) -> Result<JsonValue, String> {
@@ -225,22 +244,25 @@ fn guard_args(args: JsonValue) -> Result<JsonValue, String> {
     Ok(JsonValue::Object(a))
 }
 impl CodeGraphTool {
-    /// `prewarmCodeGraphIfProject(cwd)`: builds the graph of the project `cwd` belongs to, so the first call finds its files cached.
-    /// The root is the implicit walk (`stopAtUserBoundary`: a home or temp folder is never adopted). `true` when a project was
-    /// found and its build ran; a failed build is only a cold first call.
-    pub async fn prewarm_if_project(&self, cwd: &std::path::Path, io: mixdog_rt::MaintenanceIo, cancel: &mixdog_rt::CancellationToken) -> bool {
-        warm_project(self.cache.clone(), cwd.to_path_buf(), io, cancel).await
+    /// `prewarmCodeGraphIfProject(cwd)`: the helper builds the graph of the project `cwd` belongs to, so the first call finds its
+    /// files cached. The root is the implicit walk (`stopAtUserBoundary`: a home or temp folder is never adopted). `true` when a
+    /// project was found and its build ran; a failed build is only a cold first call. `start` is whether the warm may start a
+    /// helper ([`Start::IfRunning`]: the background prewarm warms only one that runs).
+    pub async fn prewarm_if_project(&self, cwd: &Path, start: Start, cancel: &CancellationToken) -> Result<bool, HostError> {
+        let warmed = self.host.prewarm(wire::Prewarm { cwd: cwd.to_path_buf() }, start, cancel).await?;
+        Ok(warmed.built)
     }
 
-    fn prewarm(&self, session_cwd: &std::path::Path, args: &JsonValue, ctx: &ToolContext) -> String {
+    /// The hidden `prewarm` mode: a warm the call asks for, so it may start the helper; it runs behind the call's answer.
+    fn prewarm(&self, session_cwd: &Path, args: &JsonValue) -> String {
         let parsed = args::Args::parse(args);
         let cwd = match &parsed.cwd {
             Some(cwd) => roots::abs_from(session_cwd, cwd),
             None => session_cwd.to_path_buf(),
         };
-        let (cache, warm_cwd, io) = (self.cache.clone(), cwd.clone(), ctx.io.maintenance);
+        let (host, prewarm) = (self.host.clone(), wire::Prewarm { cwd: cwd.clone() });
         tokio::spawn(async move {
-            warm_project(cache, warm_cwd, io, &mixdog_rt::CancellationToken::new()).await;
+            let _ = host.prewarm(prewarm, Start::Demand, &CancellationToken::new()).await;
         });
         let symbols = parsed.symbol_list();
         let overflow = if symbols.len() > 5 { format!(",+{}", symbols.len() - 5) } else { String::new() };
@@ -248,80 +270,31 @@ impl CodeGraphTool {
         format!("prewarm scheduled: cwd={} symbols={}{detail}", cwd.to_string_lossy(), symbols.len())
     }
 
-    /// `executeCodeGraphTool(name, args, cwd)`, the one path every surface answers through: the
-    /// agent tool (`Tool::call`) and the workspace `project/codeGraph` adapter.
-    async fn answer(
-        &self,
-        cwd: std::path::PathBuf,
-        args: &JsonValue,
-        io: mixdog_rt::MaintenanceIo,
-        cancel: &mixdog_rt::CancellationToken,
-    ) -> Result<dispatch::Answer, Failure> {
-        let request = NEXT_REQUEST.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-        // End to end: from before the lane is asked for to after the answer is wrapped.
-        let started = std::time::Instant::now();
-        let parsed = args::Args::parse(args);
-        // Parsing and indexing a project is CPU and disk bound: keep it off the async workers.
-        let snapshot = federation::TrustSnapshot::read(&*self.trust).await;
-        let cache = self.cache.clone();
-        let job_args = parsed.clone();
-        let submitted = std::time::Instant::now();
-        let joined = mixdog_scm::repo::on_lane(io, cancel, move || {
-            let lane_wait_ms = cache::elapsed_ms(submitted);
-            let snapshot = snapshot.with_cached(cache.roots());
-            let env = dispatch::Env { trust: &snapshot, cache: &cache, session_cwd: &cwd };
-            // This lane thread's timings are this call's: none are left from another call that ran on it.
-            let _ = cache::take_timings();
-            let running = std::time::Instant::now();
-            let answer = dispatch::run(&job_args, &cwd, &env);
-            let run_ms = cache::elapsed_ms(running);
-            let spent = cache::take_timings();
-            let pruning = std::time::Instant::now();
-            cache.prune_after_call();
-            (answer, CallStages { lane_wait_ms, run_ms, prune_ms: cache::elapsed_ms(pruning), spent })
-        })
-        .await;
-        self.cache.schedule_flush(io);
-        let mode = parsed.mode.clone();
-        match joined {
-            Ok((answer, stages)) => {
-                let wrapping = std::time::Instant::now();
-                let outcome = answer.map(|mut answer| {
-                    #[cfg(test)]
-                    let budget = self.output_budget.unwrap_or_else(output::max_bytes);
-                    #[cfg(not(test))]
-                    let budget = output::max_bytes();
-                    let (text, uncapped) = output::wrap_with_status(answer.text, &answer.warnings, &parsed, budget);
-                    answer.text = text;
-                    answer.complete &= uncapped;
-                    answer
-                });
-                let wrap_ms = cache::elapsed_ms(wrapping);
-                CallRow {
-                    request,
-                    mode: &mode,
-                    outcome: if outcome.is_ok() { "ok" } else { "refused" },
-                    stages,
-                    wrap_ms,
-                    total_ms: cache::elapsed_ms(started),
-                }
-                .emit();
-                outcome.map_err(Failure::Refused)
-            }
-            Err(failure) => {
-                // The lane never ran the call: the row says so, with the whole time as what could not be attributed.
-                CallRow { request, mode: &mode, outcome: "lane_failed", stages: CallStages::default(), wrap_ms: 0, total_ms: cache::elapsed_ms(started) }
-                    .emit();
-                Err(Failure::Lane(failure))
-            }
-        }
+    /// `executeCodeGraphTool(name, args, cwd)`, the one path every surface answers through: the agent tool (`Tool::call`) and the
+    /// workspace `project/codeGraph` adapter. The registered projects and the selected directories are read for this call; the
+    /// helper answers it with warnings, pagination and the output budget applied.
+    async fn answer(&self, cwd: PathBuf, args: &JsonValue, cancel: &CancellationToken) -> Result<wire::Answer, HostError> {
+        let request = NEXT_REQUEST.fetch_add(1, Ordering::Relaxed) + 1;
+        // End to end: from before the roots are read to the answer.
+        let started = Instant::now();
+        let mode = args::Args::parse(args).mode;
+        let query = wire::Query { session_cwd: cwd, args: args.clone(), registered: self.trust.registered().await, selected: self.trust.selected().await };
+        let answered = self.host.query(query, cancel).await;
+        let (outcome, timings) = match &answered {
+            Ok(answer) => ("ok", answer.timings),
+            Err(HostError::Refused(_)) => ("refused", wire::Timings::default()),
+            // The helper answered nothing: the whole time is what could not be attributed.
+            Err(_) => ("failed", wire::Timings::default()),
+        };
+        CallRow { request, mode: &mode, outcome, timings, total_ms: cache::elapsed_ms(started) }.emit();
+        answered
     }
 }
-/// The row of a public call that never reached the lane (an argument refusal, an accepted `prewarm`): every public return
+/// The row of a public call that never reached the host (an argument refusal, an accepted `prewarm`): every public return
 /// path has exactly one, and all of its time is `other`. The background warm a `prewarm` schedules is not a call and has none.
-fn emit_unrun_row(mode: &str, outcome: &'static str, started: std::time::Instant) {
-    let request = NEXT_REQUEST.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-    CallRow { request, mode, outcome, stages: CallStages::default(), wrap_ms: 0, total_ms: cache::elapsed_ms(started) }.emit();
+fn emit_unrun_row(mode: &str, outcome: &'static str, started: Instant) {
+    let request = NEXT_REQUEST.fetch_add(1, Ordering::Relaxed) + 1;
+    CallRow { request, mode, outcome, timings: wire::Timings::default(), total_ms: cache::elapsed_ms(started) }.emit();
 }
 #[async_trait]
 impl Tool for CodeGraphTool {
@@ -330,7 +303,7 @@ impl Tool for CodeGraphTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        let started = std::time::Instant::now();
+        let started = Instant::now();
         let named_mode = args.get("mode").and_then(JsonValue::as_str).unwrap_or_default().to_owned();
         let args = match guard_args(args) {
             Ok(args) => args,
@@ -341,11 +314,11 @@ impl Tool for CodeGraphTool {
         };
         let cwd = ctx.cwd.as_path().to_path_buf();
         if mixdog_js::js_trim(args.get("mode").and_then(JsonValue::as_str).unwrap_or_default()) == "prewarm" {
-            let text = self.prewarm(&cwd, &args, ctx);
+            let text = self.prewarm(&cwd, &args);
             emit_unrun_row("prewarm", "ok", started);
             return Ok(text_output(text));
         }
-        match self.answer(cwd, &args, ctx.io.maintenance, &ctx.cancel).await {
+        match self.answer(cwd, &args, &ctx.cancel).await {
             Ok(answer) => {
                 let mut output = text_output(answer.text);
                 let complete = answer.complete;
@@ -355,9 +328,9 @@ impl Tool for CodeGraphTool {
                 });
                 Ok(output)
             }
-            Err(Failure::Refused(message)) => Err(invalid_args("code_graph", message)),
-            Err(Failure::Lane(mixdog_scm::error::ScmFailure::Cancelled)) => Err(ToolError::new(ToolErrorCode::Cancelled, "Error: tool call cancelled")),
-            Err(Failure::Lane(e)) => Err(ToolError::new(ToolErrorCode::Internal { incident_id: String::new() }, format!("Error: code_graph failed: {e}"))),
+            Err(HostError::Refused(refusal)) => Err(invalid_args("code_graph", refusal.message)),
+            Err(HostError::Cancelled) => Err(ToolError::new(ToolErrorCode::Cancelled, "Error: tool call cancelled")),
+            Err(error) => Err(ToolError::new(ToolErrorCode::Internal { incident_id: String::new() }, format!("Error: code_graph failed: {error}"))),
         }
     }
 }

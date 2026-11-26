@@ -12,17 +12,17 @@
 //! legacy single-file cleanup have no counterpart: the Rust graph rebuilds calls with the file,
 //! and Node's files are not ours.
 //!
-//! Every file operation here runs inside a maintenance-lane job.
+//! Every file operation here runs on a thread of the graph helper (`engine`): its build, maintenance or flush thread.
 #![allow(
     clippy::disallowed_types,
     clippy::disallowed_methods,
-    reason = "every std::fs call here is the body of a maintenance-lane job (GraphCache::flush/load run on lanes)"
+    reason = "every std::fs call here runs on a thread of the graph helper, never on an async worker (engine::GraphEngine)"
 )]
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
@@ -38,7 +38,7 @@ const FORMAT_VERSION: u32 = 5;
 const MAX_ENTRIES: usize = 24;
 const DEFAULT_MAX_MB: f64 = 80.0;
 /// The debounce before a staged graph is written (`_scheduleDiskCodeGraphCacheFlush`).
-const FLUSH_DELAY: Duration = Duration::from_millis(250);
+pub(super) const FLUSH_DELAY: Duration = Duration::from_millis(250);
 /// A temp file younger than this may belong to a live writer (`ORPHAN_TMP_MIN_AGE_MS`).
 const ORPHAN_TMP_MIN_AGE: Duration = Duration::from_millis(120_000);
 
@@ -196,8 +196,8 @@ struct Row {
     root: String,
 }
 
-/// The write a staged graph runs at the flush.
-type StagedWrite = Box<dyn FnOnce(&mut dyn io::Write) -> io::Result<()> + Send>;
+/// The write a staged graph runs at a flush, and again at the next one when it failed.
+type StagedWrite = Box<dyn Fn(&mut dyn io::Write) -> io::Result<()> + Send>;
 
 struct Staged {
     root: String,
@@ -214,8 +214,6 @@ struct Staged {
 /// weighs about 58 MiB of live heap (~5.7 KiB a file), so the whole tree of ~11,200 files needs ~64 and 160 holds one of
 /// up to ~28,000.
 const DEFAULT_GRAPH_HEAP_MB: f64 = 160.0;
-/// A held generation no call used for this long is released: the next call of its root starts from the disk cache.
-const GRAPH_IDLE: Duration = Duration::from_secs(10 * 60);
 
 /// A graph for one call: the generation that was current when its refresh published, shared by whoever holds it. It owns
 /// nothing else: no permit, no gate, so a graph the cache did not retain blocks no other root's work.
@@ -245,14 +243,12 @@ struct Held {
     graph: Arc<Graph>,
     /// The graph's heap bytes (it holds no source text).
     bytes: u64,
-    /// When a call last took it (`GRAPH_IDLE`).
-    used: Instant,
 }
 
 /// Where one call's time went in the graph work, for its trace row. Every duration is the calling thread's own for the call
-/// that took it (a call's graph work runs on one lane thread; its parse workers add nothing here).
-#[derive(Clone, Copy)]
-pub(super) struct Timings {
+/// that took it (a call's graph work runs on the helper's build thread; its parse workers add nothing here).
+#[derive(Clone, Copy, Debug)]
+pub struct Timings {
     /// Waiting for the root's refresh turn.
     pub root_wait_ms: u64,
     pub inventory_ms: u64,
@@ -293,19 +289,6 @@ impl Timings {
         retained: None,
         generation: 0,
     };
-
-    /// The durations that are the graph's own.
-    pub fn graph_ms(&self) -> u64 {
-        self.root_wait_ms
-            + self.inventory_ms
-            + self.verify_ms
-            + self.resolver_check_ms
-            + self.cache_load_ms
-            + self.parse_ms
-            + self.link_ms
-            + self.assemble_ms
-            + self.admission_ms
-    }
 }
 
 impl Default for Timings {
@@ -447,17 +430,121 @@ impl Ledger {
         seen
     }
 }
-pub struct GraphCache {
+/// The cache directory as it is stored: `manifest.json`, the payloads its rows name and `heap.note`. A root is removed from
+/// it with no graph in memory, so a worktree removed while no graph worker runs is forgotten through it alone.
+pub struct DiskCatalog {
     dir: PathBuf,
+}
+
+impl DiskCatalog {
+    pub fn new(dir: PathBuf) -> Self {
+        Self { dir }
+    }
+
+    fn manifest_path(&self) -> PathBuf {
+        self.dir.join("manifest.json")
+    }
+
+    fn note_path(&self) -> PathBuf {
+        self.dir.join("heap.note")
+    }
+
+    /// The manifest as stored; absent or unparsable reads as empty.
+    fn read_manifest(&self) -> BTreeMap<String, Row> {
+        std::fs::read(self.manifest_path()).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
+    }
+
+    /// The heap notes as stored; absent or unparsable reads as none.
+    fn read_notes(&self) -> BTreeMap<String, (u64, u64)> {
+        std::fs::read(self.note_path()).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
+    }
+
+    fn write_notes(&self, notes: &BTreeMap<String, (u64, u64)>) -> io::Result<()> {
+        write_atomic(&self.note_path(), &serde_json::to_vec(notes).unwrap_or_default())
+    }
+
+    /// Drops `root` from the directory (`forgetDiskCodeGraphRoot`): its manifest row, its payload and its heap note. Only
+    /// this exact root; nested roots are other roots. Returns what was removed and the files that matched but could not be
+    /// deleted; never creates the directory. Nothing else may write the directory meanwhile: no graph worker runs.
+    pub fn forget(&self, root: &Path) -> (Vec<String>, Vec<PathBuf>) {
+        let mut removed = Vec::new();
+        // A root with no resolvable identity names no cache entry: it is reported as kept, not matched by its spelling.
+        let Ok(key) = identity_key(root) else { return (removed, vec![root.to_path_buf()]) };
+        if !self.dir.exists() {
+            return (removed, Vec::new());
+        }
+        let kept = self.forget_row(&key, &mut removed);
+        let mut notes = self.read_notes();
+        if notes.remove(&key).is_some() {
+            let _ = self.write_notes(&notes);
+        }
+        (removed, kept)
+    }
+
+    /// The manifest row of `key` and its payload; the files that could not be deleted.
+    fn forget_row(&self, key: &str, removed: &mut Vec<String>) -> Vec<PathBuf> {
+        let mut kept = Vec::new();
+        let mut manifest = self.read_manifest();
+        let mut hashes: HashSet<String> = HashSet::from([hash_of(key)]);
+        if let Some(row) = manifest.remove(key) {
+            if is_cache_hash(&row.hash) {
+                hashes.insert(row.hash);
+            }
+            removed.push(format!("manifest:{key}"));
+            if write_atomic(&self.manifest_path(), &serde_json::to_vec(&manifest).unwrap_or_default()).is_err() {
+                kept.push(self.manifest_path());
+            }
+        }
+        for hash in hashes {
+            let file = self.dir.join(format!("{hash}.json"));
+            if !file.exists() {
+                continue;
+            }
+            match std::fs::remove_file(&file) {
+                Ok(()) => removed.push(file.to_string_lossy().into_owned()),
+                Err(_) => kept.push(file),
+            }
+        }
+        kept
+    }
+}
+
+/// A root's payload as read back: its files by rel, the receipts it carries and whether another lifetime of the ledger (an
+/// earlier worker) wrote it.
+#[derive(Default)]
+pub(super) struct DiskCopy {
+    pub files: HashMap<String, CachedFile>,
+    /// Empty unless the payload was written in this lifetime of the ledger (see [`Ledger`]).
+    pub receipts: Receipts,
+    /// Written by another lifetime: no notice of this one covers what changed since, so a record stands only once its source
+    /// is verified against its digest.
+    pub foreign: bool,
+}
+
+/// Each written path as the ledger names it ([`identity_key`], resolved when the write is noticed), or `None` for a path with
+/// no resolvable identity, a change at an unknown location (reported as a `warn` event): what
+/// [`GraphCache::note_identities`] takes.
+pub fn change_identities(paths: &[String]) -> Vec<Option<String>> {
+    paths
+        .iter()
+        .map(|path| {
+            identity_key(Path::new(path))
+                .inspect_err(|why| {
+                    tracing::warn!(target: "code_graph", path = %path, reason = %why, "code_graph: the written path has no resolvable identity; every root parses its files again once");
+                })
+                .ok()
+        })
+        .collect()
+}
+
+pub struct GraphCache {
+    catalog: DiskCatalog,
     max_bytes: u64,
     pending: Mutex<HashMap<String, Staged>>,
     /// Built graphs, least recently used first (`_codeGraphCache`): at most `resident_max_entries` and
-    /// `graph_heap_max_bytes` of real heap. A generation stays until a newer one of its root replaces it, the budget
-    /// evicts it, or no call took it for `graph_idle` (`release_idle`).
+    /// `graph_heap_max_bytes` of real heap. A generation stays until a newer one of its root replaces it or the budget
+    /// evicts it.
     graphs: Arc<Mutex<Vec<Held>>>,
-    graph_idle: Duration,
-    /// An idle release is scheduled (`schedule_flush`).
-    idle_scheduled: AtomicBool,
     /// One lock per root: a root's refresh (choosing its base, reconciling it with the tree, publishing) is single-flight,
     /// and the refreshes of different roots never wait on each other.
     roots: Mutex<HashMap<String, Arc<Mutex<()>>>>,
@@ -478,8 +565,7 @@ pub struct GraphCache {
     graph_heap_max_bytes: u64,
     #[cfg(test)]
     builds: std::sync::atomic::AtomicUsize,
-    scheduled: AtomicBool,
-    /// Serialises the commit (merge, write, prune, sweep) within this core.
+    /// Serialises the commit (merge, write, prune, sweep) within this helper.
     commit: Mutex<()>,
     /// Node's resident graphs (`memory-cache.mjs`), least recently used first: per project root, the indexed
     /// file set's signature, the names looked up in that graph and the graph's own bytes.
@@ -821,19 +907,18 @@ mod tests {
         }
     }
     /// The cleanup of a removed worktree's root (`cache-cleanups.mjs`, `code-graph`: `forgetCodeGraphStateRoot` and
-    /// `forgetDiskCodeGraphRoot`): its resident graph, manifest row and payload go on the lane; another root keeps all of its own.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_removed_roots_cache_is_forgotten_with_its_resident_graph_and_no_other_roots() {
+    /// `forgetDiskCodeGraphRoot`): its resident graph, manifest row and payload go; another root keeps all of its own.
+    #[test]
+    fn a_removed_roots_cache_is_forgotten_with_its_resident_graph_and_no_other_roots() {
         let tmp = tempfile::tempdir().unwrap();
-        let cache = Arc::new(GraphCache::new(tmp.path().join("cache")));
+        let cache = GraphCache::new(tmp.path().join("cache"));
         let (gone, stays) = (root(tmp.path(), "Gone"), root(tmp.path(), "Stays"));
         for proj in [&gone, &stays] {
             cache.stage(proj, vec![file("a.mjs", "export const a = 1;")]);
             cache.lookups_for(&identity_key(proj).unwrap(), 1, || (10, 0));
         }
         cache.flush().unwrap();
-        let lane = mixdog_rt::testing::tokens().maintenance_io;
-        let (removed, kept) = cache.forget_root(lane, &tokio_util::sync::CancellationToken::new(), &gone).await.unwrap();
+        let (removed, kept) = cache.forget(&gone);
         assert!(kept.is_empty(), "{kept:?}");
         assert!(removed.iter().any(|name| name.starts_with("resident-graph:")) && removed.iter().any(|name| name.starts_with("manifest:")), "{removed:?}");
         assert_eq!(cache.roots(), vec![stays.clone()]);
@@ -841,7 +926,29 @@ mod tests {
         let resident: Vec<String> = cache.resident.lock().unwrap().iter().map(|entry| entry.root.clone()).collect();
         assert_eq!(resident, [identity_key(&stays).unwrap()]);
         // Nothing left to forget: nothing removed, nothing kept.
-        assert_eq!(cache.forget_root(lane, &tokio_util::sync::CancellationToken::new(), &gone).await.unwrap(), (Vec::new(), Vec::new()));
+        assert_eq!(cache.forget(&gone), (Vec::new(), Vec::new()));
+    }
+
+    /// A root whose write fails stays staged and the roots beside it are written still; the flush says it failed, and the next
+    /// one writes the root once it can.
+    #[test]
+    fn a_failed_write_keeps_its_root_staged_and_the_others_are_written() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("cache");
+        let cache = GraphCache::new(dir.clone());
+        let (blocked, free) = (root(tmp.path(), "Blocked"), root(tmp.path(), "Free"));
+        // A folder where the blocked root's payload goes: the rename over it fails.
+        let blocker = dir.join(format!("{}.json", hash_of(&identity_key(&blocked).unwrap())));
+        std::fs::create_dir_all(&blocker).unwrap();
+        for proj in [&blocked, &free] {
+            cache.stage(proj, vec![file("a.mjs", "export const a = 1;")]);
+        }
+        assert!(cache.flush().is_err());
+        assert!(cache.load(&free).is_some() && cache.load(&blocked).is_none());
+        assert!(cache.flush().is_err(), "the failed root is still staged: the next flush writes it again and fails again");
+        std::fs::remove_dir(&blocker).unwrap();
+        cache.flush().unwrap();
+        assert!(cache.load(&blocked).is_some() && cache.load(&free).is_some() && !cache.has_pending());
     }
 }
 
@@ -871,12 +978,10 @@ impl GraphCache {
     pub fn new(dir: PathBuf) -> Self {
         let mb = std::env::var("MIXDOG_CODE_GRAPH_CACHE_MAX_MB").ok().and_then(|v| v.trim().parse::<f64>().ok()).filter(|v| *v > 0.0).unwrap_or(DEFAULT_MAX_MB);
         Self {
-            dir,
+            catalog: DiskCatalog::new(dir),
             max_bytes: ((mb * 1024.0 * 1024.0).floor() as u64).max(1024 * 1024),
             pending: Mutex::default(),
             graphs: Arc::default(),
-            graph_idle: GRAPH_IDLE,
-            idle_scheduled: AtomicBool::new(false),
             roots: Mutex::default(),
             ledger: Arc::new(Ledger::new()),
             generations: AtomicU64::new(0),
@@ -886,7 +991,6 @@ impl GraphCache {
             graph_heap_max_bytes: (env_count("MIXDOG_CODE_GRAPH_HEAP_MAX_MB", DEFAULT_GRAPH_HEAP_MB, 1.0) * 1024.0 * 1024.0).floor() as u64,
             #[cfg(test)]
             builds: std::sync::atomic::AtomicUsize::new(0),
-            scheduled: AtomicBool::new(false),
             commit: Mutex::new(()),
             resident: Mutex::default(),
             // `CODE_GRAPH_MEMORY_MAX_ENTRIES` and `CODE_GRAPH_MEMORY_MAX_BYTES`.
@@ -1135,17 +1239,10 @@ impl GraphCache {
         }
     }
 
-    fn note_path(&self) -> PathBuf {
-        self.dir.join("heap.note")
-    }
-
     /// `(signature, heap bytes)` of `key`'s last built graph.
     fn heap_note(&self, key: &str) -> Option<(u64, u64)> {
         let mut notes = self.heap_notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        notes
-            .get_or_insert_with(|| std::fs::read(self.note_path()).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default())
-            .get(key)
-            .copied()
+        notes.get_or_insert_with(|| self.catalog.read_notes()).get(key).copied()
     }
 
     /// Notes what `key`'s graph over the files of `signature` weighs.
@@ -1159,8 +1256,8 @@ impl GraphCache {
         while notes.len() > MAX_ENTRIES * 4 {
             notes.pop_first();
         }
-        if std::fs::create_dir_all(&self.dir).is_ok() {
-            let _ = write_atomic(&self.note_path(), &serde_json::to_vec(&*notes).unwrap_or_default());
+        if std::fs::create_dir_all(&self.catalog.dir).is_ok() {
+            let _ = self.catalog.write_notes(notes);
         }
     }
 
@@ -1172,13 +1269,21 @@ impl GraphCache {
     /// cannot be resolved has no identity to key a hint by, and none is invented from its spelling: the change is at an
     /// unknown location, so it is a new revision of [`Ledger::UNKNOWN`], which every root projects and which keeps any
     /// record from being reused unverified until a refresh has processed it. It is also reported (a `warn` event).
-    pub fn note_changed(&self, paths: &[String]) {
-        for (path, why) in self.note_resolved(paths) {
-            tracing::warn!(target: "code_graph", path = %path, reason = %why, "code_graph: the written path has no resolvable identity; every root parses its files again once");
+    #[cfg(test)]
+    pub(super) fn note_changed(&self, paths: &[String]) {
+        self.note_identities(change_identities(paths).iter().map(Option::as_deref));
+    }
+
+    /// Write notices resolved when they were made ([`change_identities`]), in their order: a new revision of each identity,
+    /// and of [`Ledger::UNKNOWN`] for each without one.
+    pub(super) fn note_identities<'a>(&self, identities: impl IntoIterator<Item = Option<&'a str>>) {
+        for identity in identities {
+            self.ledger.note(identity.unwrap_or(Ledger::UNKNOWN));
         }
     }
 
     /// [`note_changed`](Self::note_changed) returning the paths it could not identify, with why.
+    #[cfg(test)]
     pub(super) fn note_resolved(&self, paths: &[String]) -> Vec<(String, String)> {
         let mut unresolved = Vec::new();
         for path in paths {
@@ -1199,8 +1304,7 @@ impl GraphCache {
     fn current(&self, key: &str) -> Option<Arc<Graph>> {
         let mut all = self.graphs.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(at) = all.iter().position(|h| h.key == key) {
-            let mut entry = all.remove(at);
-            entry.used = Instant::now();
+            let entry = all.remove(at);
             let graph = entry.graph.clone();
             all.push(entry);
             return Some(graph);
@@ -1231,7 +1335,7 @@ impl GraphCache {
         let mut all = self.graphs.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         all.retain(|h| h.key != key);
         let kept = self.admits(bytes, &all) && {
-            all.push(Held { key: key.clone(), bytes, graph, used: Instant::now() });
+            all.push(Held { key: key.clone(), bytes, graph });
             self.prune_graphs(&mut all);
             // The newest is the last to go, so it is gone only when it could not stay beside graphs still in use.
             all.last().is_some_and(|h| std::ptr::eq(Arc::as_ptr(&h.graph), weak.as_ptr()))
@@ -1270,12 +1374,6 @@ impl GraphCache {
         self
     }
 
-    #[cfg(test)]
-    pub(super) fn with_graph_idle(mut self, idle: Duration) -> Self {
-        self.graph_idle = idle;
-        self
-    }
-
     /// Drops every held generation, as the budget's eviction would.
     #[cfg(test)]
     pub(super) fn evict_all(&self) {
@@ -1299,11 +1397,6 @@ impl GraphCache {
     }
 
     #[cfg(test)]
-    pub(super) fn resident_roots(&self) -> Vec<String> {
-        self.resident.lock().unwrap().iter().map(|r| r.root.clone()).collect()
-    }
-
-    #[cfg(test)]
     pub(super) fn tracked_roots(&self) -> usize {
         self.roots.lock().unwrap().len()
     }
@@ -1313,41 +1406,32 @@ impl GraphCache {
         self.ledger.len()
     }
 
-    fn manifest_path(&self) -> PathBuf {
-        self.dir.join("manifest.json")
-    }
-
-    /// The manifest as stored; absent or unparsable reads as empty.
-    fn read_manifest(&self) -> BTreeMap<String, Row> {
-        std::fs::read(self.manifest_path()).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
-    }
-
     /// The roots with a cached graph (`listCachedCodeGraphRoots`), as they were built. Reads the
     /// manifest only: nothing is initialised, pruned or loaded.
     pub fn roots(&self) -> Vec<PathBuf> {
-        self.read_manifest().into_values().filter(|row| !row.root.is_empty()).map(|row| PathBuf::from(row.root)).collect()
+        self.catalog.read_manifest().into_values().filter(|row| !row.root.is_empty()).map(|row| PathBuf::from(row.root)).collect()
     }
 
     /// The cached files of `root`, by rel, or none when there is no valid entry.
     #[cfg(test)]
     pub(super) fn load(&self, root: &Path) -> Option<HashMap<String, CachedFile>> {
-        self.load_with_receipts(root).map(|(files, _)| files)
+        self.load_with_receipts(root).map(|copy| copy.files)
     }
 
-    /// The cached files of `root` and the receipts of its payload: empty unless the payload was written in this lifetime
-    /// of the ledger (see [`Ledger`]).
-    pub(super) fn load_with_receipts(&self, root: &Path) -> Option<(HashMap<String, CachedFile>, Receipts)> {
+    /// The payload of `root`, with the receipts it carries trusted only when this lifetime of the ledger wrote it.
+    pub(super) fn load_with_receipts(&self, root: &Path) -> Option<DiskCopy> {
         let key = identity_key(root).ok()?;
-        let row = self.read_manifest().remove(&key)?;
+        let row = self.catalog.read_manifest().remove(&key)?;
         if !is_cache_hash(&row.hash) {
             return None;
         }
         // Streamed: the payload's bytes are never held next to the files parsed out of them.
-        let file = std::fs::File::open(self.dir.join(format!("{}.json", row.hash))).ok()?;
+        let file = std::fs::File::open(self.catalog.dir.join(format!("{}.json", row.hash))).ok()?;
         let payload: Payload<Vec<CachedFile>> = serde_json::from_reader(io::BufReader::new(file)).ok()?;
         (payload.version == FORMAT_VERSION && payload.key == key).then(|| {
-            let receipts = if payload.epoch == self.ledger.epoch() { payload.receipts } else { Receipts::new() };
-            (payload.files.into_iter().map(|f| (f.rel.clone(), f)).collect(), receipts)
+            let foreign = payload.epoch != self.ledger.epoch();
+            let receipts = if foreign { Receipts::new() } else { payload.receipts };
+            DiskCopy { files: payload.files.into_iter().map(|f| (f.rel.clone(), f)).collect(), receipts, foreign }
         })
     }
 
@@ -1376,8 +1460,9 @@ impl GraphCache {
         let (epoch, receipts) = (self.ledger.epoch().to_owned(), graph.receipts.clone());
         let write = Box::new(move |out: &mut dyn io::Write| {
             let graph = reader.upgrade().ok_or_else(|| io::Error::other("graph released before it was written"))?;
-            serde_json::to_writer(out, &Payload { version: FORMAT_VERSION, key: payload_key, epoch, receipts, files: GraphFiles(graph) })
-                .map_err(io::Error::other)
+            let payload =
+                Payload { version: FORMAT_VERSION, key: payload_key.clone(), epoch: epoch.clone(), receipts: receipts.clone(), files: GraphFiles(graph) };
+            serde_json::to_writer(out, &payload).map_err(io::Error::other)
         });
         let staged = Staged { root: root.to_string_lossy().into_owned(), write, built_at: now_ms(), released: Some(weak), generation };
         self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(key, staged);
@@ -1387,43 +1472,68 @@ impl GraphCache {
         !self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_empty()
     }
 
-    /// Writes what is staged: merge into the manifest as it stands, prune, sweep. A lane job.
+    /// Writes what is staged: merge into the manifest as it stands, prune, sweep. Returns once every graph staged before it is
+    /// written: a write another flush already took is waited for. A root whose write fails stays staged (behind a newer staging
+    /// of it) and the others are written still; the first failure is the error, so a drain never acknowledges a graph that did
+    /// not reach the disk.
     pub fn flush(&self) -> io::Result<()> {
-        if !self.has_pending() {
-            return Ok(());
-        }
-        self.flush_staged()
-    }
-
-    fn flush_staged(&self) -> io::Result<()> {
-        if !self.has_pending() {
-            return Ok(());
-        }
         // Queue for the commit before taking what is staged: a flush waiting its turn must not hold staged graphs.
         let _commit = self.commit.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let staged = std::mem::take(&mut *self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
         if staged.is_empty() {
             return Ok(());
         }
-        std::fs::create_dir_all(&self.dir)?;
-        let mut manifest = self.read_manifest();
+        if let Err(error) = std::fs::create_dir_all(&self.catalog.dir) {
+            self.restage(staged);
+            return Err(error);
+        }
+        let mut manifest = self.catalog.read_manifest();
+        let (mut failure, mut unwritten, mut written) = (None, Vec::new(), Vec::new());
         for (key, entry) in staged {
-            if entry.released.as_ref().is_some_and(|graph| graph.strong_count() == 0) {
-                continue;
-            }
+            // Held through the write, so a graph alive now is written whole.
+            let alive = match &entry.released {
+                Some(graph) => match graph.upgrade() {
+                    Some(graph) => Some(graph),
+                    None => continue,
+                },
+                None => None,
+            };
             let hash = hash_of(&key);
             let writing = Instant::now();
-            // A payload over the disk budget would be evicted by the prune below at once: it is not written.
-            let Some(bytes) = write_atomic_with(&self.dir.join(format!("{hash}.json")), self.max_bytes, entry.write)? else {
-                continue;
-            };
-            tracing::info!(target: "code_graph", event = "persist", root = %entry.root, generation = entry.generation, bytes, persist_ms = elapsed_ms(writing), "code_graph generation persisted");
-            manifest.insert(key, Row { hash, built_at: entry.built_at, bytes, root: entry.root });
+            match write_atomic_with(&self.catalog.dir.join(format!("{hash}.json")), self.max_bytes, |out: &mut dyn io::Write| (entry.write)(out)) {
+                // A payload over the disk budget would be evicted by the prune below at once: it is not written.
+                Ok(None) => {}
+                Ok(Some(bytes)) => {
+                    tracing::info!(target: "code_graph", event = "persist", root = %entry.root, generation = entry.generation, bytes, persist_ms = elapsed_ms(writing), "code_graph generation persisted");
+                    manifest.insert(key.clone(), Row { hash, built_at: entry.built_at, bytes, root: entry.root.clone() });
+                    written.push((key, entry));
+                }
+                Err(error) => {
+                    failure = failure.or(Some(error));
+                    unwritten.push((key, entry));
+                }
+            }
+            drop(alive);
         }
         self.prune(&mut manifest);
-        write_atomic(&self.manifest_path(), &serde_json::to_vec(&manifest).map_err(io::Error::other)?)?;
-        self.sweep(&manifest);
-        Ok(())
+        match serde_json::to_vec(&manifest).map_err(io::Error::other).and_then(|bytes| write_atomic(&self.catalog.manifest_path(), &bytes)) {
+            Ok(()) => self.sweep(&manifest),
+            // No row names the payloads just written: they stay staged with the ones that failed.
+            Err(error) => {
+                failure = failure.or(Some(error));
+                unwritten.append(&mut written);
+            }
+        }
+        self.restage(unwritten);
+        failure.map_or(Ok(()), Err)
+    }
+
+    /// Puts back what a flush took and did not store, behind any newer staging of the same root.
+    fn restage(&self, entries: impl IntoIterator<Item = (String, Staged)>) {
+        let mut pending = self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        for (key, entry) in entries {
+            pending.entry(key).or_insert(entry);
+        }
     }
 
     /// `_pruneCodeGraphManifestForBudget`: rows whose payload is gone drop out, then the oldest
@@ -1433,7 +1543,7 @@ impl GraphCache {
             .iter()
             .filter(|(key, row)| !key.is_empty() && is_cache_hash(&row.hash))
             .filter_map(|(key, row)| {
-                let size = std::fs::metadata(self.dir.join(format!("{}.json", row.hash))).ok()?.len();
+                let size = std::fs::metadata(self.catalog.dir.join(format!("{}.json", row.hash))).ok()?.len();
                 Some((key.clone(), row.clone(), size))
             })
             .collect();
@@ -1463,7 +1573,7 @@ impl GraphCache {
     /// Removes payloads no manifest row references and temp files aged past the guard.
     fn sweep(&self, manifest: &BTreeMap<String, Row>) {
         let valid: HashSet<&str> = manifest.values().map(|row| row.hash.as_str()).collect();
-        let Ok(entries) = std::fs::read_dir(&self.dir) else {
+        let Ok(entries) = std::fs::read_dir(&self.catalog.dir) else {
             return;
         };
         for entry in entries.flatten() {
@@ -1484,24 +1594,42 @@ impl GraphCache {
 
     /// Drops `root` from the cache (`forgetCodeGraphStateRoot`, `forgetDiskCodeGraphRoot`): its resident
     /// graph, the staged copy, the manifest row and its payload. Only this exact root; nested roots are
-    /// other roots. Returns what was removed and the files that matched but could not be deleted. A lane
-    /// job; never creates the directory.
+    /// other roots. Returns what was removed and the files that matched but could not be deleted. Never
+    /// creates the directory. It takes the root's refresh turn, so a refresh in progress does not stage the root
+    /// again behind it, and the commit, so a write in progress does not put its row back.
     pub fn forget(&self, root: &Path) -> (Vec<String>, Vec<PathBuf>) {
         let mut removed = Vec::new();
         // A root with no resolvable identity names no cache entry: it is reported as kept, not matched by its spelling.
         let Ok(key) = identity_key(root) else { return (removed, vec![root.to_path_buf()]) };
-        self.forget_in_memory(&key, &mut removed);
-        if !self.dir.exists() {
-            return (removed, Vec::new());
-        }
-        let kept = self.forget_on_disk(&key, &mut removed);
+        let kept = {
+            let lock = self.root_lock(&key);
+            let _turn = lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            self.forget_in_memory(&key, &mut removed);
+            if self.catalog.dir.exists() {
+                let _commit = self.commit.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                self.catalog.forget_row(&key, &mut removed)
+            } else {
+                Vec::new()
+            }
+        };
+        self.release_turns(&key);
         (removed, kept)
+    }
+
+    /// Drops the refresh turns of `key` and of its scoped builds that nothing holds or waits for. A turn is handed out only
+    /// under the map's lock, so one the map alone holds cannot be taken meanwhile; one a refresh holds or waits for stays, so the
+    /// root's next caller queues behind that refresh instead of beside it.
+    fn release_turns(&self, key: &str) {
+        let scoped = format!("{key}\u{0}");
+        self.roots
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|held, turn| (held != key && !held.starts_with(&scoped)) || Arc::strong_count(turn) > 1);
     }
 
     fn forget_in_memory(&self, key: &str, removed: &mut Vec<String>) {
         self.ledger.forget(key);
         let scoped = format!("{key}\u{0}");
-        self.roots.lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(|held, _| held != key && !held.starts_with(&scoped));
         {
             let mut resident = self.resident.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let before = resident.len();
@@ -1517,106 +1645,13 @@ impl GraphCache {
             let mut notes = self.heap_notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(notes) = notes.as_mut() {
                 notes.remove(key);
-                if self.dir.exists() {
-                    let _ = write_atomic(&self.note_path(), &serde_json::to_vec(&*notes).unwrap_or_default());
+                if self.catalog.dir.exists() {
+                    let _ = self.catalog.write_notes(notes);
                 }
             }
         }
         if self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(key).is_some() {
             removed.push(format!("pending:{key}"));
         }
-    }
-
-    fn forget_on_disk(&self, key: &str, removed: &mut Vec<String>) -> Vec<PathBuf> {
-        let mut kept = Vec::new();
-        let _commit = self.commit.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut manifest = self.read_manifest();
-        let mut hashes: HashSet<String> = HashSet::from([hash_of(key)]);
-        if let Some(row) = manifest.remove(key) {
-            if is_cache_hash(&row.hash) {
-                hashes.insert(row.hash);
-            }
-            removed.push(format!("manifest:{key}"));
-            if write_atomic(&self.manifest_path(), &serde_json::to_vec(&manifest).unwrap_or_default()).is_err() {
-                kept.push(self.manifest_path());
-            }
-        }
-        for hash in hashes {
-            let file = self.dir.join(format!("{hash}.json"));
-            if !file.exists() {
-                continue;
-            }
-            match std::fs::remove_file(&file) {
-                Ok(()) => removed.push(file.to_string_lossy().into_owned()),
-                Err(_) => kept.push(file),
-            }
-        }
-        kept
-    }
-
-    /// [`Self::forget`] on `lane`: the cleanup a removed worktree's root runs (`cache-cleanups.mjs`, `code-graph`).
-    pub async fn forget_root(
-        self: &Arc<Self>,
-        lane: mixdog_rt::MaintenanceIo,
-        cancel: &tokio_util::sync::CancellationToken,
-        root: &Path,
-    ) -> io::Result<(Vec<String>, Vec<PathBuf>)> {
-        let (cache, root) = (self.clone(), root.to_path_buf());
-        mixdog_scm::repo::on_lane(lane, cancel, move || cache.forget(&root)).await.map_err(io::Error::other)
-    }
-
-    /// Writes everything staged now, on `lane` (the exit drain; a failed write is the error).
-    pub async fn drain(self: &Arc<Self>, lane: mixdog_rt::MaintenanceIo, cancel: &tokio_util::sync::CancellationToken) -> io::Result<()> {
-        let cache = self.clone();
-        mixdog_scm::repo::on_lane(lane, cancel, move || cache.flush()).await.map_err(io::Error::other)?
-    }
-
-    /// Debounced flush: one task waits 250 ms and then writes whatever has been staged since.
-    /// A failed write is dropped; the roots are staged again by the next build that changes them.
-    pub fn schedule_flush(self: &Arc<Self>, lane: mixdog_rt::MaintenanceIo) {
-        self.schedule_idle_release();
-        if !self.has_pending() || self.scheduled.swap(true, Ordering::SeqCst) {
-            return;
-        }
-        let cache = self.clone();
-        tokio::spawn(async move {
-            mixdog_rt::time::sleep(FLUSH_DELAY).await;
-            cache.scheduled.store(false, Ordering::SeqCst);
-            let _ = cache.drain(lane, &tokio_util::sync::CancellationToken::new()).await;
-        });
-    }
-}
-impl GraphCache {
-    /// Releases the held generations no call took for `graph_idle`; `true` while some are still held.
-    pub(super) fn release_idle(&self) -> bool {
-        let mut all = self.graphs.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let now = Instant::now();
-        let idle = |h: &Held| now.saturating_duration_since(h.used) >= self.graph_idle;
-        let released: Vec<String> = all.iter().filter(|h| idle(h)).map(|h| h.key.clone()).collect();
-        all.retain(|h| !idle(h));
-        let held = !all.is_empty();
-        let still: HashSet<&str> = all.iter().map(|h| h.key.as_str()).collect();
-        self.resident.lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(|r| !released.contains(&r.root) || still.contains(r.root.as_str()));
-        held
-    }
-
-    /// Once per idle period while generations are held, a release of the idle ones, so a root nobody queries again does
-    /// not keep its graph for the life of the process.
-    fn schedule_idle_release(self: &Arc<Self>) {
-        if self.idle_scheduled.swap(true, Ordering::SeqCst) {
-            return;
-        }
-        let cache = Arc::downgrade(self);
-        let idle = self.graph_idle;
-        tokio::spawn(async move {
-            loop {
-                mixdog_rt::time::sleep(idle).await;
-                let Some(cache) = cache.upgrade() else { return };
-                if !cache.release_idle() {
-                    cache.idle_scheduled.store(false, Ordering::SeqCst);
-                    return;
-                }
-            }
-        });
     }
 }

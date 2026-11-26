@@ -1374,7 +1374,7 @@ impl ComposedCore {
     }
 
     /// Registers a step of the ordered stop (trace and session-log flush, usage ledger, session
-    /// directory shutdown, `GraphCache::drain`, ...). Steps run in registration order, after the
+    /// directory shutdown, the code graph helper's close, ...). Steps run in registration order, after the
     /// extension host has closed.
     pub fn on_stop(&self, name: &'static str, step: impl Future<Output = ()> + Send + 'static) {
         self.stop_steps.push(name, Box::pin(step));

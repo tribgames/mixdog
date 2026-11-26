@@ -1,6 +1,6 @@
 //! The helper processes a core starts as its own executable run with a subcommand (`current_exe`): the extension-host
-//! worker, the effort judge's and the embedding model's hosts, Office automation, an ACP agent's tool server and a skill
-//! script. Started by a core, never by a user. Both programs a core runs in serve every one of them: `mixdogd`, and
+//! worker, the code graph helper, the effort judge's and the embedding model's hosts, Office automation, an ACP agent's tool
+//! server and a skill script. Started by a core, never by a user. Both programs a core runs in serve every one of them: `mixdogd`, and
 //! `mixdog`, whose `exec` composes its core in its own process.
 
 use std::ffi::OsString;
@@ -38,6 +38,13 @@ pub enum Helper {
     /// serves document calls until the pool says bye.
     #[command(name = "ext-worker", hide = true)]
     ExtWorker,
+    /// The code graph helper the core's `GraphHost` starts: it owns the graph cache under `cache_dir` and answers the core's
+    /// frames on its standard pipes, writing nothing else there, until the core drains it or closes its input.
+    #[command(name = "graph-worker", hide = true)]
+    GraphWorker {
+        #[arg(long)]
+        cache_dir: PathBuf,
+    },
     /// The process Microsoft Office automation runs in.
     #[command(name = "office-com-host", hide = true, trailing_var_arg = true, allow_hyphen_values = true, disable_help_flag = true)]
     OfficeComHost {
@@ -79,6 +86,7 @@ pub fn run(helper: Helper) -> ExitCode {
         Helper::EmbeddingHost { cache_dir, model_id, ort_library, dtype } => {
             ExitCode::from(mixdog_app_server_daemon::embedding_host::run(cache_dir, model_id, ort_library, dtype) as u8)
         }
+        Helper::GraphWorker { cache_dir } => ExitCode::from(mixdog_tools::code_graph::engine::serve_worker(cache_dir) as u8),
         Helper::OfficeComHost { args } => ExitCode::from(mixdog_office_com::host::run(&args) as u8),
         Helper::AcpMcpBridge => ExitCode::from(mixdog_app_server_daemon::acp_tools::run_bridge() as u8),
         Helper::ExtWorker => {

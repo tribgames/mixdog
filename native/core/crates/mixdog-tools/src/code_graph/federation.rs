@@ -6,7 +6,7 @@
 //! are the registered projects, the session's selected cwd and the roots the graph cache has
 //! indexed (all under the cwd); a sentinel-free cwd with none of them federates over its
 //! discovered child projects instead. At a filesystem root only the trusted set is used.
-#![allow(clippy::disallowed_methods, reason = "blocking filesystem reads; the whole call runs as one maintenance-lane job (CodeGraphTool::call)")]
+#![allow(clippy::disallowed_methods, reason = "blocking filesystem reads; the whole call runs on the graph helper's build thread (engine::GraphEngine::query)")]
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -30,8 +30,8 @@ pub trait TrustedRoots: Send + Sync {
     async fn selected(&self) -> Vec<PathBuf>;
 }
 
-/// The trust sources read once at dispatch, so the blocking graph work never waits on them. The
-/// cached roots are the graph cache's manifest keys, filled in on the lane.
+/// The trust sources the core read for the call, so the blocking graph work never waits on them. The
+/// cached roots are the graph cache's manifest keys, filled in by the helper.
 #[derive(Default)]
 pub(super) struct TrustSnapshot {
     registered: Vec<PathBuf>,
@@ -40,8 +40,9 @@ pub(super) struct TrustSnapshot {
 }
 
 impl TrustSnapshot {
-    pub(super) async fn read(trust: &dyn TrustedRoots) -> Self {
-        Self { registered: trust.registered().await, selected: trust.selected().await, cached: Vec::new() }
+    /// The registered projects and the selected directories, as a caller read them.
+    pub(super) fn new(registered: Vec<PathBuf>, selected: Vec<PathBuf>) -> Self {
+        Self { registered, selected, cached: Vec::new() }
     }
 
     pub(super) fn with_cached(mut self, cached: Vec<PathBuf>) -> Self {

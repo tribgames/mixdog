@@ -45,6 +45,8 @@ mixdog-core-ports = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-remote = { workspace = true }
 mixdog-tools = { workspace = true }
+# The code graph helper's host: the composition's one, shared by the tool, the prewarm, the worktree cleanup and the stop.
+mixdog-graph-host = { workspace = true }
 mixdog-workspace = { workspace = true }
 mixdog-ssh = { workspace = true }
 mixdog-fsio = { workspace = true }
@@ -146,6 +148,7 @@ mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-tools = { workspace = true, features = ["policy-observer", "test-support"] }
+mixdog-graph-host = { workspace = true, features = ["test-support"] }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (<build-tools>\unify-test-features.py).

@@ -1,6 +1,9 @@
 //! Which project root a call indexes: from its file anchors, its single `file` anchor or the
 //! working directory itself — refusing unbounded or ambiguous trees.
-#![allow(clippy::disallowed_methods, reason = "blocking filesystem reads; the whole call runs as one maintenance-lane job (CodeGraphTool::call)")]
+#![allow(
+    clippy::disallowed_methods,
+    reason = "blocking filesystem reads; a call runs on the graph helper's build thread (engine::GraphEngine::query), a write notice resolves where the write was noticed"
+)]
 
 use std::path::{Component, Path, PathBuf};
 
