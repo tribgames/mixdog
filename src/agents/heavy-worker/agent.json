@@ -1,6 +1,6 @@
 {
   "id": "heavy-worker",
   "name": "Heavy Worker",
-  "description": "Implementation that needs judgment: a new feature or behaviour, a bug whose cause must be traced, a change across interacting modules or state, a choice between conflicting requirements, or a scope rejected twice because it was hard. Size alone does not qualify.",
+  "description": "Use when the fix depends on hard reasoning: a change across interacting concurrency, lifetime or state invariants, a design choice between conflicting correctness or compatibility requirements, or a cause ordinary debugging does not narrow down. Also take over a scope whose fix a review rejected twice. Size or file count alone does not qualify.",
   "entry": "AGENT.md"
 }

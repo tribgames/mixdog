@@ -1,6 +1,6 @@
 {
   "id": "worker",
   "name": "Worker",
-  "description": "Simple implementation: a small fix, a removal, rename or move, a test or fixture update, an edit the brief already spells out, the same edit at many sites, a check that only needs running. Use when no design decision is left to make, however many files.",
+  "description": "Default implementation agent: features, fixes, refactors, tests and investigations. Use when the required behaviour is clear, however large or many-filed the task.",
   "entry": "AGENT.md"
 }
