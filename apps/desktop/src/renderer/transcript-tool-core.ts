@@ -593,52 +593,64 @@ function desktopToolActivityUnit(
   };
 }
 
+/** A row's verb names the work its arguments ask for and what it acts on, in
+ *  its group line's words, one phrase from start to end; how the call ended is
+ *  its outcome beside it. A tool-named row ("Agent", "Task", "Browser") keeps
+ *  its action in the subject. */
 function toolActivityRowVerb(category: string, done: string, noun: string): string {
   switch (toolActivityUnitKey(category, done, noun)) {
+    // A viewed image and a read resource are files read, as their group says.
     case 'Read|Read|file':
     case 'Read|Read|image':
     case 'Read|Read|resource':
-      return t('Read');
-    // The row names the work as its group does; "Read" hid a structure pass.
+      return t('Read file');
     case 'Read|Read|code map':
       return t('Code structure');
     case 'Search|Searched|pattern':
-      return t('Search');
+      return t('Search code');
     case 'Search|Found|glob':
+      return t('Find files');
     case 'Search|Found|query':
+      return t('Find path');
     case 'Search|Mapped|symbol':
-      return t('Find');
+      return t('Find symbol');
     case 'Search|Listed|directory':
-      return t('List');
+      return t('List directory');
     case 'Terminal|Listed|terminal tab':
       return t('List tabs');
     case 'Terminal|Read|terminal output':
       return t('Read output');
     case 'Terminal|Ran|terminal command':
-      return t('Run');
+      return t('Run terminal command');
     case 'Setup|Updated|plan':
-      return t('Plan');
+      return t('Update plan');
     case 'Setup|Reacted|message':
-      return t('React');
+      return t('React to message');
     case 'Patch|Created|file':
-      return t('Write');
+      return t('Create file');
     case 'Patch|Edited|file':
     case 'Patch|Changed|file':
-      return t('Edit');
+      return t('Edit file');
     case 'Patch|Deleted|file':
-      return t('Delete');
+      return t('Delete file');
+    case 'Patch|Checked|file':
+      return t('Check patch');
     case 'Web Research|Researched|query':
-      return t('Web search');
+      return t('Search web');
     case 'Web Research|Fetched|URL':
+      return t('Fetch page');
     case 'Web Research|Fetched|message':
-      return t('Fetch');
+      return t('Fetch message');
     case 'Explore|Explored|query':
-      return t('Explore');
+      return t('Explore code');
     case 'Shell|Ran|command':
-      return t('Run');
+      return t('Run command');
     case 'Git|Ran|Git command':
+      return t('Run Git command');
     case 'Git|Staged|change':
-      return t('Git');
+      return t('Stage changes');
+    case 'Tidy|Tidied|cleanup pass':
+      return t('Tidy code');
     case 'Browser|Browsed|action':
       return t('Browser');
     case 'Agent|Called|agent':
@@ -1011,20 +1023,37 @@ function changedFiles(name: unknown, args: unknown): string[] {
     );
 }
 
-/** A unit whose every call failed or stopped: what was tried, and that it did
- *  not happen, its failures first. */
-function unfinishedPhrase(unit: SummaryUnit, failed: number, stopped: number): string {
-  const phrases: string[] = [];
-  if (failed > 0) {
-    let phrase: string;
-    if (unit.unitKey === 'Shell|Ran|command') phrase = t('Command failed');
-    else if (unit.unitKey === 'Git|Ran|Git command') phrase = t('Git command failed');
-    else if (unit.unitKey === 'Agent|Called|agent') phrase = t('Agent call failed');
-    else phrase = t('{{label}} failed', { label: unit.label });
-    phrases.push(countedUnitLabel(phrase, failed));
-  }
-  if (stopped > 0) phrases.push(countedUnitLabel(t('{{label}} stopped', { label: unit.label }), stopped));
-  return phrases.join(', ');
+/** A unit whose every call failed or stopped: the phrase it read while its
+ *  calls ran, marked as not having happened. Failures and stops together say
+ *  how many of each, apart from the phrase's own count. */
+function unfinishedPhrase(entry: SummaryEntry): string {
+  const label = toolActivitySummaryPhrase(entry.unit, workCount(entry.unit, entry.asked), false);
+  if (entry.failed === 0) return t('{{label}} stopped', { label });
+  if (entry.stopped === 0) return t('{{label}} failed', { label });
+  const outcome = [
+    t('{{count}} failed', { count: entry.failed }),
+    t('{{count}} stopped', { count: entry.stopped }),
+  ].join(summaryListSeparator());
+  return t('{{label}}: {{outcome}}', { label, outcome });
+}
+
+/** A plain enumeration comma; Japanese and Chinese write theirs as "、". */
+function summaryListSeparator(): string {
+  return /^(?:ja|zh)/.test(uiFormatLocale()) ? '、' : ', ';
+}
+
+interface WorkTally {
+  /** What the calls cover. */
+  count: number;
+  /** A change unit's distinct files. */
+  files: Set<string>;
+  /** Units of change calls that name no file. */
+  unnamed: number;
+}
+
+/** How many of a unit a tally covers: a change counts the files it names. */
+function workCount(unit: SummaryUnit, tally: WorkTally): number {
+  return unit.category === 'Patch' && tally.files.size ? tally.files.size + tally.unnamed : tally.count;
 }
 
 interface SummaryEntry {
@@ -1032,14 +1061,12 @@ interface SummaryEntry {
   calls: number;
   failed: number;
   stopped: number;
+  /** What every call set out to do. */
+  asked: WorkTally;
   /** What the calls that count cover (`countedCall`). */
-  count: number;
-  /** The part of `count` from finished lookups that found nothing. */
+  counted: WorkTally;
+  /** The part of `counted.count` from finished lookups that found nothing. */
   empty: number;
-  /** A change unit's distinct files, from the calls that count. */
-  files: Set<string>;
-  /** Units of counted change calls that name no file. */
-  unnamed: number;
 }
 
 /** The phrase one unit adds: its work counted over the calls that did it, or,
@@ -1047,18 +1074,18 @@ interface SummaryEntry {
  *  lookup that found nothing. */
 function summaryEntryPhrase(entry: SummaryEntry, past: boolean): string {
   const { unit, calls, failed, stopped } = entry;
-  if (calls > 0 && failed + stopped === calls) return unfinishedPhrase(unit, failed, stopped);
-  let count = past ? entry.count - entry.empty : entry.count;
-  if (unit.category === 'Patch' && entry.files.size) count = entry.files.size + entry.unnamed;
+  if (calls > 0 && failed + stopped === calls) return unfinishedPhrase(entry);
+  let count = past ? entry.counted.count - entry.empty : entry.counted.count;
+  if (unit.category === 'Patch' && entry.counted.files.size) count = workCount(unit, entry.counted);
   if (count === 0) return emptyLookupPhrase(unit.unitKey) ?? '';
   return toolActivitySummaryPhrase(unit, count, past);
 }
 
 /** The group summary: each work unit summarized as a natural verb phrase, file
  *  changes first, then the rest in call order, as one list ("Edit 2 files,
- *  Read 6 files, Run 4 commands"). A unit whose every call failed reads as its
- *  failure ("Command failed", "File editing failed"); failures among calls
- *  that did their work close the list as "N failed". */
+ *  Read 6 files, Run 4 commands"). A unit whose every call failed reads as the
+ *  phrase it ran under, marked failed ("Run 1 command failed"); failures among
+ *  calls that did their work close the list as "N failed". */
 export function desktopToolActivitySummary(items: readonly TranscriptItem[], settled = false): string {
   const groups = new Map<string, SummaryEntry>();
   const calls = flattenedToolActivityItems(items);
@@ -1075,26 +1102,30 @@ export function desktopToolActivitySummary(items: readonly TranscriptItem[], set
         calls: 0,
         failed: 0,
         stopped: 0,
-        count: 0,
+        asked: { count: 0, files: new Set(), unnamed: 0 },
+        counted: { count: 0, files: new Set(), unnamed: 0 },
         empty: 0,
-        files: new Set(),
-        unnamed: 0,
       };
       groups.set(unitKey, entry);
     }
     const { state, work } = countedCall(item, unit);
+    const files = unit.category === 'Patch' ? changedFiles(item.name, item.args).filter(Boolean) : [];
+    // Sections whose path could not be read still change a file each.
+    const unnamed = unit.category === 'Patch' ? Math.max(0, unit.count - files.length) : 0;
+    const tally = (into: WorkTally) => {
+      into.count += added;
+      for (const file of files) into.files.add(file);
+      into.unnamed += unnamed;
+    };
     entry.calls += 1;
     if (state === 'failed') entry.failed += 1;
     if (state === 'stopped') entry.stopped += 1;
+    tally(entry.asked);
     if (work === 'none') continue;
-    entry.count += added;
-    if (work === 'empty') entry.empty += added;
-    else if (unit.category === 'Patch') {
-      const files = changedFiles(item.name, item.args).filter(Boolean);
-      for (const file of files) entry.files.add(file);
-      // Sections whose path could not be read still changed a file each.
-      entry.unnamed += Math.max(0, unit.count - files.length);
-    }
+    if (work === 'empty') {
+      entry.counted.count += added;
+      entry.empty += added;
+    } else tally(entry.counted);
   }
   const changesFiles = (unitKey: string) => (unitKey.startsWith('Patch|') ? 0 : 1);
   const entries = [...groups.values()].sort(
@@ -1106,8 +1137,7 @@ export function desktopToolActivitySummary(items: readonly TranscriptItem[], set
   const partlyStopped = partly.reduce((total, entry) => total + entry.stopped, 0);
   if (partlyFailed > 0) phrases.push(t('{{count}} failed', { count: partlyFailed }));
   if (partlyStopped > 0) phrases.push(t('{{count}} stopped', { count: partlyStopped }));
-  // A plain enumeration comma; Japanese and Chinese write theirs as "、".
-  return phrases.join(/^(?:ja|zh)/.test(uiFormatLocale()) ? '、' : ', ');
+  return phrases.join(summaryListSeparator());
 }
 
 /** The work-unit name a call is counted under. */

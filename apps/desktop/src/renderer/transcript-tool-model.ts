@@ -532,24 +532,6 @@ function fileHeaderSubject(subject: string, targetPath: string): string {
   return `${base}${subject.slice(targetPath.length)}`;
 }
 
-/** A file change's row verb says what happened to the file: in progress while
- *  it runs, then created, edited or deleted by its own diff. Empty when the
- *  call is no file change or failed (the plain verb then stays). */
-function fileChangeVerb(
-  category: string,
-  pending: boolean,
-  tone: string,
-  statuses: readonly string[] | null,
-  originalName: string
-): string {
-  if (category !== 'Patch') return '';
-  if (pending) return originalName === 'write' ? t('Writing file') : t('Editing');
-  if (tone !== 'neutral' || !statuses) return '';
-  if (statuses.every((status) => status === 'A')) return t('Created file');
-  if (statuses.every((status) => status === 'D')) return t('Deleted file');
-  return t('Edited file');
-}
-
 /** The file a change's diff names, as the session diff lists it. */
 export function diffTargetPath(diffPatch: string): string {
   const file = parseUnifiedDiff(diffPatch)[0];
@@ -1216,14 +1198,7 @@ export function desktopToolActivityItemPresentation(
     if (diffPatch) diffCounts = patchLineCounts(diffPatch);
     else diffCounts = digest?.counts ?? (gitPatchOutput ? facts.patchCounts : null);
   }
-  const callVerb =
-    fileChangeVerb(
-      category,
-      model.pending,
-      tone,
-      diffPatch ? parseUnifiedDiff(diffPatch).map((file) => file.status) : (digest?.statuses ?? null),
-      originalName
-    ) || desktopToolActivityRowVerb(name, item.args, Boolean(facts.described));
+  const callVerb = desktopToolActivityRowVerb(name, item.args, Boolean(facts.described));
   // A result that arrived after its call was closed is shown as its own item that names the call.
   const lateResult = typeof asRecord(wireItem.args)?.resultOf === 'string';
   const hasDetails = Boolean(

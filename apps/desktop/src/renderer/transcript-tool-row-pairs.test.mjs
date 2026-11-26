@@ -39,13 +39,13 @@ const FIXTURES = {
       exitErrorCount: 1,
     },
     en: {
-      verb: 'Run',
+      verb: 'Run command',
       header: 'type C:\\secret\\config.json',
       tone: 'error',
       status: 'Failed · ',
       note: 'Exit code 1',
     },
-    ko: { verb: '실행', header: 'type C:\\secret\\config.json', tone: 'error', status: '실패 · ', note: '종료 코드 1' },
+    ko: { verb: '커맨드 실행', header: 'type C:\\secret\\config.json', tone: 'error', status: '실패 · ', note: '종료 코드 1' },
   },
   grep: {
     item: {
@@ -54,8 +54,8 @@ const FIXTURES = {
       args: { pattern: 'TODO', path: 'src', include_noise: true, text: true, context: 2 },
       result: 'src/a.ts:3:// TODO: fix\nsrc/b.ts:9:// TODO later',
     },
-    en: { verb: 'Search', header: '"TODO" · src', outcome: '2 matches', fields: [] },
-    ko: { verb: '검색', header: '"TODO" · src', outcome: '2건 일치', fields: [] },
+    en: { verb: 'Search code', header: '"TODO" · src', outcome: '2 matches', fields: [] },
+    ko: { verb: '코드 검색', header: '"TODO" · src', outcome: '2건 일치', fields: [] },
   },
   read: {
     item: {
@@ -64,8 +64,8 @@ const FIXTURES = {
       args: { file_path: 'src/app/main.ts' },
       result: '1\tconst a = 1;\n2\texport { a };',
     },
-    en: { verb: 'Read', header: 'main.ts', outcome: '2 lines' },
-    ko: { verb: '읽기', header: 'main.ts', outcome: '2줄' },
+    en: { verb: 'Read file', header: 'main.ts', outcome: '2 lines' },
+    ko: { verb: '파일 읽기', header: 'main.ts', outcome: '2줄' },
   },
   edit: {
     item: {
@@ -74,8 +74,8 @@ const FIXTURES = {
       args: { file_path: 'src/app/main.ts', old_string: 'a = 1', new_string: 'a = 2' },
       result: 'OK Modify src/app/main.ts — +1 -1',
     },
-    en: { verb: 'Edit', header: 'main.ts' },
-    ko: { verb: '편집', header: 'main.ts' },
+    en: { verb: 'Edit file', header: 'main.ts' },
+    ko: { verb: '파일 편집', header: 'main.ts' },
   },
   patch: {
     item: {
@@ -86,9 +86,8 @@ const FIXTURES = {
       },
       result: 'OK Modify a.txt — +1 -1\nOK Modify b.txt — +1 -1',
     },
-    // A settled change says what happened to its files.
-    en: { verb: 'Edited file', header: '2 files' },
-    ko: { verb: '편집됨', header: '파일 2개' },
+    en: { verb: 'Edit file', header: '2 files' },
+    ko: { verb: '파일 편집', header: '파일 2개' },
   },
   github: {
     item: {
@@ -341,7 +340,7 @@ test(
       ['메모리 저장', 'tabs']
     );
     const run = row('terminal', { action: 'run', command: 'npm run dev' });
-    assert.deepEqual([run.verb, run.subject], ['실행', 'npm run dev']);
+    assert.deepEqual([run.verb, run.subject], ['터미널 커맨드 실행', 'npm run dev']);
     assert.equal(row('tidy', { action: 'scan', paths: ['.'] }).subject, '.');
     assert.equal(row('office', { action: 'finalize', session: 'office_1' }).subject, '마무리 · office_1');
     assert.equal(row('setup', { action: 'save_automation' }).subject, '자동화 저장');
@@ -357,9 +356,9 @@ test(
 test('todo, react and a handoff read as their own rows', () => {
   const row = (name, args) => present({ id: name, name, args, result: 'ok' });
   const todo = row('todo', { op: 'advance', note: 'shot taken' });
-  assert.deepEqual([todo.verb, todo.subject], ['Plan', 'Advance · shot taken']);
+  assert.deepEqual([todo.verb, todo.subject], ['Update plan', 'Advance · shot taken']);
   const react = row('react', { emoji: '👍' });
-  assert.deepEqual([react.verb, react.subject], ['React', '👍']);
+  assert.deepEqual([react.verb, react.subject], ['React to message', '👍']);
   const handoff = row('handoff_user', {
     handoff: { kind: 'takeover', surface: 'computer', need: 'sign_in', target: 'GitHub Device Activation' },
   });

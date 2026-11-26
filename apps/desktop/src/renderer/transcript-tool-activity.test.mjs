@@ -551,7 +551,7 @@ test('desktop activity lists every call as one row under the summary, without ca
     const group = document.querySelector('.tool-activity');
     assert.equal(
       group?.querySelector('.tool-activity-title')?.textContent?.trim(),
-      'Searched 2 patterns, Command failed'
+      'Searched 2 patterns, Run 1 command failed'
     );
     assert.equal(group?.querySelector('.tool-activity-failed'), null);
 
@@ -563,7 +563,7 @@ test('desktop activity lists every call as one row under the summary, without ca
     assert.equal(group?.querySelectorAll('.tool-activity-category').length, 0);
     assert.deepEqual(
       [...(group?.querySelectorAll('.tool-activity-item-title b') ?? [])].map((node) => node.textContent),
-      ['Search', 'Search', 'Run']
+      ['Search code', 'Search code', 'Run command']
     );
   } finally {
     await act(async () => dom.root.unmount());
@@ -1622,7 +1622,7 @@ test('a change opens the session diff on the file its own diff names', async () 
   assert.equal(diffTargetPath(deletedPatch), 'src/old.ts');
 });
 
-test('a file change row says what happened to the file, in progress then by its diff', () => {
+test('a file change row keeps one verb, the change its call names, running, finished, failed and stopped', () => {
   const row = (name, args, extra) =>
     desktopToolActivityItemPresentation({
       kind: 'tool',
@@ -1631,27 +1631,40 @@ test('a file change row says what happened to the file, in progress then by its 
       args,
       ...extra,
     });
+  const states = (name, args, diff) =>
+    [
+      { startedAt: 1 },
+      { uiDiff: diff, result: 'ok', completedAt: 1 },
+      { result: 'Error: no match', isError: true, completedAt: 1 },
+      { result: 'Cancelled', isError: true, completedAt: 1 },
+    ].map((extra) => row(name, args, extra));
   const editArgs = { file_path: 'src/a.ts', old_string: 'a', new_string: 'b' };
-  assert.equal(row('edit', editArgs, { startedAt: 1 }).verb, 'Editing');
-  assert.equal(row('write', { file_path: 'src/new.ts', content: 'x' }, { startedAt: 1 }).verb, 'Writing file');
-  assert.equal(
-    row('edit', { ...editArgs, file_path: 'src/new.ts' }, { uiDiff: createdPatch, result: 'ok', completedAt: 1 }).verb,
-    'Created file'
-  );
-  assert.equal(row('edit', editArgs, { uiDiff: editedPatch, result: 'ok', completedAt: 1 }).verb, 'Edited file');
-  assert.equal(
-    row(
-      'apply_patch',
-      { patch: '*** Begin Patch\n*** Delete File: src/old.ts\n*** End Patch' },
-      { uiDiff: deletedPatch, result: 'ok', completedAt: 1 }
-    ).verb,
-    'Deleted file'
-  );
-  // A failed change keeps the plain verb and claims no lines.
-  const failed = row('edit', editArgs, { result: 'Error: old_string not found', isError: true, completedAt: 1 });
-  assert.equal(failed.verb, 'Edit');
-  assert.equal(failed.tone, 'error');
-  assert.equal(failed.diffCounts, null);
+  const addArgs = { patch: '*** Begin Patch\n*** Add File: src/new.ts\n+x\n*** End Patch' };
+  const deleteArgs = { patch: '*** Begin Patch\n*** Delete File: src/old.ts\n*** End Patch' };
+  for (const [name, args, diff, verb] of [
+    ['edit', editArgs, editedPatch, 'Edit file'],
+    // The diff arrives with the result: a new file it reveals does not retitle the row.
+    ['edit', { ...editArgs, file_path: 'src/new.ts' }, createdPatch, 'Edit file'],
+    ['write', { file_path: 'src/new.ts', content: 'x' }, createdPatch, 'Edit file'],
+    ['apply_patch', addArgs, createdPatch, 'Create file'],
+    ['apply_patch', deleteArgs, deletedPatch, 'Delete file'],
+    ['apply_patch', { ...addArgs, dry_run: true }, '', 'Check patch'],
+  ]) {
+    const rows = states(name, args, diff);
+    assert.deepEqual(
+      rows.map((shown) => shown.verb),
+      [verb, verb, verb, verb],
+      `${name} ${JSON.stringify(args)}`
+    );
+    // How it ended rides beside the verb: the tone, and a stop says so.
+    assert.deepEqual(
+      rows.map((shown) => shown.tone),
+      ['neutral', 'neutral', 'error', 'warning']
+    );
+    assert.equal(rows[3].resultLabel, 'Stopped');
+    // A failed change claims no lines.
+    assert.equal(rows[2].diffCounts, null);
+  }
 });
 
 test('the group line says when a command failed, and a stop is not a failure', async () => {
@@ -1667,7 +1680,7 @@ test('the group line says when a command failed, and a stop is not a failure', a
   });
   assert.equal(
     desktopToolActivitySummary([shell('a', '[exit code: 2]\nboom', { isError: true, exitErrorCount: 1 })]),
-    'Command failed'
+    'Run 1 command failed'
   );
   assert.equal(
     desktopToolActivitySummary([
@@ -1705,9 +1718,9 @@ test('running, failed, stopped and other rows keep their states; read, search, w
   assert.equal(stopped.resultLabel, 'Stopped');
   assert.equal(stopped.outputText, '');
   for (const [name, args, verb] of [
-    ['read', { file_path: 'src/a.ts' }, 'Read'],
-    ['grep', { pattern: 'TODO' }, 'Search'],
-    ['web_search', { query: 'mixdog' }, 'Web search'],
+    ['read', { file_path: 'src/a.ts' }, 'Read file'],
+    ['grep', { pattern: 'TODO' }, 'Search code'],
+    ['web_search', { query: 'mixdog' }, 'Search web'],
     ['agent', { prompt: 'Review', description: 'Reviewer' }, 'Agent'],
   ]) {
     const done = row(name, args, { result: 'ok', completedAt: 1 });

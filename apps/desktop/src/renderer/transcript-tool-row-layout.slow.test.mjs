@@ -68,10 +68,10 @@ const ROWS = [
       startedAt: 2,
       completedAt: 2,
     },
-    verb: '실행',
+    verb: '커맨드 실행',
     detail: '완료 · NT9Jhm~329',
   },
-  { item: { kind: 'tool', id: 'grep-running', name: 'grep', args: GREP }, verb: '검색', detail: `"${GREP.pattern}"` },
+  { item: { kind: 'tool', id: 'grep-running', name: 'grep', args: GREP }, verb: '코드 검색', detail: `"${GREP.pattern}"` },
   {
     item: {
       kind: 'tool',
@@ -81,7 +81,7 @@ const ROWS = [
       result: '[0 of 11 shown; offset:12 past end]',
       completedAt: 3,
     },
-    verb: '검색',
+    verb: '코드 검색',
     detail: `"${GREP.pattern}"`,
   },
   {
@@ -93,7 +93,7 @@ const ROWS = [
       result: BACKGROUND,
       completedAt: 4,
     },
-    verb: '실행',
+    verb: '커맨드 실행',
     detail: "$f = Join-Path $env:TEMP 'follow-live2.js';",
   },
 ];

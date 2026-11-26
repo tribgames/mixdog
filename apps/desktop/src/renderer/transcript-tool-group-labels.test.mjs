@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import React, { act } from 'react';
 
@@ -7,15 +7,15 @@ import i18n from './i18n';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { projectSettledTranscriptRows } from './transcript-rows.ts';
 import { desktopToolActivitySummary } from './transcript-tool-core.ts';
+import { desktopToolActivityItemPresentation } from './transcript-tool-model.ts';
 import { ToolActivityGroup } from './TranscriptView.tsx';
 
-i18n.addResourceBundle(
-  'ko',
-  'translation',
-  JSON.parse(readFileSync(new URL('./locales/ko.json', import.meta.url), 'utf8')),
-  true,
-  false
-);
+const LOCALES = new URL('./locales/', import.meta.url);
+const CATALOGS = readdirSync(LOCALES)
+  .filter((file) => file.endsWith('.json'))
+  .map((file) => [file.slice(0, -'.json'.length), JSON.parse(readFileSync(new URL(file, LOCALES), 'utf8'))]);
+for (const [language, catalog] of CATALOGS) i18n.addResourceBundle(language, 'translation', catalog, true, false);
+const LANGUAGES = ['en', ...CATALOGS.map(([language]) => language)];
 
 const running = (name, args, id = `${name}-${JSON.stringify(args)}`) => ({ kind: 'tool', id, name, args, at: 1 });
 const finished = (name, args, id) => ({ ...running(name, args, id), result: 'ok', completedAt: 2 });
@@ -153,7 +153,7 @@ const CASES = [
     ['브라우저 작업 2회, 컴퓨터 조작 2회', '브라우저 작업 2회, 컴퓨터 조작 2회'],
   ],
   [
-    'a failed edit, glob, git command or search says it failed, as a command does',
+    'a failed edit, glob, git command or search keeps the line it ran under, marked failed',
     [
       failed('edit', { file_path: 'a.css', old_string: 'x', new_string: 'y' }, 'e'),
       failed('glob', { pattern: ['*.ts', '*.tsx', '*.css', '*.md', '*.json', '*.rs'] }, 'g'),
@@ -162,11 +162,11 @@ const CASES = [
     ],
     [
       'Edit 1 file, Find files for 6 patterns, Run Git command, Search code',
-      'File editing failed, File lookup failed, Git command failed, Content search failed',
+      'Edit 1 file failed, Find files for 6 patterns failed, Run Git command failed, Search code failed',
     ],
     [
-      '파일 1개 수정, 패턴 6개로 파일 찾기, Git 커맨드 실행, 코드 검색',
-      '파일 수정 실패, 파일 찾기 실패, Git 커맨드 실패, 내용 검색 실패',
+      '파일 1개 편집, 패턴 6개로 파일 찾기, Git 커맨드 실행, 코드 검색',
+      '파일 1개 편집 실패, 패턴 6개로 파일 찾기 실패, Git 커맨드 실행 실패, 코드 검색 실패',
     ],
   ],
   [
@@ -178,12 +178,12 @@ const CASES = [
       finished('read', { file_path: 'a.css' }, 'r'),
     ],
     ['Edit 2 files, Read file', 'Edited 1 file, Read file, 1 failed'],
-    ['파일 2개 수정, 파일 읽기', '파일 1개 수정, 파일 읽기, 1회 실패'],
+    ['파일 2개 편집, 파일 읽기', '파일 1개 편집, 파일 읽기, 1회 실패'],
   ],
   [
     'a stopped change did not happen',
     [stopped('tidy', { action: 'fix', apply: true }, 't')],
-    ['Tidy code', 'Code Tidy stopped'],
+    ['Tidy code', 'Tidy code stopped'],
     ['코드 정리', '코드 정리 중지됨'],
   ],
   [
@@ -218,8 +218,8 @@ const CASES = [
   [
     'a stopped edit did not change its file, even without an error flag',
     [halted('edit', { file_path: 'a.css', old_string: 'x', new_string: 'y' }, 'e')],
-    ['Edit 1 file', 'File editing stopped'],
-    ['파일 1개 수정', '파일 수정 중지됨'],
+    ['Edit 1 file', 'Edit 1 file stopped'],
+    ['파일 1개 편집', '파일 1개 편집 중지됨'],
   ],
   [
     'a cancel action that did its work is not a stop',
@@ -233,8 +233,8 @@ const CASES = [
       failed('edit', { file_path: 'a.css', old_string: 'x', new_string: 'y' }, 'e1'),
       halted('edit', { file_path: 'b.css', old_string: 'x', new_string: 'y' }, 'e2'),
     ],
-    ['Edit 2 files', 'File editing failed, File editing stopped'],
-    ['파일 2개 수정', '파일 수정 실패, 파일 수정 중지됨'],
+    ['Edit 2 files', 'Edit 2 files: 1 failed, 1 stopped'],
+    ['파일 2개 편집', '파일 2개 편집: 1회 실패, 1회 중지됨'],
   ],
   [
     'a failed read is not counted as read',
@@ -282,7 +282,7 @@ const CASES = [
   [
     'an interrupted cancel action did not cancel',
     [answered('task', { action: 'cancel', task_id: 't1' }, 'Interrupted by process restart')],
-    ['Cancel task', 'Task cancellation stopped'],
+    ['Cancel task', 'Cancel task stopped'],
     ['작업 취소', '작업 취소 중지됨'],
   ],
   [
@@ -314,7 +314,7 @@ const CASES = [
       }),
     ],
     ['Edit 2 files', 'Edited 2 files'],
-    ['파일 2개 수정', '파일 2개 수정'],
+    ['파일 2개 편집', '파일 2개 편집'],
   ],
   [
     'a lookup that matched nothing does not claim it found files',
@@ -347,6 +347,186 @@ for (const [name, items, en, ko] of CASES) {
     assert.deepEqual(lines.ko, ko, 'Korean [running, finished]');
   });
 }
+
+// One call of each kind whose failure or stop, or whose row verb, used to change its wording.
+const ONE_LINE_CALLS = [
+  ['read', { file_path: 'a.ts' }],
+  ['view_image', { path: 'a.png' }],
+  ['grep', { pattern: 'x' }],
+  ['glob', { pattern: '*.ts' }],
+  ['explore', { query: 'q' }],
+  ['shell', { command: 'npm test' }],
+  ['git', { command: 'git status' }],
+  ['agent', { type: 'spawn', agent: 'worker', prompt: 'p' }],
+  ['web_fetch', { url: 'https://a.example' }],
+  ['media', { action: 'generate', kind: 'image', prompt: 'p' }],
+  ['tidy', { action: 'fix', apply: true }],
+  ['browser', { action: 'click' }],
+  ['computer', { action: 'act' }],
+  ['edit', { file_path: 'a.css', old_string: 'x', new_string: 'y' }],
+  ['write', { file_path: 'n.ts', content: 'x' }],
+  ['apply_patch', { patch: '*** Begin Patch\n*** Add File: n.ts\n+x\n*** End Patch' }],
+  ['apply_patch', { patch: '*** Begin Patch\n*** Delete File: n.ts\n*** End Patch' }],
+  ['apply_patch', { patch: '*** Begin Patch\n*** Update File: n.ts\n@@\n-a\n+b\n*** End Patch', dry_run: true }],
+  ['task', { action: 'wait', task_id: 't1' }],
+  ['terminal', { action: 'run', command: 'npm run dev' }],
+  ['web_search', { query: 'x' }],
+  ['todo', { op: 'set', items: ['a'] }],
+];
+
+test('a call that fails or stops keeps the line it ran under, with only the state mark added', async () => {
+  try {
+    for (const lng of LANGUAGES) {
+      await i18n.changeLanguage(lng);
+      for (const [name, args] of ONE_LINE_CALLS) {
+        const line = desktopToolActivitySummary([running(name, args)]);
+        const where = `${lng} ${name}`;
+        assert.equal(desktopToolActivitySummary([failed(name, args)], true), i18n.t('{{label}} failed', { label: line }), where);
+        assert.equal(desktopToolActivitySummary([stopped(name, args)], true), i18n.t('{{label}} stopped', { label: line }), where);
+        const rows = [running(name, args), finished(name, args), failed(name, args), stopped(name, args)].map(
+          (item) => desktopToolActivityItemPresentation(item)
+        );
+        assert.equal(new Set(rows.map((row) => row.title)).size, 1, `${where}: one row title`);
+        assert.equal(new Set(rows.map((row) => row.verb)).size, 1, `${where}: one row verb`);
+      }
+    }
+  } finally {
+    await i18n.changeLanguage('en');
+  }
+});
+
+test('a counted unit keeps its count mark when it settles, in every language', () => {
+  for (const [language, catalog] of CATALOGS) {
+    const runningMark = catalog['{{label}} ×{{count}}'];
+    assert.ok(catalog['{{label}} ×{{count}}_done'].includes(runningMark), `${language}: ${runningMark}`);
+  }
+});
+
+// Calls whose settled line once traded its object or its verb for other words.
+const SETTLED_CALLS = {
+  read: [['read', { file_path: 'a.ts' }]],
+  grep: [['grep', { pattern: 'x' }]],
+  list2: [['list', { path: ['src', 'app'] }]],
+  edit: [['edit', { file_path: 'a.ts', old_string: 'a', new_string: 'b' }]],
+  websearch: [['web_search', { query: 'x' }]],
+  fetch: [['web_fetch', { url: 'https://a.example' }]],
+  message2: [['fetch', { messages: 2 }]],
+  shell: [['shell', { command: 'npm test' }]],
+  git: [['git', { command: 'git status' }]],
+  office: [['office', { action: 'edit', path: 'a.docx' }]],
+  memsearch: [['memory', { action: 'search', query: 'x' }]],
+  questions: [['request_user_input', { questions: [{ question: 'q' }] }]],
+  worktree: [['git', { action: 'worktree', worktree_action: 'list' }]],
+  sessions2: [
+    ['session', { action: 'create', title: 'a' }],
+    ['session', { action: 'create', title: 'b' }],
+  ],
+};
+
+// The words a line keeps from running to settled, per language: what it acts
+// on and, where a translation once swapped it, its verb's stem.
+const KEPT_WORDS = {
+  en: {
+    read: ['read file'], grep: ['code'], list2: ['2 directories'], edit: ['1 file'], websearch: ['web'],
+    fetch: ['page'], message2: ['2 messages'], shell: ['1 command'], git: ['git command'], office: ['office action'],
+    memsearch: ['memory lookup'], questions: ['questions'], worktree: ['worktree management'],
+    sessions2: ['session creation ×2'],
+  },
+  de: {
+    read: ['datei', 'les'], grep: ['code', 'durchsuch'], list2: ['2 verzeichnisse', 'list'],
+    edit: ['1 datei', 'bearbeit'], websearch: ['web', 'durchsuch'], fetch: ['seite', 'rufen'],
+    message2: ['2 nachrichten', 'rufen'], shell: ['1 befehl', 'führ'], git: ['git-befehl', 'führ'],
+    office: ['dokument-aktion'], memsearch: ['erinnerungen', 'durchsuch'], questions: ['fragen'],
+    worktree: ['worktree', 'verwalt'], sessions2: ['sitzungserstellung ×2'],
+  },
+  es: {
+    read: ['archivo'], grep: ['código', 'busc'], list2: ['directorios', 'list'], edit: ['1 archivo', 'edit'],
+    websearch: ['web'], fetch: ['página', 'obten'], message2: ['mensajes', 'obten'], shell: ['comando', 'ejecut'],
+    git: ['comando git', 'ejecut'], office: ['acción de documento'], memsearch: ['búsqueda en memoria'],
+    questions: ['preguntas'], worktree: ['worktrees', 'gesti'], sessions2: ['creación de sesión ×2'],
+  },
+  fr: {
+    read: ['fichier'], grep: ['code', 'recherch'], list2: ['répertoires', 'list'], edit: ['1 fichier', 'modifi'],
+    websearch: ['web', 'recherch'], fetch: ['page', 'récupér'], message2: ['messages', 'récupér'],
+    shell: ['commande', 'exécut'], git: ['commande git', 'exécut'], office: ['action de document'],
+    memsearch: ['recherche en mémoire'], questions: ['questions'], worktree: ['worktrees'],
+    sessions2: ['création de session ×2'],
+  },
+  it: {
+    read: ['file'], grep: ['codice', 'cerca'], list2: ['directory', 'elenc'], edit: ['1 file', 'modific'],
+    websearch: ['web'], fetch: ['pagina', 'recuper'], message2: ['messaggi', 'recuper'], shell: ['comando', 'esegu'],
+    git: ['comando git', 'esegu'], office: ['azione documento'], memsearch: ['ricerca in memoria'],
+    questions: ['domande'], worktree: ['worktree', 'gest'], sessions2: ['creazione sessione ×2'],
+  },
+  ja: {
+    read: ['ファイル', '読み込み'], grep: ['コード', '検索'], list2: ['ディレクトリ一覧を 2 回表示'],
+    edit: ['1 件のファイルを編集'], websearch: ['web', '検索'], fetch: ['ページ', '取得'],
+    message2: ['2 件のメッセージを取得'], shell: ['コマンドを 1 回実行'], git: ['git コマンド', '実行'],
+    office: ['ドキュメント', '操作'], memsearch: ['メモリ', '検索'], questions: ['質問'],
+    worktree: ['ワークツリー', '管理'], sessions2: ['セッション作成 2回'],
+  },
+  ko: {
+    read: ['파일 읽기'], grep: ['코드 검색'], list2: ['폴더 목록 2회 조회'], edit: ['파일 1개 편집'], websearch: ['웹 검색'],
+    fetch: ['웹페이지 가져오기'], message2: ['메시지 2개 가져오기'], shell: ['커맨드 1회 실행'], git: ['git 커맨드 실행'],
+    office: ['문서 작업'], memsearch: ['메모리 조회'], questions: ['질문'], worktree: ['워크트리 관리'],
+    sessions2: ['세션 생성 2회'],
+  },
+  'pt-BR': {
+    read: ['arquivo'], grep: ['código', 'pesquis'], list2: ['diretórios', 'list'], edit: ['1 arquivo', 'edit'],
+    websearch: ['web', 'pesquis'], fetch: ['página', 'busc'], message2: ['mensagens', 'busc'],
+    shell: ['comando', 'execut'], git: ['comando git', 'execut'], office: ['ação de documento'],
+    memsearch: ['busca na memória'], questions: ['perguntas'], worktree: ['worktrees', 'gerenc'],
+    sessions2: ['criação de sessão ×2'],
+  },
+  ru: {
+    read: ['файл'], grep: ['поиск в коде'], list2: ['каталог', 'просмотр'], edit: ['файл', 'измен'],
+    websearch: ['интернет'], fetch: ['страниц', 'получ'], message2: ['сообщени', 'получ'], shell: ['команд', 'выполн'],
+    git: ['команд', 'git', 'выполн'], office: ['действие с документом'], memsearch: ['поиск в памяти'],
+    questions: ['вопросы'], worktree: ['управление worktree'], sessions2: ['создание сессии ×2'],
+  },
+  vi: {
+    read: ['đọc tệp'], grep: ['tìm mã nguồn'], list2: ['liệt kê 2 thư mục'], edit: ['chỉnh sửa 1 tệp'],
+    websearch: ['tìm kiếm web'], fetch: ['lấy trang'], message2: ['lấy 2 tin nhắn'], shell: ['chạy 1 lệnh'],
+    git: ['chạy lệnh git'], office: ['thao tác tài liệu'], memsearch: ['tìm trong bộ nhớ'], questions: ['câu hỏi'],
+    worktree: ['quản lý worktree'], sessions2: ['tạo phiên ×2'],
+  },
+  'zh-CN': {
+    read: ['读取', '文件'], grep: ['搜索代码'], list2: ['列出 2 个目录'], edit: ['编辑 1 个文件'], websearch: ['网页', '搜索'],
+    fetch: ['获取网页'], message2: ['获取 2 条消息'], shell: ['运行 1 条命令'], git: ['运行 git 命令'],
+    office: ['文档操作'], memsearch: ['查找记忆'], questions: ['问题'], worktree: ['工作树', '管理'],
+    sessions2: ['创建会话 2 次'],
+  },
+  'zh-TW': {
+    read: ['讀取檔案'], grep: ['搜尋程式碼'], list2: ['列出 2 個目錄'], edit: ['編輯 1 個檔案'], websearch: ['網路搜尋'],
+    fetch: ['擷取頁面'], message2: ['擷取 2 則訊息'], shell: ['執行 1 個命令'], git: ['執行 git 命令'],
+    office: ['文件操作'], memsearch: ['尋找記憶'], questions: ['問題'], worktree: ['工作樹', '管理'],
+    sessions2: ['建立工作階段 2 次'],
+  },
+};
+
+test('a call that finishes keeps its line’s object and verb, only its tense changing, in every language', async () => {
+  assert.deepEqual(Object.keys(KEPT_WORDS).sort(), [...LANGUAGES].sort());
+  try {
+    for (const lng of LANGUAGES) {
+      await i18n.changeLanguage(lng);
+      for (const [key, calls] of Object.entries(SETTLED_CALLS)) {
+        const items = calls.map(([name, args], index) => running(name, args, `${key}-${index}`));
+        const lines = [
+          desktopToolActivitySummary(items),
+          desktopToolActivitySummary(
+            items.map((item) => ({ ...item, result: 'ok', completedAt: 2 })),
+            true
+          ),
+        ];
+        for (const word of KEPT_WORDS[lng][key]) {
+          for (const line of lines) assert.ok(line.toLocaleLowerCase().includes(word), `${lng} ${key}: "${word}" in ${lines.join(' → ')}`);
+        }
+      }
+    }
+  } finally {
+    await i18n.changeLanguage('en');
+  }
+});
 
 test('calls of a turn share one group; narration and a new turn start another', () => {
   const git = (id) => ({ ...finished('git', { command: ['git status'] }, id) });

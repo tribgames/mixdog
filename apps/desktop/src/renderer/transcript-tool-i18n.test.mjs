@@ -92,7 +92,7 @@ test('desktop tool activity summary translates to natural verb phrases in Korean
     assert.equal(desktopToolActivitySummary(items), 'Edit 1 file, Read file, Search 2 patterns, Run 1 command');
 
     await i18n.changeLanguage('ko');
-    assert.equal(desktopToolActivitySummary(items), '파일 1개 수정, 파일 읽기, 패턴 2개 검색, 커맨드 1회 실행');
+    assert.equal(desktopToolActivitySummary(items), '파일 1개 편집, 파일 읽기, 패턴 2개 검색, 커맨드 1회 실행');
   } finally {
     await i18n.changeLanguage('en');
   }
@@ -109,7 +109,7 @@ test('imported tool use reads as one native activity line with per-kind counts',
     await i18n.changeLanguage('en');
     assert.equal(desktopToolActivitySummary(calls, true), 'Edited 1 file, Ran 2 commands, Read file');
     await i18n.changeLanguage('ko');
-    assert.equal(desktopToolActivitySummary(calls, true), '파일 1개 수정, 커맨드 2회 실행, 파일 읽기');
+    assert.equal(desktopToolActivitySummary(calls, true), '파일 1개 편집, 커맨드 2회 실행, 파일 읽기');
     const row = desktopToolActivityItemPresentation(calls[0]);
     assert.equal(row.outputNote, t('Results were not imported'));
     assert.equal(row.headerSubject, '×2');
@@ -167,7 +167,7 @@ test('an open background shell row reads verb, background, short id', async () =
       'auto-backgrounded after 15s; still running. Completion arrives automatically; call task wait (not task read polling) when the result is due.',
     ].join('\n');
     const presentation = desktopToolActivityItemPresentation(toolItem('shell', { command: 'sleep 100' }, started));
-    assert.equal([presentation.verb, toolActivityMetaLine(presentation)].join(' · '), '실행 · 백그라운드 · 971b88');
+    assert.equal([presentation.verb, toolActivityMetaLine(presentation)].join(' · '), '커맨드 실행 · 백그라운드 · 971b88');
     assert.equal(presentation.resultLabel, '');
     assert.equal(presentation.outputText, '');
     assert.equal(presentation.outputNote, '백그라운드에서 실행 · 완료되면 알림을 표시합니다');
@@ -189,7 +189,7 @@ test('a completed task notification row reads verb, completed, short id with no 
     ].join('\n');
     const args = { command: 'sleep 1', type: 'task-notification', status: 'completed', task_id: JOB };
     const presentation = desktopToolActivityItemPresentation(toolItem('shell', args, notice));
-    assert.equal([presentation.verb, toolActivityMetaLine(presentation)].join(' · '), '실행 · 완료 · 971b88');
+    assert.equal([presentation.verb, toolActivityMetaLine(presentation)].join(' · '), '커맨드 실행 · 완료 · 971b88');
     assert.equal(presentation.outputText, '');
     assert.equal(presentation.resultLabel, '');
     assert.doesNotMatch(presentation.subject, /Retrieve/);
@@ -597,7 +597,7 @@ test(
     const row = desktopToolActivityItemPresentation(live.completionRow);
     assert.equal(
       [row.verb, toolActivityMetaLine({ ...row, resultLabel: '', fields: [] })].join(' · '),
-      '실행 · 완료 · f2e11f'
+      '커맨드 실행 · 완료 · f2e11f'
     );
     assert.equal(row.metaText, '완료 · f2e11f');
     assert.equal(row.outputText, '');
@@ -638,7 +638,7 @@ test(
   'live dev-profile row: a failed foreground command reads 실패 · its error and keeps stderr and exit in the body',
   ko(() => {
     const row = desktopToolActivityItemPresentation(live.foregroundFailure);
-    assert.equal(row.verb, '실행');
+    assert.equal(row.verb, '커맨드 실행');
     assert.equal(row.resultLabel, '실패 · fatal: permission denied');
     // A failed command wears the failure tone like every other failure; the
     // internal tone of the item stays "warning".
@@ -661,7 +661,7 @@ test(
   'live dev-profile row: a background failure notice reads 실패 · 종료 1 · id, with only the command as body',
   ko(() => {
     const row = desktopToolActivityItemPresentation(live.failedNotice);
-    assert.equal(row.verb, '실행');
+    assert.equal(row.verb, '커맨드 실행');
     assert.equal(row.tone, 'error');
     assert.equal(row.resultLabel, '실패 · 종료 1');
     assert.equal(row.metaText, '실패 · 종료 1 · 711cd8');
