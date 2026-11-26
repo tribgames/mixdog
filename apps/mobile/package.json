@@ -22,17 +22,17 @@
   },
   "dependencies": {
     "@capacitor-mlkit/barcode-scanning": "^7.5.0",
-    "@capacitor/android": "^7.4.0",
+    "@capacitor/android": "^7.6.10",
     "@capacitor/app": "^7.1.2",
     "@capacitor/browser": "^7.0.5",
-    "@capacitor/core": "^7.4.0",
-    "@capacitor/ios": "^7.4.0",
+    "@capacitor/core": "^7.6.10",
+    "@capacitor/ios": "^7.6.10",
     "@capacitor/preferences": "^7.0.4"
   },
   "devDependencies": {
-    "@capacitor/cli": "^7.4.0",
+    "@capacitor/cli": "^7.6.10",
     "@types/node": "^22.16.5",
-    "esbuild": "^0.25.12",
+    "esbuild": "^0.28.2",
     "jsdom": "^27.0.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
