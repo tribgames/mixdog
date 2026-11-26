@@ -36,8 +36,10 @@ use crate::preset::Version;
 use crate::session::AgentModel;
 use crate::session::Models;
 use crate::session::Program;
+use crate::session::close_session;
 use crate::session::initialize;
 use crate::session::launch;
+use crate::session::offered;
 
 /// The file of the feature's folder that keeps what each registry agent last told of itself.
 const PROBE_CACHE: &str = "probe-cache.json";
@@ -74,8 +76,10 @@ async fn open_probe(connection: &Connection, cwd: &AbsPath, minimum: Option<Vers
 /// session again where its `capabilities` close sessions.
 async fn open_told(connection: &Connection, cwd: &AbsPath, capabilities: &Value) -> Result<Value, Fault> {
     let answer = connection.request("session/new", json!({ "cwd": cwd.as_path().to_string_lossy(), "mcpServers": [] })).await?;
-    if let (Some(_), Some(id)) = (capabilities.pointer("/agentCapabilities/sessionCapabilities/close"), answer.get("sessionId").and_then(Value::as_str)) {
-        let _ = connection.request("session/close", json!({ "sessionId": id })).await;
+    if offered(capabilities.pointer("/agentCapabilities/sessionCapabilities/close"))
+        && let Some(id) = answer.get("sessionId").and_then(Value::as_str)
+    {
+        close_session(connection, id).await;
     }
     Ok(answer)
 }
@@ -782,6 +786,7 @@ impl Agents {
             let found = tokio::select! {
                 biased;
                 () = cancel.cancelled() => None,
+                () = agents.stop_token.cancelled() => None,
                 found = agents.examine(&preset, plan, id) => Some(found),
             };
             // A check the feature's switch ended finds its slot gone.

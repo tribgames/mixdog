@@ -7,12 +7,14 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::process::ProcessManager;
 use serde_json::Value;
 use serde_json::json;
 use tokio::sync::mpsc;
+use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use crate::agents::lock;
@@ -40,6 +42,9 @@ use crate::shared::SharedServer;
 
 /// The protocol version this client speaks.
 pub const PROTOCOL_VERSION: u64 = 1;
+
+/// How long an agent is given to answer `initialize`: one that does not is given up on, and its process ended.
+const INITIALIZE_LIMIT: Duration = Duration::from_secs(60);
 
 /// A model the agent offers.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,31 +79,58 @@ impl Models {
                 Some(AgentModel { id: id.to_owned(), name: model.get("name").and_then(Value::as_str).unwrap_or(id).to_owned() })
             })
             .collect();
-        let option = answer.get("configOptions").and_then(Value::as_array).and_then(|options| {
-            options.iter().find(|option| option.get("category").and_then(Value::as_str) == Some("model") && option.get("options").is_some_and(Value::is_array))
-        });
-        let Some(option) = option.filter(|_| available.is_empty()) else {
+        let options = answer.get("configOptions").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+        let Some(option) = option_of(options, "model").filter(|_| available.is_empty()) else {
             return Self {
                 available,
                 current: models.and_then(|models| models.get("currentModelId")).and_then(Value::as_str).map(str::to_owned),
                 config_option: None,
             };
         };
-        let available = option["options"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|choice| {
-                let id = choice.get("value").and_then(Value::as_str)?;
-                Some(AgentModel { id: id.to_owned(), name: choice.get("name").and_then(Value::as_str).unwrap_or(id).to_owned() })
-            })
-            .collect();
         Self {
-            available,
+            available: choices(option),
             current: option.get("currentValue").and_then(Value::as_str).map(str::to_owned),
             config_option: option.get("id").and_then(Value::as_str).map(str::to_owned),
         }
     }
+
+    /// What a `config_option_update` (its `configOptions`, all of them) tells of the model the agent is on. A session set
+    /// through the model option takes the option's choices and value. One set with `session/set_model` is on the agent's
+    /// id of the option's model at the `thought_level` option's value, where it lists that tier (both of Antigravity's
+    /// servers list `gemini-4-neon` at `high` as `gemini-4-neon-high`), else on the model as it is named, where it lists
+    /// it; on neither, which one it is on is unknown until one is set.
+    pub fn refresh(&mut self, options: &[Value]) {
+        let Some(option) = option_of(options, "model") else { return };
+        let chosen = option.get("currentValue").and_then(Value::as_str);
+        if self.config_option.is_some() {
+            self.available = choices(option);
+            self.current = chosen.map(str::to_owned);
+            return;
+        }
+        let level = option_of(options, "thought_level").and_then(|level| level.get("currentValue")).and_then(Value::as_str);
+        let listed = |id: &str| self.available.iter().any(|model| model.id == id);
+        let current = chosen.and_then(|chosen| {
+            level.map(|level| format!("{chosen}-{level}")).filter(|tiered| listed(tiered)).or_else(|| listed(chosen).then(|| chosen.to_owned()))
+        });
+        self.current = current;
+    }
+}
+
+/// The select option of `category` among a session's `configOptions`.
+fn option_of<'a>(options: &'a [Value], category: &str) -> Option<&'a Value> {
+    options.iter().find(|option| option.get("category").and_then(Value::as_str) == Some(category) && option.get("options").is_some_and(Value::is_array))
+}
+
+/// The values a select option offers, a group's (`{ group, name, options }`) in its place among them.
+fn choices(option: &Value) -> Vec<AgentModel> {
+    let entries = option["options"].as_array().into_iter().flatten();
+    entries
+        .flat_map(|entry| entry.get("options").and_then(Value::as_array).map_or_else(|| vec![entry], |grouped| grouped.iter().collect()))
+        .filter_map(|choice| {
+            let id = choice.get("value").and_then(Value::as_str)?;
+            Some(AgentModel { id: id.to_owned(), name: choice.get("name").and_then(Value::as_str).unwrap_or(id).to_owned() })
+        })
+        .collect()
 }
 
 /// The agent's program as it was found on this machine, with what it starts with besides the preset's own.
@@ -161,6 +193,9 @@ struct Routing {
     issued: HashSet<String>,
     /// The process ended and all it wrote was routed: the agent sends nothing more.
     ended: bool,
+    /// The reports of its context (`usage_update`) the agent made while no turn ran, kept in `waiting`: they are the
+    /// reports of the turn that takes them.
+    uncounted: u64,
     /// The session ends once the running turn is over: its route left the preset while the turn ran.
     end_after_turn: bool,
 }
@@ -255,6 +290,8 @@ pub struct AgentSession {
     kept: Mutex<Vec<(String, Value, String)>>,
     /// Told when the agent closed a cancelled prompt.
     closed_prompt: tokio::sync::Notify,
+    /// The cancels told the agent in a task of their own that are not written yet: a prompt is written after them.
+    cancels: watch::Sender<usize>,
     wake: Wake,
 }
 
@@ -285,18 +322,53 @@ pub fn digest(text: &str) -> String {
     format!("{hash:016x}")
 }
 
-/// `initialize`: the client offers file reads only.
+/// `initialize`: the client offers file reads only. An agent that does not answer within [`INITIALIZE_LIMIT`] fails it.
 pub async fn initialize(connection: &Connection) -> Result<Value, Fault> {
-    connection
-        .request(
-            "initialize",
-            json!({
-                "protocolVersion": PROTOCOL_VERSION,
-                "clientCapabilities": { "fs": { "readTextFile": true, "writeTextFile": false }, "terminal": false },
-                "clientInfo": { "name": "mixdog", "title": "Mixdog", "version": env!("CARGO_PKG_VERSION") },
-            }),
-        )
+    let asked = connection.request(
+        "initialize",
+        json!({
+            "protocolVersion": PROTOCOL_VERSION,
+            "clientCapabilities": { "fs": { "readTextFile": true, "writeTextFile": false }, "terminal": false },
+            "clientInfo": { "name": "mixdog", "title": "Mixdog", "version": env!("CARGO_PKG_VERSION") },
+        }),
+    );
+    mixdog_rt::time::timeout(INITIALIZE_LIMIT, asked)
         .await
+        .unwrap_or_else(|_| Err(Fault::Start(format!("it did not answer initialize within {} s", INITIALIZE_LIMIT.as_secs()))))
+}
+
+/// Asks the agent to close its session `session_id`: resolves when the agent answers or the connection exits, and a
+/// refusal changes nothing.
+pub(crate) async fn close_session(connection: &Connection, session_id: &str) {
+    let _ = connection.request("session/close", json!({ "sessionId": session_id })).await;
+}
+
+/// An optional capability the agent advertises: one omitted, `null` or `false` is not.
+pub(crate) fn offered(capability: Option<&Value>) -> bool {
+    capability.is_some_and(|value| !value.is_null() && value != &Value::Bool(false))
+}
+
+pub(crate) fn not_offered(method: &str) -> RpcError {
+    RpcError { code: -32601, message: format!("{method} is not offered by this client"), data: Value::Null }
+}
+
+/// The answer to a request of the agent's about no session this client holds open: a question is cancelled, a read refused.
+pub(crate) fn unheld(method: &str) -> Result<Value, RpcError> {
+    match method {
+        "session/request_permission" => Ok(json!({ "outcome": { "outcome": "cancelled" } })),
+        "fs/read_text_file" => Err(RpcError { code: -32602, message: "the read names no session this client holds open".to_owned(), data: Value::Null }),
+        _ => Err(not_offered(method)),
+    }
+}
+
+/// Drops what the agent sent while it reopened a session: a load's replay, which the Mixdog session already holds, or what
+/// it sent of a session it could not reopen. A request among it is answered as one of no open session.
+async fn drop_replayed(connection: &Connection, replayed: &mut mpsc::UnboundedReceiver<Incoming>) {
+    while let Ok(incoming) = replayed.try_recv() {
+        if let Incoming::Request { id, method, .. } = incoming {
+            connection.respond(id, unheld(&method)).await;
+        }
+    }
 }
 
 /// The agent's ACP mode, started from `program` (the preset's program as it was found on this machine).
@@ -346,6 +418,16 @@ fn is_update(incoming: &Incoming) -> Option<&str> {
             params.get("update").and_then(|update| update.get("sessionUpdate")).and_then(Value::as_str)
         }
         _ => None,
+    }
+}
+
+/// Whether `incoming` tells of a call the agent kept running past the turn that showed it.
+fn of_background(routing: &Routing, incoming: &Incoming) -> bool {
+    match (is_update(incoming), incoming) {
+        (Some("tool_call" | "tool_call_update"), Incoming::Notification { params, .. }) => {
+            params["update"].get("toolCallId").and_then(Value::as_str).is_some_and(|id| routing.background.contains_key(id))
+        }
+        _ => false,
     }
 }
 
@@ -548,9 +630,8 @@ impl AgentSession {
         let appendix: Vec<&str> = open.rules.as_deref().into_iter().chain(preference.as_deref()).filter(|text| !text.trim().is_empty()).collect();
         let appendix = (!appendix.is_empty()).then(|| appendix.join("\n\n"));
         let prompt = appendix.as_deref().map(digest);
-        let appended = quirks.system_prompt_append.as_ref().filter(|path| {
-            capabilities.pointer("/agentCapabilities/_meta").and_then(|meta| at(meta, path)).is_some_and(|flag| flag != &Value::Bool(false) && !flag.is_null())
-        });
+        let appended =
+            quirks.system_prompt_append.as_ref().filter(|path| offered(capabilities.pointer("/agentCapabilities/_meta").and_then(|meta| at(meta, path))));
         let settings = match &open.preset.own_tools_off {
             Some(OwnToolsOff::SessionMeta(off)) => Some(nested(&off.path, off.settings(handed.is_some(), quirks.mcp_max_output_bytes))),
             _ => None,
@@ -571,26 +652,38 @@ impl AgentSession {
         let mut restarted = false;
         let mut opened = None;
         if let Some(stored) = &open.stored {
-            let method = match quirks.reopen {
-                Reopen::Resume => "session/resume",
-                Reopen::Load => "session/load",
-            };
-            let params = with_prompt(json!({ "sessionId": stored, "cwd": cwd, "mcpServers": servers }));
-            match connection.request(method, params).await {
-                Ok(answer) => {
-                    // A load replays the conversation, which the Mixdog session already holds.
-                    if quirks.reopen == Reopen::Load
-                        && let Some(replayed) = replayed
-                    {
-                        while replayed.try_recv().is_ok() {}
+            if matches!(&host, Host::Shared(shared) if shared.is_unclosed(stored)) {
+                tracing::warn!(
+                    "[acp] {} could not reopen its session {stored}: its earlier prompt or cancel is still open on the shared server",
+                    open.preset.id
+                );
+                restarted = true;
+            } else {
+                let method = match quirks.reopen {
+                    Reopen::Resume => "session/resume",
+                    Reopen::Load => "session/load",
+                };
+                let params = with_prompt(json!({ "sessionId": stored, "cwd": cwd, "mcpServers": servers }));
+                match connection.request(method, params).await {
+                    Ok(answer) => {
+                        // A load replays the conversation, which the Mixdog session already holds.
+                        if quirks.reopen == Reopen::Load
+                            && let Some(replayed) = replayed
+                        {
+                            drop_replayed(&connection, replayed).await;
+                        }
+                        opened = Some((stored.clone(), answer));
                     }
-                    opened = Some((stored.clone(), answer));
+                    // A sign-in that no longer holds is the agent's state: no session is opened in place of the stored one.
+                    Err(Fault::Rpc(error)) if error.code != crate::agents::AUTH_REQUIRED => {
+                        tracing::warn!("[acp] {} could not reopen its session: {}", open.preset.id, error.message);
+                        restarted = true;
+                        if let Some(replayed) = replayed {
+                            drop_replayed(&connection, replayed).await;
+                        }
+                    }
+                    Err(fault) => return Err(fault),
                 }
-                Err(Fault::Rpc(error)) => {
-                    tracing::warn!("[acp] {} could not reopen its session: {}", open.preset.id, error.message);
-                    restarted = true;
-                }
-                Err(fault) => return Err(fault),
             }
         }
         let opened_fresh = opened.is_none();
@@ -621,7 +714,7 @@ impl AgentSession {
             prompt,
             images: capabilities.pointer("/agentCapabilities/promptCapabilities/image") == Some(&Value::Bool(true)),
             embedded: capabilities.pointer("/agentCapabilities/promptCapabilities/embeddedContext") == Some(&Value::Bool(true)),
-            closes: capabilities.pointer("/agentCapabilities/sessionCapabilities/close").is_some(),
+            closes: offered(capabilities.pointer("/agentCapabilities/sessionCapabilities/close")),
             context: Mutex::default(),
             reports: std::sync::atomic::AtomicU64::new(0),
             unsent: Mutex::new(unsent),
@@ -631,6 +724,7 @@ impl AgentSession {
             routing: Mutex::default(),
             kept: Mutex::default(),
             closed_prompt: tokio::sync::Notify::new(),
+            cancels: watch::Sender::new(0),
             wake,
         });
         Ok((session, answer))
@@ -694,6 +788,8 @@ impl AgentSession {
     /// Sends the turn's prompt `blocks`: the agent's answer to it arrives as [`Incoming::Response`] under the returned id,
     /// on a shared server to this session alone.
     pub async fn prompt(&self, blocks: Vec<Value>) -> Result<u64, Fault> {
+        // A cancel told before this prompt reaches the agent ahead of it: the agent never reads it as this prompt's.
+        let _ = self.cancels.subscribe().wait_for(|pending| *pending == 0).await;
         let id = self.connection.reserve();
         if let Host::Shared(shared) = &self.host {
             shared.owns_prompt(id, &self.session_id);
@@ -720,6 +816,15 @@ impl AgentSession {
         lock(&self.models).clone()
     }
 
+    /// A session whose answer listed no models (a reopen's) runs those the agent listed last, `listed`: which one it is on
+    /// is unknown until one is set.
+    pub(crate) fn adopt_models(&self, listed: &Models) {
+        let mut models = lock(&self.models);
+        if models.available.is_empty() {
+            *models = Models { current: None, ..listed.clone() };
+        }
+    }
+
     /// Mixdog's prompt, for the prompt that carries it in its text: taken once.
     pub fn take_unsent_prompt(&self) -> Option<String> {
         lock(&self.unsent).take()
@@ -739,6 +844,7 @@ impl AgentSession {
             let mut routing = lock(&self.routing);
             routing.woken = false;
             routing.quiet = true;
+            routing.uncounted = 0;
             std::mem::take(&mut routing.waiting)
         };
         let mut budget = RefuseBudget::new();
@@ -777,6 +883,11 @@ impl AgentSession {
         lock(&self.routing).unanswered.is_some()
     }
 
+    /// A `session/cancel` task for this session has not finished writing yet.
+    pub(crate) fn has_pending_cancel(&self) -> bool {
+        *self.cancels.borrow() > 0
+    }
+
     /// The stream of a turn that starts now: what waited for it, then what the agent sends while it runs, which ends
     /// with the process: at once for a process that has already ended. A turn that sends a `prompt` ends the quiet a
     /// cancelled reply left.
@@ -788,6 +899,7 @@ impl AgentSession {
         if prompt {
             routing.quiet = false;
         }
+        self.reports.fetch_add(std::mem::take(&mut routing.uncounted), Ordering::SeqCst);
         (std::mem::take(&mut routing.waiting), rx)
     }
 
@@ -850,8 +962,10 @@ impl AgentSession {
             routing.unanswered = prompt;
             routing.quiet = prompt.is_none();
             routing.woken = false;
+            routing.uncounted = 0;
             std::mem::take(&mut routing.waiting)
         };
+        self.cancels.send_modify(|pending| *pending += 1);
         let session = self.clone();
         drop(mixdog_rt::spawn("acp.cancel", mixdog_rt::TaskClass::Work, async move {
             // A permission request among what waited for a turn is answered: the agent waits on it.
@@ -866,11 +980,12 @@ impl AgentSession {
             if !budget.stalled() {
                 let _ = session.connection.notify("session/cancel", json!({ "sessionId": session.session_id })).await;
             }
+            session.cancels.send_modify(|pending| *pending -= 1);
         }));
     }
 
-    /// Resolves once the agent has closed the prompt a turn cancelled, or its process has ended: the event after
-    /// which the agent takes a new prompt as a new turn.
+    /// Waits until the agent closes the prompt a turn cancelled, or the session is gone: the events after which the
+    /// agent takes a new prompt as a new turn (or the session is reopened).
     pub async fn cancelled_prompt_closed(&self) {
         loop {
             let closed = self.closed_prompt.notified();
@@ -932,11 +1047,10 @@ impl AgentSession {
         }
     }
 
-    /// Asks the agent to close its session, where it advertises that it closes one; its answer is waited for, and a
-    /// refusal changes nothing.
+    /// Asks the agent to close its session, where it advertises that it closes one ([`close_session`]).
     pub async fn close(&self) {
         if self.closes {
-            let _ = self.connection.request("session/close", json!({ "sessionId": self.session_id })).await;
+            close_session(&self.connection, &self.session_id).await;
         }
     }
 
@@ -994,12 +1108,25 @@ impl AgentSession {
     }
 
     pub(crate) fn take(&self, incoming: Incoming) -> Routed {
-        // The agent's report of its context is the session's, whichever turn it arrives in or between.
-        if let (Some("usage_update"), Incoming::Notification { params, .. }) = (is_update(&incoming), &incoming)
-            && let Some(reported) = ContextUse::of(&params["update"])
-        {
-            *lock(&self.context) = Some(reported);
-            self.reports.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        // What the agent reports of its context, and of the model it is on, is the session's, whichever turn it arrives
+        // in or between.
+        let mut report = false;
+        if let Incoming::Notification { params, .. } = &incoming {
+            let update = &params["update"];
+            match is_update(&incoming) {
+                Some("usage_update") => {
+                    if let Some(reported) = ContextUse::of(update) {
+                        *lock(&self.context) = Some(reported);
+                        report = true;
+                    }
+                }
+                Some("config_option_update") => {
+                    if let Some(options) = update.get("configOptions").and_then(Value::as_array) {
+                        lock(&self.models).refresh(options);
+                    }
+                }
+                _ => {}
+            }
         }
         let mut routing = lock(&self.routing);
         if routing.unanswered.is_some() {
@@ -1010,10 +1137,16 @@ impl AgentSession {
             None => Err(incoming),
         };
         match sent {
-            Ok(()) => Routed::Done,
+            Ok(()) => {
+                if report {
+                    self.reports.fetch_add(1, Ordering::SeqCst);
+                }
+                Routed::Done
+            }
             // No turn, or one whose stream is already closed.
             Err(unsent) => {
                 routing.turn = None;
+                routing.uncounted += u64::from(report);
                 self.sort(&mut routing, unsent)
             }
         }
@@ -1022,27 +1155,38 @@ impl AgentSession {
     /// What becomes of a message no turn reads.
     fn sort(&self, routing: &mut Routing, incoming: Incoming) -> Routed {
         if let Some(cancelled) = routing.unanswered {
-            return match incoming {
+            // A call an earlier turn left running goes on through the cancel: what the agent tells of it is sorted as it
+            // is with no prompt open. The rest is the cancelled prompt's.
+            let background = of_background(routing, &incoming);
+            match incoming {
                 Incoming::Response { id, .. } if id == cancelled => {
                     routing.unanswered = None;
                     self.closed_prompt.notify_waiters();
-                    Routed::Done
+                    return Routed::Done;
                 }
-                Incoming::Request { id, .. } => Routed::Refuse(id),
-                Incoming::Tool(ask) => Routed::RefuseTool(ask),
-                _ => Routed::Done,
-            };
+                Incoming::Request { id, .. } => return Routed::Refuse(id),
+                Incoming::Tool(ask) => return Routed::RefuseTool(ask),
+                _ if background => {}
+                _ => return Routed::Done,
+            }
         }
+        // The agent's report of its context waits for the next turn, which tells it.
+        let report = is_update(&incoming) == Some("usage_update");
         if routing.quiet || !self.preset.quirks.replies_without_prompt {
             return match incoming {
                 Incoming::Request { id, .. } => Routed::Refuse(id),
                 Incoming::Tool(ask) => Routed::RefuseTool(ask),
+                _ if report => {
+                    routing.waiting.push(incoming);
+                    Routed::Done
+                }
                 _ => Routed::Done,
             };
         }
         // What the agent sends with no prompt open is kept, in order, for the turn that shows it. It asks for that
         // turn at the two events after which it has something whole to show: the end of a model step (its usage
         // report) and a permission request, which the agent waits on. A turn that starts first shows it instead.
+        let shown = routing.waiting.iter().any(|kept| is_update(kept) != Some("usage_update"));
         let (keep, wake) = match (is_update(&incoming), &incoming) {
             (Some("tool_call" | "tool_call_update"), Incoming::Notification { params, .. }) => {
                 let update = &params["update"];
@@ -1055,7 +1199,7 @@ impl AgentSession {
                 (!progress, false)
             }
             (Some("agent_message_chunk" | "agent_thought_chunk" | "plan"), _) => (true, false),
-            (Some("usage_update"), _) => (false, !routing.waiting.is_empty()),
+            (Some("usage_update"), _) => (true, shown),
             // The agent waits on a permission request and on a call of a Mixdog tool alike.
             (_, Incoming::Request { .. } | Incoming::Tool(_)) => (true, true),
             _ => (false, false),
@@ -1090,15 +1234,21 @@ async fn route(
             Some(ask) = async { calls.as_mut()?.recv().await } => Incoming::Tool(ask),
         };
         let message = match message {
+            // A read of the session's own is answered from its folder in a task of its own: what the agent sends next does
+            // not wait for the file.
             Incoming::Request { id, method, params } if method == "fs/read_text_file" => {
-                session.connection.respond(id, read_text_file(files.as_ref(), &session.cwd, &params).await).await;
+                if params.get("sessionId").and_then(Value::as_str) == Some(session.session_id.as_str()) {
+                    let (connection, files, cwd) = (session.connection.clone(), files.clone(), session.cwd.clone());
+                    drop(mixdog_rt::spawn("acp.read_file", mixdog_rt::TaskClass::Work, async move {
+                        connection.respond(id, read_text_file(files.as_ref(), &cwd, &params).await).await;
+                    }));
+                } else {
+                    session.connection.respond(id, unheld(&method)).await;
+                }
                 continue;
             }
             Incoming::Request { id, method, .. } if method != "session/request_permission" => {
-                session
-                    .connection
-                    .respond(id, Err(RpcError { code: -32601, message: format!("{method} is not offered by this client"), data: Value::Null }))
-                    .await;
+                session.connection.respond(id, Err(not_offered(&method))).await;
                 continue;
             }
             other => other,

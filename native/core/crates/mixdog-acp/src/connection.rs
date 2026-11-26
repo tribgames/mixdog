@@ -36,6 +36,9 @@ use crate::files::TextFiles;
 
 /// How much of the agent's stderr is kept for an error message.
 const STDERR_TAIL_BYTES: usize = 4096;
+/// How much of one line of the agent's stderr is told: the rest of a longer line (a progress bar redrawn with `\r`) is
+/// passed over.
+const STDERR_LINE_BYTES: usize = 32 * 1024;
 
 static NEXT_HANDLE: AtomicU64 = AtomicU64::new(0);
 
@@ -321,6 +324,14 @@ impl Drop for SendGuard<'_> {
     }
 }
 
+/// Tells each who asks for them the whole line `line` of stderr.
+fn tell_line(told: &mut Vec<mpsc::UnboundedSender<String>>, line: &[u8]) {
+    let text = String::from_utf8_lossy(line).trim().to_owned();
+    if !text.is_empty() {
+        told.retain(|tx| tx.send(text.clone()).is_ok());
+    }
+}
+
 pub struct Connection {
     processes: Arc<dyn ProcessManager>,
     handle: ProcessHandle,
@@ -416,14 +427,22 @@ impl Connection {
         keep_tail(&mut tail, bytes);
         let mut told = lock(&self.stderr_lines);
         for byte in bytes {
-            if *byte != b'\n' {
+            if *byte == b'\n' {
+                tell_line(&mut told, &std::mem::take(line));
+            } else if line.len() < STDERR_LINE_BYTES {
                 line.push(*byte);
-                continue;
             }
-            let text = String::from_utf8_lossy(&std::mem::take(line)).trim().to_owned();
-            if !text.is_empty() {
-                told.retain(|tx| tx.send(text.clone()).is_ok());
-            }
+        }
+    }
+
+    /// A whole line the process wrote to stdout: a message, or a line that is none, which is passed over.
+    fn stdout_line(&self, text: &[u8], out: &mpsc::UnboundedSender<Incoming>) {
+        if text.iter().all(u8::is_ascii_whitespace) {
+            return;
+        }
+        match serde_json::from_slice::<Value>(text) {
+            Ok(message) => self.dispatch(message, out),
+            Err(error) => tracing::warn!("[acp] a line of the agent's output is not JSON: {error}"),
         }
     }
 
@@ -552,6 +571,14 @@ impl Connection {
         let incoming = match (method, message.get("id")) {
             (Some(method), Some(id)) if !id.is_null() => Incoming::Request { id: id.clone(), method, params },
             (Some(method), _) => Incoming::Notification { method, params },
+            // The agent's answer to a line it could not read as a request (JSON-RPC's parse error, invalid request): it
+            // answers no request of this client's, and the process goes on.
+            (None, Some(id)) if id.is_null() => {
+                if let Some(error) = message.get("error").filter(|error| !error.is_null()) {
+                    tracing::warn!("[acp] the agent reported an error of no request: {}", rpc_error(error).message);
+                }
+                return;
+            }
             (None, Some(id)) => {
                 let result = match message.get("error") {
                     Some(error) if !error.is_null() => Err(rpc_error(error)),
@@ -610,17 +637,10 @@ async fn read(
         match event {
             ProcessEvent::Output { stream: OutputStream::Stdout, bytes, .. } => {
                 for byte in bytes {
-                    if byte != b'\n' {
+                    if byte == b'\n' {
+                        connection.stdout_line(&std::mem::take(&mut line), &out);
+                    } else {
                         line.push(byte);
-                        continue;
-                    }
-                    let text = std::mem::take(&mut line);
-                    if text.iter().all(u8::is_ascii_whitespace) {
-                        continue;
-                    }
-                    match serde_json::from_slice::<Value>(&text) {
-                        Ok(message) => connection.dispatch(message, &out),
-                        Err(error) => tracing::warn!("[acp] a line of the agent's output is not JSON: {error}"),
                     }
                 }
             }
@@ -632,6 +652,11 @@ async fn read(
         }
     }
     let connection = connection.upgrade();
+    // What the process wrote last with no end of line after it is a whole line too, read before its exit fails what waits.
+    if let Some(connection) = &connection {
+        connection.stdout_line(&line, &out);
+        tell_line(&mut lock(&connection.stderr_lines), &err_line);
+    }
     // A source that ended without the exit tells nothing of the process: it is ended here.
     if let Some(connection) = connection.as_ref().filter(|_| !exited) {
         connection.kill();
@@ -655,8 +680,14 @@ async fn read(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::time::Duration;
+
     use async_trait::async_trait;
+    use mixdog_core_api::domain::process::ProcessInfo;
+    use mixdog_core_api::domain::process::PtySize;
+    use mixdog_core_api::domain::process::SpawnedProcess;
+
+    use super::*;
 
     struct ScriptedEvents(mpsc::UnboundedReceiver<ProcessEvent>);
 
@@ -674,8 +705,8 @@ mod tests {
 
     #[async_trait]
     impl ProcessManager for ScriptedProcesses {
-        async fn spawn(&self, request: SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, ProcessError> {
-            Ok(mixdog_core_api::domain::process::SpawnedProcess { handle: request.handle, pid: 1 })
+        async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
+            Ok(SpawnedProcess { handle: request.handle, pid: 1 })
         }
 
         fn subscribe(&self, _handle: &ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
@@ -695,7 +726,7 @@ mod tests {
             Ok(())
         }
 
-        fn resize_pty(&self, _handle: &ProcessHandle, _size: mixdog_core_api::domain::process::PtySize) -> Result<(), ProcessError> {
+        fn resize_pty(&self, _handle: &ProcessHandle, _size: PtySize) -> Result<(), ProcessError> {
             Ok(())
         }
 
@@ -704,7 +735,54 @@ mod tests {
             Ok(())
         }
 
-        fn list(&self) -> Vec<mixdog_core_api::domain::process::ProcessInfo> {
+        fn list(&self) -> Vec<ProcessInfo> {
+            Vec::new()
+        }
+    }
+
+    /// A process that takes none of its input and writes nothing until it is ended.
+    struct Stalled;
+
+    struct Silent;
+
+    #[async_trait]
+    impl EventSource<ProcessEvent> for Silent {
+        async fn next(&mut self) -> Option<ProcessEvent> {
+            std::future::pending().await
+        }
+    }
+
+    #[async_trait]
+    impl ProcessManager for Stalled {
+        async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
+            Ok(SpawnedProcess { handle: request.handle, pid: 1 })
+        }
+
+        fn subscribe(&self, _handle: &ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+            Ok(Box::new(Silent))
+        }
+
+        fn subscribe_holding(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+            self.subscribe(handle, from_seq)
+        }
+
+        async fn write_stdin(&self, _handle: &ProcessHandle, _bytes: Vec<u8>) -> Result<(), ProcessError> {
+            std::future::pending().await
+        }
+
+        fn close_stdin(&self, _handle: &ProcessHandle) -> Result<(), ProcessError> {
+            Ok(())
+        }
+
+        fn resize_pty(&self, _handle: &ProcessHandle, _size: PtySize) -> Result<(), ProcessError> {
+            Ok(())
+        }
+
+        fn kill(&self, _handle: &ProcessHandle) -> Result<(), ProcessError> {
+            Ok(())
+        }
+
+        fn list(&self) -> Vec<ProcessInfo> {
             Vec::new()
         }
     }
@@ -843,5 +921,19 @@ mod tests {
 
         drop(event_tx);
         let _ = incoming.recv().await;
+    }
+
+    #[tokio::test]
+    async fn a_request_whose_call_is_dropped_leaves_no_answer_awaited() {
+        let _ = mixdog_rt::testing::tokens();
+        let cwd = AbsPath::new(std::env::temp_dir()).expect("an absolute folder");
+        let launch = Launch { program: "agent".into(), args: Vec::new(), env: Vec::new(), env_remove: Vec::new(), cwd };
+        let (connection, _incoming) = Connection::start(Arc::new(Stalled), launch).await.expect("the process starts");
+        let limit = Duration::from_millis(20);
+        assert!(mixdog_rt::time::timeout(limit, connection.request("initialize", json!({}))).await.is_err());
+        let id = connection.reserve();
+        assert!(mixdog_rt::time::timeout(limit, connection.send_as(id, "session/prompt", json!({}))).await.is_err());
+        assert_eq!(connection.waiting_len(), 0, "the request's answer is awaited no more");
+        assert_eq!(connection.sent_len(), 0, "the prompt's answer is awaited no more");
     }
 }

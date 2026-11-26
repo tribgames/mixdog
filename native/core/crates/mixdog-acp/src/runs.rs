@@ -453,12 +453,15 @@ async fn begin(
         }
     }
     // The shared server the ended session ran on serves the session opened next on it, with no close in between.
-    let held = agents.hold_shared(&thread, preset);
-    if stored.is_none() {
+    let held = if stored.is_none() {
+        let held = agents.hold_shared(&thread, preset);
         // The conversation holds no agent session to continue (its first agent turn, or a fork, a rewind, a clear or
         // Mixdog's own turns since): a process still running for the thread holds one that is not this conversation's.
         agents.end_process(&thread);
-    }
+        held
+    } else {
+        None
+    };
     let resolved = tokio::select! {
         biased;
         () = context.cancel.cancelled() => {
@@ -819,7 +822,11 @@ pub async fn ask_once(
     }
     .await;
     // The question's session is no conversation of the user's: the agent is asked to forget it before its process ends.
-    session.close().await;
+    tokio::select! {
+        biased;
+        () = agents.stop_token.cancelled() => {}
+        () = session.close() => {}
+    }
     answered
 }
 
