@@ -113,15 +113,14 @@ impl Inner {
     /// `limitIfExpired` over a record already read: the expiry is committed in the background.
     pub fn limit_if_expired_with(self: &Arc<Self>, slot: &Arc<Slot>, id: &str, mut goal: Option<Goal>) -> Option<Goal> {
         let changed = self.settle_projection(slot, id, goal.as_mut(), self.now());
-        if changed && !self.is_closed() {
+        if changed && !self.is_closed() && !slot.is_deleted() {
+            let target = if slot.tracked { slot.clone() } else { self.ephemeral_slot(id) };
             let start = {
-                let mut mem = slot.mem();
-                !std::mem::replace(&mut mem.expiry_pending, true)
+                let mut mem = target.mem();
+                !mem.deleted && !std::mem::replace(&mut mem.expiry_pending, true)
             };
             if start {
-                let (task_slot, done_slot) = (slot.clone(), slot.clone());
-                let task_id = id.to_owned();
-                self.spawn_mutation(id.to_owned(), move |tx| tx.expire_if_due(&task_slot, &task_id), move |_| done_slot.mem().expiry_pending = false);
+                self.spawn_mutation_on_slot(target, id.to_owned(), move |tx| tx.expire_if_due(), |inner, slot, id| inner.finish_expiry(id, slot));
             }
         }
         goal
@@ -172,8 +171,11 @@ impl Inner {
     /// The rest of `deliverDeadlineWarning` over a record already read; its mutation joins the
     /// session's queue at once.
     fn deliver_warning_with(self: &Arc<Self>, slot: &Arc<Slot>, id: &str, threshold_ms: f64, mut view: Option<Goal>) {
-        if self.is_closed() || slot.mem().warning_pending {
-            return;
+        {
+            let mem = slot.mem();
+            if self.is_closed() || mem.deleted || mem.warning_pending {
+                return;
+            }
         }
         let slot = slot.clone();
         let pending = self.warning_state(&slot, id, view.as_mut(), self.now());
@@ -182,16 +184,21 @@ impl Inner {
         if pending.is_none() || target == 0.0 || crossed != target {
             return;
         }
-        slot.mem().warning_pending = true;
-        let done_slot = slot.clone();
-        let (task_slot, task_id) = (slot.clone(), id.to_owned());
-        self.spawn_mutation(id.to_owned(), move |tx| tx.deliver_warning(&task_slot, &task_id, target), move |_| done_slot.mem().warning_pending = false);
+        {
+            let mut mem = slot.mem();
+            if self.is_closed() || mem.deleted || std::mem::replace(&mut mem.warning_pending, true) {
+                return;
+            }
+        }
+        self.spawn_mutation_on_slot(slot, id.to_owned(), move |tx| tx.deliver_warning(target), |_, slot, _| slot.mem().warning_pending = false);
     }
 
-    fn spawn_limit_check(self: &Arc<Self>, id: &str) {
+    fn spawn_limit_check(self: &Arc<Self>, slot: Arc<Slot>, id: &str) {
         let (inner, id) = (self.clone(), id.to_owned());
         self.spawn_task(async move {
-            let slot = inner.slot(&id);
+            if inner.is_closed() || slot.is_deleted() {
+                return;
+            }
             match inner.cached(&slot, &id).await {
                 Ok(goal) => {
                     inner.limit_if_expired_with(&slot, &id, goal);
@@ -201,16 +208,20 @@ impl Inner {
         });
     }
 
-    fn spawn_warning(self: &Arc<Self>, id: &str) {
-        let slot = self.slot(id);
-        if self.is_closed() || slot.mem().warning_pending {
-            return;
+    fn spawn_warning(self: &Arc<Self>, slot: Arc<Slot>, id: &str) {
+        {
+            let mut mem = slot.mem();
+            if self.is_closed() || mem.deleted || std::mem::replace(&mut mem.warning_pending, true) {
+                return;
+            }
         }
-        slot.mem().warning_pending = true;
         let turn = reserve_turn(&slot);
         let (inner, id) = (self.clone(), id.to_owned());
         self.spawn_task(async move {
-            let slot = inner.slot(&id);
+            if inner.is_closed() || slot.is_deleted() {
+                slot.mem().warning_pending = false;
+                return;
+            }
             let view = inner.cached(&slot, &id).await;
             let outcome = match view {
                 Err(error) => Err(error),
@@ -219,8 +230,11 @@ impl Inner {
                     match pending.map(|p| p.crossed).filter(|c| *c != 0.0) {
                         None => Ok(()),
                         Some(target) => {
-                            let (task_slot, task_id) = (slot.clone(), id.clone());
-                            inner.run_mutation(&id, &slot, turn, move |tx| tx.deliver_warning(&task_slot, &task_id, target)).await
+                            if slot.is_deleted() {
+                                Ok(())
+                            } else {
+                                inner.run_mutation(&id, &slot, turn, move |tx| tx.deliver_warning(target)).await
+                            }
                         }
                     }
                 }
@@ -247,7 +261,9 @@ impl Inner {
 
     /// The heartbeat of a running Goal, a warning timer, and the cap's deadline.
     pub fn arm_deadline(self: &Arc<Self>, slot: &Arc<Slot>, id: &str, goal: Option<Goal>) {
-        if self.is_closed() {
+        if self.is_closed() || slot.is_deleted() {
+            let mut mem = slot.mem();
+            self.close_deadlines(&mut mem);
             return;
         }
         self.clear_deadline(slot);
@@ -261,7 +277,7 @@ impl Inner {
         self.drop_suspended(slot, id, goal, at);
         let remaining = (number(goal, "timeLimitMs") - active_elapsed_ms(goal, at)).max(0.0);
         if remaining <= 0.0 {
-            self.spawn_limit_check(id);
+            self.spawn_limit_check(slot.clone(), id);
             return;
         }
         self.arm_warning(slot, id, goal, remaining, at);
@@ -270,7 +286,7 @@ impl Inner {
 
     /// Whether the Goal is running; keeps the heartbeat and the clock anchor in step with that.
     fn sync_heartbeat(self: &Arc<Self>, slot: &Arc<Slot>, id: &str, goal: Option<&Goal>) -> bool {
-        let running = goal.is_some_and(|g| string(g, "status") == "active" && truthy(g.get("lastStartedAt")));
+        let running = !self.is_closed() && !slot.is_deleted() && goal.is_some_and(|g| string(g, "status") == "active" && truthy(g.get("lastStartedAt")));
         if running {
             let needs_anchor = slot.mem().anchor.is_none();
             if needs_anchor && let Some(goal) = goal {
@@ -294,39 +310,62 @@ impl Inner {
             self.spawn_crossed_warning(slot, id, warnings.crossed, &seen);
         } else if warnings.next_delay > 0.0 {
             let delay = f64::min(remaining, warnings.next_delay + WARNING_MARGIN_MS);
-            let (weak, task_id) = (Arc::downgrade(self), id.to_owned());
+            let (weak, weak_slot, task_id) = (Arc::downgrade(self), Arc::downgrade(slot), id.to_owned());
             let timer = self.env.timers.after(
                 TimerKind::Warning,
                 delay,
                 Box::new(move || {
-                    let Some(inner) = weak.upgrade() else { return };
-                    inner.slot(&task_id).mem().warning_timer = None;
-                    inner.spawn_warning(&task_id);
+                    let (Some(inner), Some(slot)) = (weak.upgrade(), weak_slot.upgrade()) else { return };
+                    {
+                        let mut mem = slot.mem();
+                        mem.warning_timer = None;
+                        if mem.deleted || inner.is_closed() {
+                            return;
+                        }
+                    }
+                    inner.spawn_warning(slot, &task_id);
                 }),
             );
-            slot.mem().warning_timer = Some(timer);
+            let mut mem = slot.mem();
+            if mem.deleted || self.is_closed() {
+                timer.cancel();
+                return;
+            }
+            mem.warning_timer = Some(timer);
         }
     }
 
     fn arm_cap(self: &Arc<Self>, slot: &Arc<Slot>, id: &str, remaining: f64) {
-        let (weak, task_id) = (Arc::downgrade(self), id.to_owned());
+        let (weak, weak_slot, task_id) = (Arc::downgrade(self), Arc::downgrade(slot), id.to_owned());
         let timer = self.env.timers.after(
             TimerKind::Deadline,
             remaining,
             Box::new(move || {
-                let Some(inner) = weak.upgrade() else { return };
-                let slot = inner.slot(&task_id);
-                slot.mem().deadline_timer = None;
-                let (task_slot, id) = (slot.clone(), task_id.clone());
-                inner.spawn_mutation(task_id, move |tx| tx.expire_if_due(&task_slot, &id), |_| {});
+                let (Some(inner), Some(slot)) = (weak.upgrade(), weak_slot.upgrade()) else { return };
+                {
+                    let mut mem = slot.mem();
+                    mem.deadline_timer = None;
+                    if mem.deleted || inner.is_closed() {
+                        return;
+                    }
+                }
+                inner.spawn_mutation_on_slot(slot, task_id, move |tx| tx.expire_if_due(), |_, _, _| {});
             }),
         );
-        slot.mem().deadline_timer = Some(timer);
+        let mut mem = slot.mem();
+        if mem.deleted || self.is_closed() {
+            timer.cancel();
+            return;
+        }
+        mem.deadline_timer = Some(timer);
     }
 
     fn start_heartbeat(self: &Arc<Self>, slot: &Arc<Slot>, id: &str) {
         let generation = {
             let mut mem = slot.mem();
+            if mem.deleted || self.is_closed() {
+                return;
+            }
             mem.heartbeat_gen += 1;
             mem.heartbeat_gen
         };
@@ -335,48 +374,53 @@ impl Inner {
 
     /// The beat repeats until the Goal stops running (`setInterval`).
     fn schedule_beat(self: &Arc<Self>, slot: &Arc<Slot>, id: &str, generation: u64) {
-        let (weak, task_id): (Weak<Inner>, String) = (Arc::downgrade(self), id.to_owned());
+        let (weak, weak_slot, task_id): (Weak<Inner>, Weak<Slot>, String) = (Arc::downgrade(self), Arc::downgrade(slot), id.to_owned());
         let timer = self.env.timers.after(
             TimerKind::Heartbeat,
             GOAL_LIVE_HEARTBEAT_MS,
             Box::new(move || {
-                let Some(inner) = weak.upgrade() else { return };
-                let slot = inner.slot(&task_id);
-                if slot.mem().heartbeat_gen != generation || inner.is_closed() {
-                    return;
+                let (Some(inner), Some(slot)) = (weak.upgrade(), weak_slot.upgrade()) else { return };
+                {
+                    let mem = slot.mem();
+                    if mem.deleted || mem.heartbeat_gen != generation || inner.is_closed() {
+                        return;
+                    }
                 }
                 inner.schedule_beat(&slot, &task_id, generation);
-                let task_slot = slot.clone();
-                let beat_id = task_id.clone();
-                inner.spawn_mutation(task_id, move |tx| tx.beat(&task_slot, &beat_id), |_| {});
+                inner.spawn_mutation_on_slot(slot, task_id, move |tx| tx.beat(), |_, _, _| {});
             }),
         );
-        slot.mem().heartbeat = Some(timer);
+        let mut mem = slot.mem();
+        if mem.deleted || self.is_closed() || mem.heartbeat_gen != generation {
+            timer.cancel();
+            return;
+        }
+        mem.heartbeat = Some(timer);
     }
 }
 
 impl Tx<'_> {
     /// The deadline timer's / expiry check's mutation: settle the suspension first, then decide.
-    pub(crate) fn expire_if_due(&mut self, slot: &Arc<Slot>, id: &str) -> GoalResult<()> {
-        if self.inner.is_closed() {
+    pub(crate) fn expire_if_due(&mut self) -> GoalResult<()> {
+        if self.inner.is_closed() || self.slot.is_deleted() {
             return Ok(());
         }
         let mut current = self.read_stored()?;
         let at = self.now();
-        if self.inner.settle_projection(slot, id, current.as_mut(), at) {
+        if self.inner.settle_projection(self.slot, self.id, current.as_mut(), at) {
             let current = current.expect("an expired Goal exists");
             self.commit(Some(current.clone()), None)?;
-            self.inner.observe(slot, id, at, &current);
+            self.inner.observe(self.slot, self.id, at, &current);
         }
         Ok(())
     }
 
-    pub(crate) fn deliver_warning(&mut self, slot: &Arc<Slot>, id: &str, target: f64) -> GoalResult<()> {
-        if self.inner.is_closed() {
+    pub(crate) fn deliver_warning(&mut self, target: f64) -> GoalResult<()> {
+        if self.inner.is_closed() || self.slot.is_deleted() {
             return Ok(());
         }
         let mut current = self.read_stored()?;
-        let state = self.inner.warning_state(slot, id, current.as_mut(), self.now());
+        let state = self.inner.warning_state(self.slot, self.id, current.as_mut(), self.now());
         let Some(state) = state.filter(|s| s.crossed != 0.0 && s.crossed == target) else { return Ok(()) };
         let _ = state;
         let mut goal = current.expect("a warned Goal exists");
@@ -391,8 +435,8 @@ impl Tx<'_> {
     }
 
     /// The heartbeat: re-stamp the record, or drop a stretch the PC slept through and republish.
-    pub(crate) fn beat(&mut self, slot: &Arc<Slot>, id: &str) -> GoalResult<()> {
-        if self.inner.is_closed() {
+    pub(crate) fn beat(&mut self) -> GoalResult<()> {
+        if self.inner.is_closed() || self.slot.is_deleted() {
             return Ok(());
         }
         let Some(mut goal) = self.read_stored()? else { return Ok(()) };
@@ -400,13 +444,13 @@ impl Tx<'_> {
             return Ok(());
         }
         let at = self.now();
-        if self.inner.drop_suspended(slot, id, &mut goal, at) {
+        if self.inner.drop_suspended(self.slot, self.id, &mut goal, at) {
             self.commit(Some(goal.clone()), None)?;
         } else {
             put_num(&mut goal, "liveAt", at);
             self.stamp_live(&goal)?;
         }
-        self.inner.observe(slot, id, at, &goal);
+        self.inner.observe(self.slot, self.id, at, &goal);
         Ok(())
     }
 }

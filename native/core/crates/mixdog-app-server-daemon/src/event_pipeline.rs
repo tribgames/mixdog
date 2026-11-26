@@ -506,6 +506,12 @@ impl EventPipeline {
             batch.insert("prompt".into(), combined.into());
             mixdog_rt::node_stderr!("mixdog event: {name}: processing batch of {}", claimed.len());
             let injected = self.execute(&batch, None).await;
+            if injected {
+                let mut counts = self.fail_counts.lock().unwrap_or_else(PoisonError::into_inner);
+                for (handle, _) in &claimed {
+                    counts.remove(original_name(handle));
+                }
+            }
             for (handle, original) in claimed {
                 if injected {
                     self.move_in_progress(&handle, "batched").await;
@@ -730,5 +736,43 @@ mod tests {
         pipeline.process_queue().await;
         assert_eq!(*sink.got.lock().unwrap(), [("event:hook".to_owned(), "original prompt".to_owned())]);
         assert_eq!(store.delivery_rows().await[0]["status"], "done");
+    }
+
+    #[tokio::test]
+    async fn a_retried_batch_item_clears_its_fail_count_on_success() {
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let store = deliveries(dir.path());
+        let sink = Arc::new(Sink::default());
+        sink.fail.store(true, Ordering::SeqCst);
+        let pipeline = EventPipeline::new(
+            QueueFiles {
+                fs: Arc::new(LocalFileService::new()),
+                read: tokens.interactive_io,
+                write: tokens.durability_io,
+                root: AbsPath::new(dir.path().join("events")).unwrap(),
+            },
+            sink.clone(),
+            store.clone(),
+            &serde_json::json!({"rules": [{"name": "batched", "prompt": "hi", "batchMs": 10}]}),
+            Arc::new(|| NOW),
+        );
+        pipeline.ensure_dirs().await.unwrap();
+        let file = "1700000000000-00000000-000b.json";
+        let record = serde_json::json!({
+            "name": "batched",
+            "priority": "low",
+            "prompt": "first",
+            "enqueuedAt": NOW - 1_000,
+        });
+        pipeline.write_json(pipeline.dir("queue").join(file), record.as_object().unwrap()).await.unwrap();
+
+        pipeline.process_batch().await;
+        assert_eq!(pipeline.fail_counts.lock().unwrap().get(file).copied(), Some(1), "failed batch item records fail_count");
+
+        sink.fail.store(false, Ordering::SeqCst);
+        pipeline.process_batch().await;
+        assert!(pipeline.fail_counts.lock().unwrap().is_empty(), "succeeded batch item clears fail_count");
+        assert_eq!(sink.got.lock().unwrap().len(), 1);
     }
 }

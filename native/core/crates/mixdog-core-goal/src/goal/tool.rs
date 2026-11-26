@@ -26,7 +26,7 @@ fn snapshot_of(goal: Option<Goal>) -> GoalSnapshot {
 impl GoalRuntime {
     pub async fn tool_status(&self, session_id: &str) -> GoalResult<Option<Goal>> {
         let id = assert_session_id(session_id)?;
-        let slot = self.inner.slot(&id);
+        let slot = self.inner.slot_for_read(&id);
         // A real I/O error is an actionable error, not "no Goal".
         let record = self.inner.read_view(&slot, &id).await?;
         if let Some(record) = &record {

@@ -164,14 +164,26 @@ impl SessionActor {
     /// command dispatcher's, never the model's (`dequeueModelBatch`); a queued copy of work a user Stop froze is never taken (its
     /// Stop record removed it; one whose save failed is still ineligible here); a completion waits for a wake the session allows.
     fn next_queued(&self) -> Option<super::super::state::Queued> {
-        let wake = self.completion_wake();
+        let wake = std::cell::OnceCell::new();
         self.projected
             .queue
             .iter()
             .filter(|q| !self.queued_stopped(q) && !pending::is_slash_entry(&q.entry))
-            .filter(|q| wake || completions::is_channel(&q.entry) || !completions::is_notification(&q.entry))
+            .filter(|q| !self.held_completion(q, &wake))
             .min_by_key(|q| priority_rank(&q.entry))
             .cloned()
+    }
+
+    /// A queued completion that waits for a wake the session does not allow now; `wake` keeps the one reading of
+    /// [`Self::completion_wake`] a pass needs.
+    fn held_completion(&self, q: &super::super::state::Queued, wake: &std::cell::OnceCell<bool>) -> bool {
+        completions::is_notification(&q.entry) && !completions::is_channel(&q.entry) && !*wake.get_or_init(|| self.completion_wake())
+    }
+
+    /// The queue holds something besides held completions: what keeps a failed turn's retry back.
+    pub(super) fn queue_holds_work(&self) -> bool {
+        let wake = std::cell::OnceCell::new();
+        self.projected.queue.iter().any(|q| !self.held_completion(q, &wake))
     }
 
     /// The queued completions the wake of `next` (a notification the drain selected) takes as one batch: each of its priority

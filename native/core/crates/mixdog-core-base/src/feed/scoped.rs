@@ -45,23 +45,22 @@ impl CoreScopedFeeds {
 
 impl ScopedFeeds for CoreScopedFeeds {
     fn create(&self, id: FeedId, view: Arc<dyn FeedView>) -> Arc<dyn ScopedFeed> {
-        self.register(id, view, CoreFeed::new)
+        self.register(id, |id, epoch| CoreFeed::new(id, epoch, view, self.limits, self.cpu))
+    }
+
+    fn create_watching_detach(&self, id: FeedId, view: Arc<dyn FeedView>, on_last_detach: Arc<dyn Fn() + Send + Sync>) -> Arc<dyn ScopedFeed> {
+        self.register(id, |id, epoch| CoreFeed::new_watching_detach(id, epoch, view, self.limits, self.cpu, on_last_detach))
     }
 
     fn create_ordered(&self, id: FeedId, view: Arc<dyn FeedView>) -> Arc<dyn ScopedFeed> {
-        self.register(id, view, CoreFeed::new_ordered)
+        self.register(id, |id, epoch| CoreFeed::new_ordered(id, epoch, view, self.limits, self.cpu))
     }
 }
 
 impl CoreScopedFeeds {
-    fn register(
-        &self,
-        id: FeedId,
-        view: Arc<dyn FeedView>,
-        make: fn(FeedId, FeedEpoch, Arc<dyn FeedView>, FeedLimits, CpuInteractive) -> CoreFeed,
-    ) -> Arc<dyn ScopedFeed> {
+    fn register(&self, id: FeedId, make: impl FnOnce(FeedId, FeedEpoch) -> CoreFeed) -> Arc<dyn ScopedFeed> {
         let epoch = FeedEpoch::from(Uuid::new_v4().simple().to_string());
-        let feed = Arc::new(make(id.clone(), epoch, view, self.limits, self.cpu));
+        let feed = Arc::new(make(id.clone(), epoch));
         let mut live = self.live.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         live.retain(|_, feed| feed.strong_count() > 0);
         live.insert(id, Arc::downgrade(&feed));

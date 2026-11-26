@@ -8,11 +8,11 @@ use serde_json::Value;
 
 use super::error::GoalError;
 use super::js::{Goal, clean, put, put_num, string};
-use super::runtime::{Inner, TimerKind, TitleJob};
+use super::runtime::{Inner, Slot, TimerKind, TitleJob};
 use super::session_title::{SESSION_TITLE_TIMEOUT_MS, compact_session_title};
 
 impl Inner {
-    pub fn schedule_title(self: &Arc<Self>, id: &str, goal: &Goal) {
+    pub fn schedule_title(self: &Arc<Self>, slot: &Arc<Slot>, id: &str, goal: &Goal) {
         let Some(titles) = self.env.titles.clone() else { return };
         if self.is_closed() {
             return;
@@ -20,19 +20,25 @@ impl Inner {
         let goal_id = clean(goal.get("id"));
         let objective = clean(goal.get("objective"));
         let shown_title = string(goal, "title");
-        let slot = self.slot(id);
         let job_id = self.tx_new_title_job_id();
         let cancel = mixdog_rt::CancellationToken::new();
         {
             let mut mem = slot.mem();
+            if mem.deleted || self.is_closed() {
+                return;
+            }
             if let Some(old) = mem.title_job.replace(TitleJob { id: job_id, cancel: cancel.clone() }) {
                 old.cancel.cancel();
             }
         }
-        let (inner, id) = (self.clone(), id.to_owned());
+        let (inner, slot, id) = (self.clone(), slot.clone(), id.to_owned());
         self.spawn_task(async move {
-            let slot = inner.slot(&id);
-            let superseded = |inner: &Arc<Inner>| inner.is_closed() || cancel.is_cancelled() || slot.mem().title_job.as_ref().map(|j| j.id) != Some(job_id);
+            let superseded = |inner: &Arc<Inner>| {
+                inner.is_closed() || cancel.is_cancelled() || {
+                    let mem = slot.mem();
+                    mem.deleted || mem.title_job.as_ref().map(|j| j.id) != Some(job_id)
+                }
+            };
             let timer = inner.env.timers.after(TimerKind::Title, SESSION_TITLE_TIMEOUT_MS as f64, {
                 let cancel = cancel.clone();
                 Box::new(move || cancel.cancel())
@@ -47,11 +53,14 @@ impl Inner {
             {
                 let title = compact_session_title(&raw);
                 if !title.is_empty() && title != shown_title {
-                    let (task_slot, task_goal_id, task_objective) = (slot.clone(), goal_id.clone(), objective.clone());
+                    let (task_goal_id, task_objective) = (goal_id.clone(), objective.clone());
                     let guard_cancel = cancel.clone();
                     let _ = inner
-                        .with_mutation(&id, move |tx| {
-                            let stale = guard_cancel.is_cancelled() || tx.inner.is_closed() || task_slot.mem().title_job.as_ref().map(|j| j.id) != Some(job_id);
+                        .run_slot_mutation(&id, &slot, move |tx| {
+                            let stale = guard_cancel.is_cancelled() || tx.inner.is_closed() || {
+                                let mem = tx.slot.mem();
+                                mem.deleted || mem.title_job.as_ref().map(|j| j.id) != Some(job_id)
+                            };
                             if stale {
                                 return Ok(());
                             }

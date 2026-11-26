@@ -251,6 +251,12 @@ impl ScopedFeeds for Recording {
         self.made.lock().unwrap().push(feed.clone());
         feed
     }
+
+    fn create_watching_detach(&self, id: FeedId, view: Arc<dyn FeedView>, on_last_detach: Arc<dyn Fn() + Send + Sync>) -> Arc<dyn ScopedFeed> {
+        let feed = self.inner.create_watching_detach(id, view, on_last_detach);
+        self.made.lock().unwrap().push(feed.clone());
+        feed
+    }
 }
 
 struct FakeLink {

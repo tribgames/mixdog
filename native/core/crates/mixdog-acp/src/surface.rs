@@ -5,22 +5,39 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 pub use mixdog_agent::env::CompactEvent;
+use mixdog_agent::env::SteerEntry;
 use mixdog_agent::env::Tone;
 use mixdog_core_api::domain::approval::ApprovalAsk;
 use mixdog_core_api::domain::approval::ApprovalGate;
+use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::Usage;
 use mixdog_core_api::domain::provider::UsdTicks;
+use mixdog_core_api::ids::QueuedId;
 use mixdog_core_session::session::ItemCommit;
 use mixdog_core_session::session::RunPort;
+use mixdog_core_session::session::SteerInput;
 pub use mixdog_core_session::session::run::CallMark;
+use mixdog_core_session::session::run::DrainRequest;
+use mixdog_core_session::session::run::DrainStage;
+use mixdog_core_session::session::run::Priority;
 use mixdog_core_session::session::run::RunError;
 use mixdog_core_session::session::run::UsageReport;
 use mixdog_protocol::ApprovalResolution;
 use mixdog_protocol::ItemId;
 use mixdog_protocol::ThreadItem;
 use mixdog_store::schema::record::HeaderChange;
+use tokio_util::sync::CancellationToken;
 
 use crate::session::ContextUse;
+
+/// A mid-turn user message or task notification peeked from the session queue for delivery to the running ACP agent
+/// at a Mixdog tool-call boundary.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SteerDelivery {
+    pub queued_ids: Vec<QueuedId>,
+    pub content: Content,
+    pub task_notification: bool,
+}
 
 /// The tokens a prompt's answer reports for the turn.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -145,8 +162,37 @@ pub trait TurnSurface: Send + Sync {
     async fn call_mark(&self, mark: CallMark) -> Result<(), RunError>;
     /// How many times calls have left the session's model context: what the ids of the calls that enter it carry.
     fn call_epoch(&self) -> u64;
+    /// Peeks ready mid-turn user messages and task notifications from the session queue without dequeuing or
+    /// committing them.
+    async fn peek_steers(&self) -> Result<Vec<SteerDelivery>, RunError> {
+        Ok(Vec::new())
+    }
+    /// Claims and commits ready entries among `queued_ids` before delivery to the agent, returning the exact
+    /// deliveries that were claimed and recorded (skipping any entry stopped concurrently). Cancellation via
+    /// `cancel` aborts prior to state mutation so steers remain queued; once committed, it returns the claimed set.
+    async fn commit_steers(&self, _queued_ids: Vec<QueuedId>, _now_ms: i64, _cancel: CancellationToken) -> Result<Vec<SteerDelivery>, RunError> {
+        Ok(Vec::new())
+    }
     /// The surface a stopped turn is closed on: its waits outlive the turn's token.
     fn closing(&self) -> Arc<dyn TurnSurface>;
+}
+
+fn steer_entry_of(input: SteerInput) -> SteerEntry {
+    let content = match &input.content {
+        serde_json::Value::Array(_) => mixdog_agent::message_row::content_from_value(&input.content).expect("a queued prompt's parts decode as a stored row's"),
+        other => Content::Text(other.as_str().unwrap_or_default().to_owned().into()),
+    };
+    SteerEntry {
+        content,
+        text: input.text,
+        ids: input.queued_ids.iter().map(|id| id.as_str().to_owned()).collect(),
+        submitted_at: input.submitted_at,
+        message_id: input.message_id,
+        originals_missing: input.originals_missing,
+        transcript_meta: input.transcript_meta,
+        mode: input.mode,
+        execution: input.execution,
+    }
 }
 
 #[async_trait]
@@ -225,6 +271,35 @@ impl TurnSurface for RunPort {
 
     fn call_epoch(&self) -> u64 {
         RunPort::call_epoch(self)
+    }
+
+    async fn peek_steers(&self) -> Result<Vec<SteerDelivery>, RunError> {
+        let inputs = RunPort::peek_steers(self, DrainRequest { stage: DrainStage::PreSend, max_priority: Priority::Next }).await?;
+        let mut ready = Vec::new();
+        for input in inputs {
+            let queued_ids = input.queued_ids.clone();
+            let entry = steer_entry_of(input);
+            let Some(merged) = mixdog_agent::steer::normalize(&entry) else { continue };
+            ready.push(SteerDelivery { queued_ids, content: merged.content, task_notification: merged.task_notification });
+        }
+        Ok(ready)
+    }
+
+    async fn commit_steers(&self, queued_ids: Vec<QueuedId>, now_ms: i64, cancel: CancellationToken) -> Result<Vec<SteerDelivery>, RunError> {
+        if queued_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        // Claim, dequeue, and commit transcript rows atomically in a single durable journal unit.
+        let inputs =
+            RunPort::consume_steers_until(self, DrainRequest { stage: DrainStage::PreSend, max_priority: Priority::Next }, queued_ids, now_ms, cancel).await?;
+        let mut claimed = Vec::with_capacity(inputs.len());
+        for input in inputs {
+            let queued_ids = input.queued_ids.clone();
+            let entry = steer_entry_of(input);
+            let Some(merged) = mixdog_agent::steer::normalize(&entry) else { continue };
+            claimed.push(SteerDelivery { queued_ids, content: merged.content, task_notification: merged.task_notification });
+        }
+        Ok(claimed)
     }
 
     fn closing(&self) -> Arc<dyn TurnSurface> {

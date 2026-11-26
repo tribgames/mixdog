@@ -8,7 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::task::{Context, Poll, Waker};
 
@@ -184,6 +184,9 @@ struct Live {
     tracked: Mutex<Option<Arc<TurnState>>>,
     /// Rows this host posted, in log order.
     recent: Mutex<Vec<Value>>,
+    /// Set when the room's log session unloaded while an exchange was still running, so `recent`
+    /// is released as soon as the exchange untracks.
+    release_on_idle: AtomicBool,
     /// Handed-off questions answered through the room: their cards leave at once, before the
     /// member's own list confirms it (`agent-rooms.ts:444-449`).
     answered: Mutex<HashSet<String>>,
@@ -222,6 +225,7 @@ impl Live {
             }),
             tracked: Mutex::new(None),
             recent: Mutex::new(Vec::new()),
+            release_on_idle: AtomicBool::new(false),
             answered: Mutex::new(HashSet::new()),
             publication: SerialChain::new(),
             publishing: AtomicUsize::new(0),
@@ -250,10 +254,15 @@ impl Live {
         }
     }
 
+    fn clear_recent(&self) {
+        *lock(&self.recent) = Vec::new();
+    }
+
     /// `reset` of `agent-rooms.ts`: the room log is forgotten, and cursors, `seen`, the last speaker and preview and what is owed
     /// start over, the last time being the reset's.
     fn reset(&self, stored: &Stored) {
-        lock(&self.recent).clear();
+        self.release_on_idle.store(false, Ordering::SeqCst);
+        self.clear_recent();
         let mut record = lock(&self.record);
         record.cursors.clear();
         record.seen = None;
@@ -337,6 +346,26 @@ impl LiveRooms {
         lock(&self.shared.live).contains_key(room_id)
     }
 
+    /// Releases `Live::recent` for a room whose log session unloaded (no active listener): every
+    /// posted row is already committed to storage, so later reads rebuild from the log. While an
+    /// exchange is running, defers clearing until that exchange untracks.
+    pub fn release_session(&self, session_id: &str) {
+        let Some(room_id) = room_id_of_session(session_id) else { return };
+        let Some(live) = lock(&self.shared.live).get(&room_id).cloned() else { return };
+        let tracked = lock(&live.tracked);
+        if tracked.is_none() {
+            live.release_on_idle.store(false, Ordering::SeqCst);
+            live.clear_recent();
+        } else {
+            live.release_on_idle.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[cfg(test)]
+    fn recent_held(&self, room_id: &str) -> usize {
+        lock(&self.shared.live).get(room_id).map_or(0, |live| lock(&live.recent).len())
+    }
+
     /// `rooms.approve(sessionId, approvalId, decision)` (`agent-rooms.ts:439-451`): a request the
     /// room log `room_session_id` shows, the request being `answer.request`.
     /// - **A handed-off question** of a member: answered through that member's own copy, whether
@@ -353,6 +382,9 @@ impl LiveRooms {
             let member = asked.get("memberSessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
             let id = answer.request.0.clone();
             let accepted = self.shared.ports.approvals.answer_question(&member, answer).await?;
+            if accepted {
+                live.release_on_idle.store(false, Ordering::SeqCst);
+            }
             lock(&live.answered).insert(id);
             view.republish();
             return Ok(accepted);
@@ -363,6 +395,9 @@ impl LiveRooms {
             return Ok(false);
         }
         let accepted = self.shared.ports.approvals.approve(&member, answer).await?;
+        if accepted {
+            live.release_on_idle.store(false, Ordering::SeqCst);
+        }
         state.set_approval(None);
         view.republish();
         Ok(accepted)
@@ -459,6 +494,7 @@ impl LiveRooms {
         if let Some(wait) = self.shared.before_send_post.get().and_then(|hold| hold()) {
             wait.await;
         }
+        live.release_on_idle.store(false, Ordering::SeqCst);
         view.post(vec![Value::Object(row)]).await.map_err(RoomError::Refused)?;
         {
             let mut record = lock(&live.record);
@@ -903,6 +939,9 @@ impl RoomExchangeHost for View {
         let held = tracked.as_ref().is_some_and(|current| Arc::ptr_eq(current, state));
         if held {
             *tracked = None;
+            if self.live.release_on_idle.swap(false, Ordering::SeqCst) {
+                self.live.clear_recent();
+            }
         }
         held
     }
@@ -961,3 +1000,214 @@ impl RoomExchangeHost for View {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod release_on_idle_tests {
+    use super::*;
+    use crate::rooms::calls::{CallRunner, Request, RoomCalls, Run};
+    use crate::rooms::config::RoomConfigInput;
+    use crate::rooms::exchange::{Action, Decision};
+    use crate::rooms::service::KnownAgent;
+
+    struct MemStore(Mutex<RoomDoc>);
+    #[async_trait]
+    impl RoomStore for MemStore {
+        async fn load(&self) -> Result<RoomDoc, RoomError> {
+            Ok(self.0.lock().unwrap().clone())
+        }
+        async fn save(&self, doc: &RoomDoc) -> Result<(), RoomError> {
+            *self.0.lock().unwrap() = doc.clone();
+            Ok(())
+        }
+    }
+
+    struct StubDaemon;
+    #[async_trait]
+    impl RoomDaemon for StubDaemon {
+        async fn append_rows(&self, _: &str, _: Vec<Value>, _: RoomViewUpdate) -> Result<(), String> {
+            Ok(())
+        }
+        async fn room_rows(&self, _: &str) -> Result<Vec<Value>, String> {
+            Ok(Vec::new())
+        }
+        async fn submit(&self, _: &str, _: &RoomPrompt, _: &SubmitOptions) -> Result<bool, String> {
+            Ok(true)
+        }
+        async fn read_snapshot(&self, _: &str) -> Result<Value, String> {
+            Ok(json!({}))
+        }
+        async fn abort(&self, _: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn republish_catalog(&self) {}
+    }
+
+    struct StubApprovals;
+    #[async_trait]
+    impl RoomApprovals for StubApprovals {
+        async fn approve(&self, _: &str, _: ApprovalAnswer) -> Result<bool, String> {
+            Ok(true)
+        }
+        async fn answer_question(&self, _: &str, _: ApprovalAnswer) -> Result<bool, String> {
+            Ok(true)
+        }
+        fn member_questions(&self, _: &str, _: &[String]) -> Vec<Value> {
+            Vec::new()
+        }
+        async fn publish_view(&self, _: &str, _: Option<ExchangeView>, _: Vec<Value>) {}
+    }
+
+    struct StubLabels;
+    #[async_trait]
+    impl RoomLabels for StubLabels {
+        async fn labels(&self, members: &[String]) -> Result<HashMap<String, MemberLabel>, String> {
+            Ok(members
+                .iter()
+                .map(|id| {
+                    (
+                        id.clone(),
+                        MemberLabel {
+                            id: id.clone(),
+                            name: id.to_uppercase(),
+                            route: json!({ "provider": "p", "model": "m" }),
+                            description: String::new(),
+                            disabled: false,
+                        },
+                    )
+                })
+                .collect())
+        }
+    }
+
+    struct StubFiles;
+    #[async_trait]
+    impl RoomFiles for StubFiles {
+        async fn take_in(&self, _: &str, row: Value) -> Result<Value, String> {
+            Ok(row)
+        }
+    }
+
+    struct StubSessions;
+    #[async_trait]
+    impl SessionOps for StubSessions {
+        async fn route(&self, _: &str) -> Result<Option<Value>, RoomError> {
+            Ok(None)
+        }
+        async fn create(&self, _: &str, _: &Value) -> Result<(), RoomError> {
+            Ok(())
+        }
+        async fn set_route(&self, _: &str, _: &Value) -> Result<(), RoomError> {
+            Ok(())
+        }
+        async fn set_archived(&self, _: &str, _: bool) -> Result<(), RoomError> {
+            Ok(())
+        }
+        async fn is_retired(&self, _: &str) -> Result<bool, RoomError> {
+            Ok(false)
+        }
+        async fn set_retired(&self, _: &str, _: bool) -> Result<(), RoomError> {
+            Ok(())
+        }
+        async fn set_retired_title(&self, _: &str, _: &str) -> Result<(), RoomError> {
+            Ok(())
+        }
+        async fn rename(&self, _: &str, _: &str) -> Result<(), RoomError> {
+            Ok(())
+        }
+        async fn clear(&self, _: &str, _: &str) -> Result<(), RoomError> {
+            Ok(())
+        }
+        async fn delete(&self, _: &str) -> Result<(), RoomError> {
+            Ok(())
+        }
+    }
+
+    struct StubCatalog;
+    #[async_trait]
+    impl AgentCatalog for StubCatalog {
+        async fn agents(&self) -> Result<Vec<KnownAgent>, RoomError> {
+            Ok(Vec::new())
+        }
+        async fn mixy_route(&self) -> Value {
+            json!({})
+        }
+        async fn mixy_created(&self) -> bool {
+            true
+        }
+        async fn presence(&self, _: &[String]) -> Result<HashMap<String, crate::rooms::home::Presence>, RoomError> {
+            Ok(HashMap::new())
+        }
+        async fn archived_name(&self, _: &str) -> String {
+            String::new()
+        }
+        async fn task_workspace(&self) -> String {
+            "/tasks".into()
+        }
+    }
+
+    struct StubMaintainer;
+    #[async_trait]
+    impl Maintainer for StubMaintainer {
+        async fn decide(&self, _: &SupervisorStep) -> Result<Option<Decision>, String> {
+            Ok(Some(Decision { action: Action::Unmanaged, scene: None }))
+        }
+    }
+
+    struct StubRunner;
+    #[async_trait]
+    impl CallRunner for StubRunner {
+        async fn run(&self, _: &str, _: &Request, _: &Arc<Run>) -> Result<(), String> {
+            Ok(())
+        }
+        async fn cut_off(&self, _: &str) {}
+    }
+
+    #[tokio::test]
+    async fn in_flight_post_does_not_clear_release_on_idle_while_user_send_does() {
+        let _tokens = mixdog_rt::testing::tokens();
+        let rooms = Arc::new(Rooms::new(MemStore(Mutex::new(RoomDoc::new()))));
+        let input = RoomConfigInput { name: "Room".into(), members: vec!["a".into(), "b".into()], ..Default::default() };
+        rooms.create(&input, "room01", 1).await.unwrap();
+        let ports = RoomPorts {
+            daemon: Arc::new(StubDaemon),
+            approvals: Arc::new(StubApprovals),
+            labels: Arc::new(StubLabels),
+            files: Arc::new(StubFiles),
+            sessions: Arc::new(StubSessions),
+            catalog: Arc::new(StubCatalog),
+            maintainer: Arc::new(StubMaintainer),
+            preview: Arc::new(|s| s.to_owned()),
+            log: Arc::new(|_| {}),
+            now: Arc::new(|| 100),
+        };
+        let live = LiveRooms::new(Arc::clone(&rooms), ports);
+        live.host_loaded(&rooms).await.unwrap();
+        live.bind_relays(Arc::new(|_: &str, _: &str| {}));
+        let host = live.host("room01").unwrap();
+
+        // Unload while an exchange is active, then post in-flight member speech before untracking.
+        let state = Arc::new(TurnState::new(Arc::new(Run::default())));
+        host.track(&state);
+        live.release_session("sess_room_room01");
+        host.post(vec![json!({ "id": "s1", "kind": "speech", "speaker": "a", "name": "A", "text": "in flight", "at": 2 })]).await.unwrap();
+        assert_eq!(live.recent_held("room01"), 1, "recent stays visible during the running exchange");
+        assert!(host.untrack(&state));
+        assert_eq!(live.recent_held("room01"), 0, "in-flight post must not cancel deferred release_on_idle");
+
+        // Genuine user activation via send while tracked clears release_on_idle so recent stays warm.
+        let state2 = Arc::new(TurnState::new(Arc::new(Run::default())));
+        host.track(&state2);
+        live.release_session("sess_room_room01");
+        let calls = RoomCalls::new(Arc::new(StubRunner), Arc::new(|_| {}));
+        let msg = UserMessage {
+            session_id: "sess_room_room01".into(),
+            submission_id: "sub1".into(),
+            prompt: json!([{ "type": "text", "text": "back again" }]),
+            pasted_images: None,
+            pasted_texts: None,
+        };
+        assert!(live.send(&rooms, &calls, &msg).await.unwrap());
+        assert!(host.untrack(&state2));
+        assert_eq!(live.recent_held("room01"), 1, "genuine user send re-activates the room");
+    }
+}

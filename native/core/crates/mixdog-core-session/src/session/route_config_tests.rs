@@ -719,3 +719,113 @@ async fn writes_queued_behind_a_route_move_wait_for_a_stored_patchs_journal_read
     };
     assert!(at("first").expect("the stored patch") < at("second").expect("the write after it"), "the write waited for the stored patch's read");
 }
+
+#[tokio::test(start_paused = true)]
+async fn switching_to_an_agent_route_replaces_a_prior_turns_context_window() {
+    use mixdog_core_api::ThreadHandle;
+    use mixdog_core_ports::ports::threads::ThreadState;
+
+    struct HeaderStatus;
+    #[async_trait::async_trait]
+    impl super::thread_context::ContextStatusHost for HeaderStatus {
+        async fn context_status(&self, _: Option<mixdog_core_api::ids::ThreadId>, _: Option<Value>) -> Result<Value, mixdog_core_api::error::CoreError> {
+            Ok(Value::Null)
+        }
+
+        async fn context_status_for(
+            &self,
+            _: mixdog_core_api::ids::ThreadId,
+            header: serde_json::Map<String, Value>,
+        ) -> Result<Value, mixdog_core_api::error::CoreError> {
+            Ok(json!({
+                "contextWindow": header.get("contextWindow"),
+                "compaction": {
+                    "boundaryTokens": header.get("compactBoundaryTokens"),
+                    "triggerTokens": header.get("autoCompactTokenLimit"),
+                },
+            }))
+        }
+    }
+
+    let rig = Rig::new();
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            run.cancel.cancelled().await;
+            RunOutcome::Interrupted
+        })
+    }));
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.context_status = Arc::new(HeaderStatus);
+    let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
+    let handle = start_thread(&directory).await;
+    let threads = super::thread_state::SessionThreads::new(directory.clone());
+    let thread = &handle.id;
+    let patch = |set: Value| {
+        let writer = &threads;
+        async move {
+            writer.patch_header(thread, set.as_object().unwrap().clone(), Vec::new()).await.unwrap();
+        }
+    };
+    let read_context = || async {
+        let read = handle.request(super::tests::request("thread/read", json!({ "threadId": handle.id }), "read")).await.unwrap();
+        let mixdog_core_api::Reply::Value(read) = read else { panic!("thread/read must answer a value") };
+        read["state"]["context"].clone()
+    };
+
+    patch(json!({
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-5-5",
+        "contextWindow": 500_000,
+        "rawContextWindow": 1_000_000,
+        "effectiveContextWindowPercent": 50,
+        "compactBoundaryTokens": 500_000,
+        "autoCompactTokenLimit": 460_000,
+    }))
+    .await;
+    handle
+        .set_section(Section::Context(ThreadContext {
+            context_window: Some(500_000),
+            display_context_window: Some(500_000),
+            compact_boundary_tokens: Some(500_000),
+            auto_compact_token_limit: Some(460_000),
+            ..Default::default()
+        }))
+        .await
+        .unwrap();
+    assert_eq!(read_context().await["contextWindow"], json!(500_000));
+
+    patch(json!({
+        "provider": "acp-antigravity-cli",
+        "model": "claude-opus-5-5",
+        "contextWindow": 1_000_000,
+        "rawContextWindow": 1_000_000,
+        "effectiveContextWindowPercent": 100,
+        "compactBoundaryTokens": 1_000_000,
+        "autoCompactTokenLimit": 1_000_000,
+    }))
+    .await;
+    let after_switch = read_context().await;
+    assert_eq!(
+        (&after_switch["contextWindow"], &after_switch["displayContextWindow"], &after_switch["compactBoundaryTokens"]),
+        (&json!(1_000_000), &json!(1_000_000), &json!(1_000_000))
+    );
+
+    let started = turn(&handle, "agent-turn", "op-acp").await;
+    patch(json!({
+        "contextWindow": 1_048_576,
+        "rawContextWindow": 1_048_576,
+        "compactBoundaryTokens": 1_048_576,
+        "acpContextWindow": 1_048_576,
+    }))
+    .await;
+    assert_eq!(read_context().await["contextWindow"], json!(1_048_576));
+    handle.interrupt(&TurnId::from(started["turnId"].as_str().expect("turn id")), None).expect("interrupt");
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let settled = read_context().await;
+    assert_eq!(
+        (&settled["contextWindow"], &settled["displayContextWindow"], &settled["compactBoundaryTokens"]),
+        (&json!(1_048_576), &json!(1_048_576), &json!(1_048_576))
+    );
+    directory.shutdown().await;
+}

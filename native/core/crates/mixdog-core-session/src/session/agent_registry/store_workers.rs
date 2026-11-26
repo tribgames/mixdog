@@ -127,17 +127,19 @@ pub struct KeptRows {
 /// The kept maps in memory, each with the revision of its last put (its keep order), and the revision of each session's
 /// last change, so a load asks only for what changed since the revision it holds.
 #[derive(Default)]
-struct KeptMemory {
+pub(super) struct KeptMemory {
     maps: HashMap<String, (u64, Row)>,
     /// Each kept row's identity, as the table holds it ([`KEPT_IDENTITY_PREFIX`]).
     identities: HashMap<String, String>,
     revision: u64,
+    /// Highest revision whose removed-session change entry was pruned: any `since < floor` falls back to `All`.
+    floor: u64,
     changed: BTreeMap<u64, String>,
     changed_at: HashMap<String, u64>,
 }
 
 impl KeptMemory {
-    fn set(&mut self, session: &str, worker: Option<Row>) {
+    pub(super) fn set(&mut self, session: &str, worker: Option<Row>) {
         self.revision += 1;
         if let Some(at) = self.changed_at.insert(session.to_owned(), self.revision) {
             self.changed.remove(&at);
@@ -147,6 +149,47 @@ impl KeptMemory {
             Some(map) => self.maps.insert(session.to_owned(), (self.revision, map)),
             None => self.maps.remove(session),
         };
+    }
+
+    pub(super) fn forget(&mut self, session: &str) {
+        if !self.maps.contains_key(session)
+            && let Some(at) = self.changed_at.remove(session)
+        {
+            self.changed.remove(&at);
+            self.floor = self.floor.max(at);
+        }
+    }
+
+    fn prune_removed_through(&mut self, through: u64) {
+        let stale: Vec<(u64, String)> =
+            self.changed.range(..=through).filter(|(_, id)| !self.maps.contains_key(id.as_str())).map(|(&at, id)| (at, id.clone())).collect();
+        for (at, id) in stale {
+            self.changed.remove(&at);
+            if self.changed_at.get(&id) == Some(&at) {
+                self.changed_at.remove(&id);
+            }
+            self.floor = self.floor.max(at);
+        }
+    }
+
+    pub(super) fn since(&mut self, since: Option<u64>) -> (u64, KeptSince) {
+        let answer = match since {
+            Some(since) if since >= self.floor && since <= self.revision => {
+                let changed = self.changed.range(since + 1..).map(|(_, id)| (id.clone(), self.maps.get(id).cloned())).collect();
+                self.prune_removed_through(since);
+                KeptSince::Changed(changed)
+            }
+            _ => {
+                self.prune_removed_through(self.revision);
+                KeptSince::All(self.all())
+            }
+        };
+        (self.revision, answer)
+    }
+
+    #[cfg(test)]
+    pub(super) fn changed_counts(&self) -> (usize, usize) {
+        (self.changed.len(), self.changed_at.len())
     }
 
     fn all(&self) -> Vec<(String, u64, Row)> {
@@ -280,15 +323,15 @@ impl KeptRows {
     /// every one when it holds none, or one memory never reached.
     pub async fn since(&self, since: Option<u64>) -> Result<(u64, KeptSince), String> {
         self.loaded().await?;
-        let rows = self.rows();
-        let memory = rows.as_ref().expect("loaded above");
-        let answer = match since {
-            Some(since) if since <= memory.revision => {
-                KeptSince::Changed(memory.changed.range(since + 1..).map(|(_, id)| (id.clone(), memory.maps.get(id).cloned())).collect())
-            }
-            _ => KeptSince::All(memory.all()),
-        };
-        Ok((memory.revision, answer))
+        let mut rows = self.rows();
+        let memory = rows.as_mut().expect("loaded above");
+        Ok(memory.since(since))
+    }
+
+    pub fn forget(&self, session: &str) {
+        if let Some(memory) = self.rows().as_mut() {
+            memory.forget(session);
+        }
     }
 
     /// Every kept map with its keep order, in that order (once loaded).
@@ -1226,6 +1269,7 @@ impl WorkerStore for StoreWorkers {
 
     fn forget_session(&self, session: &str) {
         self.logs.lock().unwrap_or_else(|e| e.into_inner()).remove(session);
+        self.kept.forget(session);
     }
 
     fn write_lead(&self, session: &str, row: Option<Row>) {

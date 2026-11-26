@@ -826,11 +826,17 @@ impl HostEnv for LiveEnv {
     fn set_timer(&self, ms: u64, run: Arc<dyn Fn(u64) + Send + Sync>) -> u64 {
         let Some(inner) = self.inner() else { return 0 };
         let handle = inner.timer_seq.fetch_add(1, Ordering::Relaxed) + 1;
+        let weak = Arc::downgrade(&inner);
+        // Held while the task is spawned and registered so a timer firing immediately finds its own entry to remove.
+        let mut state = lock(&inner.state);
         let task = mixdog_rt::spawn("live-view-timer", TaskClass::Work, async move {
             mixdog_rt::time::sleep(Duration::from_millis(ms)).await;
+            if let Some(inner) = weak.upgrade() {
+                lock(&inner.state).timers.remove(&handle);
+            }
             run(handle);
         });
-        lock(&inner.state).timers.insert(handle, task);
+        state.timers.insert(handle, task);
         handle
     }
 
@@ -1152,6 +1158,51 @@ mod tests {
             },
             Box::new(|_| Box::new(Quiet)),
         ))
+    }
+
+    struct DummyHost;
+
+    #[async_trait]
+    impl HostChannel for DummyHost {
+        async fn request(&self, _: HostCapability, _: Method, _: Value) -> Result<Value, HostError> {
+            Ok(json!({}))
+        }
+        fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), CoreError> {
+            Ok(())
+        }
+    }
+
+    struct DummyPhones;
+
+    impl mixdog_core_api::ConnectionNotifier for DummyPhones {
+        fn notify(&self, _: ConnectionId, _: Method, _: Value) -> Result<(), CoreError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn a_fired_timer_removes_its_entry_from_state_timers() {
+        let dir = tempfile::tempdir().unwrap();
+        let svc = LiveViewService::with_peers(
+            Arc::new(DummyHost),
+            Arc::new(DummyPhones),
+            HostMedia::new(1 << 20),
+            runtime(dir.path()),
+            Arc::new(Scripted::default()),
+            Arc::new(PairedScreenAccess::new(Arc::new(|_| None), Arc::new(|_| false), Arc::new(|_| true))),
+        );
+        let env = LiveEnv(Arc::downgrade(&svc.inner));
+        let fired = Arc::new(tokio::sync::Notify::new());
+        let signal = fired.clone();
+        let handle = env.set_timer(
+            10,
+            Arc::new(move |_| {
+                signal.notify_one();
+            }),
+        );
+        assert!(handle > 0);
+        mixdog_rt::time::timeout(Duration::from_secs(5), fired.notified()).await.expect("timer fired");
+        assert!(lock(&svc.inner.state).timers.is_empty(), "fired timer handle is removed from State::timers");
     }
 }
 

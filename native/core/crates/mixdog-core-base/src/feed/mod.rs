@@ -84,6 +84,7 @@ struct Shared {
     ordered: bool,
     max_snapshot_bytes: usize,
     cpu: CpuInteractive,
+    on_last_detach: Option<Arc<dyn Fn() + Send + Sync>>,
     state: Mutex<State>,
 }
 
@@ -151,15 +152,35 @@ impl CoreFeed {
     /// An empty feed (seq 0) of producer instance `epoch`, whose read model is `view`.
     /// `cpu` runs its snapshot encodes.
     pub fn new(id: FeedId, epoch: FeedEpoch, view: Arc<dyn FeedView>, limits: FeedLimits, cpu: CpuInteractive) -> Self {
-        Self::with_class(id, epoch, view, limits, cpu, false)
+        Self::with_options(id, epoch, view, limits, cpu, false, None)
+    }
+
+    /// [`Self::new`] with `on_last_detach` invoked once the last attached subscriber detaches.
+    pub fn new_watching_detach(
+        id: FeedId,
+        epoch: FeedEpoch,
+        view: Arc<dyn FeedView>,
+        limits: FeedLimits,
+        cpu: CpuInteractive,
+        on_last_detach: Arc<dyn Fn() + Send + Sync>,
+    ) -> Self {
+        Self::with_options(id, epoch, view, limits, cpu, false, Some(on_last_detach))
     }
 
     /// [`Self::new`] for a feed of the ordered class: its subscribers' lanes never drop an event.
     pub fn new_ordered(id: FeedId, epoch: FeedEpoch, view: Arc<dyn FeedView>, limits: FeedLimits, cpu: CpuInteractive) -> Self {
-        Self::with_class(id, epoch, view, limits, cpu, true)
+        Self::with_options(id, epoch, view, limits, cpu, true, None)
     }
 
-    fn with_class(id: FeedId, epoch: FeedEpoch, view: Arc<dyn FeedView>, limits: FeedLimits, cpu: CpuInteractive, ordered: bool) -> Self {
+    fn with_options(
+        id: FeedId,
+        epoch: FeedEpoch,
+        view: Arc<dyn FeedView>,
+        limits: FeedLimits,
+        cpu: CpuInteractive,
+        ordered: bool,
+        on_last_detach: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) -> Self {
         Self {
             shared: Arc::new(Shared {
                 id,
@@ -167,6 +188,7 @@ impl CoreFeed {
                 ordered,
                 max_snapshot_bytes: limits.max_snapshot_bytes,
                 cpu,
+                on_last_detach,
                 state: Mutex::new(State {
                     seq: 0,
                     view,
@@ -202,6 +224,11 @@ impl CoreFeed {
     #[cfg(test)]
     fn ring_held(&self) -> usize {
         self.shared.lock().ring.held()
+    }
+
+    #[cfg(test)]
+    fn snapshots_held(&self) -> usize {
+        self.shared.lock().snapshots.held()
     }
 }
 
@@ -362,9 +389,17 @@ impl FeedSource for CoreFeed {
     }
 
     fn detach(&self, sub: SubscriptionId) {
-        let removed = self.shared.lock().subs.remove(&sub);
+        let (removed, last_detached) = {
+            let mut state = self.shared.lock();
+            let removed = state.subs.remove(&sub);
+            let last_detached = removed.is_some() && state.subs.is_empty() && state.closed.is_none();
+            (removed, last_detached)
+        };
         if let Some(subscriber) = removed {
             subscriber.lane.close();
+        }
+        if last_detached && let Some(on_last_detach) = &self.shared.on_last_detach {
+            on_last_detach();
         }
     }
 
@@ -449,6 +484,8 @@ impl Feed for CoreFeed {
         let mut guard = self.shared.lock();
         let state = &mut *guard;
         state.ring.rest(state.view_seq);
+        // An attach after the rest encodes the view again: a resting thread holds no snapshot of it.
+        state.snapshots.clear();
     }
 
     fn rebase(&self, rebase: &mut mixdog_core_api::feed::Rebase<'_>) {

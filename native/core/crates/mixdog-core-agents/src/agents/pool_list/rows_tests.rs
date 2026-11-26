@@ -320,3 +320,22 @@ async fn a_settled_outcome_keeps_the_identity_first_listed_until_new_work_settle
     let stale = listed(json!({ "startedTurns": 3, "turnStartedAt": NOW - 20.0, "updatedAt": NOW - 30.0 }), false).await;
     assert_eq!(stale.0, json!(iso(NOW).unwrap()));
 }
+
+#[tokio::test]
+async fn active_turn_keeps_its_origin_across_later_asks_and_replaces_only_settled_turn_stamps() {
+    let mut active = worker("s_active", "active", "running");
+    active["turnStartedAt"] = json!("2026-03-01T10:00:00.000Z");
+    let mut woken = worker("s_woken", "woken", "idle");
+    woken["turnStartedAt"] = json!("2026-03-01T09:50:00.000Z");
+    woken["finishedAt"] = json!("2026-03-01T09:55:00.000Z");
+    let mut rig = Rig::default();
+    rig.workers = vec![active, woken];
+    rig.running = ["s_active", "s_woken"].map(String::from).into_iter().collect();
+    let later_ask = date_parse("2026-03-01T10:00:02.000Z");
+    rig.entries.insert("s_active".into(), RuntimeEntry { liveness: object(json!({ "stage": "streaming", "askStartedAt": later_ask })), controller_live: true });
+    rig.entries.insert("s_woken".into(), RuntimeEntry { liveness: object(json!({ "stage": "requesting", "askStartedAt": later_ask })), controller_live: true });
+    let rows = list(rig).await;
+    let by_tag = |tag: &str| rows.iter().find(|row| row["tag"] == tag).unwrap()["turnStartedAt"].clone();
+    assert_eq!(by_tag("active"), json!("2026-03-01T10:00:00.000Z"));
+    assert_eq!(by_tag("woken"), json!("2026-03-01T10:00:02.000Z"));
+}

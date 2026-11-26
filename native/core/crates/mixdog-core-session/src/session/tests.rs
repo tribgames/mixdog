@@ -9893,3 +9893,312 @@ async fn a_takeover_end_keeps_its_cause_after_a_reload() {
     assert_eq!(at_fence(&reloaded, &b, &mut again, "after a reload").await, log);
     assert_eq!(again.rows_of("turnEnd", &running), ends, "the end reads the same after a reload");
 }
+
+/// Cold positioned resume seeds `StoredTail` directly from `read_window` (no duplicate `history_tail_decor` read and no
+/// third `unit_page` read via `UnitJob::Tail`) and honors `lastItems` above 32 in a single initial snapshot.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cold_positioned_resume_honors_last_items_above_32_without_redundant_reads() {
+    let mut counted: Option<Arc<super::testing::CallCounted>> = None;
+    let mut world = Fenced::over(|inner| {
+        let store = super::testing::CallCounted::paging(inner);
+        counted = Some(store.clone());
+        store
+    })
+    .await;
+    let counted = counted.expect("store wrapped");
+    let id = world.handle.id.clone();
+
+    // 20 turns × 3 units (user, agent, turnEnd) = 60 visible units (> 50 > 32).
+    for _ in 0..20 {
+        world.ran("say").await;
+    }
+    let full_log = log_units(&world.handle).await;
+    assert_eq!(full_log.len(), 60);
+
+    world.directory.release(&id).await;
+    world.directory.unload_settled(&id).await;
+    assert!(world.directory.handle(&id).is_none(), "thread unloaded before cold open");
+
+    let calls_before = counted.calls().len();
+    let conn = mixdog_core_api::mock::MockConnection::new(mixdog_core_api::ids::ConnectionId(91), mixdog_core_api::mock::MockLimits::default());
+    let params = json!({ "threadId": id, "window": { "lastItems": 50 }, "positionedWindow": true });
+    let handle = world.directory.open_handle(&id, &CallContext::internal("test")).await.expect("cold open");
+    let Reply::Subscribe(reply) = handle.request(request("thread/resume", params, "mobile")).await.expect("thread/resume") else {
+        panic!("thread/resume subscribes");
+    };
+    let sub = mixdog_core_api::ids::SubscriptionId::from("mobile");
+    let attached = mixdog_core_api::feed::subscribe(&reply.feed, sub, reply.window, reply.resume_from, &conn).expect("attach");
+    mixdog_core_api::sink::ConnectionSink::send_control_release(&conn, bytes::Bytes::from_static(b"{}"), attached.release).expect("release");
+    let frames = lane_frames(&conn.drain_text_until(|frames| frames.iter().any(|frame| frame.contains("thread/snapshot"))).await);
+    let snapshot = frames.into_iter().find(|frame| frame["method"] == "thread/snapshot").expect("snapshot");
+
+    let calls_during = counted.calls();
+    let cold_calls = &calls_during[calls_before..];
+    assert!(cold_calls.contains(&"read_window"), "cold open read the window: {cold_calls:?}");
+    assert!(!cold_calls.contains(&"history_tail_decor"), "cold open must not re-read history_tail_decor: {cold_calls:?}");
+    assert!(!cold_calls.contains(&"unit_page"), "cold positioned resume must not run a third unit_page read: {cold_calls:?}");
+
+    let units = snapshot["params"]["window"]["added"][0]["units"].as_array().expect("tail units");
+    assert_eq!(units.len(), 50, "initial positioned snapshot honors lastItems: 50 instead of capping at 32");
+    assert_eq!(units.as_slice(), &full_log[10..], "carried units match the newest 50 stored units");
+    assert_eq!(snapshot["params"]["hasOlder"], json!(true));
+    assert_eq!(snapshot["params"]["window"]["ranges"][0]["older"]["kind"], json!("continuation"));
+}
+
+/// An oversized newest stored unit whose encoded snapshot would exceed `max_snapshot_bytes` is omitted from the
+/// positioned snapshot rather than overflowing the transport reservation and wedging the lane in a lag loop.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn oversized_newest_unit_delivers_positioned_snapshot_without_lagging() {
+    use mixdog_core_api::mock::{MockConnection, MockLimits};
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let big = "z".repeat(12 << 10);
+    let big_for_script = big.clone();
+    rig.set_script(Arc::new(move |run| {
+        let big = big_for_script.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let text = match &run.input.prompt {
+                mixdog_protocol::PromptContent::Text(t) if t == "huge" => big,
+                _ => "small follow-up".to_owned(),
+            };
+            let item = ItemCommit {
+                iid: ItemId::from(format!("a-{}", run.turn)),
+                role: Some("assistant".into()),
+                model: true,
+                visible: true,
+                body: json!({ "role": "assistant", "content": text }),
+                prompt: None,
+            };
+            run.port.commit_item(item).await.expect("commit");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let mut deps = rig.deps_parts(store);
+    deps.transcript = Arc::new(PositionedText);
+    let max_snapshot = 8 << 10;
+    let feed_limits = mixdog_core_base::feed::FeedLimits { ring_bytes: 1 << 20, max_snapshot_bytes: max_snapshot };
+    deps.feeds = Arc::new(super::store::CoreThreadFeeds { limits: feed_limits, cpu: mixdog_rt::testing::tokens().cpu_interactive });
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "huge", "op-huge").await;
+    stored_rows(&handle, 1).await;
+
+    let limits = MockLimits { queue_bytes: 64 << 10, control_reserve_bytes: 32 << 10, max_snapshot_bytes: max_snapshot, ring_bytes: 1 << 20 };
+    let conn = MockConnection::new(mixdog_core_api::ids::ConnectionId(92), limits);
+    let (conn, _feed, _sub, snapshot) = positioned_subscriber_on(&directory, &handle.id, conn, "sub-big").await;
+    assert_eq!(snapshot["method"], "thread/snapshot");
+    let raw = serde_json::to_vec(&snapshot).expect("json");
+    assert!(raw.len() <= max_snapshot, "delivered snapshot ({}) must fit reservation ({max_snapshot})", raw.len());
+    assert_eq!(snapshot["params"]["hasOlder"], json!(true));
+    assert_eq!(snapshot["params"]["window"]["followTail"], json!(true));
+    assert_eq!(snapshot["params"]["window"]["ranges"], json!([]));
+    assert_eq!(snapshot["params"]["window"]["added"], json!([]));
+
+    // A subsequent normal turn still flows over the live `followTail` subscription without lagging.
+    turn(&handle, "small", "op-small").await;
+    let frames = lane_frames(&conn.drain_text_until(|frames| frames.iter().any(|frame| frame.contains("small follow-up"))).await);
+    assert!(frames.iter().any(|frame| frame["method"] == "thread/transcript/changed"), "followTail delivered subsequent unit: {frames:?}");
+    directory.shutdown().await;
+}
+
+/// `SessionActor::stop_submissions` on a peeked queued submission prevents `RunPort::consume_steers` from claiming it
+/// while leaving any surviving submission claimable, and cancelling the active turn stops `consume_steers` from dequeuing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn consume_steers_skips_concurrently_stopped_submission_and_respects_turn_cancel() {
+    use super::run::DrainRequest;
+    use super::run::DrainStage;
+    use super::run::Priority;
+    use mixdog_core_api::ids::QueuedId;
+    use tokio::sync::{Notify, oneshot};
+
+    let rig = Rig::new();
+    let peeked_qids: Arc<std::sync::Mutex<Vec<QueuedId>>> = Arc::default();
+    let claimed_qids: Arc<std::sync::Mutex<Vec<QueuedId>>> = Arc::default();
+    let ready_to_peek = Arc::new(Notify::new());
+    let peeked_done = Arc::new(Notify::new());
+    let resume_consume = Arc::new(Notify::new());
+    let turn_done = Arc::new(Notify::new());
+    rig.set_script(Arc::new({
+        let (peeked_qids, claimed_qids, ready_to_peek, peeked_done, resume_consume, turn_done) =
+            (peeked_qids.clone(), claimed_qids.clone(), ready_to_peek.clone(), peeked_done.clone(), resume_consume.clone(), turn_done.clone());
+        move |run| {
+            let (peeked_qids, claimed_qids, ready_to_peek, peeked_done, resume_consume, turn_done) =
+                (peeked_qids.clone(), claimed_qids.clone(), ready_to_peek.clone(), peeked_done.clone(), resume_consume.clone(), turn_done.clone());
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                if matches!(&run.input.prompt, mixdog_protocol::PromptContent::Text(t) if t == "turn-1") {
+                    ready_to_peek.notified().await;
+                    let req = DrainRequest { stage: DrainStage::PreSend, max_priority: Priority::Next };
+                    let peeked = run.port.peek_steers(req).await.expect("peek steers");
+                    let qids: Vec<QueuedId> = peeked.into_iter().flat_map(|s| s.queued_ids).collect();
+                    *lock(&peeked_qids) = qids.clone();
+                    peeked_done.notify_one();
+                    resume_consume.notified().await;
+                    let claimed = run.port.consume_steers(req, qids, 1_000).await.expect("consume steers");
+                    *lock(&claimed_qids) = claimed.into_iter().flat_map(|s| s.queued_ids).collect();
+                    turn_done.notify_one();
+                }
+                RunOutcome::Completed(Default::default())
+            })
+        }
+    }));
+
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    handle.request(request("turn/start", json!({ "threadId": handle.id, "opId": "op-t1", "input": { "prompt": "turn-1" } }), "op-t1")).await.expect("turn 1");
+    eventually_on!(&[&handle.cell.stepped], || handle.turn_busy().then_some(())).await;
+
+    // Queue two mid-turn submissions with explicit clientSubmissionIds.
+    for (op, sub, text) in [("op-s1", "sub-stop", "stop me"), ("op-s2", "sub-keep", "keep me")] {
+        handle
+            .request(request(
+                "turn/start",
+                json!({ "threadId": handle.id, "opId": op, "input": { "prompt": text, "options": { "clientSubmissionId": sub } } }),
+                op,
+            ))
+            .await
+            .expect("queued steer");
+    }
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 2).then_some(())).await;
+
+    ready_to_peek.notify_one();
+    peeked_done.notified().await;
+    assert_eq!(lock(&peeked_qids).len(), 2, "both queued steers peeked");
+
+    // Stop only `sub-stop` while attachment resolution would be in flight (active turn stays running).
+    let (reply, rx) = oneshot::channel();
+    handle.cell.deliver(super::control::Ctl::StopWork { submissions: vec!["sub-stop".to_owned()], reply });
+    let waits = rx.await.expect("stop work reply");
+    for wait in waits {
+        wait.await.expect("stop channel").expect("stop durable");
+    }
+
+    resume_consume.notify_one();
+    turn_done.notified().await;
+    let claimed = lock(&claimed_qids).clone();
+    assert_eq!(claimed.len(), 1, "only the surviving submission may be claimed: {claimed:?}");
+    assert_eq!(claimed[0], lock(&peeked_qids)[1], "stopped submission was skipped and surviving submission claimed");
+    directory.shutdown().await;
+}
+
+/// `RunPort::consume_steers` commits queue dequeue records and their user transcript rows in one atomic outbox unit:
+/// a barrier failure on the item record rolls back the dequeue too (zero lost submissions on crash), and a healthy
+/// write lands both records together in a single store append batch.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn consume_steers_commits_dequeue_and_transcript_row_atomically() {
+    use super::run::DrainRequest;
+    use super::run::DrainStage;
+    use super::run::Priority;
+    use mixdog_core_api::ids::QueuedId;
+    use mixdog_store::schema::blob::Slot;
+    use mixdog_store::schema::record::{QueueAction, Record};
+    use tokio::sync::Notify;
+
+    let rig = Rig::new();
+    let ready = Arc::new(Notify::new());
+    let consumed = Arc::new(Notify::new());
+    let release_turn = Arc::new(Notify::new());
+    let consumed_result: Arc<Mutex<Option<Result<Vec<QueuedId>, crate::session::RunError>>>> = Arc::default();
+    rig.set_script(Arc::new({
+        let (ready, consumed, release_turn, consumed_result) = (ready.clone(), consumed.clone(), release_turn.clone(), consumed_result.clone());
+        move |run| {
+            let (ready, consumed, release_turn, consumed_result) = (ready.clone(), consumed.clone(), release_turn.clone(), consumed_result.clone());
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                ready.notified().await;
+                let req = DrainRequest { stage: DrainStage::PreSend, max_priority: Priority::Next };
+                let peeked = run.port.peek_steers(req).await.expect("peek steers");
+                let qids: Vec<QueuedId> = peeked.into_iter().flat_map(|s| s.queued_ids).collect();
+                let claimed = run.port.consume_steers(req, qids, 2_000).await.map(|steers| steers.into_iter().flat_map(|s| s.queued_ids).collect());
+                *lock(&consumed_result) = Some(claimed);
+                consumed.notify_one();
+                release_turn.notified().await;
+                RunOutcome::Completed(Default::default())
+            })
+        }
+    }));
+
+    let directory = SessionDirectory::new(rig.deps());
+
+    // Case 1: Failing the barrier that contains the steer's `Record::Item` prevents the `Queue(Dequeue)` from landing either,
+    // returns `RunError::NotApplied` (never `Ok` for an undurable steer), and leaves the steer queued.
+    let rollback_thread = start_thread(&directory).await;
+    rollback_thread
+        .request(request("turn/start", json!({ "threadId": rollback_thread.id, "opId": "op-r1", "input": { "prompt": "turn-rollback" } }), "op-r1"))
+        .await
+        .expect("turn rollback");
+    eventually_on!(&[&rollback_thread.cell.stepped], || rollback_thread.turn_busy().then_some(())).await;
+    rollback_thread
+        .request(request(
+            "turn/start",
+            json!({ "threadId": rollback_thread.id, "opId": "op-rs1", "input": { "prompt": "atomic rollback steer", "options": { "clientSubmissionId": "sub-rb" } } }),
+            "op-rs1",
+        ))
+        .await
+        .expect("queued rollback steer");
+    eventually_on!(&[&rollback_thread.cell.stepped], || (rollback_thread.cell.queue.load().len() == 1).then_some(())).await;
+
+    *lock(&rig.store.fail_when) = Some((Box::new(|record| matches!(record, Record::Item(_))), false));
+    ready.notify_one();
+    consumed.notified().await;
+    assert_eq!(
+        *lock(&consumed_result),
+        Some(Err(crate::session::RunError::NotApplied)),
+        "recoverable journal write failure must fail steer consumption rather than acknowledging it as durable"
+    );
+
+    let persisted = rig.store.records(&rollback_thread.id);
+    let dequeued_on_disk = persisted.iter().any(|(_, record)| matches!(record, Record::Queue(q) if q.action == QueueAction::Dequeue));
+    let item_on_disk = persisted.iter().any(
+        |(_, record)| matches!(record, Record::Item(item) if matches!(&item.body, Slot::Inline(body) if body.to_string().contains("atomic rollback steer"))),
+    );
+    assert!(!dequeued_on_disk, "dequeue must not land on disk when the atomic unit's item write fails: {persisted:?}");
+    assert!(!item_on_disk, "item must not land on disk when the atomic unit fails: {persisted:?}");
+    eventually_on!(&[&rollback_thread.cell.stepped], || (rollback_thread.cell.queue.load().len() == 1).then_some(())).await;
+    *lock(&rig.store.fail_when) = None;
+    release_turn.notify_one();
+    // After the failing turn ends and disk recovers, the retained steer starts its own turn.
+    eventually_on!(&[&rollback_thread.cell.stepped], || rollback_thread.cell.queue.load().is_empty().then_some(())).await;
+    ready.notify_one();
+    consumed.notified().await;
+    release_turn.notify_one();
+    eventually_on!(&[&rollback_thread.cell.stepped], || (!rollback_thread.turn_busy()).then_some(())).await;
+
+    // Case 2: On a healthy write, `Queue(Dequeue)` and `Record::Item` land together in one single store append batch.
+    let ok_thread = start_thread(&directory).await;
+    ok_thread
+        .request(request("turn/start", json!({ "threadId": ok_thread.id, "opId": "op-o1", "input": { "prompt": "turn-ok" } }), "op-o1"))
+        .await
+        .expect("turn ok");
+    eventually_on!(&[&ok_thread.cell.stepped], || ok_thread.turn_busy().then_some(())).await;
+    ok_thread
+        .request(request(
+            "turn/start",
+            json!({ "threadId": ok_thread.id, "opId": "op-os1", "input": { "prompt": "atomic committed steer", "options": { "clientSubmissionId": "sub-ok" } } }),
+            "op-os1",
+        ))
+        .await
+        .expect("queued ok steer");
+    eventually_on!(&[&ok_thread.cell.stepped], || (ok_thread.cell.queue.load().len() == 1).then_some(())).await;
+
+    let batches_before = lock(&rig.store.batches).len();
+    let records_before = rig.store.records(&ok_thread.id).len();
+    ready.notify_one();
+    consumed.notified().await;
+
+    let new_batches = lock(&rig.store.batches)[batches_before..].to_vec();
+    let new_records = rig.store.records(&ok_thread.id)[records_before..].to_vec();
+    assert_eq!(new_batches, vec![2], "dequeue and transcript row must commit in one single 2-record batch: {new_batches:?}");
+    assert_eq!(new_records.len(), 2, "expected dequeue + item records: {new_records:?}");
+    assert!(matches!(&new_records[0].1, Record::Queue(q) if q.action == QueueAction::Dequeue), "first record is dequeue: {:?}", new_records[0].1);
+    assert!(
+        matches!(&new_records[1].1, Record::Item(item) if item.role.as_ref().map(|r| r.as_str()) == Some("user") && matches!(&item.body, Slot::Inline(body) if body.to_string().contains("atomic committed steer"))),
+        "second record is the steered user transcript row: {:?}",
+        new_records[1].1
+    );
+    assert!(ok_thread.cell.queue.load().is_empty(), "queue must be empty after atomic consume");
+    release_turn.notify_one();
+    directory.shutdown().await;
+}

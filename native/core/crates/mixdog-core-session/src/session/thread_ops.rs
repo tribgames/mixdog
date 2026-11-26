@@ -16,6 +16,7 @@ use mixdog_core_base::ops::OpState;
 use mixdog_core_base::ops::OpStore;
 use mixdog_core_base::ops::PayloadDigest;
 use mixdog_core_base::ops::ThreadOpGates;
+use mixdog_core_base::ops::WeakOpGate;
 use mixdog_rt::CancellationToken;
 use mixdog_store::schema::bounded::Digest;
 use mixdog_store::schema::bounded::Json;
@@ -58,11 +59,11 @@ pub(crate) fn op_ref_of(record: &Record) -> Option<&OpRef> {
 /// The method an `op` record of a fence names (a fence knows only the id).
 const FENCE_METHOD: &str = "op/status";
 
-/// `ThreadOpGates` over the thread directory: one gate per thread, made on first use, so the
-/// slots that order one op's lookups, fences and executions are shared by every caller.
+/// `ThreadOpGates` over the thread directory: one live gate per thread while in use, held weakly so
+/// unused gates are released once every caller and ticket drops them.
 pub struct ThreadOps {
     dir: Arc<DirInner>,
-    gates: Mutex<HashMap<ThreadId, OpGate>>,
+    gates: Mutex<HashMap<ThreadId, WeakOpGate>>,
 }
 
 impl ThreadOps {
@@ -70,8 +71,25 @@ impl ThreadOps {
         Arc::new(Self { dir, gates: Mutex::new(HashMap::new()) })
     }
 
-    fn gates(&self) -> std::sync::MutexGuard<'_, HashMap<ThreadId, OpGate>> {
+    fn gates(&self) -> std::sync::MutexGuard<'_, HashMap<ThreadId, WeakOpGate>> {
         self.gates.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub(crate) fn forget(&self, thread: &ThreadId) {
+        let mut gates = self.gates();
+        gates.remove(thread);
+        gates.retain(|_, weak| weak.is_live());
+    }
+
+    pub(crate) fn prune_unused(&self) {
+        self.gates().retain(|_, weak| weak.is_live());
+    }
+
+    #[cfg(test)]
+    fn gates_held(&self) -> (usize, usize) {
+        let gates = self.gates();
+        let live = gates.values().filter(|weak| weak.is_live()).count();
+        (gates.len(), live)
     }
 }
 
@@ -81,14 +99,18 @@ impl ThreadOpGates for ThreadOps {
     async fn gate(&self, thread: &ThreadId, _ctx: &CallContext) -> Result<OpGate, CoreError> {
         // Only whether the session is there is asked: none of its header is taken.
         if self.dir.stored_fields(thread, &[]).await.is_none() {
-            self.gates().remove(thread);
+            let mut gates = self.gates();
+            gates.remove(thread);
+            gates.retain(|_, weak| weak.is_live());
             return Err(CoreError::ThreadNotFound { thread_id: thread.clone() });
         }
-        let gate = self
-            .gates()
-            .entry(thread.clone())
-            .or_insert_with(|| OpGate::thread(OpScope::Thread(thread.clone()), Arc::new(ThreadOpStore { dir: self.dir.clone(), thread: thread.clone() })))
-            .clone();
+        let mut gates = self.gates();
+        gates.retain(|_, weak| weak.is_live());
+        if let Some(gate) = gates.get(thread).and_then(WeakOpGate::upgrade) {
+            return Ok(gate);
+        }
+        let gate = OpGate::thread(OpScope::Thread(thread.clone()), Arc::new(ThreadOpStore { dir: self.dir.clone(), thread: thread.clone() }));
+        gates.insert(thread.clone(), gate.downgrade());
         Ok(gate)
     }
 }
@@ -215,5 +237,39 @@ mod tests {
             OpRecord::Settled { state: OpState::ExternalPending { effect, target }, .. } if &*effect == "push" && &*target == "origin"
         ));
         assert!(record_of(stored(Logged::Rejected, None, None)).is_err());
+    }
+
+    #[tokio::test]
+    async fn unused_and_deleted_thread_gates_are_released() {
+        let rig = crate::session::testing::Rig::new();
+        let directory = crate::session::SessionDirectory::new(rig.deps());
+        let ops = directory.thread_ops();
+        let ctx = CallContext::internal("test");
+
+        let first = crate::session::tests::start_thread(&directory).await.id.clone();
+        let second = crate::session::tests::start_thread(&directory).await.id.clone();
+
+        let gate_a = ops.gate(&first, &ctx).await.expect("first gate");
+        let gate_a_shared = ops.gate(&first, &ctx).await.expect("shared first gate");
+        assert!(gate_a.same_gate(&gate_a_shared), "concurrent callers share one live gate");
+        assert_eq!(ops.gates_held(), (1, 1));
+
+        drop(gate_a);
+        drop(gate_a_shared);
+        assert_eq!(ops.gates_held().1, 0, "dropping all callers releases the OpGate immediately");
+
+        let gate_b = ops.gate(&second, &ctx).await.expect("second gate");
+        assert_eq!(ops.gates_held(), (1, 1), "unused dead entry is pruned on next lookup");
+
+        drop(gate_b);
+        ops.forget(&second);
+        assert_eq!(ops.gates_held(), (0, 0), "deleted thread gate entry is removed");
+
+        let reopened = ops.gate(&first, &ctx).await.expect("recreated gate");
+        assert_eq!(ops.gates_held(), (1, 1));
+        drop(reopened);
+        directory.release(&first).await;
+        directory.unload_settled(&first).await;
+        assert_eq!(ops.gates_held(), (0, 0), "unloading prunes dead gate entries");
     }
 }

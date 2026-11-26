@@ -238,7 +238,9 @@ impl GoalRuntime {
     /// next continuation carries them in full again.
     pub fn reset_continuation_rules(&self, session_id: &str) -> GoalResult<()> {
         let id = assert_session_id(session_id)?;
-        self.inner.slot(&id).mem().continuation_tier = None;
+        if let Some(slot) = self.inner.existing_slot(&id) {
+            slot.mem().continuation_tier = None;
+        }
         Ok(())
     }
 

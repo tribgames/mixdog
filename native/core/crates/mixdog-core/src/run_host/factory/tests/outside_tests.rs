@@ -37,6 +37,9 @@ struct Agent {
     routes: Mutex<Vec<Option<Value>>>,
     /// What each compaction of the session it made on a prompt `compact` came to.
     compacted: Mutex<Vec<Result<Option<String>, String>>>,
+    /// Calls `turn.history.hand_over()` on each turn and records `(hand_over_summarizes, result)`.
+    hand_over: bool,
+    handed_over: Mutex<Vec<(bool, Result<Option<String>, String>)>>,
     /// It gives nothing and waits for the turn's stop.
     hold: bool,
     /// It ends its turn without a word.
@@ -113,6 +116,11 @@ impl OutsideAgents for Agent {
             };
             let _ = turn.port.usage(report).await;
             *lock(&turn.report.usage) = Some((usage.clone(), false));
+        }
+        if self.hand_over {
+            let summarizes = turn.history.hand_over_summarizes();
+            let handed = turn.history.hand_over().await;
+            lock(&self.handed_over).push((summarizes, handed));
         }
         if prompt_text(&turn.input).starts_with("compact") {
             let made = turn.history.compact().await;
@@ -575,4 +583,128 @@ async fn a_turn_on_a_signed_out_agent_fails_as_an_authentication_failure() {
     until(&world, &handle, "the failure", || world.rig.feeds.frames(id.as_str()).iter().any(|(_, _, params)| params.to_string().contains(r#""kind":"auth""#)))
         .await;
     assert!(lock(&agent.turns).is_empty(), "the agent ran nothing");
+}
+
+/// A session whose first turn failed on another provider left only an unanswered failed user row ahead of the next
+/// turn: moving the route to an outside agent does not summarize it, sends no compaction request, and emits no divider.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_whose_first_turn_failed_on_another_provider_is_not_summarized_on_hand_over() {
+    let agent = Arc::new(Agent { hand_over: true, ..Agent::default() });
+    OUTSIDE.with(|slot| *slot.borrow_mut() = Some(agent.clone()));
+    let mut refusal = ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::InvalidRequest, DeliveryState::NotSent);
+    refusal.message = "quota exhausted".to_owned();
+    let failing: Arc<dyn ProviderAdapter> = Arc::new(Refusing {
+        id: ProviderId::from("scripted"),
+        policy: RetryPolicy::codex_default(),
+        keepalive: KeepaliveSchedule::SPEC,
+        codec: MockCodec,
+        error: refusal,
+    });
+    let world = turn_world_full(failing, Arc::new(NoMcp), Vec::new(), false, None, None, Arc::new(MockFileService::default()), false).await;
+    let (id, handle) = started_thread(&world, json!({ "provider": "scripted", "model": "m", "owner": "agent" })).await;
+
+    start_turn(&id, &handle, "audit the renderer").await;
+    until(&world, &handle, "the failed first turn", || world.rig.store.records(&id).iter().any(|(_, record)| matches!(record, Record::Amend(_)))).await;
+
+    *lock(&world.rig.compaction.heir_rows) = Some(vec![json!({ "role": "user", "content": "should never summarize" })]);
+    *lock(&world.live_settings) = json!({ "provider": "outside", "model": "default" }).as_object().expect("a route").clone();
+    let started = handle
+        .request(request("turn/start", json!({ "threadId": id, "opId": "op-2", "input": { "prompt": "audit the renderer" } }), "op-2"))
+        .await
+        .expect("turn/start");
+    assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
+    until(&world, &handle, "the agent's turn", || !lock(&agent.turns).is_empty()).await;
+
+    assert_eq!(*lock(&agent.handed_over), [(false, Ok(None))]);
+    assert!(lock(&world.rig.compaction.heir_asked).is_empty(), "no compaction request is made");
+    let compactions = world.rig.store.records(&id).into_iter().filter(|(_, record)| matches!(record, Record::Compacted(_))).count();
+    assert_eq!(compactions, 0, "no compaction record is written");
+    let dividers = world
+        .rig
+        .feeds
+        .frames(id.as_str())
+        .iter()
+        .filter(|(_, method, params)| method == "item/completed" && params["item"]["type"] == "contextCompaction")
+        .count();
+    assert_eq!(dividers, 0, "no live compaction divider is emitted");
+}
+
+/// A fresh session holding only `SessionStart` hook rows (even when the hook context contains a closing reminder tag
+/// followed by its synthetic `context-ack`) is not summarized when handed over to an outside agent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_with_only_session_start_hook_rows_is_not_summarized_on_hand_over() {
+    let agent = Arc::new(Agent { hand_over: true, ..Agent::default() });
+    let (world, id, handle) = on_agents_route(&agent, &[], json!({ "provider": "outside", "model": "default" })).await;
+    let rows: Vec<Value> = mixdog_core_session::session::lifecycle_hooks::session_start_rows(&["note with </system-reminder> inside".to_owned()])
+        .expect("session start rows")
+        .into_iter()
+        .map(|body| json!({ "body": body, "visible": false }))
+        .collect();
+    handle
+        .request(CoreRequest {
+            method: Method("thread/roomRows/commit"),
+            params: json!({ "rows": rows }),
+            op: None,
+            ctx: CallContext::internal("session-start-hook"),
+        })
+        .await
+        .expect("commit session start rows");
+    *lock(&world.rig.compaction.heir_rows) = Some(vec![json!({ "role": "user", "content": "should never summarize" })]);
+
+    start_turn(&id, &handle, "hello").await;
+    until(&world, &handle, "the agent's turn", || !lock(&agent.turns).is_empty()).await;
+
+    assert_eq!(*lock(&agent.handed_over), [(false, Ok(None))]);
+    assert!(lock(&world.rig.compaction.heir_asked).is_empty(), "no compaction request is made");
+    let compactions = world.rig.store.records(&id).into_iter().filter(|(_, record)| matches!(record, Record::Compacted(_))).count();
+    assert_eq!(compactions, 0, "no compaction record is written");
+    let dividers = world
+        .rig
+        .feeds
+        .frames(id.as_str())
+        .iter()
+        .filter(|(_, method, params)| method == "item/completed" && params["item"]["type"] == "contextCompaction")
+        .count();
+    assert_eq!(dividers, 0, "no live compaction divider is emitted");
+}
+
+/// A real earlier conversation handed over to an outside agent is summarized once and shows as a compaction does: by
+/// one divider, with no hand-over notice beside it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_real_earlier_conversation_hands_over_with_one_compaction_divider() {
+    let agent = Arc::new(Agent { hand_over: true, ..Agent::default() });
+    let (world, id, handle) = on_agents_route(&agent, &["first answer"], json!({ "provider": "scripted", "model": "m" })).await;
+
+    start_turn(&id, &handle, "first question").await;
+    until(&world, &handle, "the first turn's answer", || !lock(&world.ledger.0).is_empty()).await;
+
+    *lock(&world.rig.compaction.heir_rows) = Some(vec![json!({ "role": "user", "content": "summary of turn 1" })]);
+    *lock(&world.live_settings) = json!({ "provider": "outside", "model": "default" }).as_object().expect("a route").clone();
+    let started =
+        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-2", "input": { "prompt": "continue" } }), "op-2")).await.expect("turn/start");
+    assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
+    until(&world, &handle, "the agent's hand-over turn", || !lock(&agent.turns).is_empty()).await;
+
+    let handed = lock(&agent.handed_over).clone();
+    assert!(matches!(handed.as_slice(), [(true, Ok(Some(summary)))] if summary.contains("summary of turn 1")), "{handed:?}");
+    assert_eq!(lock(&world.rig.compaction.heir_asked).len(), 1, "the compactor runs once");
+    let records = world.rig.store.records(&id);
+    let hand_over_compaction = records.iter().find_map(|(_, record)| match record {
+        Record::Compacted(compacted)
+            if matches!(&compacted.replacement, Slot::Inline(rows) if rows.iter().any(|row| row.body["content"] == "summary of turn 1")) =>
+        {
+            Some(compacted)
+        }
+        _ => None,
+    });
+    let hand_over_compaction = hand_over_compaction.expect("the hand-over summary is stored as a compaction");
+    assert_eq!(hand_over_compaction.silent, None, "the hand-over compaction keeps its divider");
+    let dividers = world
+        .rig
+        .feeds
+        .frames(id.as_str())
+        .iter()
+        .filter(|(_, method, params)| method == "item/completed" && params["item"]["type"] == "contextCompaction")
+        .count();
+    assert_eq!(dividers, 1, "the hand-over shows one compaction divider");
 }

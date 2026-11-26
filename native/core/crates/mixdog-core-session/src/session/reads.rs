@@ -207,11 +207,30 @@ pub(super) struct Units {
     pub reaches_end: bool,
 }
 
+struct ByteCounter(usize);
+
+impl std::io::Write for ByteCounter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0 += buf.len();
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Exact UTF-8 JSON byte length of `unit` without allocating a serialized buffer.
+pub(crate) fn unit_bytes(unit: &mixdog_app_protocol::v2::thread::TranscriptUnit) -> usize {
+    let mut counter = ByteCounter(0);
+    serde_json::to_writer(&mut counter, unit).map_or(0, |()| counter.0)
+}
+
 /// The unit of one compaction boundary.
 fn boundary_unit(boundary: &super::seams::PageBoundary) -> StoredUnit {
     let items = super::transcript::boundary_items(&boundary.cid, boundary.at, &boundary.model_switches);
     let unit = mixdog_app_protocol::v2::thread::TranscriptUnit { position: record_position(items[0].id().as_str()), items, ordinal: Some(boundary.ordinal) };
-    let bytes = serde_json::to_vec(&unit).map_or(0, |encoded| encoded.len());
+    let bytes = unit_bytes(&unit);
     StoredUnit { ordinal: boundary.ordinal, unit, bytes }
 }
 
@@ -282,7 +301,7 @@ pub(super) async fn transcript_units(
             }
             let items: Vec<ThreadItem> = read.rows[rows.clone()].iter().map(|(item, _)| item.clone()).collect();
             let unit = mixdog_app_protocol::v2::thread::TranscriptUnit { position: record_position(iid), items, ordinal: Some(*ordinal) };
-            let bytes = serde_json::to_vec(&unit).map_or(0, |encoded| encoded.len());
+            let bytes = unit_bytes(&unit);
             units.push(StoredUnit { ordinal: *ordinal, unit, bytes });
         }
         units.extend(boundaries.map(boundary_unit));

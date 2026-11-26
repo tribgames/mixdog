@@ -640,6 +640,30 @@ impl SessionState {
             }
             route.turn_effort = None;
         }
+        let key_moved = |key: &str| {
+            change.set.get(key).is_some_and(|value| self.header.get(key) != Some(value))
+                || (change.unset.iter().any(|unset| unset == key) && self.header.contains_key(key))
+        };
+        let window_moved = key_moved("contextWindow");
+        let route_moved = key_moved("provider") || key_moved("model");
+        let boundary_moved = key_moved("compactBoundaryTokens");
+        let limit_moved = key_moved("autoCompactTokenLimit");
+        if (window_moved || route_moved || boundary_moved || limit_moved)
+            && let Some(context) = self.sections.context.as_mut()
+        {
+            if window_moved || route_moved {
+                context.context_window = None;
+            }
+            if window_moved {
+                context.display_context_window = None;
+            }
+            if window_moved || boundary_moved {
+                context.compact_boundary_tokens = None;
+            }
+            if window_moved || limit_moved {
+                context.auto_compact_token_limit = None;
+            }
+        }
         let header = Arc::make_mut(&mut self.header);
         for key in &change.unset {
             header.shift_remove(key);

@@ -119,6 +119,22 @@ pub struct OpGate {
     inner: Arc<Inner>,
 }
 
+/// Weak handle to an [`OpGate`]: upgrades while any caller, claim, or ticket holds it.
+#[derive(Clone)]
+pub struct WeakOpGate {
+    inner: std::sync::Weak<Inner>,
+}
+
+impl WeakOpGate {
+    pub fn upgrade(&self) -> Option<OpGate> {
+        self.inner.upgrade().map(|inner| OpGate { inner })
+    }
+
+    pub fn is_live(&self) -> bool {
+        self.inner.strong_count() > 0
+    }
+}
+
 struct Inner {
     scope: OpScope,
     store: Arc<dyn OpStore>,
@@ -186,6 +202,14 @@ impl OpGate {
 
     pub fn scope(&self) -> &OpScope {
         &self.inner.scope
+    }
+
+    pub fn downgrade(&self) -> WeakOpGate {
+        WeakOpGate { inner: Arc::downgrade(&self.inner) }
+    }
+
+    pub fn same_gate(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
     }
 
     /// Admits a mutation (P §9.3): `Execute` for the first arrival; `Done` with the shared or

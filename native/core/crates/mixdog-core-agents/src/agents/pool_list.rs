@@ -450,6 +450,16 @@ fn idle_since(row: &Row, working: bool, fallback: Value) -> Value {
     if settled.is_null() { fallback } else { settled }
 }
 
+/// The current run's `turnStartedAt` when `working`: a stored stamp from an already-settled turn
+/// (`<= settled_at`) belongs to the previous run and is left out so the new run starts fresh.
+fn active_turn_started(row: &Row, working: bool) -> Value {
+    if !working {
+        return Value::Null;
+    }
+    let turn = row.get("turnStartedAt");
+    if stamp_ms(turn) > stamp_ms(Some(&settled_at(row))) { or_null(&[turn]) } else { Value::Null }
+}
+
 // ---- the assembly ---------------------------------------------------------------------------
 
 type Headers = HashMap<String, Option<Row>>;
@@ -460,6 +470,7 @@ struct Assembly<'a> {
     headers: &'a Headers,
     live: &'a dyn PoolLive,
     fixes: Vec<SettleFix>,
+    settled_before_work: HashMap<String, f64>,
 }
 
 impl Assembly<'_> {
@@ -579,8 +590,14 @@ impl Assembly<'_> {
                 out.insert("failureReason".into(), Value::String(reason));
             }
         }
+        if working {
+            let settled = stamp_ms(Some(&settled_at(row)));
+            if settled > 0.0 {
+                self.settled_before_work.insert(session_id.clone(), settled);
+            }
+        }
         out.insert("startedAt".into(), or_null(&[row.get("startedAt"), row.get("createdAt"), session_get("createdAt")]));
-        out.insert("turnStartedAt".into(), if working { or_null(&[row.get("turnStartedAt")]) } else { Value::Null });
+        out.insert("turnStartedAt".into(), active_turn_started(row, working));
         out.insert("createdAt".into(), or_null(&[row.get("createdAt"), session_get("createdAt")]));
         out.insert("updatedAt".into(), or_null(&[row.get("updatedAt"), session_get("updatedAt")]));
         let fallback = or_null(&[row.get("updatedAt"), session_get("updatedAt")]);
@@ -649,8 +666,14 @@ impl Assembly<'_> {
         }
         out.insert("status".into(), json!(shown));
         out.insert("stage".into(), json!(shown));
+        if working {
+            let settled = stamp_ms(Some(&settled_at(row)));
+            if settled > 0.0 {
+                self.settled_before_work.insert(session_id.clone(), settled);
+            }
+        }
         out.insert("startedAt".into(), or_null(&[row.get("startedAt"), row.get("createdAt")]));
-        out.insert("turnStartedAt".into(), if working { or_null(&[row.get("turnStartedAt")]) } else { Value::Null });
+        out.insert("turnStartedAt".into(), active_turn_started(row, working));
         out.insert("createdAt".into(), or_null(&[row.get("createdAt")]));
         out.insert("updatedAt".into(), or_null(&[row.get("updatedAt")]));
         out.insert("idleSince".into(), idle_since(row, working, or_null(&[row.get("updatedAt")])));
@@ -754,7 +777,7 @@ impl AgentPool {
             headers.insert(id.clone(), header);
         }
         let running = self.live.running();
-        let (mut rows, fixes) = self.assemble(&child_rows, agent_index.as_ref(), lead_index.as_ref(), &running, &headers)?;
+        let (mut rows, fixes, settled_before_work) = self.assemble(&child_rows, agent_index.as_ref(), lead_index.as_ref(), &running, &headers)?;
         if !fixes.is_empty() {
             let fixed: HashMap<String, Value> = fixes.iter().map(|fix| fix.session_id.clone()).zip(self.store.settle_identities(&fixes).await).collect();
             for row in rows.iter_mut().filter_map(Value::as_object_mut) {
@@ -766,7 +789,7 @@ impl AgentPool {
                 }
             }
         }
-        Ok(self.lay_live(rows))
+        Ok(self.lay_live(rows, &settled_before_work))
     }
 
     fn assemble(
@@ -776,7 +799,7 @@ impl AgentPool {
         lead_index: Option<&Value>,
         running: &HashSet<String>,
         headers: &Headers,
-    ) -> Result<(Vec<Value>, Vec<SettleFix>), PoolError> {
+    ) -> Result<(Vec<Value>, Vec<SettleFix>, HashMap<String, f64>), PoolError> {
         let now = self.live.now();
         let mut by_id: HashMap<String, &Value> = HashMap::new();
         for row in child_rows {
@@ -811,7 +834,7 @@ impl AgentPool {
             }
             tombstone_blocks(&work, find_tombstone(&work, &tombstones))
         };
-        let mut pass = Assembly { now, running, headers, live: &*self.live, fixes: Vec::new() };
+        let mut pass = Assembly { now, running, headers, live: &*self.live, fixes: Vec::new(), settled_before_work: HashMap::new() };
         let mut by_session = Row::new();
         for row in child_rows.iter().filter(|row| !is_reaped(&clean_value(get(row, "sessionId")))) {
             if let Some(projected) = pass.project_child(row) {
@@ -829,11 +852,11 @@ impl AgentPool {
         pass.prune_orphans(&mut by_session, &live_leads);
         let mut rows: Vec<Value> = by_session.into_iter().map(|(_, row)| row).collect();
         sort_by_start_then_tag(&mut rows);
-        Ok((rows, pass.fixes))
+        Ok((rows, pass.fixes, pass.settled_before_work))
     }
 
     /// `withLiveTodo`, `withLiveUsage`, `withLedgerToken` and `withTurnProgress`, in Node's order.
-    fn lay_live(&self, rows: Vec<Value>) -> Vec<Value> {
+    fn lay_live(&self, rows: Vec<Value>, settled_before_work: &HashMap<String, f64>) -> Vec<Value> {
         let mut rows: Vec<Row> = rows.into_iter().filter_map(|row| if let Value::Object(row) = row { Some(row) } else { None }).collect();
         let sessions: Vec<Option<std::sync::Arc<Row>>> = rows.iter().map(|row| self.live_of(row)).collect();
         for (row, live) in rows.iter_mut().zip(&sessions) {
@@ -873,14 +896,14 @@ impl AgentPool {
             }
         }
         let awaiting = self.live.awaiting_shell();
-        rows.into_iter().map(|row| Value::Object(self.with_progress(row, &awaiting))).collect()
+        rows.into_iter().map(|row| Value::Object(self.with_progress(row, &awaiting, settled_before_work))).collect()
     }
 
     fn live_of(&self, row: &Row) -> Option<std::sync::Arc<Row>> {
         row.get("sessionId").and_then(Value::as_str).filter(|id| !id.is_empty()).and_then(|id| self.live.live_session(id))
     }
 
-    fn with_progress(&self, mut row: Row, awaiting: &HashSet<String>) -> Row {
+    fn with_progress(&self, mut row: Row, awaiting: &HashSet<String>, settled_before_work: &HashMap<String, f64>) -> Row {
         let session_id = row.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
         let entry = self.live.runtime_entry(&session_id).filter(RuntimeEntry::in_flight);
         let Some(entry) = entry else {
@@ -905,7 +928,9 @@ impl AgentPool {
                 direct
             }
         };
-        if ask_started > row_start
+        let prior_settled = settled_before_work.get(&session_id).copied().unwrap_or(0.0);
+        if row_start == 0.0
+            && ask_started > prior_settled
             && let Some(started) = iso(ask_started)
         {
             row.insert("turnStartedAt".into(), Value::String(started));

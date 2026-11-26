@@ -326,6 +326,18 @@ impl SessionActor {
         wait
     }
 
+    /// Read-only check matching [`Self::claim_steer`] without registering the entry on the running turn.
+    pub(super) fn can_claim_steer(&self, qid: &str, entry: &Value) -> bool {
+        if self.reserved_successor().as_deref() == Some(qid) {
+            return false;
+        }
+        let mut identities = vec![work_stops::queued(qid)];
+        if let Some(submission) = entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+            identities.push(work_stops::submission(submission));
+        }
+        self.cell.stop_latches.can_claim(&self.id, &identities)
+    }
+
     /// Running `turn` claims the entry `qid` it is about to take at a boundary in the start gate (its queue id and submission);
     /// false when a Stop from outside the actor latched it, or a takeover reserved it for the next turn: it is not injected.
     pub(super) fn claim_steer(&self, turn: &TurnId, qid: &str, entry: &Value) -> bool {

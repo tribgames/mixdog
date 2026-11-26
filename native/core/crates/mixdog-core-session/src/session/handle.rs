@@ -72,6 +72,86 @@ use mixdog_core_base::approvals::Lineage;
 use mixdog_core_ports::ports::gate::LiveHeader;
 use mixdog_core_ports::ports::threads::Section;
 
+#[derive(Default)]
+struct ResumedToolsState {
+    in_flight: bool,
+    entered: bool,
+}
+
+/// Coordinates the background open-time `refresh_resumed_tools` task with `turn/start`,
+/// unload, delete, and shutdown without blocking cold open.
+#[derive(Default)]
+pub(crate) struct ResumedToolsGate {
+    state: std::sync::Mutex<ResumedToolsState>,
+    cancel: mixdog_rt::CancellationToken,
+    changed: tokio::sync::Notify,
+}
+
+impl ResumedToolsGate {
+    fn lock(&self) -> std::sync::MutexGuard<'_, ResumedToolsState> {
+        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub(crate) fn begin(&self) {
+        self.lock().in_flight = true;
+    }
+
+    pub(crate) fn try_enter(&self, closed: &std::sync::atomic::AtomicBool) -> bool {
+        let mut state = self.lock();
+        if self.cancel.is_cancelled() || closed.load(std::sync::atomic::Ordering::SeqCst) {
+            return false;
+        }
+        state.entered = true;
+        true
+    }
+
+    pub(crate) fn finish(&self) {
+        {
+            let mut state = self.lock();
+            if !state.in_flight {
+                return;
+            }
+            state.in_flight = false;
+        }
+        self.changed.notify_waiters();
+    }
+
+    /// Cancels the refresh task and reports whether it was still in flight.
+    pub(crate) fn cancel(&self) -> bool {
+        let state = self.lock();
+        self.cancel.cancel();
+        state.in_flight
+    }
+
+    pub(crate) fn token(&self) -> mixdog_rt::CancellationToken {
+        self.cancel.clone()
+    }
+
+    pub(crate) fn was_entered(&self) -> bool {
+        self.lock().entered
+    }
+
+    pub(crate) fn is_in_flight(&self) -> bool {
+        self.lock().in_flight
+    }
+
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.cancel.is_cancelled()
+    }
+
+    pub(crate) async fn settled(&self) {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if !self.lock().in_flight {
+                return;
+            }
+            changed.await;
+        }
+    }
+}
+
 pub struct SessionHandle {
     pub(crate) id: ThreadId,
     /// The desktop's control session: the kind its `session` record carries (`SessionRecord::control`), set by a control
@@ -99,6 +179,8 @@ pub struct SessionHandle {
     pub(crate) submits: mixdog_rt::Gate,
     /// Whether the images a restored history holds all have a verdict yet (open for a new session).
     pub image_gate: Arc<super::image_gate::ImageGate>,
+    /// Tracks the background resumed-tools refresh launched on cold open.
+    pub(crate) resumed_tools: Arc<ResumedToolsGate>,
     /// The order threads were loaded in (the order of Node's `_liveSessions` Map, which lists
     /// sessions in the order they entered it).
     pub(crate) loaded_seq: u64,
@@ -371,6 +453,8 @@ impl SessionHandle {
         if let Some(sentence) = self.image_gate.refusal() {
             return Err(mixdog_core_base::support::failed("session", sentence));
         }
+        // Cold open refreshes the resumed tool surface and MCP scope asynchronously; wait for it before starting a turn.
+        self.start_wait(&cancel, "resume-tools", self.resumed_tools.settled()).await?;
         // An admitted start (`admitted`, turn-gate.mjs): the idle-only delete refuses while one is
         // in its intake, and the thread refuses starts while that delete runs.
         let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;

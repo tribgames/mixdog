@@ -170,6 +170,43 @@ pub trait ExitClose: Send + Sync {
     async fn close_on_exit(&self, thread: &ThreadId, reason: &str);
 }
 
+/// Header keys whose open-time values must still match for a background resumed-tools patch to apply.
+const RESUMED_TOOLS_GUARD_KEYS: &[&str] = &[
+    "provider",
+    "model",
+    "wireRoute",
+    "mode",
+    "orchestrationMode",
+    "workflow",
+    "preset",
+    "cwd",
+    "agent",
+    "owner",
+    "closed",
+    "mcpScopeId",
+    "toolSpec",
+    "tools",
+    "disallowedTools",
+    "toolExposureMode",
+    "schemaAllowedTools",
+    "deferredToolNames",
+    "mcpServerInstructions",
+];
+
+struct ResumedToolsGuard(Arc<super::handle::ResumedToolsGate>);
+
+impl Drop for ResumedToolsGuard {
+    fn drop(&mut self) {
+        self.0.finish();
+    }
+}
+
+/// Initial positioned tail built from the records already read during cold open.
+struct SeededTail {
+    units: Vec<super::reads::StoredUnit>,
+    older: bool,
+}
+
 /// A loaded log as the actor starts from it.
 struct Opened {
     state: SessionState,
@@ -177,6 +214,7 @@ struct Opened {
     log_id: String,
     next_ordinal: u64,
     log: LogInit,
+    seeded_tail: Option<SeededTail>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -193,7 +231,7 @@ fn keep_fields(header: &mixdog_store::schema::record::Header, fields: Option<&[&
 
 /// The opened log folded into the state the actor starts from (cpu-interactive). `ends`: where the turn of each window
 /// row stores its end, by the row's record id; a row of a run the log carries the start of takes that record's mark.
-fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog, ends: &HashMap<String, TurnEndForm>) -> Opened {
+fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog, ends: &HashMap<String, TurnEndForm>, seed_tail: bool) -> Opened {
     let mut state = SessionState::new(deps.limits.view_items);
     state.header = Arc::new(log.header);
     state.sections.title = super::state::title_of(&state.header);
@@ -202,7 +240,7 @@ fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog
     state.has_older = log.has_older;
     state.prompt_session = log.prompts;
     let mut next_ordinal = log.next_ordinal;
-    let mut apply = |state: &mut SessionState, ordinal: u64, record: Record| {
+    let apply = |state: &mut SessionState, next_ordinal: &mut u64, ordinal: u64, record: Record| {
         let display = match &record {
             Record::Item(item) => {
                 let started = || item.turn.as_ref().and_then(|turn| state.turn_ends.get(turn.as_str())).copied();
@@ -215,45 +253,87 @@ fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog
             },
             _ => Display::None,
         };
-        next_ordinal = next_ordinal.max(ordinal + 1);
+        *next_ordinal = (*next_ordinal).max(ordinal + 1);
         state.apply(&Change::Record { record: Arc::new(record), display }, Some(ordinal));
     };
     for (ordinal, run) in log.runs {
-        apply(&mut state, ordinal, Record::Run(run));
+        apply(&mut state, &mut next_ordinal, ordinal, Record::Run(run));
     }
     for (ordinal, approval) in log.approvals {
-        apply(&mut state, ordinal, Record::Approval(approval));
+        apply(&mut state, &mut next_ordinal, ordinal, Record::Approval(approval));
     }
     for (ordinal, queue) in log.queue {
-        apply(&mut state, ordinal, Record::Queue(queue));
+        apply(&mut state, &mut next_ordinal, ordinal, Record::Queue(queue));
     }
     // Window rows were counted into `prompts` by the store; their fold must not re-add them.
     let prompts = std::mem::take(&mut state.prompt_session);
+    let mut tail_units: Vec<super::reads::StoredUnit> = if seed_tail { Vec::with_capacity(log.window.len() + log.dividers.len()) } else { Vec::new() };
     let mut dividers = log.dividers.into_iter().peekable();
-    let mut show_dividers = |state: &mut SessionState, before: usize| {
+    let mut show_dividers = |state: &mut SessionState, tail_units: &mut Vec<super::reads::StoredUnit>, before: usize| {
         while let Some(divider) = dividers.next_if(|divider| divider.before <= before) {
-            let mut items = vec![super::transcript::divider_item(&divider.cid, divider.at)];
-            items.extend(super::transcript::divider_model_switches(&divider.cid, &divider.model_switches));
+            let items = super::transcript::boundary_items(&divider.cid, divider.at, &divider.model_switches);
+            if seed_tail && !items.is_empty() {
+                let position = super::reads::record_position(items[0].id().as_str());
+                let unit = mixdog_app_protocol::v2::thread::TranscriptUnit { position, items: items.clone(), ordinal: Some(divider.ordinal) };
+                let bytes = super::reads::unit_bytes(&unit);
+                tail_units.push(super::reads::StoredUnit { ordinal: divider.ordinal, unit, bytes });
+            }
             for item in items {
                 state.push_shown(divider.ordinal, item);
             }
         }
     };
     for (index, (ordinal, item)) in log.window.into_iter().enumerate() {
-        show_dividers(&mut state, index);
-        apply(&mut state, ordinal, Record::Item(item));
-        if log.archived.contains(&ordinal) {
+        show_dividers(&mut state, &mut tail_units, index);
+        let started = || item.turn.as_ref().and_then(|turn| state.turn_ends.get(turn.as_str())).copied();
+        let end = ends.get(item.iid.as_str()).copied().or_else(started);
+        let shown = deps.transcript.items_as(lane, &item, end);
+        let is_archived = log.archived.contains(&ordinal);
+        if seed_tail {
+            let mut unit_items = Vec::new();
+            for entry in &shown {
+                if let super::seams::Shown::Item(row) = entry {
+                    let mut row = row.clone();
+                    if is_archived {
+                        super::view::meta_mut(&mut row).ext.insert("archived".into(), serde_json::Value::Bool(true));
+                    }
+                    unit_items.push(row);
+                }
+            }
+            if !unit_items.is_empty() {
+                let unit = mixdog_app_protocol::v2::thread::TranscriptUnit {
+                    position: super::reads::record_position(item.iid.as_str()),
+                    items: unit_items,
+                    ordinal: Some(ordinal),
+                };
+                let bytes = super::reads::unit_bytes(&unit);
+                tail_units.push(super::reads::StoredUnit { ordinal, unit, bytes });
+            }
+            for entry in &shown {
+                let super::seams::Shown::Update(update) = entry else { continue };
+                for stored in &mut tail_units {
+                    if let Some(row) = stored.unit.items.iter_mut().find(|row| super::seams::updates(row, update)) {
+                        *row = super::seams::merge_update(row, update);
+                        stored.bytes = super::reads::unit_bytes(&stored.unit);
+                        break;
+                    }
+                }
+            }
+        }
+        next_ordinal = next_ordinal.max(ordinal + 1);
+        state.apply(&Change::Record { record: Arc::new(Record::Item(item)), display: Display::Items(shown) }, Some(ordinal));
+        if is_archived {
             // The rows the record just showed: `archived` in their `ext` is what a client shows as 1.4.5's archived row.
             for row in state.window.iter_mut().rev().take_while(|row| row.ordinal == Some(ordinal)) {
                 super::view::meta_mut(Arc::make_mut(&mut row.item)).ext.insert("archived".into(), serde_json::Value::Bool(true));
             }
         }
     }
-    show_dividers(&mut state, usize::MAX);
+    show_dividers(&mut state, &mut tail_units, usize::MAX);
     state.prompt_session = prompts;
     state.has_older = log.has_older || state.has_older;
     for (ordinal, record) in log.tail {
-        apply(&mut state, ordinal, record);
+        apply(&mut state, &mut next_ordinal, ordinal, record);
     }
     for (rid, draft) in log.drafts {
         if let Some(run) = state.runs.get_mut(&rid) {
@@ -261,7 +341,17 @@ fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog
         }
     }
     state.prompt_history = Arc::new(super::prompt_history::merge(&state.prompt_session, &state.prompt_persisted));
-    Opened { state, control: log.control, log_id: log.log_id, next_ordinal, log: LogInit::Open(log.append) }
+    let seeded_tail = seed_tail.then(|| {
+        let mut older = log.has_older;
+        let cap = deps.limits.view_items.max(super::window::TAIL_RECORDS);
+        if tail_units.len() > cap {
+            let drop_count = tail_units.len() - cap;
+            tail_units.drain(..drop_count);
+            older = true;
+        }
+        SeededTail { units: tail_units, older }
+    });
+    Opened { state, control: log.control, log_id: log.log_id, next_ordinal, log: LogInit::Open(log.append), seeded_tail }
 }
 
 #[cfg(test)]
@@ -459,14 +549,20 @@ impl DeleteHold {
     /// [`mark`](Self::mark) with another header change: an idle close's tombstone. The thread
     /// leaves the directory the same way (a closed thread unloads).
     pub(crate) async fn append(self, directory: &DirInner, set: serde_json::Map<String, Value>) -> bool {
+        self.handle.resumed_tools.cancel();
         let _ = self.mark.send(set);
         let applied = matches!(self.marked.await, Ok(Ok(())));
         let id = &self.handle.id;
-        let mut shard = lock(directory.shard(id));
-        if applied && matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(h, &self.handle)) {
-            directory.vacate(&mut shard, id);
-            #[cfg(any(test, feature = "test-support"))]
-            directory.left.notify_waiters();
+        {
+            let mut shard = lock(directory.shard(id));
+            if applied && matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(h, &self.handle)) {
+                directory.vacate(&mut shard, id);
+                #[cfg(any(test, feature = "test-support"))]
+                directory.left.notify_waiters();
+            }
+        }
+        if applied {
+            self.handle.resumed_tools.settled().await;
         }
         applied
     }
@@ -513,6 +609,8 @@ pub(crate) struct DirInner {
     live_rows: super::control::LiveRowsCell,
     /// The identities a user Stop froze from outside a thread's actor (every cell holds it).
     stop_latches: Arc<super::control::StopLatches>,
+    /// The directory's `ThreadOps` registry, once constructed: notified to drop gates on delete/unload.
+    thread_ops: Mutex<std::sync::Weak<super::thread_ops::ThreadOps>>,
     /// The shutdown began: the session service is closed.
     closed: std::sync::atomic::AtomicBool,
     /// The shutdown drains the slots: no thread is opened from here, whoever asks ([`Self::open_with`]).
@@ -704,6 +802,9 @@ impl DirInner {
         let slot = shard.remove(id);
         self.deps.new_tools.unloaded(id);
         self.deps.store.forget(id);
+        if let Some(ops) = lock(&self.thread_ops).upgrade() {
+            ops.prune_unused();
+        }
         slot
     }
 
@@ -766,6 +867,7 @@ impl DirInner {
         match result {
             Ok(handle) if ours && !handle.cell.closed.load(std::sync::atomic::Ordering::SeqCst) => {
                 shard.insert(id.clone(), Slot_::Loaded(handle.clone()));
+                self.deps.store.retain(id);
                 Ok(handle)
             }
             result => {
@@ -794,12 +896,16 @@ impl DirInner {
     /// The actor signals its own disposal before the close work runs; a reopen waits for both.
     pub(crate) fn unload(&self, id: &ThreadId, cell: &Arc<ControlCell>, teardown: futures::future::BoxFuture<'static, ()>) -> Option<oneshot::Sender<()>> {
         let mut shard = lock(self.shard(id));
-        let ours = matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(&h.cell, cell));
+        let refresh = match shard.get(id) {
+            Some(Slot_::Loaded(h)) if Arc::ptr_eq(&h.cell, cell) => h.resumed_tools.clone(),
+            _ => return None,
+        };
         // The check and the close are one transition of the admission word: an attach that
         // comes after it fails, one before it makes the close fail.
-        if !ours || !cell.close_unattached() {
+        if !cell.close_unattached() {
             return None;
         }
+        let refresh_in_flight = refresh.cancel();
         let (done, finished) = watch::channel(());
         let (stop, stopped) = oneshot::channel();
         lock(&self.teardowns).insert(id.clone(), finished);
@@ -832,7 +938,21 @@ impl DirInner {
         }
         let pending = PendingTeardown { directory: self.me.clone(), thread: id.clone(), _done: done };
         tokio::spawn(async move {
-            let _ = stopped.await;
+            futures::join!(
+                async {
+                    let _ = stopped.await;
+                },
+                refresh.settled()
+            );
+            // If `refresh_resumed_tools` had already entered `refreshed` when unload cancelled it,
+            // release once more after it finishes so any scope opened concurrently with the actor's
+            // unload hook cannot leak past teardown.
+            if refresh_in_flight
+                && refresh.was_entered()
+                && let Some(directory) = directory.upgrade()
+            {
+                directory.deps.deletion.release_unloaded_runtime(thread.as_str());
+            }
             let retired = async {
                 if let Some(journal) = journal {
                     journal.retire(thread.clone()).await;
@@ -843,7 +963,14 @@ impl DirInner {
                 }
                 drop(settled);
             };
-            futures::join!(teardown, retired);
+            let retired_transcript = async {
+                if let Some(directory) = directory.upgrade()
+                    && let Some(transcripts) = &directory.deps.transcripts
+                {
+                    transcripts.retire(thread.as_str()).await;
+                }
+            };
+            futures::join!(teardown, retired, retired_transcript);
             // Nothing writes the thread any more, and no later runtime of it opens before `pending` goes: what its last
             // batches kept after the slot went goes too.
             if let Some(directory) = directory.upgrade() {
@@ -1091,7 +1218,10 @@ impl DirInner {
         let closing = || CoreError::ThreadClosing { thread_id: id.clone() };
         handle.cell.ctl_tx.send(delete).await.map_err(|_| closing())?;
         match closed_rx.await.map_err(|_| closing())? {
-            Ok(()) => Ok(Ok(DeleteHold { handle, mark, marked })),
+            Ok(()) => {
+                handle.resumed_tools.cancel();
+                Ok(Ok(DeleteHold { handle, mark, marked }))
+            }
             Err(refusal) => Ok(Err(refusal)),
         }
     }
@@ -1148,7 +1278,21 @@ impl DirInner {
                     let thread = id.clone();
                     mixdog_rt::spawn("session-open", TaskClass::Work, async move {
                         let result = me.load_for_open(&thread, for_use).await;
+                        let open_snapshot = for_use.then(|| result.as_ref().ok().map(|handle| (handle.clone(), handle.cell.header.load_full()))).flatten();
                         let result = me.publish_opened(&thread, &opening, result);
+                        if let Some((handle, open_header)) = open_snapshot {
+                            if result.is_ok() {
+                                let guard = ResumedToolsGuard(handle.resumed_tools.clone());
+                                let resumed_tools = me.deps.resumed_tools.clone();
+                                drop(mixdog_rt::spawn("resume-tools", TaskClass::Work, async move {
+                                    let _guard = guard;
+                                    Self::refresh_resumed_tools(resumed_tools, handle, open_header).await;
+                                }));
+                            } else {
+                                handle.resumed_tools.cancel();
+                                handle.resumed_tools.finish();
+                            }
+                        }
                         tx.send_replace(Some(result));
                     });
                     rx
@@ -1174,10 +1318,9 @@ impl DirInner {
             there.await;
         }
         let waited = self.deps.clock.now_ms();
-        let result = self.load(thread).await;
+        let result = self.load(thread, for_use).await;
         let loaded = self.deps.clock.now_ms();
         if for_use && let Ok(handle) = &result {
-            self.refresh_resumed_tools(handle).await;
             self.deps.new_route.boot(thread, &handle.cell.header.load_full());
             let route = self.deps.new_route.clone();
             let prepared = thread.clone();
@@ -1190,27 +1333,72 @@ impl DirInner {
         result
     }
 
+    fn resumed_tools_header_moved(open_header: &Header, current: &Header) -> bool {
+        RESUMED_TOOLS_GUARD_KEYS.iter().any(|key| open_header.get(*key) != current.get(*key))
+    }
+
     /// Writes the opened thread's refreshed tool surface ([`super::ResumedTools`]) as one header
-    /// patch; a write that fails is logged and the stored surface stays, as an unresolvable one does.
-    async fn refresh_resumed_tools(&self, handle: &Arc<SessionHandle>) {
-        let header = handle.cell.header.load_full();
-        let Some(change) = self.deps.resumed_tools.refreshed(&handle.id, &header).await else { return };
+    /// patch guarded against stale overwrites and teardown cancellation; a write that fails is
+    /// logged and the stored surface stays, as an unresolvable one does.
+    async fn refresh_resumed_tools(resumed_tools: Arc<dyn super::ResumedTools>, handle: Arc<SessionHandle>, open_header: Arc<Header>) {
+        if Self::resumed_tools_header_moved(&open_header, &handle.cell.header.load_full()) {
+            return;
+        }
+        if !handle.resumed_tools.try_enter(&handle.cell.closed) {
+            return;
+        }
+        let cancel = handle.resumed_tools.token();
+        let change = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return,
+            change = resumed_tools.refreshed(&handle.id, &open_header) => change,
+        };
+        let Some(change) = change else { return };
         if change.set.is_empty() && change.unset.is_empty() {
             return;
         }
+        if cancel.is_cancelled() || handle.cell.closed.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let mut expect = serde_json::Map::new();
+        for key in RESUMED_TOOLS_GUARD_KEYS {
+            expect.insert((*key).to_owned(), open_header.get(*key).cloned().unwrap_or(Value::Null));
+        }
+        for key in change.set.keys().chain(&change.unset) {
+            expect.entry(key.clone()).or_insert_with(|| open_header.get(key).cloned().unwrap_or(Value::Null));
+        }
+        let mut ctx = CallContext::internal("resume-tools");
+        ctx.cancel = cancel.clone();
         let request = CoreRequest {
             method: Method("thread/header/patch"),
-            params: json!({ "threadId": handle.id.as_str(), "set": change.set, "unset": change.unset }),
+            params: json!({
+                "threadId": handle.id.as_str(),
+                "set": change.set,
+                "unset": change.unset,
+                "expect": expect,
+            }),
             op: None,
-            ctx: CallContext::internal("resume-tools"),
+            ctx,
         };
-        if let Err(error) = mixdog_core_api::ThreadHandle::request(handle.as_ref(), request).await {
-            tracing::warn!(?error, thread = handle.id.as_str(), "the resumed thread's tool surface was not written");
+        let reply = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return,
+            reply = mixdog_core_api::ThreadHandle::request(handle.as_ref(), request) => reply,
+        };
+        match reply {
+            Ok(Reply::Value(value)) if value.get("conflict").is_some() => {
+                tracing::debug!(thread = handle.id.as_str(), "skipped stale resumed-tools header patch after concurrent header update");
+            }
+            Ok(_) => {}
+            Err(CoreError::ThreadClosing { .. } | CoreError::Cancelled { .. }) => {}
+            Err(error) => {
+                tracing::warn!(?error, thread = handle.id.as_str(), "the resumed thread's tool surface was not written");
+            }
         }
     }
 
     /// J1 and J2 on io-interactive, then one decode on cpu-interactive.
-    async fn load(&self, id: &ThreadId) -> Loaded {
+    async fn load(&self, id: &ThreadId, for_use: bool) -> Loaded {
         use mixdog_core_base::support::on_lane_wait;
         let deps = self.deps.clone();
         let token = CancellationToken::new();
@@ -1227,24 +1415,31 @@ impl DirInner {
             (head, window)
         })
         .await?;
-        let window = window?;
+        let mut window = window?;
         let windowed = std::time::Instant::now();
+        let window_ends = super::store::take_window_ends(&mut window);
+        let has_window_ends = window_ends.is_some();
         let (decode_deps, thread) = (deps.clone(), id.clone());
         let log = on_lane_wait(deps.lanes.cpu, &token, move |lane| decode_deps.store.decode(lane, &thread, head, window)).await??;
         let decoded = std::time::Instant::now();
-        // Where the turn of each window row stores its end: the mark is on the turn's `started` record, which the
-        // opened log carries only for the runs still open, so the rest is read as a page of the same rows states it.
-        let marked = log.window.iter().any(|(_, row)| row.form == mixdog_store::schema::record::Form::Message && row.turn.is_some());
-        let ends: HashMap<String, TurnEndForm> = if marked {
-            deps.store.unheld(id).await;
-            let (store, thread, rows) = (deps.store.clone(), id.clone(), log.window.len());
-            let (_, records, decor, _) = on_lane_wait(deps.lanes.io, &token, move |lane| store.history_tail_decor(lane, &thread, rows)).await??;
-            records.iter().zip(&decor).filter_map(|(record, decor)| Some((record.iid.as_str().to_owned(), decor.end?))).collect()
-        } else {
-            HashMap::new()
+        let ends: HashMap<String, TurnEndForm> = match window_ends {
+            Some(ends) => ends,
+            None => {
+                // Fallback for non-StoreThreads implementations whose WindowRead carries no ends map.
+                let marked = log.window.iter().any(|(_, row)| row.form == mixdog_store::schema::record::Form::Message && row.turn.is_some());
+                if marked {
+                    deps.store.unheld(id).await;
+                    let (store, thread, rows) = (deps.store.clone(), id.clone(), log.window.len());
+                    let (_, records, decor, _) = on_lane_wait(deps.lanes.io, &token, move |lane| store.history_tail_decor(lane, &thread, rows)).await??;
+                    records.iter().zip(&decor).filter_map(|(record, decor)| Some((record.iid.as_str().to_owned(), decor.end?))).collect()
+                } else {
+                    HashMap::new()
+                }
+            }
         };
+        let seed_tail = has_window_ends && log.tail.is_empty();
         let fold_deps = deps.clone();
-        let opened = on_lane_wait(deps.lanes.cpu, &token, move |lane| fold_opened(lane, &fold_deps, log, &ends)).await?;
+        let opened = on_lane_wait(deps.lanes.cpu, &token, move |lane| fold_opened(lane, &fold_deps, log, &ends, seed_tail)).await?;
         let folded = std::time::Instant::now();
         deps.store.unheld(id).await;
         let (store, thread) = (deps.store.clone(), id.clone());
@@ -1262,6 +1457,8 @@ impl DirInner {
             opened.next_ordinal,
             opened.log,
             Init::Open { fenced, ready },
+            opened.seeded_tail,
+            for_use,
         );
         // The gate shuts before the actor can take a send; the history's images are imported in the background and it opens
         // when each has a verdict.
@@ -1324,6 +1521,8 @@ impl DirInner {
         next_ordinal: u64,
         log: LogInit,
         init: Init,
+        seeded_tail: Option<SeededTail>,
+        arm_resumed_tools: bool,
     ) -> (Arc<SessionHandle>, impl FnOnce() + use<>) {
         let deps = &self.deps;
         let limits = deps.limits;
@@ -1347,6 +1546,10 @@ impl DirInner {
         let surface = watch::Sender::new(Arc::new(deps.surfaces.surface(&id, &state.header)));
         let cell = self.control_cell(&id, liveness, &state, view, surface.subscribe(), ctl_tx);
         let inbox = inbox_tx.downgrade();
+        let resumed_tools = Arc::new(super::handle::ResumedToolsGate::default());
+        if arm_resumed_tools {
+            resumed_tools.begin();
+        }
         let handle = Arc::new(SessionHandle {
             id: id.clone(),
             control,
@@ -1362,6 +1565,7 @@ impl DirInner {
             reactions: Default::default(),
             submits: Default::default(),
             image_gate: Default::default(),
+            resumed_tools: resumed_tools.clone(),
             loaded_seq: self.loads.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
         });
         let (ended, actor_ended) = oneshot::channel();
@@ -1393,6 +1597,12 @@ impl DirInner {
             },
         );
         let mut actor = actor;
+        if let Some(seed) = seeded_tail {
+            actor.seed_tail(seed.units, seed.older);
+        }
+        if arm_resumed_tools {
+            actor.arm_resumed_tools(resumed_tools);
+        }
         let launch = move || {
             actor.hold(lease);
             mixdog_rt::spawn("session-durability", TaskClass::Work, durability.run());
@@ -1532,6 +1742,9 @@ impl DirInner {
     pub(crate) fn forget_deleted(&self, id: &ThreadId) {
         self.stop_latches.forget(id);
         self.deps.store.forget(id);
+        if let Some(ops) = lock(&self.thread_ops).upgrade() {
+            ops.forget(id);
+        }
         self.unlink_created(id);
         lock(&self.created_links).remove(id.as_str());
     }
@@ -1596,8 +1809,11 @@ impl DirInner {
                 0,
                 LogInit::Create,
                 Init::Create { session, tx: Some(tx), value: json!({}), seed: spec.seed, settings: spec.settings, kept: spec.method.as_str() == "thread/fork" },
+                None,
+                false,
             );
             shard.insert(id.clone(), Slot_::Loaded(handle.clone()));
+            self.deps.store.retain(&id);
             (handle, launch)
         };
         let linked = self.register_created(&header, &id);
@@ -2106,6 +2322,7 @@ impl SessionDirectory {
             arriving: std::sync::OnceLock::new(),
             live_rows: Default::default(),
             stop_latches: Default::default(),
+            thread_ops: Default::default(),
             closed: Default::default(),
             sealed: Default::default(),
             teardowns: Default::default(),
@@ -2185,7 +2402,9 @@ impl SessionDirectory {
     /// The production `ThreadOpGates` over this directory's threads. Build it once: its gates
     /// are what orders the ops of one thread, so every user of the thread scope shares this one.
     pub fn thread_ops(&self) -> Arc<super::thread_ops::ThreadOps> {
-        super::thread_ops::ThreadOps::new(self.inner.clone())
+        let ops = super::thread_ops::ThreadOps::new(self.inner.clone());
+        *lock(&self.inner.thread_ops) = Arc::downgrade(&ops);
+        ops
     }
 
     /// `turnBotChainOf(session)`: the bot chain of the turn the loaded thread is in; empty for a
@@ -2984,7 +3203,11 @@ impl SessionDirectory {
             handles.iter().map(|handle| handle.id.as_str()).collect::<Vec<_>>()
         ));
         let mut ingests = Vec::new();
+        let mut refreshes = Vec::new();
         for handle in handles {
+            if handle.resumed_tools.cancel() {
+                refreshes.push(handle.resumed_tools.clone());
+            }
             let (done, ingest) = tokio::sync::oneshot::channel();
             if handle.cell.ctl_tx.send(Ctl::Shutdown(done)).await.is_ok() {
                 ingests.push(ingest);
@@ -3010,10 +3233,13 @@ impl SessionDirectory {
                     ingest.await;
                 }
             }));
+            let refreshed = futures::future::join_all(refreshes.into_iter().map(|refresh| async move {
+                refresh.settled().await;
+            }));
             let unloaded = futures::future::join_all(pending.into_iter().map(|mut finished| async move {
                 let _ = finished.changed().await;
             }));
-            futures::join!(loaded, unloaded);
+            futures::join!(loaded, refreshed, unloaded);
         })
         .await;
         async move {

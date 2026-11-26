@@ -550,6 +550,13 @@ impl StopLatches {
         gates.get(thread.as_str()).is_some_and(|gate| gate.running.iter().any(|(running, _, _)| running == turn)).then(at)
     }
 
+    /// Read-only check matching [`Self::claim`]: whether none of `identities` is currently latched.
+    pub fn can_claim(&self, thread: &ThreadId, identities: &[String]) -> bool {
+        let gates = lock(&self.0);
+        let Some(gate) = gates.get(thread.as_str()) else { return true };
+        !identities.iter().any(|identity| gate.latched.contains(identity))
+    }
+
     /// Running `turn` is about to take the entry of `identities` at a boundary: registered with the run, or refused (false) when
     /// any of them is latched, in which case the entry is not injected.
     pub fn claim(&self, thread: &ThreadId, turn: &TurnId, identities: &[String]) -> bool {

@@ -69,11 +69,16 @@ impl SnapshotCache {
         self.completed_bytes += charge;
     }
 
-    /// Drops every flight: called when the seq advances, a view is swapped with no frame, or the feed closes.
+    /// Drops every flight: called when the seq advances, a view is swapped with no frame, the feed rests or it closes.
     pub fn clear(&mut self) {
         self.flights.clear();
         self.completed.clear();
         self.completed_bytes = 0;
+    }
+
+    #[cfg(test)]
+    pub fn held(&self) -> usize {
+        self.flights.len()
     }
 }
 

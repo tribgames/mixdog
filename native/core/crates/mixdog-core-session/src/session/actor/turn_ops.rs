@@ -430,11 +430,16 @@ impl SessionActor {
             || (self.compacting() && !self.compaction_held())
             || self.pending_retry.is_some()
             || self.after_compaction.as_ref().is_some_and(|after| after.waiting.iter().any(|w| matches!(w, super::Waiting::Retry(_))))
-            || !self.projected.queue.is_empty()
+            || self.queue_holds_work()
     }
 
     fn failed_turn_items(&self) -> Vec<Value> {
         super::super::quota_lane::transcript_rows(self.acked.window.iter().map(|row| row.item.as_ref()))
+    }
+
+    /// The transcript ends on a turn that failed on provider quota, and no turn has begun since.
+    pub(super) fn quota_stopped(&self) -> bool {
+        mixdog_core_goal::quota_settlement::latest_quota_failure(&self.failed_turn_items()).is_some()
     }
 
     fn retry_failed(&mut self, op: Option<OpId>, tx: Waiter, key: String) {

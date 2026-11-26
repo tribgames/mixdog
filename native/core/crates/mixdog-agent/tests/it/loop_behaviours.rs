@@ -1311,7 +1311,7 @@ fn file() -> ContentPart {
 
 #[test]
 fn an_image_is_never_replaced_by_text_and_the_text_around_it_stays() {
-    // The text-only projection leaves the image in place: the route it takes refuses it by name before anything is sent.
+    // The text-only projection leaves the image in place: the route it takes sends the omission text in its place.
     let sent = assert_text_only_input(&model(None), &Files, parts(vec![ContentPart::Text("see".into(), None), image()]), false, false).unwrap();
     assert_eq!(sent[0].content, Content::Parts(vec![ContentPart::Text("see".into(), None), image()]));
 }

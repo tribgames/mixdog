@@ -11,10 +11,13 @@
 //! 1.4.5 wrote them in plain text). The appends of one session run in call order on one task,
 //! each file operation a durability-lane job; a failure is logged and never fails the turn.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::InLane;
@@ -26,6 +29,7 @@ use serde_json::Value;
 use serde_json::json;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use tokio::sync::watch;
 
 use super::Clock;
 
@@ -194,11 +198,49 @@ impl TurnTranscript {
     }
 }
 
+struct Draining {
+    id: u64,
+    files: Vec<PathBuf>,
+    tx: mpsc::WeakUnboundedSender<Op>,
+    done: watch::Receiver<bool>,
+}
+
+struct WriterDone {
+    id: u64,
+    session: String,
+    draining: Arc<Mutex<HashMap<String, Vec<Draining>>>>,
+    done: watch::Sender<bool>,
+}
+
+impl Drop for WriterDone {
+    fn drop(&mut self) {
+        let mut map = lock(&self.draining);
+        let _ = self.done.send(true);
+        if let Some(entries) = map.get_mut(&self.session) {
+            entries.retain(|entry| entry.id != self.id);
+            if entries.is_empty() {
+                map.remove(&self.session);
+            }
+        }
+    }
+}
+
 impl Writer {
-    fn spawn(self, lane: DurabilityIo) -> mpsc::UnboundedSender<Op> {
+    fn spawn(
+        self,
+        lane: DurabilityIo,
+        id: u64,
+        draining: Arc<Mutex<HashMap<String, Vec<Draining>>>>,
+        prev: Vec<watch::Receiver<bool>>,
+    ) -> (mpsc::UnboundedSender<Op>, watch::Receiver<bool>) {
         let (tx, mut rx) = mpsc::unbounded_channel::<Op>();
+        let (done_tx, done_rx) = watch::channel(false);
         let (session, shared, files) = (self.session.clone(), self.shared.clone(), self.files.clone());
         drop(mixdog_rt::spawn("session-transcript", mixdog_rt::TaskClass::Work, async move {
+            let _done = WriterDone { id, session: session.clone(), draining, done: done_tx };
+            for mut prior in prev {
+                let _ = prior.wait_for(|finished| *finished).await;
+            }
             let mut writer = Some(self);
             while let Some(op) = rx.recv().await {
                 let op = match op {
@@ -240,7 +282,7 @@ impl Writer {
                 }
             }
         }));
-        tx
+        (tx, done_rx)
     }
 
     fn apply(&mut self, lane: &InLane<DurabilityIo>, op: Op) {
@@ -601,27 +643,96 @@ mod tests {
         written.sort();
         assert_eq!(paths, written, "the recorded folders, and nothing found by looking");
     }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn retiring_an_unloaded_session_drops_its_writer_and_allows_reopening() {
+        let r = rig();
+        {
+            let turn = r.files.turn(SESSION, &r.header, &[]).unwrap();
+            turn.user(&json!("first prompt"));
+            turn.assistant_text("first answer");
+            // Do not flush before retire: retire must fence the queued ops before reopen/redact/purge.
+        }
+        assert_eq!(r.files.writers_held(), 1);
+
+        // Concurrent retire + immediate reopen must serialize the new writer behind the draining one.
+        let ((), ()) = tokio::join!(r.files.retire(SESSION), async {
+            let turn = r.files.turn(SESSION, &r.header, &[json!({"role": "user", "content": "first prompt"})]).unwrap();
+            turn.final_text("first answer");
+            turn.flushed().await;
+        });
+        assert_eq!(r.files.writers_held(), 1);
+        assert_eq!(r.files.draining_held(), 0);
+        let lines = texts(&r.path);
+        assert_eq!(
+            lines,
+            vec!["first prompt", "first answer", "first answer"],
+            "old lines kept in order, no duplicate backfill, fresh writer writes with empty last_assistant"
+        );
+
+        // Retire completely releases both active and draining maps once drained.
+        r.files.retire(SESSION).await;
+        assert_eq!((r.files.writers_held(), r.files.draining_held()), (0, 0));
+
+        // Retire followed immediately by redact_session fences queued writes so sensitive values are redacted.
+        {
+            let turn = r.files.turn(SESSION, &r.header, &[]).unwrap();
+            turn.user(&json!("secret-token-xyz"));
+        }
+        mark(&r.sensitive, "secret-token-xyz");
+        let cwds = [r.header.get("cwd").and_then(Value::as_str).unwrap().to_owned()];
+        let ((), ()) = tokio::join!(r.files.retire(SESSION), r.files.redact_session(SESSION, &cwds));
+        let text = std::fs::read_to_string(&r.path).unwrap();
+        assert!(!text.contains("secret-token-xyz"), "redaction waited for retiring writer: {text}");
+        assert_eq!((r.files.writers_held(), r.files.draining_held()), (0, 0));
+
+        // Retire followed immediately by purge still fences the draining writer, returns its path, and blocks future turns.
+        {
+            let turn = r.files.turn(SESSION, &r.header, &[]).unwrap();
+            turn.user(&json!("last prompt"));
+        }
+        let ((), purged) = tokio::join!(r.files.retire(SESSION), r.files.purge(SESSION));
+        assert!(purged.contains(&r.path), "purge fenced the retiring writer and returned its path");
+        assert!(r.files.turn(SESSION, &r.header, &[]).is_none(), "purged session cannot reopen a writer");
+        assert_eq!((r.files.writers_held(), r.files.draining_held()), (0, 0));
+    }
 }
 /// The transcripts of the process's sessions.
 pub struct TranscriptFiles {
     lane: DurabilityIo,
     clock: Arc<dyn Clock>,
     shared: Arc<Shared>,
+    next_id: AtomicU64,
     /// Each session's writer, the session+cwd it was made for and its mark subscription, oldest first.
     writers: Mutex<Vec<WriterEntry>>,
+    /// Retired or superseded writers still draining queued ops; each task removes its own entry on exit.
+    draining: Arc<Mutex<HashMap<String, Vec<Draining>>>>,
 }
 struct WriterEntry {
+    id: u64,
     session: String,
     made_for: String,
     files: Vec<PathBuf>,
     tx: mpsc::UnboundedSender<Op>,
+    done: watch::Receiver<bool>,
     _marks: mixdog_services::memory::sensitive::Subscription,
 }
 impl TranscriptFiles {
     /// The transcripts under `mixdog_home`'s `projects`.
     pub fn new(mixdog_home: &Path, lane: DurabilityIo, clock: Arc<dyn Clock>, sensitive: Arc<SensitiveStore>) -> Arc<Self> {
         let shared = Arc::new(Shared { projects: mixdog_home.join("projects"), lane, sensitive, ingest: std::sync::OnceLock::new(), purged: Mutex::default() });
-        Arc::new(Self { lane, clock, shared, writers: Mutex::default() })
+        Arc::new(Self { lane, clock, shared, next_id: AtomicU64::new(1), writers: Mutex::default(), draining: Arc::default() })
+    }
+
+    fn track_draining_locked(draining: &mut HashMap<String, Vec<Draining>>, entry: &WriterEntry) {
+        if !*entry.done.borrow() {
+            draining.entry(entry.session.clone()).or_default().push(Draining {
+                id: entry.id,
+                files: entry.files.clone(),
+                tx: entry.tx.downgrade(),
+                done: entry.done.clone(),
+            });
+        }
     }
 
     /// The memory watcher's ingest, through which a redaction rewrites a transcript.
@@ -644,8 +755,27 @@ impl TranscriptFiles {
                 return;
             }
         }
-        let files: Vec<PathBuf> =
+        let (mut wait, draining_files) = {
+            let draining = lock(&self.draining);
+            match draining.get(thread) {
+                Some(entries) => {
+                    let wait: Vec<watch::Receiver<bool>> = entries.iter().map(|d| d.done.clone()).collect();
+                    let files: Vec<PathBuf> = entries.iter().flat_map(|d| d.files.iter().cloned()).collect();
+                    (wait, files)
+                }
+                None => (Vec::new(), Vec::new()),
+            }
+        };
+        for done in &mut wait {
+            let _ = done.wait_for(|finished| *finished).await;
+        }
+        let mut files: Vec<PathBuf> =
             cwds.iter().filter(|cwd| !cwd.is_empty()).map(|cwd| self.transcript_path(thread, &super::user_cwd::node_resolve(cwd))).collect();
+        for path in draining_files {
+            if !files.contains(&path) {
+                files.push(path);
+            }
+        }
         self.shared.redact_files(thread, &files).await;
     }
 
@@ -668,6 +798,38 @@ impl TranscriptFiles {
         Some(held)
     }
 
+    /// Retires an unloaded session's writer entry and awaits its draining task so its channel,
+    /// file list, mark subscription and `last_assistant` buffer leave memory once queued writes
+    /// finish. Unlike [`Self::purge`], the session is not marked purged, so a later reload opens
+    /// a fresh writer serialized after any still-draining writer.
+    pub async fn retire(&self, thread: &str) {
+        let (stopped, mut wait) = {
+            let mut writers = lock(&self.writers);
+            let (gone, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut *writers).into_iter().partition(|entry| entry.session == thread);
+            *writers = kept;
+            let mut draining = lock(&self.draining);
+            for entry in &gone {
+                Self::track_draining_locked(&mut draining, entry);
+            }
+            let wait: Vec<watch::Receiver<bool>> = draining.get(thread).map(|entries| entries.iter().map(|d| d.done.clone()).collect()).unwrap_or_default();
+            (gone, wait)
+        };
+        drop(stopped);
+        for done in &mut wait {
+            let _ = done.wait_for(|finished| *finished).await;
+        }
+    }
+
+    #[cfg(test)]
+    fn writers_held(&self) -> usize {
+        lock(&self.writers).len()
+    }
+
+    #[cfg(test)]
+    fn draining_held(&self) -> usize {
+        lock(&self.draining).len()
+    }
+
     /// `purgeSessionTranscripts`' writer half: `thread` is deleted, so its writers write nothing
     /// more (their queued lines are discarded, a later append is refused) and no writer is made
     /// for it again. Resolves once a write already running has ended; returns the paths the
@@ -681,11 +843,14 @@ impl TranscriptFiles {
                 purged.remove(0);
             }
         }
-        let stopped: Vec<WriterEntry> = {
+        let (stopped, draining_entries) = {
             let mut writers = lock(&self.writers);
-            let (gone, kept) = std::mem::take(&mut *writers).into_iter().partition(|entry| entry.session == thread);
+            let (gone, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut *writers).into_iter().partition(|entry| entry.session == thread);
             *writers = kept;
-            gone
+            let draining = lock(&self.draining);
+            let draining_entries: Vec<(Vec<PathBuf>, mpsc::WeakUnboundedSender<Op>, watch::Receiver<bool>)> =
+                draining.get(thread).map(|entries| entries.iter().map(|d| (d.files.clone(), d.tx.clone(), d.done.clone())).collect()).unwrap_or_default();
+            (gone, draining_entries)
         };
         for entry in &stopped {
             let (done, rx) = oneshot::channel();
@@ -696,6 +861,26 @@ impl TranscriptFiles {
         let mut paths: Vec<PathBuf> = Vec::new();
         for entry in stopped {
             for path in entry.files {
+                if !paths.contains(&path) {
+                    paths.push(path);
+                }
+            }
+        }
+        for (files, weak_tx, mut done) in draining_entries {
+            if let Some(tx) = weak_tx.upgrade() {
+                let (flushed_tx, flushed_rx) = oneshot::channel();
+                if tx.send(Op::Flushed(flushed_tx)).is_ok() {
+                    tokio::select! {
+                        _ = flushed_rx => {}
+                        _ = done.wait_for(|finished| *finished) => {}
+                    }
+                } else {
+                    let _ = done.wait_for(|finished| *finished).await;
+                }
+            } else {
+                let _ = done.wait_for(|finished| *finished).await;
+            }
+            for path in files {
                 if !paths.contains(&path) {
                     paths.push(path);
                 }
@@ -715,43 +900,57 @@ impl TranscriptFiles {
         let cwd = header.get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty())?;
         let cwd = super::user_cwd::node_resolve(cwd);
         let key = format!("{thread}\u{0}{cwd}");
-        let mut writers = lock(&self.writers);
-        let found = writers.iter().position(|entry| entry.session == thread && entry.made_for == key && !entry.tx.is_closed());
-        let tx = match found {
-            Some(at) => writers[at].tx.clone(),
-            None => {
-                writers.retain(|entry| entry.session != thread);
-                let path = self.transcript_path(thread, &cwd);
-                let mut files: Vec<PathBuf> = recorded_cwds(header).iter().map(|recorded| self.transcript_path(thread, recorded)).collect();
-                if !files.contains(&path) {
-                    files.push(path.clone());
+        let (tx, dropped_old) = {
+            let mut writers = lock(&self.writers);
+            let found = writers.iter().position(|entry| entry.session == thread && entry.made_for == key && !entry.tx.is_closed());
+            match found {
+                Some(at) => (writers[at].tx.clone(), Vec::new()),
+                None => {
+                    let (old, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut *writers).into_iter().partition(|entry| entry.session == thread);
+                    *writers = kept;
+                    let mut draining = lock(&self.draining);
+                    for entry in &old {
+                        Self::track_draining_locked(&mut draining, entry);
+                    }
+                    let prev: Vec<watch::Receiver<bool>> =
+                        draining.get(thread).map(|entries| entries.iter().map(|d| d.done.clone()).collect()).unwrap_or_default();
+                    let path = self.transcript_path(thread, &cwd);
+                    let mut files: Vec<PathBuf> = recorded_cwds(header).iter().map(|recorded| self.transcript_path(thread, recorded)).collect();
+                    if !files.contains(&path) {
+                        files.push(path.clone());
+                    }
+                    let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+                    let writer = Writer {
+                        path: path.clone(),
+                        files: files.clone(),
+                        session: thread.to_owned(),
+                        cwd,
+                        memory_eligible: !super::thread_switches::agent_owner(header),
+                        clock: self.clock.clone(),
+                        sensitive: self.shared.sensitive.clone(),
+                        shared: self.shared.clone(),
+                        size_checked: false,
+                        last_known: 0,
+                        since_check: 0,
+                        last_assistant: String::new(),
+                    };
+                    let (tx, done) = writer.spawn(self.lane, id, self.draining.clone(), prev);
+                    let marked = tx.clone();
+                    let marks = self.shared.sensitive.on_marked(thread, move |_| {
+                        let _ = marked.send(Op::Redact(None));
+                    });
+                    writers.push(WriterEntry { id, session: thread.to_owned(), made_for: key, files, tx: tx.clone(), done, _marks: marks });
+                    let mut dropped = old;
+                    if writers.len() > MAX_WRITERS {
+                        let evicted = writers.remove(0);
+                        Self::track_draining_locked(&mut draining, &evicted);
+                        dropped.push(evicted);
+                    }
+                    (tx, dropped)
                 }
-                let writer = Writer {
-                    path: path.clone(),
-                    files: files.clone(),
-                    session: thread.to_owned(),
-                    cwd,
-                    memory_eligible: !super::thread_switches::agent_owner(header),
-                    clock: self.clock.clone(),
-                    sensitive: self.shared.sensitive.clone(),
-                    shared: self.shared.clone(),
-                    size_checked: false,
-                    last_known: 0,
-                    since_check: 0,
-                    last_assistant: String::new(),
-                };
-                let tx = writer.spawn(self.lane);
-                let marked = tx.clone();
-                let marks = self.shared.sensitive.on_marked(thread, move |_| {
-                    let _ = marked.send(Op::Redact(None));
-                });
-                writers.push(WriterEntry { session: thread.to_owned(), made_for: key, files, tx: tx.clone(), _marks: marks });
-                if writers.len() > MAX_WRITERS {
-                    writers.remove(0);
-                }
-                tx
             }
         };
+        drop(dropped_old);
         let _ = tx.send(Op::Ensure(prior.to_vec()));
         Some(TurnTranscript(tx))
     }

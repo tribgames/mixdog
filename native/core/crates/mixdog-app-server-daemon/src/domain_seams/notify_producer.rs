@@ -136,12 +136,20 @@ impl GoalSnapshots for mixdog_core_goal::goal::GoalRuntime {
     }
 }
 
+/// Monotonic revision per observed session: deleted sessions leave `sessions` while `next`
+/// keeps climbing so an in-flight snapshot from before deletion can never match a later one.
+#[derive(Default)]
+struct GoalRevisions {
+    next: u64,
+    sessions: HashMap<String, (u64, bool)>,
+}
+
 /// Subscribe first, then seed each catalog session. A changed or deleted session increments its
 /// revision under the same lock as publication, so a slow snapshot can never overwrite it.
 struct GoalFollower {
     source: Arc<dyn GoalSnapshots>,
     sender: mpsc::UnboundedSender<Msg>,
-    revisions: Mutex<HashMap<String, (u64, bool)>>,
+    revisions: Mutex<GoalRevisions>,
     stopped: CancellationToken,
     log: Arc<dyn Fn(&str) + Send + Sync>,
 }
@@ -149,28 +157,34 @@ struct GoalFollower {
 impl GoalFollower {
     fn changed(&self, session: &str, goal: Option<&Value>) {
         let mut revisions = self.revisions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let state = revisions.entry(session.to_owned()).or_default();
-        state.0 += 1;
-        state.1 = true;
+        revisions.next += 1;
+        let rev = revisions.next;
+        if goal.is_some() || revisions.sessions.contains_key(session) {
+            revisions.sessions.insert(session.to_owned(), (rev, true));
+        }
         let _ = self.sender.send(Msg::Goal { session_id: session.to_owned(), key: blocked_goal_key(goal) });
     }
 
     fn removed(&self, session: &str) {
         let mut revisions = self.revisions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let state = revisions.entry(session.to_owned()).or_default();
-        state.0 += 1;
-        state.1 = false;
+        revisions.sessions.remove(session);
+    }
+
+    #[cfg(test)]
+    fn revisions_held(&self) -> usize {
+        self.revisions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).sessions.len()
     }
 
     fn observe(self: &Arc<Self>, session: &str) {
         let revision = {
             let mut revisions = self.revisions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let state = revisions.entry(session.to_owned()).or_default();
-            if state.1 {
+            if revisions.sessions.get(session).is_some_and(|(_, seen)| *seen) {
                 return;
             }
-            state.1 = true;
-            state.0
+            revisions.next += 1;
+            let rev = revisions.next;
+            revisions.sessions.insert(session.to_owned(), (rev, true));
+            rev
         };
         let (this, session) = (self.clone(), session.to_owned());
         drop(tokio::spawn(async move {
@@ -180,7 +194,7 @@ impl GoalFollower {
                 snapshot = this.source.snapshot(&session) => snapshot,
             };
             let mut revisions = this.revisions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if revisions.get(&session) != Some(&(revision, true)) {
+            if revisions.sessions.get(&session) != Some(&(revision, true)) {
                 return;
             }
             match snapshot {
@@ -189,7 +203,7 @@ impl GoalFollower {
                 }
                 Err(error) => {
                     // A later roster publication retries a transient read failure.
-                    revisions.insert(session, (revision, false));
+                    revisions.sessions.insert(session, (revision, false));
                     (this.log)(&format!("[mixdog-turn-notification] goal snapshot failed: {error}"));
                 }
             }

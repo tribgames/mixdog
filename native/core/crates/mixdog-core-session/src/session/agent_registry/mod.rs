@@ -288,7 +288,7 @@ pub struct AgentRegistry {
     rearm: Arc<tokio::sync::Notify>,
     loads: Mutex<Loads>,
     /// The restart notices this process has begun to queue and not yet stamped (`restart::notify_restart_failures`).
-    restart_notices: Mutex<HashMap<String, restart::NoticeStage>>,
+    restart_notices: Mutex<HashMap<String, restart::RestartNotice>>,
     /// `descriptor.parked` (`agent-tree.mjs`): the idle agents the idle release parked, until a turn starts on them. Of
     /// this process only, as Node's descriptors are.
     parked: Mutex<HashSet<String>>,
@@ -1438,26 +1438,38 @@ impl AgentRegistry {
         if id.is_empty() {
             return false;
         }
-        // Whatever the registry and its store hold for the deleted session itself goes whether or not its row can be read now.
-        self.store.forget_session(&id);
+        // Whatever the registry holds for the deleted session itself goes whether or not its row can be read now.
+        self.parked.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
         self.cancelled.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
         self.lock().epochs.remove(&id);
         self.forget_scope(&id);
-        // Rows that could not be read are not forgotten from memory alone: the row stays for a later forget.
+        // Rows that could not be read are not forgotten from memory alone: the row stays for a later forget,
+        // and restart-notice dedup entries stay while an unnotified failure row may still sit in storage.
         if let Err(error) = self.reload().await {
+            self.store.forget_session(&id);
             tracing::warn!(thread = %id, "[agent] a deleted session's worker row is not forgotten yet: {error}");
             return false;
         }
+        let had_kept = self.store.kept(&id);
         let (forgot, unwritten) = self.forget_row(&id);
-        // The index is read once. Until it was (a read that failed), the removed row is still in the store and a later read
-        // would bring it back: the tombstone stays until the removal is written.
-        if unwritten && self.store.settled().await.is_ok() {
+        self.forget_restart_notices(&id);
+        // Wait for a kept-row removal or Lead tombstone write before forgetting the session in the store so
+        // `KeptMemory::forget` sees the removed row gone and prunes its `changed`/`changed_at` entry; until the
+        // Lead index is read, the Lead tombstone also stays until the removal is written.
+        let removed_kept = had_kept && forgot && self.lock().map(&id).is_none();
+        if (unwritten || removed_kept) && self.store.settled().await.is_ok() && unwritten {
             let mut st = self.lock();
             if st.lead_rows.get(&id).is_some_and(Option::is_none) {
                 st.lead_rows.remove(&id);
             }
         }
+        self.store.forget_session(&id);
         forgot
+    }
+
+    fn forget_restart_notices(&self, id: &str) {
+        let owed = self.lock().map(id).is_some_and(restart::is_unnotified_restart_failure);
+        self.restart_notices.lock().unwrap_or_else(|p| p.into_inner()).retain(|_, notice| notice.owner != id && (owed || notice.session != id));
     }
 
     /// The row of a deleted session as the registry holds it now: whether one went, and whether a removed Lead's tombstone

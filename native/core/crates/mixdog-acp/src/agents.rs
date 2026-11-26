@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicU64;
+use std::time::Duration;
 
 use mixdog_ai::accounts::Account;
 use mixdog_ai::accounts::Usage;
@@ -36,6 +37,13 @@ pub(crate) const AUTH_REQUIRED: i64 = -32000;
 
 /// The model id of the agent's own default model, which a route or a call that names no model runs on.
 pub const DEFAULT_MODEL: &str = "default";
+
+/// How long a new turn waits for an agent to close a previously cancelled prompt before dropping the stuck session.
+const CANCEL_CLOSE_GRACE: Duration = Duration::from_secs(2);
+
+/// How long opening or reopening a session on an already-running shared server may wait before retiring that server
+/// as wedged and starting a fresh one.
+const SHARED_OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// What happened to the account an agent's CLI is signed in with, as the core is told of it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -305,10 +313,18 @@ pub struct Agents {
     wake: OnceLock<Arc<Wake>>,
     /// The sessions' tools, handed to every agent started once they are bound; unbound, an agent is handed none.
     tools: OnceLock<Arc<dyn crate::mcp::SessionTools>>,
+    cancel_close_grace_ms: AtomicU64,
+    shared_open_timeout_ms: AtomicU64,
 }
 
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Outcome of inspecting a thread's currently running session before opening a replacement.
+pub(crate) enum ExistingSession {
+    Reuse(Arc<AgentSession>),
+    Open { stored: Option<crate::runs::Stored>, abandoned: bool },
 }
 
 /// One start of a thread's agent, for as long as it is the thread's current one.
@@ -354,7 +370,27 @@ impl Agents {
             account_changed: OnceLock::new(),
             wake: OnceLock::new(),
             tools: OnceLock::new(),
+            cancel_close_grace_ms: AtomicU64::new(CANCEL_CLOSE_GRACE.as_millis() as u64),
+            shared_open_timeout_ms: AtomicU64::new(SHARED_OPEN_TIMEOUT.as_millis() as u64),
         })
+    }
+
+    fn cancel_close_grace(&self) -> Duration {
+        Duration::from_millis(self.cancel_close_grace_ms.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_cancel_close_grace(&self, grace: Duration) {
+        self.cancel_close_grace_ms.store(grace.as_millis() as u64, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn shared_open_timeout(&self) -> Duration {
+        Duration::from_millis(self.shared_open_timeout_ms.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_shared_open_timeout(&self, timeout: Duration) {
+        self.shared_open_timeout_ms.store(timeout.as_millis() as u64, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Binds the sessions' tools: every agent started from here on is handed its session's tool surface.
@@ -674,22 +710,69 @@ impl Agents {
         stored: Option<crate::runs::Stored>,
         rules: Option<String>,
     ) -> Result<Arc<AgentSession>, Refusal> {
+        // A session reopened on its preset's shared server keeps the server running until the new one is on it.
+        let _held = self.hold_shared(thread, preset);
+        match self.resolve_running(thread, preset, &cwd, stored).await? {
+            ExistingSession::Reuse(running) => Ok(running),
+            ExistingSession::Open { stored, .. } => self.open_session(thread, preset, cwd, stored, rules).await,
+        }
+    }
+
+    /// Checks whether `thread`'s existing running session can be reused, waiting up to [`Self::cancel_close_grace`]
+    /// for a cancelled prompt to close and abandoning + ending a stuck session before opening a replacement.
+    pub(crate) async fn resolve_running(
+        &self,
+        thread: &ThreadId,
+        preset: &AgentPreset,
+        cwd: &AbsPath,
+        mut stored: Option<crate::runs::Stored>,
+    ) -> Result<ExistingSession, Refusal> {
         if !self.enabled() {
             return Err(Refusal::Off);
         }
+        let mut abandoned = false;
+        if preset.scope == ProcessScope::Shared && stored.as_ref().is_some_and(|stored| self.is_abandoned(preset, &stored.session_id)) {
+            stored = None;
+            abandoned = true;
+        }
         let running = lock(&self.sessions).get(thread).cloned();
-        // A session reopened on its preset's shared server keeps the server running until the new one is on it.
-        let _held = self.hold_shared(thread, preset);
         if let Some(running) = running {
-            if running.preset.id == preset.id && running.cwd == cwd && !running.gone().is_cancelled() {
+            if running.preset.id == preset.id && running.cwd == *cwd && !running.gone().is_cancelled() {
                 // A session that holds a cancelled prompt would read the next prompt as part of it: the agent
-                // closes that prompt first, which is the answer the protocol has it give to a cancel.
-                running.cancelled_prompt_closed().await;
-                if !running.gone().is_cancelled() {
-                    return Ok(running);
+                // closes that prompt first, which is the answer the protocol has it give to a cancel. If the agent
+                // never answers, drop the stuck session after a bounded grace so the next turn does not hang.
+                let closed = if running.holds_cancelled_prompt() {
+                    mixdog_rt::time::timeout(self.cancel_close_grace(), running.cancelled_prompt_closed()).await.is_ok()
+                } else {
+                    true
+                };
+                if closed && !running.gone().is_cancelled() {
+                    return Ok(ExistingSession::Reuse(running));
+                }
+                if !closed && preset.scope == ProcessScope::Shared {
+                    // Reopening the same session id on the shared server would reattach to the stuck prompt.
+                    self.abandon_shared(preset, &running.session_id);
+                    stored = None;
+                    abandoned = true;
                 }
             }
             self.end_process(thread);
+        }
+        Ok(ExistingSession::Open { stored, abandoned })
+    }
+
+    /// Opens a fresh or reopened agent session for `thread`, bounding opens on an existing shared server so a
+    /// wedged server is retired and replaced instead of hanging indefinitely.
+    pub(crate) async fn open_session(
+        self: &Arc<Self>,
+        thread: &ThreadId,
+        preset: &AgentPreset,
+        cwd: AbsPath,
+        stored: Option<crate::runs::Stored>,
+        rules: Option<String>,
+    ) -> Result<Arc<AgentSession>, Refusal> {
+        if !self.enabled() {
+            return Err(Refusal::Off);
         }
         // A close of the thread while its agent starts ends the start: the agent it would hold is never kept.
         let opening = Opening { agents: self.as_ref(), thread: thread.clone(), id: self.next_check.fetch_add(1, std::sync::atomic::Ordering::Relaxed) };
@@ -707,7 +790,7 @@ impl Agents {
             })
         };
         let slot: Arc<OnceLock<std::sync::Weak<AgentSession>>> = Arc::default();
-        let on_exit: Box<dyn FnOnce() + Send> = {
+        let make_on_exit = || -> Box<dyn FnOnce() + Send> {
             let (agents, thread, slot) = (Arc::downgrade(self), thread.clone(), slot.clone());
             Box::new(move || {
                 let (Some(agents), Some(ended)) = (agents.upgrade(), slot.get().and_then(std::sync::Weak::upgrade)) else { return };
@@ -717,17 +800,86 @@ impl Agents {
                 }
             })
         };
-        let handed = self.tools.get().map(|tools| crate::mcp::Handover { thread: thread.clone(), tools: tools.clone(), bridge: self.parts.mcp_bridge.clone() });
+        let make_handed =
+            || self.tools.get().map(|tools| crate::mcp::Handover { thread: thread.clone(), tools: tools.clone(), bridge: self.parts.mcp_bridge.clone() });
         let (stored, held) = stored.map(|stored| (stored.session_id, stored.prompt)).unzip();
-        let open =
-            Open { preset, program: &program, cwd, definitions: &self.parts.definitions, stored, rules, held: held.flatten(), grants, handed, temp: None };
+        let held = held.flatten();
         let opened = match preset.scope {
-            ProcessScope::PerSession => AgentSession::open(self.parts.processes.clone(), self.parts.files.clone(), open, wake, on_exit).await,
+            ProcessScope::PerSession => {
+                let open = Open {
+                    preset,
+                    program: &program,
+                    cwd,
+                    definitions: &self.parts.definitions,
+                    stored,
+                    rules,
+                    held,
+                    grants,
+                    handed: make_handed(),
+                    temp: None,
+                };
+                AgentSession::open(self.parts.processes.clone(), self.parts.files.clone(), open, wake, make_on_exit()).await
+            }
             // The preset's one server, started by the first session that needs it, serves this one beside the others.
-            ProcessScope::Shared => match self.shared_server(preset, &program).await {
-                Ok(lease) => AgentSession::open_on_shared(lease, open, wake, on_exit).await,
-                Err(fault) => Err(fault),
-            },
+            ProcessScope::Shared => {
+                let mut result = Err(Fault::Start(format!("{} did not open a session in time", preset.label)));
+                for attempt in 0..2 {
+                    let attempt_deadline = (attempt > 0).then(|| tokio::time::Instant::now() + self.shared_open_timeout());
+                    let (lease, existing) = match self.shared_server_bounded(preset, &program, attempt_deadline).await {
+                        Ok(found) => found,
+                        Err(fault) => {
+                            result = Err(fault);
+                            break;
+                        }
+                    };
+                    let server = lease.server().clone();
+                    let open = Open {
+                        preset,
+                        program: &program,
+                        cwd: cwd.clone(),
+                        definitions: &self.parts.definitions,
+                        stored: stored.clone(),
+                        rules: rules.clone(),
+                        held: held.clone(),
+                        grants: grants.clone(),
+                        handed: make_handed(),
+                        temp: None,
+                    };
+                    let timeout = match attempt_deadline {
+                        Some(deadline) => Some(deadline.saturating_duration_since(tokio::time::Instant::now())),
+                        None => existing.then(|| self.shared_open_timeout()),
+                    };
+                    match AgentSession::open_on_shared(lease, open, wake.clone(), make_on_exit(), timeout).await {
+                        Ok(session) => {
+                            result = Ok(session);
+                            break;
+                        }
+                        Err(crate::session::OpenSharedError::TimedOut) => {
+                            tracing::warn!(
+                                "[acp] {}'s shared server did not open a session within {:?}: {}",
+                                preset.id,
+                                self.shared_open_timeout(),
+                                if attempt == 0 { "replacing it" } else { "giving up" }
+                            );
+                            self.retire_wedged_shared(&server);
+                            if attempt == 0 {
+                                continue;
+                            }
+                            result = Err(Fault::Start(format!("{} did not open a session in time", preset.label)));
+                            break;
+                        }
+                        Err(crate::session::OpenSharedError::Fault(Fault::Closed(_))) if existing && attempt == 0 => {
+                            self.retire_wedged_shared(&server);
+                            continue;
+                        }
+                        Err(crate::session::OpenSharedError::Fault(fault)) => {
+                            result = Err(fault);
+                            break;
+                        }
+                    }
+                }
+                result
+            }
         };
         let session = match opened {
             Ok(session) => session,
@@ -800,6 +952,22 @@ impl Agents {
     /// session is about to be ended and another opened on the server.
     pub(crate) fn hold_shared(&self, thread: &ThreadId, preset: &AgentPreset) -> Option<crate::shared::Lease> {
         self.running(thread).filter(|running| running.preset.id == preset.id).and_then(|running| running.hold_server())
+    }
+
+    pub(crate) fn abandon_shared(&self, preset: &AgentPreset, session_id: &str) {
+        if preset.scope != ProcessScope::Shared {
+            return;
+        }
+        if let Some(crate::shared::SharedSlot::Running(server)) = lock(&self.shared).get(&preset.id) {
+            server.abandon(session_id);
+        }
+    }
+
+    pub(crate) fn is_abandoned(&self, preset: &AgentPreset, session_id: &str) -> bool {
+        if preset.scope != ProcessScope::Shared {
+            return false;
+        }
+        matches!(lock(&self.shared).get(&preset.id), Some(crate::shared::SharedSlot::Running(server)) if server.is_abandoned(session_id))
     }
 
     /// Ends the process of `thread`'s agent, or takes its session alone off the shared server it runs on; the thread

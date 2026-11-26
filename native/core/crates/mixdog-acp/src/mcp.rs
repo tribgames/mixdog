@@ -146,6 +146,56 @@ pub fn rendered(handed: &Handed) -> Value {
     json!({ "content": content(handed), "isError": handed.failed })
 }
 
+/// Appends mid-turn user messages and task notifications peeked at a Mixdog tool-call boundary to the MCP tool result
+/// so the running ACP agent receives them on its next model step, resolving `AttachmentRef` images, files, and
+/// offloaded long pastes through the same path as `runs::prompt_blocks`.
+pub(crate) async fn with_steers(
+    mut result: Value,
+    steers: &[crate::surface::SteerDelivery],
+    capabilities: (bool, bool),
+    attachments: &dyn crate::runs::Attachments,
+) -> (Value, crate::runs::LeftOut) {
+    if steers.is_empty() {
+        return (result, crate::runs::LeftOut::default());
+    }
+    if !result.get("content").is_some_and(Value::is_array) {
+        result["content"] = json!([]);
+    }
+    let blocks = result["content"].as_array_mut().expect("content is an array");
+    let mut left_out = crate::runs::LeftOut::default();
+    for steer in steers {
+        match &steer.content {
+            Content::Text(text) => {
+                let text = if steer.task_notification { text.to_string() } else { format!("[User message received while you were working]\n{text}") };
+                blocks.push(json!({ "type": "text", "text": text }));
+            }
+            Content::Parts(parts) => {
+                if !steer.task_notification {
+                    blocks.push(json!({ "type": "text", "text": "[User message received while you were working]" }));
+                }
+                let row = json!({ "content": parts.iter().map(mixdog_agent::message_row::part_row).collect::<Vec<_>>() });
+                let (mut resolved, left) = crate::runs::prompt_blocks(&row, capabilities, attachments).await;
+                blocks.append(&mut resolved);
+                if left.images > 0 {
+                    blocks.push(json!({
+                        "type": "text",
+                        "text": format!("[{} image(s) of this message were not passed to the agent]", left.images),
+                    }));
+                    left_out.images += left.images;
+                }
+                for file in left.files {
+                    blocks.push(json!({
+                        "type": "text",
+                        "text": format!("[Attached file \"{file}\" was not passed to the agent]"),
+                    }));
+                    left_out.files.push(file);
+                }
+            }
+        }
+    }
+    (result, left_out)
+}
+
 /// A finished call's result as the text a background task keeps: [`rendered`]'s text, an image noted where it was.
 pub fn text_of(handed: &Handed) -> String {
     content(handed)

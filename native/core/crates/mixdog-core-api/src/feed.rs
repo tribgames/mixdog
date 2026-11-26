@@ -571,6 +571,10 @@ pub trait ScopedFeeds: Send + Sync {
     /// drawn epoch, so a position in an earlier feed with the same id never replays.
     fn create(&self, id: FeedId, view: Arc<dyn FeedView>) -> Arc<dyn ScopedFeed>;
 
+    /// [`Self::create`] with `on_last_detach` invoked once the feed's last attached subscriber
+    /// detaches through any subscription path (including `feed/subscribe`).
+    fn create_watching_detach(&self, id: FeedId, view: Arc<dyn FeedView>, on_last_detach: Arc<dyn Fn() + Send + Sync>) -> Arc<dyn ScopedFeed>;
+
     /// [`Self::create`] for a feed of the ordered class ([`FeedSource::ordered`]). A factory
     /// without the class creates a plain feed.
     fn create_ordered(&self, id: FeedId, view: Arc<dyn FeedView>) -> Arc<dyn ScopedFeed> {

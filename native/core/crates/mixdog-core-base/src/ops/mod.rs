@@ -32,6 +32,7 @@ pub use self::gate::OpOutcome;
 pub use self::gate::OpRequest;
 pub use self::gate::OpTicket;
 pub use self::gate::PruneStep;
+pub use self::gate::WeakOpGate;
 pub use self::index::CoreOpIndex;
 pub use self::index::ThreadOpGates;
 pub use self::state_store::StateOpStore;

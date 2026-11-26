@@ -303,6 +303,16 @@ pub fn apply_upsert(prev: Option<&Row>, normalized: Row, now_iso: &str) -> Row {
             merged.insert(field.into(), kept.clone());
         }
     }
+    let prev_task = clean(prev.get("task_id"));
+    if !prev_task.is_empty()
+        && prev_task == clean(normalized.get("task_id"))
+        && !is_terminal_row(prev)
+        && !is_terminal_row(&normalized)
+        && stamp_ms(prev.get("turnStartedAt")) > stamp_ms(prev.get("finishedAt"))
+        && let Some(origin) = prev.get("turnStartedAt")
+    {
+        merged.insert("turnStartedAt".into(), origin.clone());
+    }
     if normalized.get("released") != Some(&Value::Bool(true)) {
         merged.shift_remove("released");
     }
@@ -622,4 +632,72 @@ pub fn nonterminal_reap_deadline(reap_ms: &dyn Fn(&str) -> f64, row: &Row) -> f6
         return 0.0;
     }
     time + reap_ms(&clean(row.get("provider")))
+}
+
+#[cfg(test)]
+mod same_task_origin_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn row(value: Value) -> Row {
+        normalize_row(value.as_object().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn active_worker_keeps_its_turn_origin_across_same_task_upserts_and_advances_on_new_tasks() {
+        let spawned = apply_upsert(
+            None,
+            row(json!({
+                "tag": "w1",
+                "sessionId": "sess_w1",
+                "agent": "worker",
+                "status": "running",
+                "stage": "running",
+                "task_id": "task_1",
+                "turnStartedAt": "2026-03-01T10:00:00.000Z",
+            })),
+            "2026-03-01T10:00:00.000Z",
+        );
+        let turn_opened = apply_upsert(
+            Some(&spawned),
+            row(json!({
+                "tag": "w1",
+                "sessionId": "sess_w1",
+                "agent": "worker",
+                "status": "running",
+                "stage": "running",
+                "task_id": "task_1",
+                "turnStartedAt": "2026-03-01T10:00:01.500Z",
+            })),
+            "2026-03-01T10:00:01.500Z",
+        );
+        assert_eq!(turn_opened.get("turnStartedAt"), Some(&json!("2026-03-01T10:00:00.000Z")));
+
+        let settled = apply_upsert(
+            Some(&turn_opened),
+            row(json!({
+                "tag": "w1",
+                "sessionId": "sess_w1",
+                "agent": "worker",
+                "status": "idle",
+                "stage": "idle",
+                "finishedAt": "2026-03-01T10:00:05.000Z",
+            })),
+            "2026-03-01T10:00:05.000Z",
+        );
+        let follow_up = apply_upsert(
+            Some(&settled),
+            row(json!({
+                "tag": "w1",
+                "sessionId": "sess_w1",
+                "agent": "worker",
+                "status": "running",
+                "stage": "running",
+                "task_id": "task_2",
+                "turnStartedAt": "2026-03-01T10:00:10.000Z",
+            })),
+            "2026-03-01T10:00:10.000Z",
+        );
+        assert_eq!(follow_up.get("turnStartedAt"), Some(&json!("2026-03-01T10:00:10.000Z")));
+    }
 }

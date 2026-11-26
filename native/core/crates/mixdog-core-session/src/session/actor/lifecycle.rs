@@ -281,6 +281,7 @@ impl SessionActor {
             self.arm_rest();
         } else {
             self.feed.rest();
+            self.deps.deletion.release_rested(self.id.as_str());
         }
     }
 

@@ -158,9 +158,31 @@ fn due(policy: Option<&mixdog_agent::boundary::CompactPolicy>, context_tokens: O
 }
 
 impl History {
-    /// The session holds a conversation from before the turn.
+    /// A row produced by a model or tool in an earlier turn, excluding synthetic context acks.
+    fn is_reply(row: &Value) -> bool {
+        match row.get("role").and_then(Value::as_str) {
+            Some("assistant") => row.pointer("/meta/source").and_then(Value::as_str) != Some("context-ack"),
+            Some("tool") => true,
+            _ => false,
+        }
+    }
+
+    /// A user row of a turn that failed with no reply recorded after it.
+    fn is_unanswered_failed_user(rows: &[&Value], index: usize) -> bool {
+        let row = rows[index];
+        row.get("role").and_then(Value::as_str) == Some("user")
+            && row.pointer("/meta/transcript/completion/status").and_then(Value::as_str) == Some("failed")
+            && !rows[index + 1..].iter().any(|later| Self::is_reply(later))
+    }
+
+    /// The session holds a conversation from before the turn: at least one user conversation row and at least one
+    /// earlier reply (or an earlier compaction summary).
     pub fn holds_conversation(&self) -> bool {
-        self.rows.iter().any(|(_, row)| mixdog_core_session::session::route_session::has_user_conversation(std::slice::from_ref(row)))
+        use mixdog_core_ports::ports::route::is_summary_anchor;
+        use mixdog_core_session::session::route_session::has_user_conversation;
+        let user = self.rows.iter().any(|(_, row)| has_user_conversation(std::slice::from_ref(row)));
+        let reply = self.rows.iter().any(|(_, row)| Self::is_reply(row) || is_summary_anchor(row));
+        user && reply
     }
 
     /// The summary an earlier compaction left in `rows`, where they hold nothing the user said since: the text an agent
@@ -169,8 +191,16 @@ impl History {
         use mixdog_core_ports::ports::route::is_summary_anchor;
         use mixdog_core_session::session::route_session::has_user_conversation;
         let summarized = rows.iter().any(|row| is_summary_anchor(row));
-        let conversation = rows.iter().any(|row| has_user_conversation(std::slice::from_ref(*row)));
-        (summarized && !conversation).then(|| Self::told(rows.iter().copied().filter(|row| row.get("role").and_then(Value::as_str) != Some("system"))))
+        let conversation =
+            rows.iter().enumerate().any(|(i, row)| !Self::is_unanswered_failed_user(rows, i) && has_user_conversation(std::slice::from_ref(*row)));
+        (summarized && !conversation).then(|| {
+            Self::told(
+                rows.iter()
+                    .enumerate()
+                    .filter(|&(i, row)| row.get("role").and_then(Value::as_str) != Some("system") && !Self::is_unanswered_failed_user(rows, i))
+                    .map(|(_, row)| *row),
+            )
+        })
     }
 
     /// `rows` as the text an agent reads: each row that says something, under who said it.
@@ -612,6 +642,28 @@ mod tests {
 
         assert!(History::standing_summary(&[&summary, &kept, &said]).is_none(), "a conversation since the summary is summarized anew");
         assert!(History::standing_summary(&[&system]).is_none());
+    }
+
+    /// A failed user turn after a compaction left no reply behind: the earlier summary still stands for hand-over
+    /// without re-summarizing or including the failed prompt.
+    #[test]
+    fn a_standing_summary_followed_only_by_a_failed_user_turn_still_hands_over_the_summary() {
+        let summary = json!({ "role": "user", "content": format!("{}the parser is half written", mixdog_agent::compact::fresh::SUMMARY_PREFIX) });
+        let failed = json!({
+            "role": "user",
+            "content": "finish the parser",
+            "meta": { "transcript": { "completion": { "status": "failed" } } }
+        });
+
+        let handed = History::standing_summary(&[&summary, &failed]).expect("the standing summary still holds").expect("readable rows");
+        assert!(handed.contains("the parser is half written"), "{handed}");
+        assert!(!handed.contains("finish the parser"), "the failed prompt is not part of the standing summary: {handed}");
+
+        let partial_reply = json!({ "role": "assistant", "content": "I started editing parser.rs" });
+        assert!(
+            History::standing_summary(&[&summary, &failed, &partial_reply]).is_none(),
+            "a failed turn that produced a reply before failing is re-summarized"
+        );
     }
 
     /// An agent's session compacts on the reading a provider's does: what its context holds, against the trigger of

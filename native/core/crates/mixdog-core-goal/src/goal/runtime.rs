@@ -201,17 +201,42 @@ pub(crate) struct SlotMem {
     pub expiry_pending: bool,
     pub warning_pending: bool,
     pub title_job: Option<TitleJob>,
+    /// Marked on [`GoalRuntime::forget_session`]: no timer, title job, or background write may arm or re-insert this slot.
+    pub deleted: bool,
+    /// Created solely to deduplicate an unloaded expiry transition: released once idle.
+    pub ephemeral: bool,
+}
+
+impl SlotMem {
+    pub fn has_live_work(&self) -> bool {
+        self.deadline_timer.is_some()
+            || self.warning_timer.is_some()
+            || self.heartbeat.is_some()
+            || self.title_job.is_some()
+            || self.expiry_pending
+            || self.warning_pending
+            || self.turn_goal_id.is_some()
+            || self.continuation_tier.is_some()
+            || self.idle_review.is_some()
+            || self.unsaved_stop.is_some()
+    }
 }
 
 pub(crate) struct Slot {
     /// One mutation at a time, in the order asked (Node's `withMutation` chain).
     pub chain: Arc<mixdog_rt::SerialChain>,
     pub mem: Mutex<SlotMem>,
+    /// Whether this slot lives in `Inner::sessions` (as opposed to a per-read transient slot).
+    pub tracked: bool,
 }
 
 impl Slot {
     pub fn mem(&self) -> std::sync::MutexGuard<'_, SlotMem> {
         self.mem.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub fn is_deleted(&self) -> bool {
+        self.mem().deleted
     }
 }
 
@@ -284,13 +309,49 @@ impl Inner {
         self.closed.load(Ordering::SeqCst)
     }
 
+    fn new_slot(tracked: bool, ephemeral: bool) -> Arc<Slot> {
+        Arc::new(Slot { chain: mixdog_rt::SerialChain::new(), mem: Mutex::new(SlotMem { ephemeral, ..SlotMem::default() }), tracked })
+    }
+
     pub fn slot(&self, id: &str) -> Arc<Slot> {
-        self.sessions
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .entry(id.to_owned())
-            .or_insert_with(|| Arc::new(Slot { chain: mixdog_rt::SerialChain::new(), mem: Mutex::default() }))
-            .clone()
+        let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
+        let slot = sessions.entry(id.to_owned()).or_insert_with(|| Self::new_slot(true, false)).clone();
+        slot.mem().ephemeral = false;
+        slot
+    }
+
+    pub fn ephemeral_slot(&self, id: &str) -> Arc<Slot> {
+        self.sessions.lock().unwrap_or_else(PoisonError::into_inner).entry(id.to_owned()).or_insert_with(|| Self::new_slot(true, true)).clone()
+    }
+
+    pub fn existing_slot(&self, id: &str) -> Option<Arc<Slot>> {
+        self.sessions.lock().unwrap_or_else(PoisonError::into_inner).get(id).cloned()
+    }
+
+    pub fn has_retained_slot(&self, id: &str) -> bool {
+        self.existing_slot(id).is_some_and(|slot| {
+            let mem = slot.mem();
+            !mem.deleted && !mem.ephemeral
+        })
+    }
+
+    pub fn transient_slot() -> Arc<Slot> {
+        Self::new_slot(false, false)
+    }
+
+    pub fn slot_for_read(&self, id: &str) -> Arc<Slot> {
+        self.existing_slot(id).unwrap_or_else(Self::transient_slot)
+    }
+
+    pub fn finish_expiry(&self, id: &str, slot: &Arc<Slot>) {
+        let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut mem = slot.mem();
+        mem.expiry_pending = false;
+        let removable = mem.ephemeral && !mem.has_live_work();
+        drop(mem);
+        if removable && sessions.get(id).is_some_and(|current| Arc::ptr_eq(current, slot)) {
+            sessions.remove(id);
+        }
     }
 
     pub fn slots(&self) -> Vec<Arc<Slot>> {
@@ -320,31 +381,48 @@ impl Inner {
         }
     }
 
-    /// A mutation whose failure is only reported (`.catch(onStorageError)`).
-    pub fn spawn_mutation(
+    /// A background mutation on an already-owned `slot` whose failure is only reported (`.catch(onStorageError)`).
+    pub fn spawn_mutation_on_slot(
         self: &Arc<Self>,
+        slot: Arc<Slot>,
         id: String,
         op: impl FnOnce(&mut Tx<'_>) -> GoalResult<()> + Send + 'static,
-        finally: impl FnOnce(&Arc<Inner>) + Send + 'static,
+        finally: impl FnOnce(&Arc<Inner>, &Arc<Slot>, &str) + Send + 'static,
     ) {
         let inner = self.clone();
         // Node's `withMutation` takes its place in the chain when called, not when the task
         // first runs, so a mutation asked before a later one runs before it.
         let reserved = assert_session_id(&id).map(|id| {
-            let slot = self.slot(&id);
             let turn = reserve_turn(&slot);
-            (id, slot, turn)
+            (id, turn)
         });
         self.spawn_task(async move {
             let result = match reserved {
-                Ok((id, slot, turn)) => inner.run_mutation(&id, &slot, turn, op).await,
+                Ok((id, turn)) => {
+                    if slot.is_deleted() {
+                        Ok(())
+                    } else {
+                        inner.run_mutation(&id, &slot, turn, op).await
+                    }
+                }
                 Err(error) => Err(error),
             };
             if let Err(error) = result {
                 inner.on_error(&error);
             }
-            finally(&inner);
+            finally(&inner, &slot, &id);
         });
+    }
+
+    /// Runs a mutation serialized on an already-owned `slot` without re-inserting it into `self.sessions`.
+    pub async fn run_slot_mutation<R: Send + 'static>(
+        self: &Arc<Self>,
+        id: &str,
+        slot: &Arc<Slot>,
+        op: impl FnOnce(&mut Tx<'_>) -> GoalResult<R> + Send + 'static,
+    ) -> GoalResult<R> {
+        let turn = reserve_turn(slot);
+        self.run_mutation(id, slot, turn, op).await
     }
 
     /// `withMutation`: serialized per session, under the record's lock, reading from disk; the
@@ -489,7 +567,7 @@ impl Inner {
     /// `visibleSnapshot` for an observer.
     pub async fn visible_snapshot(self: &Arc<Self>, id: &str) -> GoalResult<Option<Goal>> {
         let id = assert_session_id(id)?;
-        let slot = self.slot(&id);
+        let slot = self.slot_for_read(&id);
         // `limitIfExpired` reads the stored record and settles the suspend itself, so that a
         // drop shows as a change to commit and publish.
         let (record, observed) = match self.cached_observed(&slot, &id).await {
@@ -682,7 +760,7 @@ impl<'a> Tx<'a> {
     }
 
     pub fn schedule_title(&self, goal: &Goal) {
-        self.inner.schedule_title(self.id, goal);
+        self.inner.schedule_title(self.slot, self.id, goal);
     }
 }
 
@@ -729,11 +807,15 @@ impl GoalRuntime {
         self.inner.subscribe(listener)
     }
 
-    /// `snapshot`: the visible Goal, arming its deadline.
+    /// `snapshot`: the visible Goal, arming its deadline when active or already tracked.
     pub async fn snapshot(&self, session_id: &str) -> GoalResult<Option<Goal>> {
-        let goal = self.inner.visible_snapshot(session_id).await?;
-        if goal.is_some() {
-            self.inner.arm_observed(session_id).await?;
+        let id = assert_session_id(session_id)?;
+        let goal = self.inner.visible_snapshot(&id).await?;
+        if let Some(g) = &goal {
+            let running = super::js::string(g, "status") == "active" && truthy(g.get("lastStartedAt"));
+            if running || self.inner.has_retained_slot(&id) {
+                self.inner.arm_observed(&id).await?;
+            }
         }
         Ok(goal)
     }
@@ -755,7 +837,7 @@ impl GoalRuntime {
     /// `storedSnapshot`: the Goal including an archived one.
     pub async fn stored_snapshot(&self, session_id: &str) -> GoalResult<Option<Goal>> {
         let id = assert_session_id(session_id)?;
-        let slot = self.inner.slot(&id);
+        let slot = self.inner.slot_for_read(&id);
         let (record, observed) = match self.inner.cached_observed(&slot, &id).await {
             Ok((goal, stamp)) => (Ok(goal), stamp),
             Err(error) => (Err(error), None),
@@ -771,16 +853,20 @@ impl GoalRuntime {
         Ok(goal)
     }
 
-    /// `watchSession`: the visible Goal, arming its deadline and telling the listeners.
+    /// `watchSession`: the visible Goal, arming its deadline when active or already tracked and telling the listeners.
     pub async fn watch_session(&self, session_id: &str) -> GoalResult<Option<Goal>> {
         if clean(Some(&Value::String(session_id.to_owned()))).is_empty() {
             return Ok(None);
         }
-        let goal = self.inner.visible_snapshot(session_id).await?;
-        if goal.is_some() {
-            self.inner.arm_observed(session_id).await?;
+        let id = assert_session_id(session_id)?;
+        let goal = self.inner.visible_snapshot(&id).await?;
+        if let Some(g) = &goal {
+            let running = super::js::string(g, "status") == "active" && truthy(g.get("lastStartedAt"));
+            if running || self.inner.has_retained_slot(&id) {
+                self.inner.arm_observed(&id).await?;
+            }
         }
-        self.inner.emit_direct(&assert_session_id(session_id)?, goal.clone());
+        self.inner.emit_direct(&id, goal.clone());
         Ok(goal)
     }
 
@@ -788,7 +874,7 @@ impl GoalRuntime {
     pub async fn legacy_tasks(&self, session_id: &str) -> Vec<Value> {
         let read = async {
             let id = assert_session_id(session_id)?;
-            let slot = self.inner.slot(&id);
+            let slot = self.inner.slot_for_read(&id);
             self.inner.read_view(&slot, &id).await
         };
         match read.await {
@@ -815,6 +901,41 @@ impl GoalRuntime {
         self.inner.settled().await;
     }
 
+    /// Releases an unloaded session's slot when no turn, timer, title job, or in-flight work holds it.
+    pub fn release_unloaded(&self, session_id: &str) {
+        let Ok(id) = assert_session_id(session_id) else { return };
+        let mut sessions = self.inner.sessions.lock().unwrap_or_else(PoisonError::into_inner);
+        let removable = sessions.get(&id).is_some_and(|slot| Arc::strong_count(slot) == 1 && !slot.mem().has_live_work());
+        if removable {
+            sessions.remove(&id);
+        }
+    }
+
+    /// Releases a deleted session's slot, tombstones it against in-flight re-arms, and cancels any timers or title job held for it.
+    pub fn forget_session(&self, session_id: &str) {
+        let Ok(id) = assert_session_id(session_id) else { return };
+        let slot = self.inner.sessions.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
+        if let Some(slot) = slot {
+            let mut mem = slot.mem();
+            mem.deleted = true;
+            if let Some(job) = mem.title_job.take() {
+                job.cancel.cancel();
+            }
+            self.inner.close_deadlines(&mut mem);
+            mem.turn_goal_id = None;
+            mem.turn_started_at = None;
+            mem.turn_objective_revision = None;
+            mem.idle_review = None;
+            mem.continuation_tier = None;
+            mem.unsaved_stop = None;
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn slots_held(&self) -> usize {
+        self.inner.sessions.lock().unwrap_or_else(PoisonError::into_inner).len()
+    }
+
     /// `close`: timers and title jobs stop, listeners go, and the accepted mutations finish.
     pub async fn close(&self) {
         let inner = &self.inner;
@@ -837,5 +958,87 @@ impl GoalRuntime {
             drop(slot.chain.acquire().await);
         }
         inner.settled().await;
+    }
+}
+
+#[cfg(test)]
+mod live_work_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn release_unloaded_keeps_slot_while_in_memory_goal_fields_are_active() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let runtime = GoalRuntime::new(GoalConfig::new(dir.path().to_string_lossy().into_owned()), GoalEnv::system(mixdog_rt::testing::tokens().durability_io));
+
+        for (session_id, set_field) in [
+            ("s-tier", (|m: &mut SlotMem| m.continuation_tier = Some("g1".into())) as fn(&mut SlotMem)),
+            ("s-idle", (|m: &mut SlotMem| m.idle_review = Some("g1:2".into())) as fn(&mut SlotMem)),
+            ("s-stop", (|m: &mut SlotMem| m.unsaved_stop = Some("g1".into())) as fn(&mut SlotMem)),
+        ] {
+            let slot = runtime.inner.slot(session_id);
+            set_field(&mut slot.mem());
+            drop(slot);
+            assert_eq!(runtime.slots_held(), 1, "{session_id} slot should exist");
+
+            runtime.release_unloaded(session_id);
+            assert_eq!(runtime.slots_held(), 1, "{session_id} must stay pinned while in-memory field is set");
+
+            if let Some(slot) = runtime.inner.existing_slot(session_id) {
+                let mut mem = slot.mem();
+                mem.continuation_tier = None;
+                mem.idle_review = None;
+                mem.unsaved_stop = None;
+            }
+            runtime.release_unloaded(session_id);
+            assert_eq!(runtime.slots_held(), 0, "{session_id} should release once in-memory field clears");
+        }
+
+        // Deleting the session still drops the slot even when those fields are set.
+        let slot = runtime.inner.slot("s-deleted");
+        {
+            let mut mem = slot.mem();
+            mem.continuation_tier = Some("g2".into());
+            mem.idle_review = Some("g2:1".into());
+            mem.unsaved_stop = Some("g2".into());
+        }
+        drop(slot);
+        runtime.forget_session("s-deleted");
+        assert_eq!(runtime.slots_held(), 0);
+
+        runtime.close().await;
+    }
+
+    #[tokio::test]
+    async fn concurrent_slot_promotion_and_finish_expiry_never_split_brain() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let runtime = GoalRuntime::new(GoalConfig::new(dir.path().to_string_lossy().into_owned()), GoalEnv::system(mixdog_rt::testing::tokens().durability_io));
+
+        for i in 0..200 {
+            let id = format!("s-race-{i}");
+            let ephemeral = runtime.inner.ephemeral_slot(&id);
+            ephemeral.mem().expiry_pending = true;
+            let barrier = std::sync::Barrier::new(2);
+            let inner = &runtime.inner;
+            let promoted = std::thread::scope(|s| {
+                let finish = s.spawn(|| {
+                    barrier.wait();
+                    inner.finish_expiry(&id, &ephemeral);
+                });
+                barrier.wait();
+                let promoted = inner.slot(&id);
+                finish.join().expect("finish_expiry thread");
+                promoted
+            });
+            let current = runtime.inner.existing_slot(&id).expect("promoted slot must remain registered in sessions");
+            assert!(Arc::ptr_eq(&promoted, &current), "promotion and finish_expiry must never produce split-brain slots");
+            assert!(!promoted.mem().ephemeral, "promoted slot must not remain ephemeral");
+            drop(current);
+            drop(promoted);
+            drop(ephemeral);
+            runtime.release_unloaded(&id);
+            assert_eq!(runtime.slots_held(), 0);
+        }
+
+        runtime.close().await;
     }
 }

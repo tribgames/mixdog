@@ -24,6 +24,8 @@ use tokio::sync::oneshot;
 use tokio::sync::watch;
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicU8;
+use std::sync::atomic::Ordering;
 
 use mixdog_core_api::CoreError;
 use mixdog_rt::CancellationToken;
@@ -36,6 +38,34 @@ use super::frames::encode;
 use super::seams::ContextStep;
 use super::seams::ThreadStore;
 use mixdog_core_ports::ports::threads::Section;
+
+const STEER_GATE_PENDING: u8 = 0;
+const STEER_GATE_COMMITTING: u8 = 1;
+const STEER_GATE_CANCELLED: u8 = 2;
+
+/// Atomic commit/cancel handshake between [`RunPort::consume_steers_until`] and the session actor:
+/// whichever side leaves `PENDING` first wins, so cancellation before mutation leaves steers untouched
+/// while mutation once begun can never be misreported as cancelled.
+#[derive(Debug)]
+pub(crate) struct SteerConsumeGate(AtomicU8);
+
+impl SteerConsumeGate {
+    pub(crate) fn new() -> Self {
+        Self(AtomicU8::new(STEER_GATE_PENDING))
+    }
+
+    pub(crate) fn is_pending(&self) -> bool {
+        self.0.load(Ordering::Acquire) == STEER_GATE_PENDING
+    }
+
+    pub(crate) fn try_cancel(&self) -> bool {
+        self.0.compare_exchange(STEER_GATE_PENDING, STEER_GATE_CANCELLED, Ordering::AcqRel, Ordering::Acquire).is_ok()
+    }
+
+    pub(crate) fn try_commit(&self) -> bool {
+        self.0.compare_exchange(STEER_GATE_PENDING, STEER_GATE_COMMITTING, Ordering::AcqRel, Ordering::Acquire).is_ok()
+    }
+}
 
 /// A run's read of its thread's model context (`mixdog_store::context`).
 #[derive(Clone)]
@@ -599,6 +629,30 @@ pub(crate) enum ProducerMsg {
         request: DrainRequest,
         reply: oneshot::Sender<Vec<SteerInput>>,
     },
+    PeekSteers {
+        turn: TurnId,
+        request: DrainRequest,
+        reply: oneshot::Sender<Vec<SteerInput>>,
+    },
+    ConsumeSteers {
+        turn: TurnId,
+        request: DrainRequest,
+        qids: Vec<QueuedId>,
+        now_ms: i64,
+        cancel: CancellationToken,
+        gate: Arc<SteerConsumeGate>,
+        reply: oneshot::Sender<Result<(Vec<SteerInput>, Option<oneshot::Receiver<Result<(), RunError>>>), RunError>>,
+    },
+    FinishConsumeSteers {
+        turn: TurnId,
+        request: DrainRequest,
+        qids: Vec<QueuedId>,
+        now_ms: i64,
+        cancel: CancellationToken,
+        gate: Arc<SteerConsumeGate>,
+        prepared: Result<Vec<(Vec<QueuedId>, Value, mixdog_protocol::message_class::RowFacts)>, CoreError>,
+        reply: oneshot::Sender<Result<(Vec<SteerInput>, Option<oneshot::Receiver<Result<(), RunError>>>), RunError>>,
+    },
     /// The skills the turn's own prompt loaded (`recordAppliedSkills`): stamped on its input row.
     AppliedSkills {
         turn: TurnId,
@@ -1126,7 +1180,92 @@ impl RunPort {
     /// boundary took starts its own turn when this one ends.
     pub async fn take_steers(&self, request: DrainRequest) -> Result<Vec<SteerInput>, RunError> {
         let (reply, rx) = oneshot::channel();
-        self.call(ProducerMsg::TakeSteers { turn: self.turn.clone(), request, reply }, rx).await
+        self.send(ProducerMsg::TakeSteers { turn: self.turn.clone(), request, reply }).await?;
+        tokio::select! {
+            biased;
+            () = self.cancel.cancelled() => Err(RunError::Cancelled),
+            res = rx => res.map_err(|_| RunError::Closed),
+        }
+    }
+
+    /// Read-only preview of [`Self::take_steers`]: returns entries ready at this boundary without dequeuing or claiming them.
+    pub async fn peek_steers(&self, request: DrainRequest) -> Result<Vec<SteerInput>, RunError> {
+        let (reply, rx) = oneshot::channel();
+        self.call(ProducerMsg::PeekSteers { turn: self.turn.clone(), request, reply }, rx).await
+    }
+
+    /// Atomically claims, dequeues, and commits transcript rows for ready entries named in `qids`
+    /// in a single durable journal unit, resolving once the unit is durable.
+    pub async fn consume_steers(&self, request: DrainRequest, qids: Vec<QueuedId>, now_ms: i64) -> Result<Vec<SteerInput>, RunError> {
+        self.consume_steers_until(request, qids, now_ms, self.cancel.clone()).await
+    }
+
+    /// [`Self::consume_steers`], additionally cancellable prior to state mutation by `cancel`.
+    /// Once the actor crosses the commit gate and queues the dequeue outbox unit, cancellation
+    /// never discards the committed steers: it completes the durability wait and returns them.
+    pub async fn consume_steers_until(
+        &self,
+        request: DrainRequest,
+        qids: Vec<QueuedId>,
+        now_ms: i64,
+        cancel: CancellationToken,
+    ) -> Result<Vec<SteerInput>, RunError> {
+        if qids.is_empty() {
+            return Ok(Vec::new());
+        }
+        if self.cancel.is_cancelled() || cancel.is_cancelled() {
+            return Err(RunError::Cancelled);
+        }
+        let gate = Arc::new(SteerConsumeGate::new());
+        let (reply, mut rx) = oneshot::channel();
+        let msg = ProducerMsg::ConsumeSteers { turn: self.turn.clone(), request, qids, now_ms, cancel: cancel.clone(), gate: gate.clone(), reply };
+        tokio::select! {
+            biased;
+            () = self.cancel.cancelled() => return Err(RunError::Cancelled),
+            () = cancel.cancelled() => return Err(RunError::Cancelled),
+            sent = self.tx.send(msg) => sent.map_err(|_| RunError::Closed)?,
+        }
+        let (inputs, durable) = tokio::select! {
+            biased;
+            res = &mut rx => res.map_err(|_| RunError::Closed)??,
+            () = self.cancel.cancelled() => {
+                if gate.try_cancel() {
+                    return Err(RunError::Cancelled);
+                }
+                rx.await.map_err(|_| RunError::Closed)??
+            }
+            () = cancel.cancelled() => {
+                if gate.try_cancel() {
+                    return Err(RunError::Cancelled);
+                }
+                rx.await.map_err(|_| RunError::Closed)??
+            }
+        };
+        if let Some(durable) = durable {
+            durable.await.map_err(|_| RunError::Closed)??;
+        }
+        Ok(inputs)
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn finish_consume_steers_for_test(
+        &self,
+        request: DrainRequest,
+        qids: Vec<QueuedId>,
+        now_ms: i64,
+        cancel: CancellationToken,
+        gate: Arc<SteerConsumeGate>,
+    ) -> Result<Vec<SteerInput>, RunError> {
+        let (reply, rx) = oneshot::channel();
+        self.tx
+            .send(ProducerMsg::FinishConsumeSteers { turn: self.turn.clone(), request, qids, now_ms, cancel, gate, prepared: Ok(Vec::new()), reply })
+            .await
+            .map_err(|_| RunError::Closed)?;
+        let (inputs, durable) = rx.await.map_err(|_| RunError::Closed)??;
+        if let Some(durable) = durable {
+            durable.await.map_err(|_| RunError::Closed)??;
+        }
+        Ok(inputs)
     }
 
     /// A cancelled turn that produced nothing hands its prompt back: the rewind record at the prompt's row

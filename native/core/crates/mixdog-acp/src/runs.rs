@@ -120,6 +120,15 @@ pub trait Attachments: Send + Sync {
     }
 }
 
+pub(crate) struct NoAttachments;
+
+#[async_trait]
+impl Attachments for NoAttachments {
+    async fn bytes(&self, _reference: &str) -> Option<Vec<u8>> {
+        None
+    }
+}
+
 fn failed(message: String, reason: &str) -> RunOutcome {
     RunOutcome::Failed(TurnError { message, data: json!({ "reason": reason }), provider_error: None })
 }
@@ -231,7 +240,7 @@ async fn file_block(part: &Value, embedded: bool, attachments: &dyn Attachments)
 
 /// The input row as the blocks of a prompt: its text parts as text, its images as image blocks where the agent takes
 /// them (`images`), its files as [`file_block`] makes them. Also what was left out.
-async fn prompt_blocks(input: &Value, (images, embedded): (bool, bool), attachments: &dyn Attachments) -> (Vec<Value>, LeftOut) {
+pub(crate) async fn prompt_blocks(input: &Value, (images, embedded): (bool, bool), attachments: &dyn Attachments) -> (Vec<Value>, LeftOut) {
     let text = |text: &str| json!({ "type": "text", "text": text });
     let parts = match input.get("content") {
         Some(Value::Array(parts)) => parts,
@@ -275,6 +284,10 @@ async fn prompt_blocks(input: &Value, (images, embedded): (bool, bool), attachme
 /// reply asked for, that reply shown. Every wait in it ends with the turn's cancel or the agent's exit.
 pub async fn serve(agents: &Arc<Agents>, preset: &AgentPreset, request: TurnRequest, surface: Arc<dyn TurnSurface>, context: TurnContext) -> TurnEnd {
     let thread = request.thread.clone();
+    let mut context = context;
+    if context.attachments.is_none() {
+        context.attachments = Some(request.attachments.clone());
+    }
     if is_wake(&request.input) {
         // The reply is in the session that asked for this turn. One opened since has none of it, a prompt's turn that ran
         // first has shown it, and one of another preset (the route moved meanwhile) is not this route's to show: the wake
@@ -285,7 +298,6 @@ pub async fn serve(agents: &Arc<Agents>, preset: &AgentPreset, request: TurnRequ
         };
         return crate::turn::run(&session, surface, Ask::Reply, context).await;
     }
-    let mut context = context;
     let (session, prompt) = match begin(agents, preset, request, &surface, &context).await {
         Ok((session, prompt, record)) => {
             context.record = record;
@@ -338,6 +350,10 @@ async fn account_learned(agents: &Agents, preset: &AgentPreset, end: &TurnEnd) {
         TurnEnd::Failed { message, code: Some(AUTH_REQUIRED), .. } => agents.signed_out(preset, message.clone()).await,
         _ => {}
     }
+}
+
+async fn unset_session(surface: &Arc<dyn TurnSurface>) {
+    let _ = surface.closing().save_header(HeaderChange { set: Default::default(), unset: vec![SESSION_KEY.to_owned()], patch: Default::default() }).await;
 }
 
 /// The start of a prompt's turn: the agent's process found or started, its session opened, its model chosen, and the
@@ -407,24 +423,49 @@ async fn begin(
         // Mixdog's own turns since): a process still running for the thread holds one that is not this conversation's.
         agents.end_process(&thread);
     }
-    let session = tokio::select! {
+    let resolved = tokio::select! {
         biased;
         () = context.cancel.cancelled() => {
             // The stop ended a wait for an agent that has not closed the prompt cancelled before: it is not waited on again.
-            if agents.running(&thread).is_some_and(|running| running.holds_cancelled_prompt()) {
+            if let Some(running) = agents.running(&thread).filter(|running| running.holds_cancelled_prompt()) {
+                agents.abandon_shared(preset, &running.session_id);
                 agents.end_process(&thread);
+                if preset.scope == ProcessScope::Shared && stored.is_some() {
+                    unset_session(surface).await;
+                }
+            } else if preset.scope == ProcessScope::Shared && stored.as_ref().is_some_and(|stored| agents.is_abandoned(preset, &stored.session_id)) {
+                unset_session(surface).await;
             }
             return Err(TurnEnd::Interrupted);
         }
-        opened = agents.session(&thread, preset, cwd, stored.clone(), rules) => match opened {
-            Ok(session) => session,
+        resolved = agents.resolve_running(&thread, preset, &cwd, stored.clone()) => match resolved {
+            Ok(resolved) => resolved,
             Err(refusal) => return Err(refused(refusal)),
         },
+    };
+    let (session, header_cleared) = match resolved {
+        crate::agents::ExistingSession::Reuse(session) => (session, false),
+        crate::agents::ExistingSession::Open { stored: open_stored, abandoned } => {
+            // Unset an abandoned SESSION_KEY promptly before blocking on opening a replacement session.
+            let header_cleared = abandoned && stored.is_some();
+            if header_cleared {
+                unset_session(surface).await;
+            }
+            let session = tokio::select! {
+                biased;
+                () = context.cancel.cancelled() => return Err(TurnEnd::Interrupted),
+                opened = agents.open_session(&thread, preset, cwd, open_stored, rules) => match opened {
+                    Ok(session) => session,
+                    Err(refusal) => return Err(refused(refusal)),
+                },
+            };
+            (session, header_cleared)
+        }
     };
     drop(held);
     // What rides the prompt ahead of the user's own blocks.
     let mut lead: Vec<String> = Vec::new();
-    let fresh = stored.as_ref().map(|stored| stored.session_id.as_str()) != Some(session.session_id.as_str());
+    let fresh = session.handoff_pending() || header_cleared || stored.as_ref().map(|stored| stored.session_id.as_str()) != Some(session.session_id.as_str());
     if fresh {
         // The agent's session starts without the conversation the Mixdog session holds (the route came to the agent in
         // the middle of it, a fork, a rewind, or a session the agent could not reopen): Mixdog's own compaction
@@ -445,6 +486,13 @@ async fn begin(
                 let handed = tokio::select! {
                     biased;
                     () = context.cancel.cancelled() => {
+                        if preset.scope == ProcessScope::Shared {
+                            agents.abandon_shared(preset, &session.session_id);
+                            if let Some(stored) = &stored {
+                                agents.abandon_shared(preset, &stored.session_id);
+                                unset_session(surface).await;
+                            }
+                        }
                         agents.end_process(&thread);
                         return Err(TurnEnd::Interrupted);
                     }
@@ -461,13 +509,10 @@ async fn begin(
                 lead.push(format!(
                     "# The conversation before this session\nThis session continues a conversation held in Mixdog. Mixdog summarized it; take what follows as what was said and done before the request below.\n\n{summary}"
                 ));
-                // An automatic compaction shows as a provider's does, by the divider of what it stored.
-                if !automatic {
-                    let notice = if session.restarted {
-                        format!("{} could not reopen its earlier session: the conversation above was summarized for the new one.", preset.label)
-                    } else {
-                        format!("The conversation above was summarized for {}, which starts a session of its own here.", preset.label)
-                    };
+                // The summary shows as a provider's compaction does, by the divider of what it stored; only a session
+                // that could not be reopened is told of.
+                if !automatic && session.restarted {
+                    let notice = format!("{} could not reopen its earlier session: the conversation above was summarized for the new one.", preset.label);
                     let _ = surface.notice(notice, false).await;
                 }
             }
@@ -495,6 +540,13 @@ async fn begin(
             biased;
             // A request the agent never answers leaves its process in a state nobody knows: it is not kept.
             () = context.cancel.cancelled() => {
+                if preset.scope == ProcessScope::Shared {
+                    agents.abandon_shared(preset, &session.session_id);
+                    if let Some(stored) = &stored {
+                        agents.abandon_shared(preset, &stored.session_id);
+                        unset_session(surface).await;
+                    }
+                }
                 agents.end_process(&thread);
                 return Err(TurnEnd::Interrupted);
             }
@@ -550,12 +602,24 @@ pub async fn drive(agents: &Arc<Agents>, preset: &AgentPreset, now_ms: Arc<dyn F
         return failed("The session has no working folder to start the agent in.".to_owned(), "acpAgent");
     };
     let thread_id = thread.clone();
-    let request = TurnRequest { thread, cwd, stored: stored_session(&header, preset), rules, input, conversation, attachments };
+    let request = TurnRequest { thread, cwd, stored: stored_session(&header, preset), rules, input, conversation, attachments: attachments.clone() };
     let model = header.get("model").and_then(Value::as_str).unwrap_or(DEFAULT_MODEL).to_owned();
     let effort = header.get("effort").and_then(Value::as_str).filter(|effort| !effort.is_empty()).map(str::to_owned);
     let clock = now_ms.clone();
     let selected_window = header.get("selectedContextWindow").and_then(Value::as_u64).filter(|window| *window > 0);
-    let context = TurnContext { turn, model: model.clone(), effort, now_ms, cancel, progress, calls, on_tool_result, record: None, selected_window };
+    let context = TurnContext {
+        turn,
+        model: model.clone(),
+        effort,
+        now_ms,
+        cancel,
+        progress,
+        calls,
+        on_tool_result,
+        record: None,
+        selected_window,
+        attachments: Some(attachments),
+    };
     let stop = context.cancel.clone();
     match serve(agents, preset, request, surface, context).await {
         TurnEnd::Failed { message, code, reported } => {
@@ -726,6 +790,7 @@ pub async fn ask_once(
             on_tool_result: None,
             record: None,
             selected_window: None,
+            attachments: None,
         };
         let end = crate::turn::run(&session, Arc::new(surface.clone()), Ask::Prompt(blocks), context).await;
         account_learned(agents, preset, &end).await;

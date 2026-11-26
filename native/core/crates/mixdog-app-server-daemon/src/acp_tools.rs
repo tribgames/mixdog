@@ -276,6 +276,19 @@ impl TurnSurface for Accounted {
         self.inner.call_epoch()
     }
 
+    async fn peek_steers(&self) -> Result<Vec<mixdog_acp::surface::SteerDelivery>, RunError> {
+        self.inner.peek_steers().await
+    }
+
+    async fn commit_steers(
+        &self,
+        queued_ids: Vec<mixdog_core_api::ids::QueuedId>,
+        now_ms: i64,
+        cancel: mixdog_rt::CancellationToken,
+    ) -> Result<Vec<mixdog_acp::surface::SteerDelivery>, RunError> {
+        self.inner.commit_steers(queued_ids, now_ms, cancel).await
+    }
+
     fn closing(&self) -> Arc<dyn TurnSurface> {
         Arc::new(Self { inner: self.inner.closing(), ..self.clone() })
     }

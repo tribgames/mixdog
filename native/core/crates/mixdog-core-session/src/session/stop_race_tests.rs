@@ -1315,3 +1315,80 @@ async fn a_handed_back_turn_ends_in_the_step_its_prompt_row_lands() {
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     awaiting(|| "the turn's start".to_owned(), started).await.expect("start task");
 }
+
+/// Peeking steers or calling `take_steers` after Stop cancelled the run leaves queued user steers and
+/// `<task-notification>` messages intact for the next turn, while `closing().consume_steers` consumes only the
+/// explicitly delivered ids so they never run twice.
+#[tokio::test]
+async fn peek_and_cancelled_take_steers_never_lose_queued_steers_or_task_notifications() {
+    use super::run::DrainRequest;
+    use super::run::DrainStage;
+    use super::run::Priority;
+    use mixdog_agent::agent_tool::flow::seams::OwnerNotify as _;
+    use mixdog_protocol::PromptContent;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let rig = Rig::new();
+    let seen: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    let peeked: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    let ready = Arc::new(Notify::new());
+    let turn_no = Arc::new(AtomicUsize::new(0));
+    rig.set_script(Arc::new({
+        let (seen, peeked, ready, turn_no) = (seen.clone(), peeked.clone(), ready.clone(), turn_no.clone());
+        move |run| {
+            let (seen, peeked, ready, turn_no) = (seen.clone(), peeked.clone(), ready.clone(), turn_no.clone());
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let text = match &run.input.prompt {
+                    PromptContent::Text(text) => text.clone(),
+                    _ => String::new(),
+                };
+                super::testing::lock(&seen).push(text);
+                let n = turn_no.fetch_add(1, SeqCst) + 1;
+                if n == 1 {
+                    awaiting(|| "queued steer and task-notification".to_owned(), ready.notified()).await;
+                    let entries = run.port.peek_steers(DrainRequest { stage: DrainStage::Terminal, max_priority: Priority::Later }).await.expect("peek steers");
+                    *super::testing::lock(&peeked) = entries.iter().map(|e| e.content.as_str().unwrap_or_default().to_owned()).collect();
+                    // Stop cancels the turn before consume_steers is called; even a late take_steers on closing() must not dequeue.
+                    run.cancel.cancelled().await;
+                    let late = run
+                        .port
+                        .closing()
+                        .take_steers(DrainRequest { stage: DrainStage::Terminal, max_priority: Priority::Later })
+                        .await
+                        .expect("cancelled take_steers");
+                    assert!(late.is_empty(), "cancelled take_steers must not dequeue entries: {late:?}");
+                    return RunOutcome::Interrupted;
+                }
+                RunOutcome::Completed(Default::default())
+            })
+        }
+    }));
+    let directory = Arc::new(SessionDirectory::new(rig.deps()));
+    let handle = start_thread(&directory).await;
+    handle
+        .request(super::tests::request("turn/start", json!({ "threadId": handle.id, "opId": "op-1", "input": { "prompt": "turn-1" } }), "op-1"))
+        .await
+        .expect("started");
+    eventually_on!(&[&handle.cell.stepped], || (turn_no.load(SeqCst) == 1).then_some(())).await;
+
+    // Queue a mid-turn user steer and a task notification while turn 1 runs.
+    handle
+        .request(super::tests::request("turn/start", json!({ "threadId": handle.id, "opId": "op-2", "input": { "prompt": "mid-turn steer" } }), "op-2"))
+        .await
+        .expect("queued steer");
+    let notice = "<task-notification>\n<task-id>bg_9</task-id>\n<status>completed</status>\n<summary>done</summary>\n</task-notification>";
+    let meta = json!({ "execution_surface": "agent", "execution_id": "bg_9", "status": "completed" });
+    assert!(super::agent_registry::flow::SessionCompletions::new(directory.clone()).notify(handle.id.as_str(), notice, &meta));
+
+    ready.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (!super::testing::lock(&peeked).is_empty()).then_some(())).await;
+    let _ = awaiting(|| "stop reply".to_owned(), stop(&handle)).await.expect("stop task");
+
+    // Neither the user steer nor the task notification was lost; both run after turn 1 stops.
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && super::testing::lock(&seen).len() >= 2).then_some(())).await;
+    let joined = super::testing::lock(&seen).join("\n---\n");
+    assert!(joined.contains("mid-turn steer"), "queued steer must survive stop: {joined:?}");
+    assert!(joined.contains("<task-id>bg_9</task-id>"), "queued task notification must survive stop: {joined:?}");
+}

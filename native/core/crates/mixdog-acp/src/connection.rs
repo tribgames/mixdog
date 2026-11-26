@@ -2,6 +2,7 @@
 //! The process runs under the process manager (job object / process group), so its whole tree
 //! ends with one kill and with the daemon.
 
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -235,13 +236,97 @@ impl Drop for KillUnlessExited {
 
 type Waiting = HashMap<u64, oneshot::Sender<Result<Value, Fault>>>;
 
+/// Maximum abandoned request ids retained explicitly per connection; ids evicted past this cap
+/// advance a monotonic watermark so valid late answers still never break off sibling sessions.
+const MAX_ABANDONED_IDS: usize = 256;
+
+#[derive(Default)]
+struct AbandonedIds {
+    ids: BTreeSet<u64>,
+    evicted_through: u64,
+}
+
+impl AbandonedIds {
+    fn insert(&mut self, id: u64) {
+        if id == 0 || id <= self.evicted_through {
+            return;
+        }
+        if !self.ids.insert(id) {
+            return;
+        }
+        while self.ids.len() > MAX_ABANDONED_IDS {
+            if let Some(oldest) = self.ids.pop_first() {
+                self.evicted_through = self.evicted_through.max(oldest);
+            }
+        }
+    }
+
+    fn take(&mut self, id: u64) -> bool {
+        if self.ids.remove(&id) {
+            return true;
+        }
+        id > 0 && id <= self.evicted_through
+    }
+
+    fn clear(&mut self) {
+        self.ids.clear();
+        self.evicted_through = 0;
+    }
+}
+
+#[derive(Default)]
+struct Requests {
+    waiting: Waiting,
+    /// The ids of the requests sent with [`Connection::send`] that the agent has not answered yet.
+    sent: HashSet<u64>,
+    /// Bounded abandoned request ids plus monotonic eviction watermark whose late responses are silently dropped.
+    abandoned: AbandonedIds,
+}
+
+enum DispatchResponse {
+    Waiter(oneshot::Sender<Result<Value, Fault>>),
+    Sent(u64),
+    Abandoned,
+    Unknown,
+}
+
+struct RequestGuard<'a> {
+    connection: &'a Connection,
+    id: u64,
+    armed: bool,
+}
+
+impl Drop for RequestGuard<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            let mut requests = lock(&self.connection.requests);
+            if requests.waiting.remove(&self.id).is_some() && !self.connection.exited.is_cancelled() {
+                requests.abandoned.insert(self.id);
+            }
+        }
+    }
+}
+
+struct SendGuard<'a> {
+    connection: &'a Connection,
+    id: u64,
+    armed: bool,
+}
+
+impl Drop for SendGuard<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.connection.forget_sent(self.id);
+        }
+    }
+}
+
 pub struct Connection {
     processes: Arc<dyn ProcessManager>,
     handle: ProcessHandle,
     next_id: AtomicU64,
-    waiting: Mutex<Waiting>,
-    /// The ids of the requests sent with [`Connection::send`] that the agent has not answered yet.
-    sent: Mutex<HashSet<u64>>,
+    /// Live (`waiting`, `sent`) and `abandoned` request maps guarded by one lock so transitions are atomic.
+    requests: Mutex<Requests>,
     /// Fired by the reader once the process has exited, before it fails the waiting requests.
     exited: CancellationToken,
     stderr: Mutex<String>,
@@ -288,8 +373,7 @@ impl Connection {
             processes,
             handle,
             next_id: AtomicU64::new(1),
-            waiting: Mutex::default(),
-            sent: Mutex::default(),
+            requests: Mutex::default(),
             exited: CancellationToken::new(),
             stderr: Mutex::default(),
             stderr_lines: Mutex::default(),
@@ -359,9 +443,9 @@ impl Connection {
         }
     }
 
-    /// The agent broke the protocol in a way that leaves a request without its answer: the process is ended,
-    /// which fails everything that waits on it.
-    fn break_off(&self, why: &str) {
+    /// The agent broke the protocol in a way that leaves a request without its answer, or stdin stalled past
+    /// cancellation/refusal bounds: the process is ended, which fails everything that waits on it.
+    pub(crate) fn break_off(&self, why: &str) {
         tracing::warn!("[acp] the agent's process is ended: {why}");
         lock(&self.broken).get_or_insert_with(|| why.to_owned());
         self.kill();
@@ -371,17 +455,21 @@ impl Connection {
     pub async fn request(&self, method: &str, params: Value) -> Result<Value, Fault> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
-        lock(&self.waiting).insert(id, tx);
-        // The reader fails what waits only after it fired the token: a request entered after that is failed here.
-        if self.exited.is_cancelled() {
-            lock(&self.waiting).remove(&id);
-            return Err(self.closed());
+        {
+            let mut requests = lock(&self.requests);
+            // The reader fails what waits only after it fired the token: a request entered after that is failed here.
+            if self.exited.is_cancelled() {
+                return Err(self.closed());
+            }
+            requests.waiting.insert(id, tx);
         }
+        let mut guard = RequestGuard { connection: self, id, armed: true };
         if let Err(fault) = self.write(json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })).await {
-            lock(&self.waiting).remove(&id);
             return Err(fault);
         }
-        rx.await.unwrap_or_else(|_| Err(self.closed()))
+        let result = rx.await.unwrap_or_else(|_| Err(self.closed()));
+        guard.armed = false;
+        result
     }
 
     /// A request whose answer arrives as [`Incoming::Response`], after every notification the agent wrote before it.
@@ -398,12 +486,32 @@ impl Connection {
 
     /// [`Connection::send`] under the id [`Connection::reserve`] gave.
     pub async fn send_as(&self, id: u64, method: &str, params: Value) -> Result<(), Fault> {
-        lock(&self.sent).insert(id);
+        lock(&self.requests).sent.insert(id);
+        let mut guard = SendGuard { connection: self, id, armed: true };
         if let Err(fault) = self.write(json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })).await {
-            lock(&self.sent).remove(&id);
             return Err(fault);
         }
+        guard.armed = false;
         Ok(())
+    }
+
+    /// Removes an abandoned prompt id from `sent` and records it as abandoned atomically under one lock so
+    /// unanswered cancelled prompts never accumulate and late answers never break off sibling sessions.
+    pub(crate) fn forget_sent(&self, id: u64) {
+        let mut requests = lock(&self.requests);
+        if requests.sent.remove(&id) && !self.exited.is_cancelled() {
+            requests.abandoned.insert(id);
+        }
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn sent_len(&self) -> usize {
+        lock(&self.requests).sent.len()
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn waiting_len(&self) -> usize {
+        lock(&self.requests).waiting.len()
     }
 
     pub async fn notify(&self, method: &str, params: Value) -> Result<(), Fault> {
@@ -449,15 +557,27 @@ impl Connection {
                     Some(error) if !error.is_null() => Err(rpc_error(error)),
                     _ => Ok(message.get("result").cloned().unwrap_or(Value::Null)),
                 };
-                let waiter = id.as_u64().and_then(|id| lock(&self.waiting).remove(&id));
-                match (waiter, id.as_u64().filter(|id| lock(&self.sent).remove(id))) {
-                    (Some(waiter), _) => {
+                let outcome = id.as_u64().map(|id| {
+                    let mut requests = lock(&self.requests);
+                    if let Some(waiter) = requests.waiting.remove(&id) {
+                        DispatchResponse::Waiter(waiter)
+                    } else if requests.sent.remove(&id) {
+                        DispatchResponse::Sent(id)
+                    } else if requests.abandoned.take(id) {
+                        DispatchResponse::Abandoned
+                    } else {
+                        DispatchResponse::Unknown
+                    }
+                });
+                match outcome {
+                    Some(DispatchResponse::Waiter(waiter)) => {
                         let _ = waiter.send(result.map_err(Fault::Rpc));
                         return;
                     }
-                    (None, Some(id)) => Incoming::Response { id, result },
+                    Some(DispatchResponse::Sent(id)) => Incoming::Response { id, result },
+                    Some(DispatchResponse::Abandoned) => return,
                     // An answer to no request of this client: the request it was meant for would wait for ever.
-                    (None, None) => return self.break_off("it answered a request this client never made"),
+                    Some(DispatchResponse::Unknown) | None => return self.break_off("it answered a request this client never made"),
                 }
             }
             (None, None) => return,
@@ -522,8 +642,206 @@ async fn read(
     let Some(connection) = connection else { return };
     connection.exited.cancel();
     lock(&connection.stderr_lines).clear();
-    let waiting: Vec<_> = lock(&connection.waiting).drain().collect();
+    let waiting: Vec<_> = {
+        let mut requests = lock(&connection.requests);
+        requests.sent.clear();
+        requests.abandoned.clear();
+        requests.waiting.drain().collect()
+    };
     for (_, waiter) in waiting {
         let _ = waiter.send(Err(connection.closed()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+
+    struct ScriptedEvents(mpsc::UnboundedReceiver<ProcessEvent>);
+
+    #[async_trait]
+    impl EventSource<ProcessEvent> for ScriptedEvents {
+        async fn next(&mut self) -> Option<ProcessEvent> {
+            self.0.recv().await
+        }
+    }
+
+    struct ScriptedProcesses {
+        events: Mutex<Option<mpsc::UnboundedReceiver<ProcessEvent>>>,
+        killed: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    #[async_trait]
+    impl ProcessManager for ScriptedProcesses {
+        async fn spawn(&self, request: SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, ProcessError> {
+            Ok(mixdog_core_api::domain::process::SpawnedProcess { handle: request.handle, pid: 1 })
+        }
+
+        fn subscribe(&self, _handle: &ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+            let rx = lock(&self.events).take().expect("single subscriber");
+            Ok(Box::new(ScriptedEvents(rx)))
+        }
+
+        fn subscribe_holding(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+            self.subscribe(handle, from_seq)
+        }
+
+        async fn write_stdin(&self, _handle: &ProcessHandle, _bytes: Vec<u8>) -> Result<(), ProcessError> {
+            Ok(())
+        }
+
+        fn close_stdin(&self, _handle: &ProcessHandle) -> Result<(), ProcessError> {
+            Ok(())
+        }
+
+        fn resize_pty(&self, _handle: &ProcessHandle, _size: mixdog_core_api::domain::process::PtySize) -> Result<(), ProcessError> {
+            Ok(())
+        }
+
+        fn kill(&self, _handle: &ProcessHandle) -> Result<(), ProcessError> {
+            self.killed.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+
+        fn list(&self) -> Vec<mixdog_core_api::domain::process::ProcessInfo> {
+            Vec::new()
+        }
+    }
+
+    #[tokio::test]
+    async fn dropped_request_and_forgotten_sent_ids_are_cleaned_up_without_breaking_on_late_answers() {
+        let _ = mixdog_rt::testing::tokens();
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let killed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let processes: Arc<dyn ProcessManager> = Arc::new(ScriptedProcesses { events: Mutex::new(Some(event_rx)), killed: killed.clone() });
+        let cwd = AbsPath::new(std::env::current_dir().expect("cwd")).expect("abs cwd");
+        let (connection, mut incoming) =
+            Connection::start(processes, Launch { program: "fake".into(), args: Vec::new(), env: Vec::new(), env_remove: Vec::new(), cwd })
+                .await
+                .expect("connection");
+
+        // Dropping a pending Connection::request immediately removes its entry from `waiting`.
+        let req_fut = connection.request("session/new", json!({}));
+        let _ = mixdog_rt::time::timeout(std::time::Duration::from_millis(10), req_fut).await;
+        assert_eq!(connection.waiting_len(), 0, "dropped request must be removed from waiting");
+
+        // Late answer for the dropped request id (1) must be ignored instead of killing the connection.
+        let (out_tx, mut out_rx) = mpsc::unbounded_channel();
+        connection.dispatch(json!({ "jsonrpc": "2.0", "id": 1, "result": {} }), &out_tx);
+        assert!(!killed.load(Ordering::SeqCst), "late answer to dropped request must not kill connection");
+        assert!(out_rx.try_recv().is_err());
+
+        // Forgetting an abandoned prompt id removes it from `sent`, and a late answer for it is ignored.
+        let prompt_id = connection.send("session/prompt", json!({})).await.expect("send");
+        assert_eq!(connection.sent_len(), 1);
+        connection.forget_sent(prompt_id);
+        assert_eq!(connection.sent_len(), 0, "forgotten prompt id must be removed from sent");
+        connection.dispatch(json!({ "jsonrpc": "2.0", "id": prompt_id, "result": { "stopReason": "cancelled" } }), &out_tx);
+        assert!(!killed.load(Ordering::SeqCst), "late answer to forgotten prompt must not kill connection");
+        assert!(out_rx.try_recv().is_err());
+
+        // An answer to a truly unknown id still breaks off the connection.
+        connection.dispatch(json!({ "jsonrpc": "2.0", "id": 99_999, "result": {} }), &out_tx);
+        assert!(killed.load(Ordering::SeqCst), "bogus response id must still break off the connection");
+
+        drop(event_tx);
+        let _ = incoming.recv().await;
+    }
+
+    /// Defect 7b: abandoning >256 requests advances the monotonic eviction watermark so valid late answers for
+    /// earlier evicted abandoned ids never break off sibling sessions, while live requests still resolve and
+    /// unissued ids still break off the connection.
+    #[tokio::test]
+    async fn late_answers_after_more_than_256_abandoned_requests_never_break_connection() {
+        let _ = mixdog_rt::testing::tokens();
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let killed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let processes: Arc<dyn ProcessManager> = Arc::new(ScriptedProcesses { events: Mutex::new(Some(event_rx)), killed: killed.clone() });
+        let cwd = AbsPath::new(std::env::current_dir().expect("cwd")).expect("abs cwd");
+        let (connection, mut incoming) =
+            Connection::start(processes, Launch { program: "fake".into(), args: Vec::new(), env: Vec::new(), env_remove: Vec::new(), cwd })
+                .await
+                .expect("connection");
+
+        // Keep one live request open BEFORE abandoning >256 subsequent requests.
+        let live_id = connection.send("session/prompt", json!({})).await.expect("live send");
+        assert_eq!(live_id, 1);
+
+        let total_abandoned = MAX_ABANDONED_IDS + 44;
+        let mut abandoned_ids = Vec::with_capacity(total_abandoned);
+        for _ in 0..total_abandoned {
+            let id = connection.send("session/prompt", json!({})).await.expect("send");
+            connection.forget_sent(id);
+            abandoned_ids.push(id);
+        }
+        assert_eq!(connection.sent_len(), 1, "only live_id remains in sent");
+
+        // Late answers for the earliest (evicted past MAX_ABANDONED_IDS) and latest abandoned ids must all be ignored.
+        let (out_tx, mut out_rx) = mpsc::unbounded_channel();
+        for &id in &[abandoned_ids[0], abandoned_ids[1], abandoned_ids[20], abandoned_ids[total_abandoned - 1]] {
+            connection.dispatch(json!({ "jsonrpc": "2.0", "id": id, "result": { "stopReason": "cancelled" } }), &out_tx);
+            assert!(!killed.load(Ordering::SeqCst), "valid late answer for abandoned id {id} must not kill connection");
+            assert!(out_rx.try_recv().is_err());
+        }
+
+        // The live request opened before the evicted watermark still delivers its response normally.
+        connection.dispatch(json!({ "jsonrpc": "2.0", "id": live_id, "result": { "stopReason": "end_turn" } }), &out_tx);
+        assert!(!killed.load(Ordering::SeqCst));
+        assert!(matches!(out_rx.try_recv(), Ok(Incoming::Response { id, result: Ok(_) }) if id == live_id));
+
+        // Unissued ids (0 or past issued range) still break off the connection.
+        connection.dispatch(json!({ "jsonrpc": "2.0", "id": 0, "result": {} }), &out_tx);
+        assert!(killed.load(Ordering::SeqCst), "id 0 must still break off the connection");
+
+        drop(event_tx);
+        let _ = incoming.recv().await;
+    }
+
+    /// Defect 7a: removing an id from `sent` and inserting it into `abandoned` happen under one lock,
+    /// so a concurrent response dispatch can never fall between them and call `break_off`.
+    #[tokio::test]
+    async fn concurrent_forget_sent_and_dispatch_has_no_race_window() {
+        let _ = mixdog_rt::testing::tokens();
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let killed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let processes: Arc<dyn ProcessManager> = Arc::new(ScriptedProcesses { events: Mutex::new(Some(event_rx)), killed: killed.clone() });
+        let cwd = AbsPath::new(std::env::current_dir().expect("cwd")).expect("abs cwd");
+        let (connection, mut incoming) =
+            Connection::start(processes, Launch { program: "fake".into(), args: Vec::new(), env: Vec::new(), env_remove: Vec::new(), cwd })
+                .await
+                .expect("connection");
+
+        let rounds = 400u64;
+        let mut ids = Vec::with_capacity(rounds as usize);
+        for _ in 0..rounds {
+            ids.push(connection.send("session/prompt", json!({})).await.expect("send"));
+        }
+
+        let (out_tx, _out_rx) = mpsc::unbounded_channel();
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let conn_forget = connection.clone();
+        let ids_forget = ids.clone();
+        let b1 = barrier.clone();
+        let t1 = std::thread::spawn(move || {
+            b1.wait();
+            for id in ids_forget {
+                conn_forget.forget_sent(id);
+            }
+        });
+        let conn_dispatch = connection.clone();
+        let b2 = barrier.clone();
+        let t2 = std::thread::spawn(move || {
+            b2.wait();
+            for id in ids {
+                conn_dispatch.dispatch(json!({ "jsonrpc": "2.0", "id": id, "result": {} }), &out_tx);
+            }
+        });
+        t1.join().expect("forget thread");
+        t2.join().expect("dispatch thread");
+        assert!(!killed.load(Ordering::SeqCst), "concurrent forget_sent and dispatch must never fall into a race window");
+
+        drop(event_tx);
+        let _ = incoming.recv().await;
     }
 }

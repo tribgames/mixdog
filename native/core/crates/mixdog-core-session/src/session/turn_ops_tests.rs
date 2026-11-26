@@ -1560,6 +1560,42 @@ async fn a_manually_resumed_goal_step_supersedes_the_pending_quota_resume_and_go
     gate.notify_one();
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
 }
+#[tokio::test(start_paused = true)]
+async fn a_completion_waits_while_the_last_turn_stopped_on_quota_and_wakes_after_the_retry() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    let inputs: Arc<std::sync::Mutex<Vec<Value>>> = Arc::default();
+    let seen = inputs.clone();
+    rig.set_script(Arc::new(move |run| {
+        let first = {
+            let mut seen = super::testing::lock(&seen);
+            seen.push(run.input_body.clone());
+            seen.len() == 1
+        };
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            if first { RunOutcome::Failed(super::testing::quota_error(5000)) } else { RunOutcome::Completed(Default::default()) }
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_routed_thread(&directory).await;
+    turn(&handle, "write the report", "op-1").await;
+    let id = handle.id.as_str().to_owned();
+    let entry = eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id)).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+
+    let passes = handle.cell.drain_passes.load(SeqCst);
+    directory.finished(&handle.id, "shell", "job-1", "completed", "job-1 finished.".into()).await;
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.drain_passes.load(SeqCst) > passes).then_some(())).await;
+    assert_eq!(super::testing::lock(&inputs).len(), 1, "the completion starts no turn on the quota-stopped session");
+
+    retry_when_settled(&handle, &entry.turn_key, "r-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&inputs).len() == 3).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let inputs = super::testing::lock(&inputs);
+    assert_eq!(inputs[2]["meta"]["source"], "task-notification", "the held completion wakes the session after the retry");
+    assert_eq!(inputs.len(), 3);
+}
 /// `restoreTranscriptRange` runs `restoredFailedTurnItems` for every message: an automatic Goal turn a usage limit stops
 /// before any output records its failed end on its prompt, which history pages list though it shows no row of its own, so
 /// a reload restores that end under the key the queued resume waits on.
@@ -3504,4 +3540,559 @@ async fn a_submission_arriving_before_the_message_started_does_not_become_the_ne
     eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&seen).len() == 3).then_some(())).await;
     eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.busy.load(SeqCst)).then_some(())).await;
     assert_eq!(*super::testing::lock(&seen), ["work", "next", "third"]);
+}
+
+/// Cancelling while `consume_steers` or `take_steers` waits on an actor whose producer lane is paused
+/// (full durability outbox) returns `RunError::Cancelled` promptly without waiting for durability, and
+/// leaves queued steers uncommitted when the actor later drains the message with a closed reply channel.
+#[tokio::test]
+async fn cancelling_blocked_consume_or_take_steers_returns_cancelled_and_leaves_steers_queued() {
+    use mixdog_core_api::ids::ItemId;
+    use mixdog_core_api::ids::QueuedId;
+    use mixdog_protocol::PromptContent;
+    use std::sync::atomic::Ordering::SeqCst;
+    use std::time::Duration;
+
+    use super::run::DrainRequest;
+    use super::run::DrainStage;
+    use super::run::ItemCommit;
+    use super::run::Priority;
+    use super::run::RunError;
+
+    for use_consume in [true, false] {
+        let rig = Rig::new();
+        let seen: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+        let steer_result: Arc<std::sync::Mutex<Option<Result<Vec<QueuedId>, RunError>>>> = Arc::default();
+        let peek_ready = Arc::new(tokio::sync::Notify::new());
+        let peek_done = Arc::new(tokio::sync::Notify::new());
+        let fill_outbox = Arc::new(tokio::sync::Notify::new());
+        let call_steer = Arc::new(tokio::sync::Notify::new());
+        let entering_steer = Arc::new(tokio::sync::Notify::new());
+        let steer_returned = Arc::new(tokio::sync::Notify::new());
+        let release_turn1 = Arc::new(tokio::sync::Notify::new());
+
+        rig.set_script(Arc::new({
+            let (seen, steer_result, peek_ready, peek_done, fill_outbox, call_steer, entering_steer, steer_returned, release_turn1) = (
+                seen.clone(),
+                steer_result.clone(),
+                peek_ready.clone(),
+                peek_done.clone(),
+                fill_outbox.clone(),
+                call_steer.clone(),
+                entering_steer.clone(),
+                steer_returned.clone(),
+                release_turn1.clone(),
+            );
+            move |run| {
+                let (seen, steer_result, peek_ready, peek_done, fill_outbox, call_steer, entering_steer, steer_returned, release_turn1) = (
+                    seen.clone(),
+                    steer_result.clone(),
+                    peek_ready.clone(),
+                    peek_done.clone(),
+                    fill_outbox.clone(),
+                    call_steer.clone(),
+                    entering_steer.clone(),
+                    steer_returned.clone(),
+                    release_turn1.clone(),
+                );
+                Box::pin(async move {
+                    run.port.input_durable().await.expect("input durable");
+                    let PromptContent::Text(text) = &run.input.prompt else { panic!("a text prompt") };
+                    super::testing::lock(&seen).push(text.clone());
+                    if text != "work" {
+                        return RunOutcome::Completed(Default::default());
+                    }
+
+                    peek_ready.notified().await;
+                    let req = DrainRequest { stage: DrainStage::PreSend, max_priority: Priority::Next };
+                    let peeked = run.port.peek_steers(req).await.expect("peek steers");
+                    let qids: Vec<QueuedId> = peeked.into_iter().flat_map(|s| s.queued_ids).collect();
+                    assert_eq!(qids.len(), 1, "expected one peeked steer before outbox fill");
+                    peek_done.notify_one();
+
+                    fill_outbox.notified().await;
+                    for i in 0..4 {
+                        let item = ItemCommit {
+                            iid: ItemId::from(format!("fill-{i}")),
+                            role: Some("assistant".into()),
+                            model: true,
+                            visible: true,
+                            body: json!({ "text": format!("fill-{i}") }),
+                            prompt: None,
+                        };
+                        let _queued = run.port.queue_item(item).await.expect("queue fill item");
+                    }
+
+                    call_steer.notified().await;
+                    entering_steer.notify_one();
+                    let res = if use_consume { run.port.consume_steers(req, qids, 1_000).await } else { run.port.take_steers(req).await };
+                    *super::testing::lock(&steer_result) = Some(res.map(|steers| steers.into_iter().flat_map(|s| s.queued_ids).collect()));
+                    steer_returned.notify_one();
+
+                    release_turn1.notified().await;
+                    RunOutcome::Interrupted
+                })
+            }
+        }));
+
+        let mut parts = rig.deps_parts(rig.store.clone());
+        parts.limits.window_records = 4;
+        let directory = SessionDirectory::new(Arc::new(parts));
+        let handle = start_thread(&directory).await;
+
+        turn(&handle, "work", "op-1").await;
+        eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&seen).len() == 1).then_some(())).await;
+
+        assert_eq!(turn(&handle, "queued steer", "op-2").await["kind"], json!("queued"));
+        eventually_on!(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 1 && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+
+        peek_ready.notify_one();
+        peek_done.notified().await;
+
+        // Hold durability and fill the normal outbox window so the actor pauses reading `prod_rx`.
+        let disk = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::DurabilityIo);
+        fill_outbox.notify_one();
+        eventually_on!(&[&handle.cell.stepped], || (handle.cell.unacked.load(SeqCst) >= 4).then_some(())).await;
+
+        call_steer.notify_one();
+        entering_steer.notified().await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(super::testing::lock(&steer_result).is_none(), "steer call must be parked waiting on blocked actor (use_consume={use_consume})");
+
+        let stop_task = tokio::spawn({
+            let handle = handle.clone();
+            async move { handle.stop(stop_now()).await }
+        });
+
+        tokio::time::timeout(Duration::from_secs(5), steer_returned.notified())
+            .await
+            .expect("steer wait must return promptly on Stop without waiting for durability");
+        assert_eq!(*super::testing::lock(&steer_result), Some(Err(RunError::Cancelled)), "expected RunError::Cancelled (use_consume={use_consume})");
+
+        // Release durability while turn 1 is still active so the actor resumes reading `prod_rx`
+        // and drains the cancelled request with a closed reply channel.
+        drop(disk);
+        eventually_on!(&[&handle.cell.stepped], || (handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+        super::tests::caught_up(&handle).await;
+
+        assert_eq!(handle.cell.queue.load().len(), 1, "queued steer must stay uncommitted after draining closed reply (use_consume={use_consume})");
+        let shown = serde_json::to_string(&handle.cell.view.load_full().items).expect("items");
+        assert!(!shown.contains("queued steer"), "closed steer request must not commit a transcript row (use_consume={use_consume}): {shown}");
+
+        release_turn1.notify_one();
+        let stopped = stop_task.await.expect("stop task").expect("stop reply");
+        assert_eq!(stopped["aborted"], json!(true), "{stopped}");
+
+        eventually_on!(&[&handle.cell.stepped], || {
+            (idle(&handle) && !handle.cell.busy.load(SeqCst) && super::testing::lock(&seen).len() == 2).then_some(())
+        })
+        .await;
+        assert_eq!(*super::testing::lock(&seen), ["work", "queued steer"]);
+        directory.shutdown().await;
+    }
+}
+
+/// Defect 2: cancelling a turn while `consume_steers` is awaiting durability AFTER the session actor has
+/// already dequeued the steer and queued its atomic outbox unit must NOT return `RunError::Cancelled`
+/// (which would drop the already-dequeued steer); once durability finishes it returns the committed steers.
+#[tokio::test]
+async fn consume_steers_cancelled_during_durability_wait_returns_committed_steers() {
+    use mixdog_core_api::ids::QueuedId;
+    use mixdog_protocol::PromptContent;
+    use std::sync::atomic::Ordering::SeqCst;
+    use std::time::Duration;
+
+    use super::run::DrainRequest;
+    use super::run::DrainStage;
+    use super::run::Priority;
+    use super::run::RunError;
+
+    let rig = Rig::new();
+    let seen: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    let consume_result: Arc<std::sync::Mutex<Option<Result<Vec<QueuedId>, RunError>>>> = Arc::default();
+    let peek_ready = Arc::new(tokio::sync::Notify::new());
+    let peek_done = Arc::new(tokio::sync::Notify::new());
+    let call_consume = Arc::new(tokio::sync::Notify::new());
+    let consume_returned = Arc::new(tokio::sync::Notify::new());
+    let release_turn1 = Arc::new(tokio::sync::Notify::new());
+
+    rig.set_script(Arc::new({
+        let (seen, consume_result, peek_ready, peek_done, call_consume, consume_returned, release_turn1) = (
+            seen.clone(),
+            consume_result.clone(),
+            peek_ready.clone(),
+            peek_done.clone(),
+            call_consume.clone(),
+            consume_returned.clone(),
+            release_turn1.clone(),
+        );
+        move |run| {
+            let (seen, consume_result, peek_ready, peek_done, call_consume, consume_returned, release_turn1) = (
+                seen.clone(),
+                consume_result.clone(),
+                peek_ready.clone(),
+                peek_done.clone(),
+                call_consume.clone(),
+                consume_returned.clone(),
+                release_turn1.clone(),
+            );
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let PromptContent::Text(text) = &run.input.prompt else { panic!("a text prompt") };
+                super::testing::lock(&seen).push(text.clone());
+                if text != "work" {
+                    return RunOutcome::Completed(Default::default());
+                }
+
+                peek_ready.notified().await;
+                let req = DrainRequest { stage: DrainStage::PreSend, max_priority: Priority::Next };
+                let peeked = run.port.peek_steers(req).await.expect("peek steers");
+                let qids: Vec<QueuedId> = peeked.into_iter().flat_map(|s| s.queued_ids).collect();
+                assert_eq!(qids.len(), 1);
+                peek_done.notify_one();
+
+                call_consume.notified().await;
+                let res = run.port.consume_steers(req, qids, 1_000).await;
+                *super::testing::lock(&consume_result) = Some(res.map(|steers| steers.into_iter().flat_map(|s| s.queued_ids).collect()));
+                consume_returned.notify_one();
+
+                release_turn1.notified().await;
+                RunOutcome::Interrupted
+            })
+        }
+    }));
+
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&seen).len() == 1).then_some(())).await;
+
+    assert_eq!(turn(&handle, "durable steer", "op-2").await["kind"], json!("queued"));
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 1 && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+
+    peek_ready.notify_one();
+    peek_done.notified().await;
+
+    // Hold durability WITHOUT filling the outbox window: the actor will process `ConsumeSteers`, mutate state
+    // and dequeue the steer into the outbox, and then `consume_steers` will park awaiting durability.
+    let disk = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::DurabilityIo);
+    call_consume.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.queue.load().is_empty() && handle.cell.unacked.load(SeqCst) > 0).then_some(())).await;
+
+    // Stop the turn while `consume_steers` is waiting on the durability ack of the already-dequeued steer.
+    let stop_task = tokio::spawn({
+        let handle = handle.clone();
+        async move { handle.stop(stop_now()).await }
+    });
+    tokio::time::sleep(Duration::from_millis(20)).await;
+
+    // Unblock durability: `consume_steers` must resolve with `Ok(committed)` instead of `Err(Cancelled)`.
+    drop(disk);
+    tokio::time::timeout(Duration::from_secs(5), consume_returned.notified()).await.expect("consume_steers resolved after durability");
+    let claimed = super::testing::lock(&consume_result).clone().expect("consume result").expect("already-dequeued steer must not be reported as Cancelled");
+    assert_eq!(claimed.len(), 1, "committed steer id must be returned to caller: {claimed:?}");
+
+    release_turn1.notify_one();
+    let stopped = stop_task.await.expect("stop task").expect("stop reply");
+    assert_eq!(stopped["aborted"], json!(true), "{stopped}");
+    directory.shutdown().await;
+}
+
+/// Defect 4: cancelling the caller token passed to `consume_steers_until` before the actor mutates state
+/// returns `RunError::Cancelled` promptly without aborting the turn and leaves the steer queued.
+#[tokio::test]
+async fn consume_steers_until_caller_cancel_before_mutation_leaves_steer_queued() {
+    use mixdog_core_api::ids::ItemId;
+    use mixdog_core_api::ids::QueuedId;
+    use mixdog_protocol::PromptContent;
+    use std::sync::atomic::Ordering::SeqCst;
+    use std::time::Duration;
+
+    use super::run::DrainRequest;
+    use super::run::DrainStage;
+    use super::run::ItemCommit;
+    use super::run::Priority;
+    use super::run::RunError;
+
+    let rig = Rig::new();
+    let seen: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    let consume_result: Arc<std::sync::Mutex<Option<Result<Vec<QueuedId>, RunError>>>> = Arc::default();
+    let peek_ready = Arc::new(tokio::sync::Notify::new());
+    let peek_done = Arc::new(tokio::sync::Notify::new());
+    let fill_outbox = Arc::new(tokio::sync::Notify::new());
+    let call_consume = Arc::new(tokio::sync::Notify::new());
+    let consume_returned = Arc::new(tokio::sync::Notify::new());
+    let release_turn1 = Arc::new(tokio::sync::Notify::new());
+    let deadline_cancel = CancellationToken::new();
+
+    rig.set_script(Arc::new({
+        let (seen, consume_result, peek_ready, peek_done, fill_outbox, call_consume, consume_returned, release_turn1, deadline_cancel) = (
+            seen.clone(),
+            consume_result.clone(),
+            peek_ready.clone(),
+            peek_done.clone(),
+            fill_outbox.clone(),
+            call_consume.clone(),
+            consume_returned.clone(),
+            release_turn1.clone(),
+            deadline_cancel.clone(),
+        );
+        move |run| {
+            let (seen, consume_result, peek_ready, peek_done, fill_outbox, call_consume, consume_returned, release_turn1, deadline_cancel) = (
+                seen.clone(),
+                consume_result.clone(),
+                peek_ready.clone(),
+                peek_done.clone(),
+                fill_outbox.clone(),
+                call_consume.clone(),
+                consume_returned.clone(),
+                release_turn1.clone(),
+                deadline_cancel.clone(),
+            );
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let PromptContent::Text(text) = &run.input.prompt else { panic!("a text prompt") };
+                super::testing::lock(&seen).push(text.clone());
+                if text != "work" {
+                    return RunOutcome::Completed(Default::default());
+                }
+
+                peek_ready.notified().await;
+                let req = DrainRequest { stage: DrainStage::PreSend, max_priority: Priority::Next };
+                let peeked = run.port.peek_steers(req).await.expect("peek steers");
+                let qids: Vec<QueuedId> = peeked.into_iter().flat_map(|s| s.queued_ids).collect();
+                peek_done.notify_one();
+
+                fill_outbox.notified().await;
+                for i in 0..4 {
+                    let item = ItemCommit {
+                        iid: ItemId::from(format!("deadline-fill-{i}")),
+                        role: Some("assistant".into()),
+                        model: true,
+                        visible: true,
+                        body: json!({ "text": format!("deadline-fill-{i}") }),
+                        prompt: None,
+                    };
+                    let _ = run.port.queue_item(item).await.expect("queue fill item");
+                }
+
+                call_consume.notified().await;
+                let res = run.port.consume_steers_until(req, qids, 1_000, deadline_cancel).await;
+                *super::testing::lock(&consume_result) = Some(res.map(|steers| steers.into_iter().flat_map(|s| s.queued_ids).collect()));
+                consume_returned.notify_one();
+
+                release_turn1.notified().await;
+                RunOutcome::Completed(Default::default())
+            })
+        }
+    }));
+
+    let mut parts = rig.deps_parts(rig.store.clone());
+    parts.limits.window_records = 4;
+    let directory = SessionDirectory::new(Arc::new(parts));
+    let handle = start_thread(&directory).await;
+
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&seen).len() == 1).then_some(())).await;
+    assert_eq!(turn(&handle, "deadline steer", "op-2").await["kind"], json!("queued"));
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 1 && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+
+    peek_ready.notify_one();
+    peek_done.notified().await;
+
+    let disk = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::DurabilityIo);
+    fill_outbox.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.unacked.load(SeqCst) >= 4).then_some(())).await;
+
+    call_consume.notify_one();
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    deadline_cancel.cancel();
+
+    tokio::time::timeout(Duration::from_secs(5), consume_returned.notified()).await.expect("caller cancel must return promptly");
+    assert_eq!(*super::testing::lock(&consume_result), Some(Err(RunError::Cancelled)));
+
+    drop(disk);
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+    super::tests::caught_up(&handle).await;
+    assert_eq!(handle.cell.queue.load().len(), 1, "caller-cancelled consume_steers_until must leave steer queued");
+
+    release_turn1.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || { (idle(&handle) && !handle.cell.busy.load(SeqCst) && super::testing::lock(&seen).len() == 2).then_some(()) })
+        .await;
+    assert_eq!(*super::testing::lock(&seen), ["work", "deadline steer"]);
+    directory.shutdown().await;
+}
+
+/// r5 Defect 2: a recoverable journal write failure during `consume_steers` must return `RunError::NotApplied`
+/// (never `Ok` for an undurable steer), keep the steer queued, and allow re-consuming once persistence recovers.
+#[tokio::test]
+async fn consume_steers_recoverable_write_failure_returns_not_applied_and_keeps_steer_queued() {
+    use mixdog_core_api::ids::QueuedId;
+    use mixdog_store::schema::record::QueueAction;
+    use mixdog_store::schema::record::Record;
+    use std::sync::atomic::Ordering::SeqCst;
+
+    use super::run::DrainRequest;
+    use super::run::DrainStage;
+    use super::run::Priority;
+    use super::run::RunError;
+
+    let rig = Rig::new();
+    let first_attempt = Arc::new(tokio::sync::Notify::new());
+    let first_done = Arc::new(tokio::sync::Notify::new());
+    let second_attempt = Arc::new(tokio::sync::Notify::new());
+    let second_done = Arc::new(tokio::sync::Notify::new());
+    let release_turn = Arc::new(tokio::sync::Notify::new());
+    let first_res: Arc<std::sync::Mutex<Option<Result<Vec<QueuedId>, RunError>>>> = Arc::default();
+    let second_res: Arc<std::sync::Mutex<Option<Result<Vec<QueuedId>, RunError>>>> = Arc::default();
+
+    rig.set_script(Arc::new({
+        let (first_attempt, first_done, second_attempt, second_done, release_turn, first_res, second_res) = (
+            first_attempt.clone(),
+            first_done.clone(),
+            second_attempt.clone(),
+            second_done.clone(),
+            release_turn.clone(),
+            first_res.clone(),
+            second_res.clone(),
+        );
+        move |run| {
+            let (first_attempt, first_done, second_attempt, second_done, release_turn, first_res, second_res) = (
+                first_attempt.clone(),
+                first_done.clone(),
+                second_attempt.clone(),
+                second_done.clone(),
+                release_turn.clone(),
+                first_res.clone(),
+                second_res.clone(),
+            );
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                first_attempt.notified().await;
+                let req = DrainRequest { stage: DrainStage::PreSend, max_priority: Priority::Next };
+                let peeked = run.port.peek_steers(req).await.expect("peek steers");
+                let qids: Vec<QueuedId> = peeked.into_iter().flat_map(|s| s.queued_ids).collect();
+                let res1 = run.port.consume_steers(req, qids.clone(), 1_000).await.map(|v| v.into_iter().flat_map(|s| s.queued_ids).collect());
+                *super::testing::lock(&first_res) = Some(res1);
+                first_done.notify_one();
+
+                second_attempt.notified().await;
+                let res2 = run.port.consume_steers(req, qids, 2_000).await.map(|v| v.into_iter().flat_map(|s| s.queued_ids).collect());
+                *super::testing::lock(&second_res) = Some(res2);
+                second_done.notify_one();
+
+                release_turn.notified().await;
+                RunOutcome::Completed(Default::default())
+            })
+        }
+    }));
+
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "base turn", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || handle.turn_busy().then_some(())).await;
+    assert_eq!(turn(&handle, "durable steer", "op-2").await["kind"], json!("queued"));
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 1 && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+
+    // Inject recoverable write failure (`permanent = false`) on `Record::Item`.
+    *super::testing::lock(&rig.store.fail_when) = Some((Box::new(|record| matches!(record, Record::Item(_))), false));
+    first_attempt.notify_one();
+    first_done.notified().await;
+    assert_eq!(
+        *super::testing::lock(&first_res),
+        Some(Err(RunError::NotApplied)),
+        "recoverable write failure must reject steer consumption instead of returning Ok(())"
+    );
+    let persisted = rig.store.records(&handle.id);
+    assert!(!persisted.iter().any(|(_, r)| matches!(r, Record::Queue(q) if q.action == QueueAction::Dequeue)), "failed atomic unit must not persist dequeue");
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 1).then_some(())).await;
+
+    // Clear disk fault and retry consume_steers on the same turn: steer commits durably and leaves the queue.
+    *super::testing::lock(&rig.store.fail_when) = None;
+    second_attempt.notify_one();
+    second_done.notified().await;
+    let claimed = super::testing::lock(&second_res).clone().expect("second result").expect("retry after recovery must succeed");
+    assert_eq!(claimed.len(), 1);
+    assert!(handle.cell.queue.load().is_empty(), "steer must leave queue once durable commit succeeds");
+    assert!(
+        rig.store.records(&handle.id).iter().any(|(_, r)| matches!(r, Record::Queue(q) if q.action == QueueAction::Dequeue)),
+        "recovered consume must persist dequeue durably"
+    );
+
+    release_turn.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (!handle.turn_busy()).then_some(())).await;
+    directory.shutdown().await;
+}
+
+/// r5 Defect 5: if a cancellation token is already cancelled when `finish_consume_steers` crosses the commit point
+/// while `SteerConsumeGate` is still `PENDING`, the actor must return `RunError::Cancelled` without mutating state
+/// or dequeuing the steer.
+#[tokio::test]
+async fn finish_consume_steers_rejects_cancelled_token_even_while_gate_is_pending() {
+    use mixdog_core_api::ids::QueuedId;
+    use std::sync::atomic::Ordering::SeqCst;
+
+    use super::run::DrainRequest;
+    use super::run::DrainStage;
+    use super::run::Priority;
+    use super::run::RunError;
+    use super::run::SteerConsumeGate;
+
+    let rig = Rig::new();
+    let turn_idx = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let ready = Arc::new(tokio::sync::Notify::new());
+    let done = Arc::new(tokio::sync::Notify::new());
+    let release_turn = Arc::new(tokio::sync::Notify::new());
+    let result: Arc<std::sync::Mutex<Option<Result<Vec<QueuedId>, RunError>>>> = Arc::default();
+
+    rig.set_script(Arc::new({
+        let (turn_idx, ready, done, release_turn, result) = (turn_idx.clone(), ready.clone(), done.clone(), release_turn.clone(), result.clone());
+        move |run| {
+            let (turn_idx, ready, done, release_turn, result) = (turn_idx.clone(), ready.clone(), done.clone(), release_turn.clone(), result.clone());
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                if turn_idx.fetch_add(1, SeqCst) > 0 {
+                    return RunOutcome::Completed(Default::default());
+                }
+                ready.notified().await;
+                let req = DrainRequest { stage: DrainStage::PreSend, max_priority: Priority::Next };
+                let peeked = run.port.peek_steers(req).await.expect("peek steers");
+                let qids: Vec<QueuedId> = peeked.into_iter().flat_map(|s| s.queued_ids).collect();
+
+                // Simulate Stop firing before `RunPort` runs `gate.try_cancel()`: token is cancelled while gate is PENDING.
+                let cancelled = CancellationToken::new();
+                cancelled.cancel();
+                let gate = Arc::new(SteerConsumeGate::new());
+                assert!(gate.is_pending());
+                let res = run
+                    .port
+                    .finish_consume_steers_for_test(req, qids, 1_000, cancelled, gate.clone())
+                    .await
+                    .map(|v| v.into_iter().flat_map(|s| s.queued_ids).collect());
+                assert!(gate.is_pending(), "cancelled token must abort before transitioning SteerConsumeGate to COMMITTED");
+                *super::testing::lock(&result) = Some(res);
+                done.notify_one();
+
+                release_turn.notified().await;
+                RunOutcome::Completed(Default::default())
+            })
+        }
+    }));
+
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || handle.turn_busy().then_some(())).await;
+    assert_eq!(turn(&handle, "queued steer", "op-2").await["kind"], json!("queued"));
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 1 && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+
+    ready.notify_one();
+    done.notified().await;
+    assert_eq!(*super::testing::lock(&result), Some(Err(RunError::Cancelled)));
+    assert_eq!(handle.cell.queue.load().len(), 1, "cancelled commit must leave steer queued");
+
+    release_turn.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.queue.load().is_empty()).then_some(())).await;
+    directory.shutdown().await;
 }

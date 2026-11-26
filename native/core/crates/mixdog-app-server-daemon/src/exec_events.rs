@@ -159,10 +159,10 @@ async fn host_section(mut strip: watch::Receiver<HostShellJobs>, publisher: Arc<
 
 /// Starts the four consumers of `events`.
 pub fn consume(events: ExecEvents, targets: Targets, stop: CancellationToken) {
-    let ExecEvents { finished, thread_strips, host_strip, forget_thread } = events;
+    let ExecEvents { finished, thread_strips, host_strip, forget_thread, prune_empty_thread } = events;
     let (delivered_tx, delivered) = mpsc::unbounded_channel();
     mixdog_rt::spawn("exec.finished", TaskClass::Work, completions(finished, targets.directory, delivered_tx, stop.clone()));
-    mixdog_rt::spawn("exec.thread-strips", TaskClass::Work, thread_sections(thread_strips, targets.threads, forget_thread, stop.clone()));
+    mixdog_rt::spawn("exec.thread-strips", TaskClass::Work, thread_sections(thread_strips, targets.threads, forget_thread, prune_empty_thread, stop.clone()));
     mixdog_rt::spawn("exec.background-work", TaskClass::Work, background_work(host_strip.clone(), delivered, targets.lifecycle, targets.shells, stop.clone()));
     mixdog_rt::spawn("exec.host-strip", TaskClass::Work, host_section(host_strip, targets.publisher, stop));
 }
@@ -217,6 +217,7 @@ async fn thread_sections(
     mut strips: watch::Receiver<HashMap<String, ShellJobsState>>,
     threads: Arc<dyn ThreadState>,
     forget: crate::exec::ForgetThread,
+    prune_empty: crate::exec::ForgetThread,
     stop: CancellationToken,
 ) {
     let mut published: HashMap<String, ShellJobsState> = HashMap::new();
@@ -229,15 +230,21 @@ async fn thread_sections(
             () = tokio::time::sleep(PUBLISH_RETRY), if failed => {}
         }
         failed = false;
-        let all = strips.borrow_and_update().clone();
-        for (thread, state) in all {
-            if published.get(&thread) == Some(&state) {
-                continue;
-            }
+        let pending: Vec<(String, ShellJobsState)> = {
+            let all = strips.borrow_and_update();
+            published.retain(|thread, _| all.contains_key(thread));
+            all.iter().filter(|(thread, state)| published.get(*thread) != Some(*state)).map(|(thread, state)| (thread.clone(), state.clone())).collect()
+        };
+        for (thread, state) in pending {
             let section = Section::ShellJobs(thread_strip(&state));
             match threads.publish(&ThreadId::from(thread.as_str()), section).await {
                 Ok(()) => {
-                    published.insert(thread, state);
+                    if crate::exec::is_empty_strip(&state) {
+                        published.remove(&thread);
+                        prune_empty(&thread);
+                    } else {
+                        published.insert(thread, state);
+                    }
                 }
                 // A thread that no longer exists never will again: its retry and its snapshot end.
                 Err(PortError::NotFound { .. }) => {
@@ -383,7 +390,7 @@ mod tests {
         let failure = mixdog_tools::orch::util::PortError::Denied("refused once".into());
         let threads = Arc::new(FlakyThreads { fail: Mutex::new(Some(failure)), published });
         let stop = CancellationToken::new();
-        let consumer = tokio::spawn(thread_sections(changes, threads, Arc::new(|_| {}), stop.clone()));
+        let consumer = tokio::spawn(thread_sections(changes, threads, Arc::new(|_| {}), Arc::new(|_| {}), stop.clone()));
         strips.send_modify(|_| {});
         for _ in 0..2 {
             mixdog_rt::time::timeout(Duration::from_secs(10), seen.recv()).await.expect("the retry published").unwrap();
@@ -408,12 +415,67 @@ mod tests {
             })
         };
         let stop = CancellationToken::new();
-        let consumer = tokio::spawn(thread_sections(changes, threads, forget, stop.clone()));
+        let consumer = tokio::spawn(thread_sections(changes, threads, forget, Arc::new(|_| {}), stop.clone()));
         strips.send_modify(|_| {});
         seen.recv().await.unwrap();
         mixdog_rt::time::sleep(Duration::from_millis(2500)).await;
         assert!(strips.borrow().is_empty(), "the snapshot is dropped");
         assert!(seen.try_recv().is_err(), "no retry follows");
+        stop.cancel();
+        consumer.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_drained_empty_strip_is_published_once_and_pruned() {
+        let (strips, changes) = watch::channel(HashMap::<String, ShellJobsState>::new());
+        let strips = Arc::new(strips);
+        let (published, mut seen) = tokio::sync::mpsc::unbounded_channel();
+        let threads = Arc::new(FlakyThreads { fail: Mutex::new(None), published });
+        let forget: crate::exec::ForgetThread = {
+            let strips = strips.clone();
+            Arc::new(move |thread| {
+                strips.send_if_modified(|all| all.remove(thread).is_some());
+            })
+        };
+        let prune_empty: crate::exec::ForgetThread = {
+            let strips = strips.clone();
+            Arc::new(move |thread| {
+                strips.send_if_modified(|all| {
+                    if all.get(thread).is_some_and(crate::exec::is_empty_strip) {
+                        all.remove(thread);
+                    }
+                    false
+                });
+            })
+        };
+        let stop = CancellationToken::new();
+        let consumer = tokio::spawn(thread_sections(changes, threads, forget.clone(), prune_empty, stop.clone()));
+
+        strips.send_modify(|all| {
+            all.insert("t1".to_owned(), ShellJobsState { count: 1, jobs: Vec::new(), finished: Vec::new() });
+        });
+        mixdog_rt::time::timeout(Duration::from_secs(5), seen.recv()).await.expect("active strip published").unwrap();
+        assert!(strips.borrow().contains_key("t1"));
+
+        strips.send_modify(|all| {
+            all.insert("t1".to_owned(), ShellJobsState::default());
+        });
+        mixdog_rt::time::timeout(Duration::from_secs(5), seen.recv()).await.expect("final empty strip published").unwrap();
+        for _ in 0..50 {
+            if strips.borrow().is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(strips.borrow().is_empty(), "empty strip entry is pruned once published");
+
+        strips.send_modify(|all| {
+            all.insert("t2".to_owned(), ShellJobsState { count: 1, jobs: Vec::new(), finished: Vec::new() });
+        });
+        mixdog_rt::time::timeout(Duration::from_secs(5), seen.recv()).await.expect("t2 published").unwrap();
+        forget("t2");
+        assert!(strips.borrow().is_empty(), "forget_thread drops active entry");
+
         stop.cancel();
         consumer.await.unwrap();
     }

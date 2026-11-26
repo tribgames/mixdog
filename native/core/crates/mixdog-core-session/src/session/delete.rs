@@ -197,6 +197,9 @@ pub trait DeleteSeams: Send + Sync {
     fn release_mcp_scope(&self, session_id: &str);
     /// Release resources of an unloaded runtime without closing the conversation.
     fn release_unloaded_runtime(&self, _session_id: &str) {}
+    /// The loaded session rested (it stays loaded, watched and idle): what was kept only for its next turn goes, rebuilt
+    /// from storage when that turn or a read asks for it.
+    fn release_rested(&self, _session_id: &str) {}
     /// The session ended for good (a closing tombstone or a delete): what other owners keep for it goes.
     fn session_ended(&self, _session_id: &str) {}
     /// The session was deleted (after [Self::session_ended]), its runtime possibly still winding down: what a closed session

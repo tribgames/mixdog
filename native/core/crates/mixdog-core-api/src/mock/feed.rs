@@ -43,6 +43,7 @@ struct Shared {
     epoch: FeedEpoch,
     limits: MockLimits,
     cpu: CpuInteractive,
+    on_last_detach: Option<Arc<dyn Fn() + Send + Sync>>,
     state: Mutex<State>,
 }
 
@@ -74,12 +75,21 @@ struct Encode {
 impl MockFeed {
     /// An empty feed (seq 0) whose initial view is `view`.
     pub fn new(id: FeedId, epoch: FeedEpoch, view: Arc<dyn FeedView>, limits: MockLimits) -> Self {
+        Self::with_options(id, epoch, view, limits, None)
+    }
+
+    pub fn new_watching_detach(id: FeedId, epoch: FeedEpoch, view: Arc<dyn FeedView>, limits: MockLimits, on_last_detach: Arc<dyn Fn() + Send + Sync>) -> Self {
+        Self::with_options(id, epoch, view, limits, Some(on_last_detach))
+    }
+
+    fn with_options(id: FeedId, epoch: FeedEpoch, view: Arc<dyn FeedView>, limits: MockLimits, on_last_detach: Option<Arc<dyn Fn() + Send + Sync>>) -> Self {
         Self {
             shared: Arc::new(Shared {
                 id,
                 epoch,
                 limits,
                 cpu: mixdog_rt::testing::tokens().cpu_interactive,
+                on_last_detach,
                 state: Mutex::new(State { closed: false, seq: 0, view, ring: VecDeque::new(), ring_used: 0, subs: HashMap::new() }),
             }),
         }
@@ -188,9 +198,17 @@ impl FeedSource for MockFeed {
     }
 
     fn detach(&self, sub: SubscriptionId) {
-        let removed = self.shared.lock().subs.remove(&sub);
+        let (removed, last_detached) = {
+            let mut state = self.shared.lock();
+            let removed = state.subs.remove(&sub);
+            let last_detached = removed.is_some() && state.subs.is_empty() && !state.closed;
+            (removed, last_detached)
+        };
         if let Some(subscriber) = removed {
             subscriber.lane.close();
+        }
+        if last_detached && let Some(on_last_detach) = &self.shared.on_last_detach {
+            on_last_detach();
         }
     }
 }
@@ -277,6 +295,13 @@ impl ScopedFeeds for MockScopedFeeds {
     fn create(&self, id: FeedId, view: Arc<dyn FeedView>) -> Arc<dyn ScopedFeed> {
         let epoch = super::epoch(u128::from(self.next_epoch.fetch_add(1, Ordering::Relaxed)));
         let feed: Arc<dyn ScopedFeed> = Arc::new(MockFeed::new(id.clone(), epoch, view, self.limits));
+        self.made.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(id, feed.clone());
+        feed
+    }
+
+    fn create_watching_detach(&self, id: FeedId, view: Arc<dyn FeedView>, on_last_detach: Arc<dyn Fn() + Send + Sync>) -> Arc<dyn ScopedFeed> {
+        let epoch = super::epoch(u128::from(self.next_epoch.fetch_add(1, Ordering::Relaxed)));
+        let feed: Arc<dyn ScopedFeed> = Arc::new(MockFeed::new_watching_detach(id.clone(), epoch, view, self.limits, on_last_detach));
         self.made.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(id, feed.clone());
         feed
     }

@@ -6,6 +6,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -26,11 +27,13 @@ use mixdog_acp::routes::AgentRouteFacts;
 use mixdog_acp::routes::AgentRouteWriter;
 use mixdog_acp::runs::Attachments;
 use mixdog_acp::runs::Conversation;
+use mixdog_acp::runs::SESSION_KEY;
 use mixdog_acp::runs::Stored;
 use mixdog_acp::runs::TurnRequest;
 use mixdog_acp::runs::WAKE_TEXT;
 use mixdog_acp::surface::CallMark;
 use mixdog_acp::surface::CompactEvent;
+use mixdog_acp::surface::SteerDelivery;
 use mixdog_acp::surface::TurnSurface;
 use mixdog_acp::surface::TurnUsage;
 use mixdog_acp::turn::Ask;
@@ -60,6 +63,9 @@ use mixdog_core_api::domain::login::LoginState;
 use mixdog_core_api::domain::mock::MockFileService;
 use mixdog_core_api::domain::mock::MockProgress;
 use mixdog_core_api::domain::process::ProcessManager;
+use mixdog_core_api::domain::provider::BinarySource;
+use mixdog_core_api::domain::provider::Content;
+use mixdog_core_api::domain::provider::ContentPart;
 use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_api::domain::tool::FollowUpMessage;
 use mixdog_core_api::domain::tool::SurfaceKind;
@@ -70,6 +76,7 @@ use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolOutput;
 use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_core_api::domain::tool::ToolSpec;
+use mixdog_core_api::ids::QueuedId;
 use mixdog_core_domains::domains::ai_admin::chain::RouteFacts;
 use mixdog_core_ports::ports::route::Route;
 use mixdog_core_ports::ports::route_write::RouteWriter;
@@ -164,11 +171,20 @@ struct Turns {
     stops_summary: Option<CancellationToken>,
     /// The turn is stopped with this token as the attachment `stop` is read for the prompt, before the prompt is sent.
     stops_sending: Option<CancellationToken>,
+    /// Hook invoked while resolving an attachment reference (e.g. to simulate a concurrent `stop_submissions`).
+    on_attachment_read: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    /// Gate that holds reading the `"slow"` attachment reference until notified.
+    hold_attachment: Option<Arc<Notify>>,
+    /// Optional counter incremented each time `Conversation::hand_over` runs.
+    hand_over_calls: Option<Arc<AtomicUsize>>,
 }
 
 #[async_trait]
 impl Conversation for Turns {
     async fn hand_over(&self) -> Result<Option<String>, String> {
+        if let Some(calls) = &self.hand_over_calls {
+            calls.fetch_add(1, Ordering::SeqCst);
+        }
         if let Some(stop) = &self.stops_summary {
             stop.cancel();
             std::future::pending::<()>().await;
@@ -191,6 +207,9 @@ const ATTACHMENTS: &str = "C:\\data dir\\blobs";
 #[async_trait]
 impl Attachments for Turns {
     async fn bytes(&self, reference: &str) -> Option<Vec<u8>> {
+        if let Some(hook) = &self.on_attachment_read {
+            hook(reference);
+        }
         match reference {
             "stored" => Some(b"png".to_vec()),
             "note" => Some(b"# Notes\nplover".to_vec()),
@@ -201,6 +220,12 @@ impl Attachments for Turns {
                     stop.cancel();
                 }
                 Some(b"stop".to_vec())
+            }
+            "slow" => {
+                if let Some(gate) = &self.hold_attachment {
+                    gate.notified().await;
+                }
+                Some(b"slow attachment body".to_vec())
             }
             _ => None,
         }
@@ -221,10 +246,21 @@ struct Recorded {
     answers: Mutex<VecDeque<ApprovalResolution>>,
     /// An approval's card stays open: nobody answers it.
     holds_asks: AtomicBool,
+    /// Optional one-shot gate that pauses `approve` until the test sends a resolution.
+    approve_gate: Mutex<Option<tokio::sync::oneshot::Receiver<ApprovalResolution>>>,
     /// The calls gone on in the background that ended, by id, as the approvals heard of each.
     released: Mutex<Vec<String>>,
     /// The turn's own surface refuses a call's result row and stops the turn with this token; the closing one takes it.
     stops_at_result: Mutex<Option<CancellationToken>>,
+    /// Queued mid-turn user messages and task notifications visible to `peek_steers`, removed only on `commit_steers`.
+    steers: Mutex<VecDeque<SteerDelivery>>,
+    steer_peeks: AtomicUsize,
+    steer_commits: AtomicUsize,
+    committed_steers: Mutex<Vec<QueuedId>>,
+    /// Optional hook invoked inside `commit_steers` right before dequeuing (can cancel pre-mutation).
+    on_commit_steers: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// When set, `commit_steers` blocks prior to mutation until its `cancel` token fires (simulating a stalled actor).
+    hold_commit_steers: AtomicBool,
     changed: Notify,
 }
 
@@ -360,6 +396,10 @@ impl TurnSurface for Surface {
     async fn approve(&self, ask: ApprovalAsk) -> ApprovalResolution {
         self.0.asks.lock().unwrap().push(ask);
         self.0.changed.notify_waiters();
+        let gate = self.0.approve_gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            return gate.await.unwrap_or(ApprovalResolution::Unavailable { at: 0 });
+        }
         if self.0.holds_asks.load(Ordering::SeqCst) {
             return std::future::pending().await;
         }
@@ -368,6 +408,43 @@ impl TurnSurface for Surface {
 
     fn call_epoch(&self) -> u64 {
         0
+    }
+
+    async fn peek_steers(&self) -> Result<Vec<SteerDelivery>, RunError> {
+        self.0.steer_peeks.fetch_add(1, Ordering::SeqCst);
+        Ok(self.0.steers.lock().unwrap().iter().cloned().collect())
+    }
+
+    async fn commit_steers(&self, queued_ids: Vec<QueuedId>, _now_ms: i64, cancel: CancellationToken) -> Result<Vec<SteerDelivery>, RunError> {
+        self.0.steer_commits.fetch_add(1, Ordering::SeqCst);
+        let hook = self.0.on_commit_steers.lock().unwrap().clone();
+        if let Some(hook) = hook {
+            hook();
+        }
+        if self.0.hold_commit_steers.load(Ordering::SeqCst) {
+            cancel.cancelled().await;
+            return Err(RunError::Cancelled);
+        }
+        if cancel.is_cancelled() {
+            return Err(RunError::Cancelled);
+        }
+        let committed: std::collections::HashSet<QueuedId> = queued_ids.iter().cloned().collect();
+        let mut steers = self.0.steers.lock().unwrap();
+        let mut claimed = Vec::new();
+        steers.retain(|steer| {
+            let matching: Vec<QueuedId> = steer.queued_ids.iter().filter(|id| committed.contains(*id)).cloned().collect();
+            if matching.is_empty() {
+                true
+            } else {
+                let mut delivered = steer.clone();
+                delivered.queued_ids = matching;
+                claimed.push(delivered);
+                false
+            }
+        });
+        let claimed_ids: Vec<QueuedId> = claimed.iter().flat_map(|steer| steer.queued_ids.iter().cloned()).collect();
+        self.0.committed_steers.lock().unwrap().extend(claimed_ids);
+        Ok(claimed)
     }
 
     fn closing(&self) -> Arc<dyn TurnSurface> {
@@ -711,6 +788,7 @@ impl World {
             on_tool_result: None,
             record: None,
             selected_window: None,
+            attachments: None,
         }
     }
 
@@ -1347,7 +1425,7 @@ async fn an_agent_session_that_starts_in_the_middle_of_a_conversation_is_sent_mi
     let end = world.ask(&surface, "whoami", Turns { summary: Some(Ok("## User\nearlier talk")), ..Turns::default() }).await;
     let lead = completed_text(&end).split_once(" lead=").expect("the lead").1;
     assert!(lead.starts_with("# The conversation before this session") && lead.contains("## User\nearlier talk"), "{end:?}");
-    assert_eq!(surface.notices(), ["The conversation above was summarized for Antigravity, which starts a session of its own here."]);
+    assert!(surface.notices().is_empty(), "the stored summary's divider is all the transcript shows: {:?}", surface.notices());
     let next = Surface::default();
     let input = json!({ "role": "user", "content": "whoami" });
     let end = within("the next turn", world.serve(&next, input, Some("sess-1"), "default", CancellationToken::new())).await;
@@ -5046,4 +5124,1090 @@ async fn a_turn_waiting_on_an_approval_card_ends_when_its_session_leaves_the_sha
     };
     let (end, ()) = within("the turn's end", async { tokio::join!(asking, release) }).await;
     assert!(matches!(&end, TurnEnd::Failed { message, .. } if message == "The agent's session was closed."), "{end:?}");
+}
+
+/// Stopping a turn whose ACP agent never answers `session/cancel` ends the turn promptly and lets the next turn
+/// recover after a bounded grace on both per-session (`antigravity-cli`) and shared-server (`antigravity`) agents,
+/// leaving other threads on the shared server untouched.
+#[tokio::test]
+async fn unanswered_session_cancel_ends_turn_promptly_and_recovers_next_turn() {
+    let per_session = World::new(&[("FAKE_AGENT_SILENT_CANCEL", "1")]);
+    per_session.agents.set_cancel_close_grace(Duration::from_millis(150));
+    let end = per_session.hang_until_stopped(&Surface::default()).await;
+    assert_eq!(end, TurnEnd::Interrupted);
+    let stuck = per_session.agents.running(&thread()).expect("stuck session").connection.handle().clone();
+    let recovered = within("per-session recovery", per_session.prompt(&thread(), &Surface::default(), "whoami", None, CancellationToken::new())).await;
+    assert!(completed_text(&recovered).starts_with("session=sess-1"), "{recovered:?}");
+    let fresh = per_session.agents.running(&thread()).expect("fresh session").connection.handle().clone();
+    assert_ne!(fresh, stuck, "stuck child process replaced after cancel grace");
+    // Three processes ran in ACP mode: the CLI readiness check, the stuck session, and its replacement.
+    assert_eq!(per_session.logged("start acp"), 3, "stuck child process replaced after cancel grace: {:?}", per_session.log());
+
+    let shared = World::official(&[("FAKE_AGENT_SILENT_CANCEL", "1")]);
+    shared.agents.set_cancel_close_grace(Duration::from_millis(150));
+    let (a, b) = (ThreadId::from("sess_a"), ThreadId::from("sess_b"));
+    let cwd = shared.cwd();
+    assert!(shared.answer_in(&b, &cwd, "whoami").await.starts_with("session=sess-1"));
+
+    let (working, stop) = (Surface::default(), CancellationToken::new());
+    let hanging = shared.prompt_in(&a, &cwd, &working, "hang", None, stop.clone());
+    let cancel_a = async {
+        working.until(|events| events.iter().any(|event| matches!(event, Event::Commit(_)))).await;
+        stop.cancel();
+    };
+    let (ended, ()) = within("shared cancel", async { tokio::join!(hanging, cancel_a) }).await;
+    assert_eq!(ended, TurnEnd::Interrupted);
+
+    // Passing the stuck session id as stored must still open a fresh session on the shared server instead of hanging
+    // or reattaching to the unanswered prompt, while thread B keeps its session on the same server.
+    let recovered_a = within("shared recovery", shared.prompt_in(&a, &cwd, &Surface::default(), "whoami", Some("sess-2"), CancellationToken::new())).await;
+    let text_a = completed_text(&recovered_a);
+    assert!(text_a.starts_with("session=sess-3 resumed=false"), "{text_a:?}");
+    assert!(shared.answer_in(&b, &cwd, "whoami").await.starts_with("session=sess-1"));
+    assert_eq!(shared.logged("start acp"), 1, "shared server stayed alive for thread B: {:?}", shared.log());
+}
+
+/// A queued mid-turn user message reaches the running ACP agent at its next Mixdog tool-call boundary exactly once,
+/// and stays queued untouched when a turn makes no Mixdog tool call.
+#[tokio::test]
+async fn mid_turn_user_steer_delivers_at_mixdog_tool_boundary_and_otherwise_waits() {
+    let (world, tools) = handing(&[]);
+    let surface = Surface::default();
+    surface.0.steers.lock().unwrap().push_back(SteerDelivery {
+        queued_ids: vec![QueuedId::from("q-user-1")],
+        content: Content::Text("pivot to plan B".into()),
+        task_notification: false,
+    });
+
+    let first = tools.prompt(&world, &surface, r#"tool read {"path":"a.txt"}"#).await;
+    let first_text = completed_text(&first);
+    assert!(first_text.contains(r#"read ran with {"path":"a.txt"}"#), "{first_text:?}");
+    assert!(first_text.contains("[User message received while you were working]\npivot to plan B"), "{first_text:?}");
+    assert_eq!(surface.0.steer_peeks.load(Ordering::SeqCst), 1);
+    assert_eq!(surface.0.steer_commits.load(Ordering::SeqCst), 1);
+    assert_eq!(*surface.0.committed_steers.lock().unwrap(), vec![QueuedId::from("q-user-1")]);
+    assert!(surface.0.steers.lock().unwrap().is_empty(), "steered message committed once");
+
+    // A later tool call with nothing queued receives no duplicate copy.
+    let second = tools.prompt(&world, &surface, r#"tool read {"path":"b.txt"}"#).await;
+    assert!(!completed_text(&second).contains("pivot to plan B"), "{second:?}");
+
+    // With no Mixdog tool call in the turn, peek_steers is not called and the queued message stays for the next turn.
+    surface.0.steers.lock().unwrap().push_back(SteerDelivery {
+        queued_ids: vec![QueuedId::from("q-user-2")],
+        content: Content::Text("next turn prompt".into()),
+        task_notification: false,
+    });
+    let peeks_before = surface.0.steer_peeks.load(Ordering::SeqCst);
+    let commits_before = surface.0.steer_commits.load(Ordering::SeqCst);
+    let plain = tools.prompt(&world, &surface, "whoami").await;
+    assert!(completed_text(&plain).starts_with("session="), "{plain:?}");
+    assert_eq!(surface.0.steer_peeks.load(Ordering::SeqCst), peeks_before);
+    assert_eq!(surface.0.steer_commits.load(Ordering::SeqCst), commits_before);
+    assert_eq!(surface.0.steers.lock().unwrap().len(), 1, "uncommitted message remains queued for the next turn");
+}
+
+/// A queued `<task-notification>` reaches the running ACP agent verbatim at its next Mixdog tool-call boundary on a
+/// shared-server session, and stays queued untouched when a turn makes no Mixdog tool call.
+#[tokio::test]
+async fn mid_turn_task_notification_delivers_at_mixdog_tool_boundary_and_otherwise_waits() {
+    let (world, tools) = handing_in(World::official(&[]));
+    let surface = Surface::default();
+    let notice = "<task-notification>\n<task-id>bg_1</task-id>\n<status>completed</status>\n<summary>worker done</summary>\n</task-notification>";
+    surface.0.steers.lock().unwrap().push_back(SteerDelivery {
+        queued_ids: vec![QueuedId::from("q-task-1")],
+        content: Content::Text(notice.into()),
+        task_notification: true,
+    });
+
+    let delivered = tools.prompt(&world, &surface, r#"tool read {"path":"a.txt"}"#).await;
+    let text = completed_text(&delivered);
+    assert!(text.contains(r#"read ran with {"path":"a.txt"}"#), "{text:?}");
+    assert!(text.contains(notice), "{text:?}");
+    assert!(!text.contains("[User message received while you were working]"), "task notifications are not wrapped as typed user messages: {text:?}");
+    assert_eq!(surface.0.steer_peeks.load(Ordering::SeqCst), 1);
+    assert_eq!(surface.0.steer_commits.load(Ordering::SeqCst), 1);
+    assert!(surface.0.steers.lock().unwrap().is_empty(), "notification committed once");
+
+    // With no Mixdog tool call in the turn, the notification remains queued for the next turn.
+    surface.0.steers.lock().unwrap().push_back(SteerDelivery {
+        queued_ids: vec![QueuedId::from("q-task-2")],
+        content: Content::Text(notice.into()),
+        task_notification: true,
+    });
+    let plain = tools.prompt(&world, &surface, "whoami").await;
+    assert!(completed_text(&plain).starts_with("session="), "{plain:?}");
+    assert_eq!(surface.0.steer_peeks.load(Ordering::SeqCst), 1);
+    assert_eq!(surface.0.steer_commits.load(Ordering::SeqCst), 1);
+    assert_eq!(surface.0.steers.lock().unwrap().len(), 1, "uncommitted notification remains queued for the next turn");
+}
+
+/// Mid-turn steers resolve `AttachmentRef` images and offloaded text pastes through the turn's real attachment store,
+/// and a Stop racing attachment resolution leaves the queued steer uncommitted for the next turn.
+#[tokio::test]
+async fn mid_turn_steer_resolves_attachment_refs_and_preserves_uncommitted_steers_on_stop() {
+    let (world, tools) = handing(&[]);
+    let surface = Surface::default();
+    surface.0.steers.lock().unwrap().push_back(SteerDelivery {
+        queued_ids: vec![QueuedId::from("q-attach-1")],
+        content: Content::Parts(vec![
+            ContentPart::Text("inspect these".into(), None),
+            ContentPart::File {
+                source: BinarySource::AttachmentRef("note".into()),
+                mime_type: "text/plain".into(),
+                filename: Some("paste.txt".into()),
+                text: None,
+            },
+            ContentPart::File {
+                source: BinarySource::AttachmentRef("stored".into()),
+                mime_type: "image/png".into(),
+                filename: Some("shot.png".into()),
+                text: None,
+            },
+        ]),
+        task_notification: false,
+    });
+    let delivered = within(
+        "steered attachments",
+        world.serve_with(
+            &surface,
+            json!({ "role": "user", "content": r#"tool read {"path":"a.txt"}"# }),
+            None,
+            Some("RULES"),
+            "default",
+            CancellationToken::new(),
+            Turns { calls: Some(tools.calls(&surface)), ..Turns::default() },
+        ),
+    )
+    .await;
+    let text = completed_text(&delivered);
+    assert!(text.contains("[Attached file: paste.txt]\n# Notes\nplover"), "offloaded paste resolved: {text:?}");
+    assert!(text.contains("images=1"), "attached image resolved: {text:?}");
+    assert_eq!(surface.0.steer_commits.load(Ordering::SeqCst), 1);
+    assert!(surface.0.steers.lock().unwrap().is_empty());
+
+    // If Stop fires while attachment resolution is running, the steer is not committed and stays queued.
+    let stop = CancellationToken::new();
+    let surface = Surface::default();
+    surface.0.steers.lock().unwrap().push_back(SteerDelivery {
+        queued_ids: vec![QueuedId::from("q-attach-stop")],
+        content: Content::Parts(vec![ContentPart::File {
+            source: BinarySource::AttachmentRef("stop".into()),
+            mime_type: "text/plain".into(),
+            filename: Some("late.txt".into()),
+            text: None,
+        }]),
+        task_notification: false,
+    });
+    let interrupted = within(
+        "stop during steer attachment resolution",
+        world.serve_with(
+            &surface,
+            json!({ "role": "user", "content": r#"tool read {"path":"b.txt"}"# }),
+            None,
+            Some("RULES"),
+            "default",
+            stop.clone(),
+            Turns { calls: Some(tools.calls(&surface)), stops_sending: Some(stop), ..Turns::default() },
+        ),
+    )
+    .await;
+    assert_eq!(interrupted, TurnEnd::Interrupted);
+    assert_eq!(surface.0.steer_peeks.load(Ordering::SeqCst), 1);
+    assert_eq!(surface.0.steer_commits.load(Ordering::SeqCst), 0, "cancelled steer must not commit");
+    assert_eq!(surface.0.steers.lock().unwrap().len(), 1, "cancelled steer remains queued");
+}
+
+/// If `stop_submissions` removes a queued steer during async attachment resolution without cancelling the active turn,
+/// `deliver_answer` claims before sending so the stopped submission is never delivered to the ACP agent, while any
+/// surviving steer is still claimed, recorded, and delivered.
+#[tokio::test]
+async fn stopped_submission_during_steer_attachment_resolution_is_never_delivered() {
+    let (world, tools) = handing(&[]);
+
+    // Case 1: The only queued steer is stopped while its attachment is being read; the active turn stays alive.
+    let surface = Surface::default();
+    surface.0.steers.lock().unwrap().push_back(SteerDelivery {
+        queued_ids: vec![QueuedId::from("q-stopped-only")],
+        content: Content::Parts(vec![
+            ContentPart::Text("stopped steer text".into(), None),
+            ContentPart::File {
+                source: BinarySource::AttachmentRef("note".into()),
+                mime_type: "text/plain".into(),
+                filename: Some("paste.txt".into()),
+                text: None,
+            },
+        ]),
+        task_notification: false,
+    });
+    let surface_for_stop = surface.0.clone();
+    let stop_only = Arc::new(move |reference: &str| {
+        if reference == "note" {
+            surface_for_stop.steers.lock().unwrap().retain(|steer| !steer.queued_ids.iter().any(|id| id.as_str() == "q-stopped-only"));
+        }
+    });
+    let only_stopped = within(
+        "stopped sole steer during attachment resolution",
+        world.serve_with(
+            &surface,
+            json!({ "role": "user", "content": r#"tool read {"path":"a.txt"}"# }),
+            None,
+            Some("RULES"),
+            "default",
+            CancellationToken::new(),
+            Turns { calls: Some(tools.calls(&surface)), on_attachment_read: Some(stop_only), ..Turns::default() },
+        ),
+    )
+    .await;
+    let only_text = completed_text(&only_stopped);
+    assert!(only_text.contains(r#"read ran with {"path":"a.txt"}"#), "{only_text:?}");
+    assert!(!only_text.contains("stopped steer text"), "stopped steer must never reach agent: {only_text:?}");
+    assert!(!only_text.contains("plover"), "stopped steer attachment must never reach agent: {only_text:?}");
+    assert!(surface.0.committed_steers.lock().unwrap().is_empty(), "stopped steer must not be committed");
+
+    // Case 2: Two steers are peeked; the first is stopped during attachment resolution while the second survives.
+    let surface = Surface::default();
+    {
+        let mut queue = surface.0.steers.lock().unwrap();
+        queue.push_back(SteerDelivery {
+            queued_ids: vec![QueuedId::from("q-stopped-first")],
+            content: Content::Parts(vec![
+                ContentPart::Text("dropped first steer".into(), None),
+                ContentPart::File {
+                    source: BinarySource::AttachmentRef("note".into()),
+                    mime_type: "text/plain".into(),
+                    filename: Some("paste.txt".into()),
+                    text: None,
+                },
+            ]),
+            task_notification: false,
+        });
+        queue.push_back(SteerDelivery {
+            queued_ids: vec![QueuedId::from("q-surviving-second")],
+            content: Content::Text("surviving second steer".into()),
+            task_notification: false,
+        });
+    }
+    let surface_for_partial = surface.0.clone();
+    let stop_first = Arc::new(move |reference: &str| {
+        if reference == "note" {
+            surface_for_partial.steers.lock().unwrap().retain(|steer| !steer.queued_ids.iter().any(|id| id.as_str() == "q-stopped-first"));
+        }
+    });
+    let partial = within(
+        "partial stop during steer attachment resolution",
+        world.serve_with(
+            &surface,
+            json!({ "role": "user", "content": r#"tool read {"path":"b.txt"}"# }),
+            None,
+            Some("RULES"),
+            "default",
+            CancellationToken::new(),
+            Turns { calls: Some(tools.calls(&surface)), on_attachment_read: Some(stop_first), ..Turns::default() },
+        ),
+    )
+    .await;
+    let partial_text = completed_text(&partial);
+    assert!(partial_text.contains(r#"read ran with {"path":"b.txt"}"#), "{partial_text:?}");
+    assert!(!partial_text.contains("dropped first steer"), "stopped first steer must not reach agent: {partial_text:?}");
+    assert!(!partial_text.contains("plover"), "stopped first steer attachment must not reach agent: {partial_text:?}");
+    assert!(partial_text.contains("surviving second steer"), "surviving steer must reach agent: {partial_text:?}");
+    assert_eq!(*surface.0.committed_steers.lock().unwrap(), vec![QueuedId::from("q-surviving-second")]);
+}
+
+/// On a shared server, dropping a stuck cancelled session after `cancel_close_grace` and stopping during post-open
+/// `hand_over()` invalidates `SESSION_KEY` in the header and prevents the next turn from reattaching to the stuck session.
+#[tokio::test]
+async fn shared_server_invalidates_stored_session_key_on_cancel_grace_and_post_open_stop() {
+    let world = World::official(&[("FAKE_AGENT_SILENT_CANCEL", "1")]);
+    world.agents.set_cancel_close_grace(Duration::from_millis(150));
+    let other = ThreadId::from("sess_b");
+    let cwd = world.cwd();
+    assert!(world.answer_in(&other, &cwd, "whoami").await.starts_with("session=sess-1"));
+
+    // Thread's turn hangs and is stopped while the agent ignores `session/cancel` (stuck on sess-2).
+    let (working, stop) = (Surface::default(), CancellationToken::new());
+    let hanging = world.serve_with(&working, json!({ "role": "user", "content": "hang" }), None, Some("RULES"), "default", stop.clone(), Turns::default());
+    let cancel_turn = async {
+        working.until(|events| events.iter().any(|event| matches!(event, Event::Commit(_)))).await;
+        stop.cancel();
+    };
+    let (ended, ()) = within("shared hang cancel", async { tokio::join!(hanging, cancel_turn) }).await;
+    assert_eq!(ended, TurnEnd::Interrupted);
+
+    // Next turn drops stuck sess-2 after grace, opens a fresh session, and is stopped during hand_over() before
+    // `SESSION_KEY` can be updated: `SESSION_KEY` must be unset in the header.
+    let stop_handover = CancellationToken::new();
+    let surface = Surface::default();
+    let interrupted = within(
+        "post-open hand_over stop",
+        world.serve_with(
+            &surface,
+            json!({ "role": "user", "content": "whoami" }),
+            Some(held("sess-2")),
+            Some("RULES"),
+            "default",
+            stop_handover.clone(),
+            Turns { stops_summary: Some(stop_handover), ..Turns::default() },
+        ),
+    )
+    .await;
+    assert_eq!(interrupted, TurnEnd::Interrupted);
+    let unset_session = surface.events().into_iter().any(|event| matches!(event, Event::Header(change) if change.unset.iter().any(|k| k == SESSION_KEY)));
+    assert!(unset_session, "expected SESSION_KEY unset header change, got {:?}", surface.events());
+
+    // Even if a subsequent turn still supplies stale `sess-2`, the abandoned session is skipped and a fresh session opens.
+    let recovered = within(
+        "fresh session after abandoned sess-2",
+        world.serve_with(
+            &Surface::default(),
+            json!({ "role": "user", "content": "whoami" }),
+            Some(held("sess-2")),
+            Some("RULES"),
+            "default",
+            CancellationToken::new(),
+            Turns::default(),
+        ),
+    )
+    .await;
+    let text = completed_text(&recovered);
+    assert!(text.contains("resumed=false"), "must not reattach to abandoned sess-2: {text:?}");
+    assert!(!text.contains("session=sess-2"), "must not reuse sess-2: {text:?}");
+    assert!(world.answer_in(&other, &cwd, "whoami").await.starts_with("session=sess-1"));
+}
+
+/// Agent-initiated wake turns (`Ask::Reply`) populate `TurnContext::attachments` from `TurnRequest::attachments`,
+/// so mid-turn steer attachments (offloaded pastes and images) resolve at Mixdog tool-call boundaries on wake turns.
+#[tokio::test]
+async fn wake_turn_tool_call_resolves_steer_attachments_from_request() {
+    use http_body_util::BodyExt;
+    use http_body_util::Full;
+    use hyper_util::rt::TokioIo;
+
+    let (world, tools) = handing(&[]);
+    let servers_end = tools.prompt(&world, &Surface::default(), "servers").await;
+    let servers_text = completed_text(&servers_end);
+    let servers_json = servers_text.strip_prefix("servers=").expect("servers json prefix");
+    let servers: Value = serde_json::from_str(servers_json).expect("servers json");
+    let url = servers[0]["url"].as_str().expect("mcp server url").to_owned();
+    let auth = servers[0]["headers"][0]["value"].as_str().expect("mcp bearer auth").to_owned();
+    let addr = url.strip_prefix("http://").and_then(|rest| rest.split('/').next()).expect("loopback host:port").to_owned();
+
+    // Trigger an agent-initiated wake via `selfask`, which opens a wake turn paused on `surface.approve`.
+    within("selfask turn", world.prompt(&thread(), &Surface::default(), "selfask", None, CancellationToken::new())).await;
+    world.wakes(1).await;
+
+    let surface = Surface::default();
+    let (approve_tx, approve_rx) = tokio::sync::oneshot::channel();
+    *surface.0.approve_gate.lock().unwrap() = Some(approve_rx);
+    surface.0.steers.lock().unwrap().push_back(SteerDelivery {
+        queued_ids: vec![QueuedId::from("q-wake-attach")],
+        content: Content::Parts(vec![
+            ContentPart::Text("wake steer".into(), None),
+            ContentPart::File {
+                source: BinarySource::AttachmentRef("note".into()),
+                mime_type: "text/plain".into(),
+                filename: Some("paste.txt".into()),
+                text: None,
+            },
+            ContentPart::File {
+                source: BinarySource::AttachmentRef("stored".into()),
+                mime_type: "image/png".into(),
+                filename: Some("shot.png".into()),
+                text: None,
+            },
+        ]),
+        task_notification: false,
+    });
+
+    let wake_input = json!({ "role": "user", "content": WAKE_TEXT, "meta": { "source": "task-notification" } });
+    let wake_fut = world.serve_with(
+        &surface,
+        wake_input,
+        None,
+        Some("RULES"),
+        "default",
+        CancellationToken::new(),
+        Turns { calls: Some(tools.calls(&surface)), ..Turns::default() },
+    );
+    let drive_mcp = async {
+        // Wait until the wake turn is attached and paused in `approve`.
+        surface.until(|_| !surface.0.asks.lock().unwrap().is_empty()).await;
+        let stream = tokio::net::TcpStream::connect(&addr).await.expect("connect mcp server");
+        let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream)).await.expect("http1 handshake");
+        let conn_task = tokio::spawn(async move {
+            let _ = conn.await;
+        });
+        let body = json!({
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "tools/call",
+            "params": { "name": "read", "arguments": { "path": "a.txt" } }
+        })
+        .to_string();
+        let req = hyper::Request::builder()
+            .method(hyper::Method::POST)
+            .uri("/mcp")
+            .header(hyper::header::HOST, &addr)
+            .header(hyper::header::AUTHORIZATION, &auth)
+            .header(hyper::header::CONTENT_TYPE, "application/json")
+            .body(Full::new(bytes::Bytes::from(body)))
+            .expect("mcp request");
+        let response_fut = tokio::spawn(async move {
+            let resp = sender.send_request(req).await.expect("mcp response");
+            let collected = resp.into_body().collect().await.expect("mcp body").to_bytes();
+            serde_json::from_slice::<Value>(&collected).expect("mcp json")
+        });
+        // Give the loopback HTTP request a moment to queue `Incoming::Tool` into the active wake turn, then release `approve`.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let _ = approve_tx.send(ApprovalResolution::Unavailable { at: 0 });
+        let reply = response_fut.await.expect("mcp reply");
+        conn_task.abort();
+        reply
+    };
+    let (_wake_end, mcp_reply) = within("wake turn with mcp tool call", async { tokio::join!(wake_fut, drive_mcp) }).await;
+    let content = mcp_reply["result"]["content"].as_array().expect("tool result content blocks");
+    let texts: Vec<&str> = content.iter().filter_map(|block| block.get("text").and_then(Value::as_str)).collect();
+    let has_paste = texts.iter().any(|text| text.contains("[Attached file: paste.txt]\n# Notes\nplover"));
+    let has_image = content.iter().any(|block| block["type"] == "image" && block["mimeType"] == "image/png" && block["data"] == "cG5n");
+    assert!(has_paste, "wake turn must resolve offloaded paste attachment from request: {content:?}");
+    assert!(has_image, "wake turn must resolve image attachment from request: {content:?}");
+    assert_eq!(surface.0.steer_commits.load(Ordering::SeqCst), 1);
+    assert!(surface.0.steers.lock().unwrap().is_empty());
+}
+
+/// Partial steer claims assemble the tool answer from already-resolved per-steer blocks without re-reading
+/// attachments after `commit_steers`, and a turn stop racing `commit_steers` prevents delivering the steered answer.
+#[tokio::test]
+async fn partial_steer_claim_reuses_resolved_attachments_without_re_reading_and_respects_cancel_before_send() {
+    let (world, tools) = handing(&[]);
+
+    // Case 1: Two steers with attachments are peeked; the first is stopped during resolution while the second survives.
+    // The surviving steer's attachment must be read once (pre-commit), never a second time after `commit_steers`.
+    let surface = Surface::default();
+    {
+        let mut queue = surface.0.steers.lock().unwrap();
+        queue.push_back(SteerDelivery {
+            queued_ids: vec![QueuedId::from("q-drop-1")],
+            content: Content::Parts(vec![
+                ContentPart::Text("dropped first".into(), None),
+                ContentPart::File {
+                    source: BinarySource::AttachmentRef("note".into()),
+                    mime_type: "text/plain".into(),
+                    filename: Some("paste.txt".into()),
+                    text: None,
+                },
+            ]),
+            task_notification: false,
+        });
+        queue.push_back(SteerDelivery {
+            queued_ids: vec![QueuedId::from("q-keep-2")],
+            content: Content::Parts(vec![
+                ContentPart::Text("surviving with image".into(), None),
+                ContentPart::File {
+                    source: BinarySource::AttachmentRef("stored".into()),
+                    mime_type: "image/png".into(),
+                    filename: Some("shot.png".into()),
+                    text: None,
+                },
+            ]),
+            task_notification: false,
+        });
+    }
+    let stored_reads = Arc::new(AtomicUsize::new(0));
+    let surface_for_stop = surface.0.clone();
+    let reads_hook = stored_reads.clone();
+    let hook = Arc::new(move |reference: &str| {
+        if reference == "note" {
+            surface_for_stop.steers.lock().unwrap().retain(|steer| !steer.queued_ids.iter().any(|id| id.as_str() == "q-drop-1"));
+        } else if reference == "stored" {
+            reads_hook.fetch_add(1, Ordering::SeqCst);
+        }
+    });
+    let partial = within(
+        "partial claim without second attachment read",
+        world.serve_with(
+            &surface,
+            json!({ "role": "user", "content": r#"tool read {"path":"a.txt"}"# }),
+            None,
+            Some("RULES"),
+            "default",
+            CancellationToken::new(),
+            Turns { calls: Some(tools.calls(&surface)), on_attachment_read: Some(hook), ..Turns::default() },
+        ),
+    )
+    .await;
+    let partial_text = completed_text(&partial);
+    assert!(partial_text.contains("surviving with image"), "{partial_text:?}");
+    assert!(partial_text.contains("images=1"), "{partial_text:?}");
+    assert!(!partial_text.contains("dropped first"), "{partial_text:?}");
+    assert!(!partial_text.contains("plover"), "{partial_text:?}");
+    assert_eq!(stored_reads.load(Ordering::SeqCst), 1, "surviving steer attachment must not be re-read after commit_steers");
+
+    // Case 2: Turn cancellation firing during `commit_steers` prevents sending the steered answer.
+    let stop = CancellationToken::new();
+    let surface = Surface::default();
+    surface.0.steers.lock().unwrap().push_back(SteerDelivery {
+        queued_ids: vec![QueuedId::from("q-cancel-post-commit")],
+        content: Content::Text("must not send after cancel".into()),
+        task_notification: false,
+    });
+    let stop_in_commit = stop.clone();
+    *surface.0.on_commit_steers.lock().unwrap() = Some(Arc::new(move || {
+        stop_in_commit.cancel();
+    }));
+    let interrupted = within(
+        "cancel racing commit_steers",
+        world.serve_with(
+            &surface,
+            json!({ "role": "user", "content": r#"tool read {"path":"b.txt"}"# }),
+            None,
+            Some("RULES"),
+            "default",
+            stop,
+            Turns { calls: Some(tools.calls(&surface)), ..Turns::default() },
+        ),
+    )
+    .await;
+    assert_eq!(interrupted, TurnEnd::Interrupted);
+    assert!(!surface.streamed().contains("must not send after cancel"), "cancelled turn must not deliver steered answer: {}", surface.streamed());
+    assert_eq!(surface.0.steers.lock().unwrap().len(), 1, "pre-dequeue cancel must leave steer queued");
+}
+
+/// Defect 1: when a shared server wedges (ignores `session/cancel` and stalls `session/new`), recovery immediately
+/// unsets the abandoned `SESSION_KEY` header before blocking on `session/new`, retires/kills the wedged server after
+/// `shared_open_timeout`, and recovers cleanly on a fresh shared server.
+#[tokio::test]
+async fn wedged_shared_server_unsets_abandoned_header_promptly_and_recovers_past_stalled_session_new() {
+    let world = World::official(&[("FAKE_AGENT_SILENT_CANCEL", "1")]);
+    world.agents.set_cancel_close_grace(Duration::from_millis(100));
+    world.agents.set_shared_open_timeout(Duration::from_millis(200));
+
+    // Start a hanging turn on the shared server and stop it while the server ignores `session/cancel` (sess-1 stuck).
+    let (working, stop) = (Surface::default(), CancellationToken::new());
+    let hanging = world.serve_with(&working, json!({ "role": "user", "content": "hang" }), None, Some("RULES"), "default", stop.clone(), Turns::default());
+    let cancel_turn = async {
+        working.until(|events| events.iter().any(|event| matches!(event, Event::Commit(_)))).await;
+        stop.cancel();
+    };
+    let (ended, ()) = within("shared hang cancel", async { tokio::join!(hanging, cancel_turn) }).await;
+    assert_eq!(ended, TurnEnd::Interrupted);
+
+    let wedged_session = world.agents.running(&thread()).expect("stuck session");
+    let wedged_conn = wedged_session.connection.clone();
+    let wedged_handle = wedged_conn.handle().clone();
+
+    // Wedge `session/new` on the existing shared server using the dynamic `fake-agent.env` gate file.
+    let env_path = world.dir.path().join("fake-agent.env");
+    let gate_file = world.dir.path().join("unblock-new");
+    #[allow(clippy::disallowed_methods, reason = "test updates fake-agent.env to stall session/new on the wedged server")]
+    {
+        let mut content = std::fs::read_to_string(&env_path).expect("read fake-agent.env");
+        content.push_str(&format!("\nFAKE_AGENT_NEW_UNTIL={}\n", gate_file.display()));
+        std::fs::write(&env_path, content).expect("write fake-agent.env");
+    }
+
+    let surface = Surface::default();
+    let header_unset_while_wedged = Arc::new(AtomicBool::new(false));
+    let serve_fut = world.serve_with(
+        &surface,
+        json!({ "role": "user", "content": "whoami" }),
+        Some(held("sess-1")),
+        Some("RULES"),
+        "default",
+        CancellationToken::new(),
+        Turns::default(),
+    );
+    let watch_fut = {
+        let surface = surface.clone();
+        let wedged_conn = wedged_conn.clone();
+        let header_unset_while_wedged = header_unset_while_wedged.clone();
+        async move {
+            // The abandoned SESSION_KEY must be unset promptly while `session/new` on the wedged server is still pending.
+            surface.until(|events| events.iter().any(|event| matches!(event, Event::Header(change) if change.unset.iter().any(|k| k == SESSION_KEY)))).await;
+            if !wedged_conn.exited().is_cancelled() {
+                header_unset_while_wedged.store(true, Ordering::SeqCst);
+            }
+            // Wait for `shared_open_timeout` to retire and kill the wedged server, then unblock the fresh replacement server.
+            wedged_conn.exited().cancelled().await;
+            #[allow(clippy::disallowed_methods, reason = "test unblocks the replacement shared server")]
+            std::fs::write(&gate_file, "go").expect("write gate file");
+        }
+    };
+    let (recovered, ()) = within("wedged shared server recovery", async { tokio::join!(serve_fut, watch_fut) }).await;
+    let text = completed_text(&recovered);
+    assert!(header_unset_while_wedged.load(Ordering::SeqCst), "abandoned SESSION_KEY must be unset before the wedged server is retired");
+    assert!(text.contains("resumed=false"), "fresh session must open after retiring wedged server: {text:?}");
+    let fresh_handle = world.agents.running(&thread()).expect("fresh session").connection.handle().clone();
+    assert_ne!(fresh_handle, wedged_handle, "wedged shared server must be replaced with a fresh server process");
+}
+
+/// Defect 4: `deliver_answer` respects `mcp_call_deadline` — a tool that already handed off to background answers
+/// immediately without waiting on steers, and slow steer attachment reads on a fast tool are bounded by the remaining
+/// deadline before `commit_steers`, leaving queued steers untouched for the next boundary.
+#[tokio::test]
+async fn deliver_answer_respects_mcp_call_deadline_and_hands_off_immediately_with_slow_attachments() {
+    // Case 1: Slow tool hits `mcp_call_deadline` and hands off to background -> immediate delivery, steers untouched.
+    let (world, tools) = handing_in(World::build(&[], |preset, _| preset.quirks.mcp_call_deadline = Some(Duration::from_millis(800))));
+    let surface = Surface::default();
+    let gate = Arc::new(Notify::new());
+    surface.0.steers.lock().unwrap().push_back(SteerDelivery {
+        queued_ids: vec![QueuedId::from("q-bg-handoff")],
+        content: Content::Parts(vec![
+            ContentPart::Text("pending steer during background handoff".into(), None),
+            ContentPart::File {
+                source: BinarySource::AttachmentRef("slow".into()),
+                mime_type: "text/plain".into(),
+                filename: Some("slow.txt".into()),
+                text: None,
+            },
+        ]),
+        task_notification: false,
+    });
+    let handoff = within(
+        "background handoff with slow steer attachment",
+        world.serve_with(
+            &surface,
+            json!({ "role": "user", "content": format!(r#"tool {SLOW} {{"step":1}}"#) }),
+            None,
+            Some("RULES"),
+            "default",
+            CancellationToken::new(),
+            Turns { calls: Some(tools.calls(&surface)), hold_attachment: Some(gate.clone()), ..Turns::default() },
+        ),
+    )
+    .await;
+    let handoff_text = completed_text(&handoff);
+    assert!(handoff_text.contains("background task"), "tool should hand off to background: {handoff_text:?}");
+    assert!(!handoff_text.contains("pending steer during background handoff"), "{handoff_text:?}");
+    assert_eq!(surface.0.steer_peeks.load(Ordering::SeqCst), 0, "background handoff must skip peeking steers");
+    assert_eq!(surface.0.steer_commits.load(Ordering::SeqCst), 0, "background handoff must not commit steers");
+    assert_eq!(surface.0.steers.lock().unwrap().len(), 1, "queued steer must remain intact for the next boundary");
+    tools.release.add_permits(1);
+
+    // Case 2: Fast tool completes quickly, but steer attachment stalls past `due.answer` -> bounded before commit_steers.
+    let (world, tools) = handing_in(World::build(&[], |preset, _| preset.quirks.mcp_call_deadline = Some(Duration::from_millis(600))));
+    let surface = Surface::default();
+    let gate = Arc::new(Notify::new());
+    surface.0.steers.lock().unwrap().push_back(SteerDelivery {
+        queued_ids: vec![QueuedId::from("q-slow-attach")],
+        content: Content::Parts(vec![
+            ContentPart::Text("slow attachment steer".into(), None),
+            ContentPart::File {
+                source: BinarySource::AttachmentRef("slow".into()),
+                mime_type: "text/plain".into(),
+                filename: Some("slow.txt".into()),
+                text: None,
+            },
+        ]),
+        task_notification: false,
+    });
+    let fast_end = within(
+        "fast tool with stalled steer attachment bounded by mcp_call_deadline",
+        world.serve_with(
+            &surface,
+            json!({ "role": "user", "content": r#"tool read {"path":"a.txt"}"# }),
+            None,
+            Some("RULES"),
+            "default",
+            CancellationToken::new(),
+            Turns { calls: Some(tools.calls(&surface)), hold_attachment: Some(gate), ..Turns::default() },
+        ),
+    )
+    .await;
+    let fast_text = completed_text(&fast_end);
+    assert!(fast_text.contains(r#"read ran with {"path":"a.txt"}"#), "{fast_text:?}");
+    assert!(!fast_text.contains("slow attachment steer"), "timed-out steer must not be appended: {fast_text:?}");
+    assert_eq!(surface.0.steer_commits.load(Ordering::SeqCst), 0, "timed-out steer must not be committed");
+    assert_eq!(surface.0.steers.lock().unwrap().len(), 1, "timed-out steer must remain queued for the next boundary");
+}
+
+/// Defect 5: repeated silent cancels on a shared server with a live sibling clean up abandoned prompt ids from
+/// `Connection::sent` immediately on detach instead of leaking one entry per recovery forever.
+#[tokio::test]
+async fn repeated_silent_cancels_on_shared_server_do_not_leak_connection_sent_ids() {
+    let world = World::official(&[("FAKE_AGENT_SILENT_CANCEL", "1")]);
+    world.agents.set_cancel_close_grace(Duration::from_millis(60));
+    let other = ThreadId::from("sess_sibling");
+    let cwd = world.cwd();
+    assert!(world.answer_in(&other, &cwd, "whoami").await.starts_with("session=sess-1"));
+    let shared_conn = world.agents.running(&other).expect("sibling session").connection.clone();
+
+    for round in 0..5 {
+        let (working, stop) = (Surface::default(), CancellationToken::new());
+        let hanging = world.serve_with(&working, json!({ "role": "user", "content": "hang" }), None, Some("RULES"), "default", stop.clone(), Turns::default());
+        let cancel_turn = async {
+            working.until(|events| events.iter().any(|event| matches!(event, Event::Commit(_)))).await;
+            stop.cancel();
+        };
+        let (ended, ()) = within("silent cancel round", async { tokio::join!(hanging, cancel_turn) }).await;
+        assert_eq!(ended, TurnEnd::Interrupted);
+        let stuck_id = world.agents.running(&thread()).expect("stuck session").session_id.clone();
+
+        let recovered = within(
+            "recovery after silent cancel",
+            world.serve_with(
+                &Surface::default(),
+                json!({ "role": "user", "content": "whoami" }),
+                Some(held(&stuck_id)),
+                Some("RULES"),
+                "default",
+                CancellationToken::new(),
+                Turns::default(),
+            ),
+        )
+        .await;
+        let _ = completed_text(&recovered);
+        assert_eq!(shared_conn.sent_len(), 0, "abandoned prompt ids leaked into Connection::sent on round {round}");
+    }
+    assert!(world.answer_in(&other, &cwd, "whoami").await.starts_with("session=sess-1"));
+    assert_eq!(shared_conn.sent_len(), 0);
+}
+
+/// Defect 3: when a wedged shared server is replaced by a fresh process that allocates the exact same
+/// `sessionId` (`sess-1`) as the abandoned stored session and has the same prompt digest, recovery must
+/// still run conversation handoff (sending the summary) and restore the cleared `SESSION_KEY` header.
+#[tokio::test]
+async fn replacement_shared_server_with_same_session_id_still_runs_handoff_and_restores_header() {
+    let world = World::official(&[("FAKE_AGENT_SILENT_CANCEL", "1")]);
+    world.agents.set_cancel_close_grace(Duration::from_millis(80));
+    world.agents.set_shared_open_timeout(Duration::from_millis(180));
+
+    // Turn 1 opens `sess-1` on the initial shared server and hangs until Stop (leaving `sess-1` stuck).
+    let (working, stop) = (Surface::default(), CancellationToken::new());
+    let hanging = world.serve_with(&working, json!({ "role": "user", "content": "hang" }), None, Some("RULES"), "default", stop.clone(), Turns::default());
+    let cancel_turn = async {
+        working.until(|events| events.iter().any(|event| matches!(event, Event::Commit(_)))).await;
+        stop.cancel();
+    };
+    let (ended, ()) = within("shared hang cancel", async { tokio::join!(hanging, cancel_turn) }).await;
+    assert_eq!(ended, TurnEnd::Interrupted);
+
+    let wedged_conn = world.agents.running(&thread()).expect("stuck session").connection.clone();
+    let stored_same_prompt = Stored { session_id: "sess-1".into(), prompt: Some(mixdog_acp::session::digest("RULES")) };
+
+    // Stall `session/new` on the wedged server until it is retired, then unblock the fresh replacement server
+    // (whose first `session/new` allocates `sess-1` again!).
+    let env_path = world.dir.path().join("fake-agent.env");
+    let gate_file = world.dir.path().join("unblock-handoff");
+    #[allow(clippy::disallowed_methods, reason = "test updates fake-agent.env to stall session/new on wedged server")]
+    {
+        let mut content = std::fs::read_to_string(&env_path).expect("read fake-agent.env");
+        content.push_str(&format!("\nFAKE_AGENT_NEW_UNTIL={}\n", gate_file.display()));
+        std::fs::write(&env_path, content).expect("write fake-agent.env");
+    }
+
+    let surface = Surface::default();
+    let hand_over_calls = Arc::new(AtomicUsize::new(0));
+    let serve_fut = world.serve_with(
+        &surface,
+        json!({ "role": "user", "content": "echo" }),
+        Some(stored_same_prompt),
+        Some("RULES"),
+        "default",
+        CancellationToken::new(),
+        Turns { summary: Some(Ok("PRIOR CONVERSATION SUMMARY")), hand_over_calls: Some(hand_over_calls.clone()), ..Turns::default() },
+    );
+    let watch_fut = async {
+        wedged_conn.exited().cancelled().await;
+        #[allow(clippy::disallowed_methods, reason = "test unblocks replacement server")]
+        std::fs::write(&gate_file, "go").expect("write gate file");
+    };
+    let (recovered, ()) = within("replacement handoff with colliding session id", async { tokio::join!(serve_fut, watch_fut) }).await;
+    let text = completed_text(&recovered);
+
+    assert_eq!(world.agents.running(&thread()).expect("replacement session").session_id, "sess-1", "replacement server reused sess-1");
+    assert_eq!(hand_over_calls.load(Ordering::SeqCst), 1, "replacement server's fresh session must run conversation handoff even on colliding session_id");
+    assert!(text.contains("PRIOR CONVERSATION SUMMARY"), "replacement session prompt must include conversation summary: {text:?}");
+
+    // Verify SESSION_KEY was unset for the abandoned session and then restored on the fresh replacement session.
+    let header_events: Vec<HeaderChange> = surface
+        .events()
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::Header(change) => Some(change),
+            _ => None,
+        })
+        .collect();
+    let unset_pos = header_events.iter().position(|change| change.unset.iter().any(|k| k == SESSION_KEY)).expect("abandoned header unset");
+    let restore_pos = header_events
+        .iter()
+        .rposition(|change| change.set.get(SESSION_KEY).and_then(|v| v.get("sessionId")).and_then(Value::as_str) == Some("sess-1"))
+        .expect("replacement SESSION_KEY header must be restored even with identical sessionId and prompt digest");
+    assert!(restore_pos > unset_pos, "restored header must follow abandoned unset: {header_events:?}");
+}
+
+/// Defect 4: a stalled `commit_steers` (actor/IO delay before dequeue) is bounded by `mcp_call_deadline`,
+/// sending the base tool answer on time and leaving the steer queued untouched.
+#[tokio::test]
+async fn stalled_commit_steers_is_bounded_by_mcp_call_deadline_and_leaves_steer_queued() {
+    let (world, tools) = handing_in(World::build(&[], |preset, _| preset.quirks.mcp_call_deadline = Some(Duration::from_millis(500))));
+    let surface = Surface::default();
+    surface.0.hold_commit_steers.store(true, Ordering::SeqCst);
+    surface.0.steers.lock().unwrap().push_back(SteerDelivery {
+        queued_ids: vec![QueuedId::from("q-stalled-commit")],
+        content: Content::Text("stalled commit must not delay tool answer".into()),
+        task_notification: false,
+    });
+
+    let end = within(
+        "fast tool with stalled commit_steers bounded by mcp_call_deadline",
+        world.serve_with(
+            &surface,
+            json!({ "role": "user", "content": r#"tool read {"path":"a.txt"}"# }),
+            None,
+            Some("RULES"),
+            "default",
+            CancellationToken::new(),
+            Turns { calls: Some(tools.calls(&surface)), ..Turns::default() },
+        ),
+    )
+    .await;
+    let text = completed_text(&end);
+    assert!(text.contains(r#"read ran with {"path":"a.txt"}"#), "{text:?}");
+    assert!(!text.contains("stalled commit must not delay tool answer"), "{text:?}");
+    assert_eq!(surface.0.steer_commits.load(Ordering::SeqCst), 1, "commit_steers was attempted and cancelled before dequeue");
+    assert_eq!(surface.0.steers.lock().unwrap().len(), 1, "stalled steer must stay queued for the next boundary");
+}
+
+/// Defect 8a: when a wedged shared server is retired and the fresh replacement server ALSO stalls on `session/new`,
+/// the retry path honors `shared_open_timeout` and fails cleanly instead of hanging indefinitely.
+#[tokio::test]
+async fn replacement_shared_server_stalled_session_new_honors_open_timeout_instead_of_hanging() {
+    let world = World::official(&[("FAKE_AGENT_SILENT_CANCEL", "1")]);
+    world.agents.set_cancel_close_grace(Duration::from_millis(80));
+    world.agents.set_shared_open_timeout(Duration::from_millis(160));
+
+    let (working, stop) = (Surface::default(), CancellationToken::new());
+    let hanging = world.serve_with(&working, json!({ "role": "user", "content": "hang" }), None, Some("RULES"), "default", stop.clone(), Turns::default());
+    let cancel_turn = async {
+        working.until(|events| events.iter().any(|event| matches!(event, Event::Commit(_)))).await;
+        stop.cancel();
+    };
+    let (ended, ()) = within("shared hang cancel", async { tokio::join!(hanging, cancel_turn) }).await;
+    assert_eq!(ended, TurnEnd::Interrupted);
+
+    // Permanently stall `session/new` (gate file is never created) so BOTH the wedged server and its fresh
+    // replacement stall on `session/new`.
+    let env_path = world.dir.path().join("fake-agent.env");
+    let never_gate = world.dir.path().join("never-created-gate");
+    #[allow(clippy::disallowed_methods, reason = "test updates fake-agent.env to stall session/new on both servers")]
+    {
+        let mut content = std::fs::read_to_string(&env_path).expect("read fake-agent.env");
+        content.push_str(&format!("\nFAKE_AGENT_NEW_UNTIL={}\n", never_gate.display()));
+        std::fs::write(&env_path, content).expect("write fake-agent.env");
+    }
+
+    let started = tokio::time::Instant::now();
+    let failed = within(
+        "replacement shared server open timeout",
+        world.serve_with(
+            &Surface::default(),
+            json!({ "role": "user", "content": "whoami" }),
+            Some(held("sess-1")),
+            Some("RULES"),
+            "default",
+            CancellationToken::new(),
+            Turns::default(),
+        ),
+    )
+    .await;
+    assert!(matches!(failed, TurnEnd::Failed { .. }), "both stalled servers must fail cleanly after open timeout: {failed:?}");
+    assert!(started.elapsed() < Duration::from_secs(3), "replacement open must honor shared_open_timeout, took {:?}", started.elapsed());
+    world.all_exited().await;
+}
+
+/// r5 Defect 3: when `session/new` opens a fresh handle with the same `sessionId` as the stored header,
+/// and model selection fails before the prompt carrying the handoff is ever sent, retrying with a valid
+/// model reuses the cached handle and must STILL run conversation handoff and restore `SESSION_KEY`
+/// (and only clear `handoff_pending` once that prompt is actually sent).
+#[tokio::test]
+async fn reused_handle_after_failed_model_selection_still_runs_handoff_and_restores_header() {
+    let world = World::of(&["antigravity"], &[("FAKE_AGENT_SILENT_CANCEL", "1")], |preset, _| {
+        preset.quirks.model_scope = mixdog_acp::preset::ModelScope::ExceptPrefixes(Vec::new());
+    });
+    world.agents.set_cancel_close_grace(Duration::from_millis(80));
+    world.agents.set_shared_open_timeout(Duration::from_millis(160));
+
+    // Turn 1: open `sess-1` on the initial shared server and leave it stuck on Stop.
+    let (working, stop) = (Surface::default(), CancellationToken::new());
+    let hanging = world.serve_with(&working, json!({ "role": "user", "content": "hang" }), None, Some("RULES"), "default", stop.clone(), Turns::default());
+    let cancel_turn = async {
+        working.until(|events| events.iter().any(|event| matches!(event, Event::Commit(_)))).await;
+        stop.cancel();
+    };
+    let (ended, ()) = within("shared hang cancel", async { tokio::join!(hanging, cancel_turn) }).await;
+    assert_eq!(ended, TurnEnd::Interrupted);
+
+    let wedged_conn = world.agents.running(&thread()).expect("stuck session").connection.clone();
+    let stored_same_prompt = Stored { session_id: "sess-1".into(), prompt: Some(mixdog_acp::session::digest("RULES")) };
+
+    // Stall `session/new` on the wedged server so it retires, then let the fresh replacement server allocate `sess-1`.
+    let env_path = world.dir.path().join("fake-agent.env");
+    let gate_file = world.dir.path().join("unblock-model-fail-handoff");
+    #[allow(clippy::disallowed_methods, reason = "test updates fake-agent.env to retire wedged server")]
+    {
+        let mut content = std::fs::read_to_string(&env_path).expect("read fake-agent.env");
+        content.push_str(&format!("\nFAKE_AGENT_NEW_UNTIL={}\n", gate_file.display()));
+        std::fs::write(&env_path, content).expect("write fake-agent.env");
+    }
+
+    // Turn 2: recovery opens fresh `sess-1` on the replacement server, summarizes, then fails `select_model("refused")`
+    // before the prompt is ever sent, leaving the fresh handle cached in `agents.sessions`.
+    let hand_over_calls = Arc::new(AtomicUsize::new(0));
+    let fail_surface = Surface::default();
+    let fail_fut = world.serve_with(
+        &fail_surface,
+        json!({ "role": "user", "content": "echo" }),
+        Some(stored_same_prompt.clone()),
+        Some("RULES"),
+        "refused",
+        CancellationToken::new(),
+        Turns { summary: Some(Ok("PRIOR CONVERSATION SUMMARY")), hand_over_calls: Some(hand_over_calls.clone()), ..Turns::default() },
+    );
+    let watch_fut = async {
+        wedged_conn.exited().cancelled().await;
+        #[allow(clippy::disallowed_methods, reason = "test unblocks replacement server")]
+        std::fs::write(&gate_file, "go").expect("write gate file");
+    };
+    let (failed, ()) = within("failed model selection on fresh replacement handle", async { tokio::join!(fail_fut, watch_fut) }).await;
+    assert!(matches!(failed, TurnEnd::Failed { .. }), "refused model must fail before sending prompt: {failed:?}");
+    let cached = world.agents.running(&thread()).expect("fresh handle remains cached after model failure");
+    assert_eq!(cached.session_id, "sess-1");
+    assert!(cached.handoff_pending(), "handoff_pending must stay true when prompt was never sent");
+    assert_eq!(hand_over_calls.load(Ordering::SeqCst), 1);
+
+    // Turn 3: retry with a valid model and identical stored sessionId/prompt digest.
+    // `resolve_running` reuses `cached` (`header_cleared == false`), yet `handoff_pending` is still true so handoff
+    // must run, deliver the summary, restore SESSION_KEY, and clear `handoff_pending`.
+    let retry_surface = Surface::default();
+    let recovered = within(
+        "retry after failed model selection",
+        world.serve_with(
+            &retry_surface,
+            json!({ "role": "user", "content": "echo" }),
+            Some(stored_same_prompt.clone()),
+            Some("RULES"),
+            "default",
+            CancellationToken::new(),
+            Turns { summary: Some(Ok("PRIOR CONVERSATION SUMMARY")), hand_over_calls: Some(hand_over_calls.clone()), ..Turns::default() },
+        ),
+    )
+    .await;
+    let text = completed_text(&recovered);
+    assert!(text.contains("PRIOR CONVERSATION SUMMARY"), "reused handle must still send conversation handoff: {text:?}");
+    assert_eq!(hand_over_calls.load(Ordering::SeqCst), 2);
+    assert!(!cached.handoff_pending(), "handoff_pending must clear once the prompt carrying handoff is sent");
+    let restored = retry_surface.events().into_iter().any(|event| match event {
+        Event::Header(change) => change.set.get(SESSION_KEY).and_then(|v| v.get("sessionId")).and_then(Value::as_str) == Some("sess-1"),
+        _ => false,
+    });
+    assert!(restored, "retry on reused handle with pending handoff must restore SESSION_KEY");
+
+    // Turn 4: subsequent turn on the same handle must NOT re-run handoff.
+    let followup = within(
+        "followup turn after handoff sent",
+        world.serve_with(
+            &Surface::default(),
+            json!({ "role": "user", "content": "echo" }),
+            Some(stored_same_prompt),
+            Some("RULES"),
+            "default",
+            CancellationToken::new(),
+            Turns { summary: Some(Ok("PRIOR CONVERSATION SUMMARY")), hand_over_calls: Some(hand_over_calls.clone()), ..Turns::default() },
+        ),
+    )
+    .await;
+    let followup_text = completed_text(&followup);
+    assert!(!followup_text.contains("PRIOR CONVERSATION SUMMARY"), "subsequent turn must not repeat handoff: {followup_text:?}");
+    assert_eq!(hand_over_calls.load(Ordering::SeqCst), 2);
+}
+
+/// r5 Defect 4: when a wedged shared server is replaced and the replacement server stalls during `initialize`,
+/// the retry path must bound `shared_server` startup + `open_session` by `shared_open_timeout`, kill and clean up
+/// the stalled `Starting` slot, unblock sibling opens waiting on that slot, and allow later opens to succeed.
+#[tokio::test]
+async fn replacement_shared_server_stalled_initialize_honors_open_timeout_and_unblocks_sibling() {
+    let world = World::official(&[("FAKE_AGENT_SILENT_CANCEL", "1")]);
+    world.agents.set_cancel_close_grace(Duration::from_millis(80));
+    world.agents.set_shared_open_timeout(Duration::from_millis(200));
+
+    // Turn 1: open `sess-1` on the initial shared server and leave it stuck on Stop.
+    let (working, stop) = (Surface::default(), CancellationToken::new());
+    let hanging = world.serve_with(&working, json!({ "role": "user", "content": "hang" }), None, Some("RULES"), "default", stop.clone(), Turns::default());
+    let cancel_turn = async {
+        working.until(|events| events.iter().any(|event| matches!(event, Event::Commit(_)))).await;
+        stop.cancel();
+    };
+    let (ended, ()) = within("shared hang cancel", async { tokio::join!(hanging, cancel_turn) }).await;
+    assert_eq!(ended, TurnEnd::Interrupted);
+
+    let wedged_conn = world.agents.running(&thread()).expect("stuck session").connection.clone();
+
+    // Stall `session/new` on the wedged server so it retires, AND stall `initialize` on the fresh replacement server.
+    let env_path = world.dir.path().join("fake-agent.env");
+    let new_gate = world.dir.path().join("init-test-new-gate");
+    let init_gate = world.dir.path().join("init-test-init-gate");
+    #[allow(clippy::disallowed_methods, reason = "test updates fake-agent.env to stall replacement initialize")]
+    {
+        let mut content = std::fs::read_to_string(&env_path).expect("read fake-agent.env");
+        content.push_str(&format!("\nFAKE_AGENT_NEW_UNTIL={}\nFAKE_AGENT_INIT_UNTIL={}\n", new_gate.display(), init_gate.display()));
+        std::fs::write(&env_path, content).expect("write fake-agent.env");
+    }
+
+    let started = tokio::time::Instant::now();
+    let retry_surface = Surface::default();
+    let retry_fut = world.serve_with(
+        &retry_surface,
+        json!({ "role": "user", "content": "whoami" }),
+        Some(held("sess-1")),
+        Some("RULES"),
+        "default",
+        CancellationToken::new(),
+        Turns::default(),
+    );
+    let sibling_thread = ThreadId::from("thr_sibling_stalled_init");
+    let sibling_fut = async {
+        // Wait for the wedged server to be retired so the sibling joins the replacement server's `Starting` slot.
+        wedged_conn.exited().cancelled().await;
+        let turns = Arc::new(Turns::default());
+        let request = TurnRequest {
+            thread: sibling_thread.clone(),
+            cwd: world.cwd(),
+            stored: None,
+            rules: Some("RULES".into()),
+            input: json!({ "role": "user", "content": "whoami" }),
+            conversation: turns.clone(),
+            attachments: turns,
+        };
+        mixdog_acp::runs::serve(&world.agents, &world.preset, request, Arc::new(Surface::default()), world.context(CancellationToken::new())).await
+    };
+    let (retry_end, sibling_end) = within("stalled replacement initialize timeout + sibling unblock", async { tokio::join!(retry_fut, sibling_fut) }).await;
+    assert!(matches!(retry_end, TurnEnd::Failed { .. }), "replacement stalled on initialize must fail cleanly: {retry_end:?}");
+    assert!(matches!(sibling_end, TurnEnd::Failed { .. }), "sibling waiting on stalled Starting slot must unblock cleanly: {sibling_end:?}");
+    assert!(started.elapsed() < Duration::from_secs(3), "replacement initialize timeout took {:?}", started.elapsed());
+
+    // Unblock both gates and verify a subsequent open starts a fresh server cleanly (Starting slot was cleaned up).
+    #[allow(clippy::disallowed_methods, reason = "test unblocks fake-agent gates")]
+    {
+        std::fs::write(&init_gate, "go").expect("write init gate");
+        std::fs::write(&new_gate, "go").expect("write new gate");
+    }
+    let recovered = within(
+        "fresh open after stalled Starting slot cleanup",
+        world.serve_with(
+            &Surface::default(),
+            json!({ "role": "user", "content": "whoami" }),
+            None,
+            Some("RULES"),
+            "default",
+            CancellationToken::new(),
+            Turns::default(),
+        ),
+    )
+    .await;
+    let text = completed_text(&recovered);
+    assert!(text.contains("session=sess-1"), "fresh server after cleanup must work cleanly: {text:?}");
+    world.agents.release_all();
+    world.all_exited().await;
 }

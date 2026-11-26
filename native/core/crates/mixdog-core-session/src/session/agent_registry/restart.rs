@@ -364,6 +364,13 @@ pub(super) enum NoticeStage {
     Stored,
 }
 
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(super) struct RestartNotice {
+    pub(super) session: String,
+    pub(super) owner: String,
+    pub(super) stage: NoticeStage,
+}
+
 /// Releases a notice still `Queueing` when its pass ends without hearing the write (a failure, or the pass dropped).
 struct Queueing<'a> {
     registry: &'a AgentRegistry,
@@ -373,7 +380,7 @@ struct Queueing<'a> {
 impl Drop for Queueing<'_> {
     fn drop(&mut self) {
         let mut notices = self.registry.restart_notices.lock().unwrap_or_else(|e| e.into_inner());
-        if notices.get(self.execution) == Some(&NoticeStage::Queueing) {
+        if notices.get(self.execution).is_some_and(|notice| notice.stage == NoticeStage::Queueing) {
             notices.remove(self.execution);
         }
     }
@@ -381,17 +388,20 @@ impl Drop for Queueing<'_> {
 
 impl AgentRegistry {
     /// The stage of `execution` in this process; `None` when it is not being queued, which this call then claims.
-    fn claim_restart_notice(&self, execution: &str) -> Option<NoticeStage> {
+    fn claim_restart_notice(&self, execution: &str, session: &str, owner: &str) -> Option<NoticeStage> {
         let mut notices = self.restart_notices.lock().unwrap_or_else(|e| e.into_inner());
-        let stage = notices.get(execution).copied();
+        let stage = notices.get(execution).map(|notice| notice.stage);
         if stage.is_none() {
-            notices.insert(execution.to_owned(), NoticeStage::Queueing);
+            notices.insert(execution.to_owned(), RestartNotice { session: session.to_owned(), owner: owner.to_owned(), stage: NoticeStage::Queueing });
         }
         stage
     }
 
-    fn restart_notice_stored(&self, execution: &str) {
-        self.restart_notices.lock().unwrap_or_else(|e| e.into_inner()).insert(execution.to_owned(), NoticeStage::Stored);
+    fn restart_notice_stored(&self, execution: &str, session: &str, owner: &str) {
+        self.restart_notices
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(execution.to_owned(), RestartNotice { session: session.to_owned(), owner: owner.to_owned(), stage: NoticeStage::Stored });
     }
 
     fn restart_notice_stamped(&self, execution: &str) {
@@ -418,7 +428,8 @@ pub async fn notify_restart_failures(registry: &AgentRegistry, notices: &dyn Res
     let mut told = 0;
     for (session, row) in registry.pending_restart_failures().await? {
         let execution = restart_notification_id(&row);
-        let stage = registry.claim_restart_notice(&execution);
+        let owner_id = clean(row.get("ownerSessionId"));
+        let stage = registry.claim_restart_notice(&execution, &session, &owner_id);
         if stage == Some(NoticeStage::Queueing) {
             continue;
         }
@@ -433,7 +444,7 @@ pub async fn notify_restart_failures(registry: &AgentRegistry, notices: &dyn Res
                 RESTART_FAILURE_ERROR,
                 "",
             );
-            let owner = ThreadId::from(clean(row.get("ownerSessionId")).as_str());
+            let owner = ThreadId::from(owner_id.as_str());
             // The card goes first, as every completion's: the queued copy then knows its card stands for it and shows no row of
             // its own (`suppressDisplay`), where Node's queue dedups the later mirror by the same id.
             notices.show(&owner, &execution, text.clone()).await;
@@ -442,7 +453,7 @@ pub async fn notify_restart_failures(registry: &AgentRegistry, notices: &dyn Res
                 tracing::warn!("[agent-tool] restart notification retry pending: {error}");
                 continue;
             }
-            registry.restart_notice_stored(&execution);
+            registry.restart_notice_stored(&execution, &session, &owner_id);
             crate::session::new_task::crash_gate("restart-notice-stored");
         }
         registry.mark_restart_notified(&[session], stamp).await?;

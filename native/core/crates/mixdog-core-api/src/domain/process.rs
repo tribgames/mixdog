@@ -207,6 +207,9 @@ pub enum ProcessError {
     },
     /// The scope the process was to be started under is revoked; nothing was created.
     Revoked,
+    /// Cancellation attempted to stop a started process, but the root or a descendant still
+    /// occupies its containment after forced-kill waits; ownership remains retained.
+    CleanupIncomplete,
     Io {
         os_code: Option<i32>,
     },
@@ -238,6 +241,36 @@ pub trait ProcessManager: Send + Sync {
         let handle = request.handle.clone();
         let spawned = self.spawn(request).await?;
         Ok((spawned, self.subscribe_holding(&handle, Some(0))?))
+    }
+    /// [`spawn_subscribed`](Self::spawn_subscribed) that respects `cancel`: a queued spawn is
+    /// abandoned promptly with [`ProcessError::Revoked`], and a launch already in progress is
+    /// killed and waited until exit before returning [`ProcessError::Revoked`] (or
+    /// [`ProcessError::CleanupIncomplete`] if the root or a descendant still occupies containment
+    /// after forced-kill waits).
+    async fn spawn_subscribed_cancellable(
+        &self,
+        request: SpawnRequest,
+        cancel: tokio_util::sync::CancellationToken,
+    ) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
+        if cancel.is_cancelled() {
+            return Err(ProcessError::Revoked);
+        }
+        match self.spawn_subscribed(request).await {
+            Ok((spawned, mut events)) => {
+                if cancel.is_cancelled() {
+                    let _ = self.kill(&spawned.handle);
+                    while let Some(event) = events.next().await {
+                        if matches!(event, ProcessEvent::Exited { .. }) {
+                            break;
+                        }
+                    }
+                    return Err(ProcessError::Revoked);
+                }
+                Ok((spawned, events))
+            }
+            Err(_) if cancel.is_cancelled() => Err(ProcessError::Revoked),
+            Err(error) => Err(error),
+        }
     }
     /// Events from `from_seq` (replayed from the ring) or from the next one, for a live viewer. Once the process has ended or was
     /// killed, a viewer that lags by the ring bound no longer holds the reader back: the ring may overtake it, and the gap in the
@@ -279,5 +312,143 @@ pub trait ProcessManager: Send + Sync {
     fn arm_time_limit(&self, handle: &ProcessHandle, limit: Duration) -> Result<(), ProcessError> {
         let _ = (handle, limit);
         Err(ProcessError::UnknownHandle)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::Mutex;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::Ordering;
+
+    use tokio::sync::Notify;
+    use tokio::sync::mpsc;
+    use tokio_util::sync::CancellationToken;
+
+    use super::*;
+
+    struct TestEvents(mpsc::UnboundedReceiver<ProcessEvent>);
+
+    #[async_trait]
+    impl EventSource<ProcessEvent> for TestEvents {
+        async fn next(&mut self) -> Option<ProcessEvent> {
+            self.0.recv().await
+        }
+    }
+
+    #[derive(Default)]
+    struct DefaultCancelPm {
+        spawn_entered: Notify,
+        spawn_release: Notify,
+        kill_entered: Notify,
+        spawned: AtomicBool,
+        killed: AtomicBool,
+        tx: Mutex<Option<mpsc::UnboundedSender<ProcessEvent>>>,
+    }
+
+    #[async_trait]
+    impl ProcessManager for DefaultCancelPm {
+        async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
+            Ok(SpawnedProcess { handle: request.handle, pid: 42 })
+        }
+
+        async fn spawn_subscribed(&self, request: SpawnRequest) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
+            self.spawned.store(true, Ordering::SeqCst);
+            let wait = self.spawn_release.notified();
+            self.spawn_entered.notify_waiters();
+            wait.await;
+            let (tx, rx) = mpsc::unbounded_channel();
+            *self.tx.lock().unwrap() = Some(tx);
+            Ok((SpawnedProcess { handle: request.handle, pid: 42 }, Box::new(TestEvents(rx))))
+        }
+
+        fn subscribe(&self, _handle: &ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+            Err(ProcessError::UnknownHandle)
+        }
+
+        fn subscribe_holding(&self, _handle: &ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+            Err(ProcessError::UnknownHandle)
+        }
+
+        async fn write_stdin(&self, _handle: &ProcessHandle, _bytes: Vec<u8>) -> Result<(), ProcessError> {
+            Ok(())
+        }
+
+        fn close_stdin(&self, _handle: &ProcessHandle) -> Result<(), ProcessError> {
+            Ok(())
+        }
+
+        fn resize_pty(&self, _handle: &ProcessHandle, _size: PtySize) -> Result<(), ProcessError> {
+            Err(ProcessError::NotPty)
+        }
+
+        fn kill(&self, _handle: &ProcessHandle) -> Result<(), ProcessError> {
+            self.killed.store(true, Ordering::SeqCst);
+            self.kill_entered.notify_waiters();
+            Ok(())
+        }
+
+        fn list(&self) -> Vec<ProcessInfo> {
+            Vec::new()
+        }
+    }
+
+    fn test_request(handle: &str) -> SpawnRequest {
+        SpawnRequest {
+            handle: ProcessHandle::from(handle),
+            command: CommandSpec::Argv { program: "true".into(), args: Vec::new() },
+            cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+            env: EnvSpec::default(),
+            pty: None,
+            stdin_piped: true,
+            output: OutputMode::Separate,
+            owner: ProcessOwner::Internal,
+            time_limit: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn default_spawn_subscribed_cancellable_kills_and_drains_when_cancelled_mid_spawn() {
+        let pm = Arc::new(DefaultCancelPm::default());
+
+        // Pre-cancelled token must short-circuit without calling spawn_subscribed.
+        let precancel = CancellationToken::new();
+        precancel.cancel();
+        let pre = pm.spawn_subscribed_cancellable(test_request("pre"), precancel).await;
+        assert_eq!(pre.err(), Some(ProcessError::Revoked));
+        assert!(!pm.spawned.load(Ordering::SeqCst));
+
+        // Cancelling after spawn_subscribed starts must not drop it early: it waits, kills, and drains Exited.
+        let cancel = CancellationToken::new();
+        let entered = pm.spawn_entered.notified();
+        let task = tokio::spawn({
+            let pm = pm.clone();
+            let cancel = cancel.clone();
+            async move { pm.spawn_subscribed_cancellable(test_request("mid"), cancel).await }
+        });
+        entered.await;
+
+        cancel.cancel();
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!task.is_finished(), "default spawn_subscribed_cancellable must not drop an in-flight spawn_subscribed");
+
+        let kill_wait = pm.kill_entered.notified();
+        pm.spawn_release.notify_waiters();
+        kill_wait.await;
+        assert!(pm.killed.load(Ordering::SeqCst), "cancelled spawn must kill the returned process");
+
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!task.is_finished(), "default spawn_subscribed_cancellable must wait for ProcessEvent::Exited before returning");
+
+        let tx = pm.tx.lock().unwrap().take().expect("event sender");
+        tx.send(ProcessEvent::Exited { seq: 1, exit: ProcessExit { status: ExitStatus::Signal(9), killed: Some(KillReason::Requested) } }).unwrap();
+
+        let result = task.await.expect("spawn task joined");
+        assert_eq!(result.err(), Some(ProcessError::Revoked));
     }
 }

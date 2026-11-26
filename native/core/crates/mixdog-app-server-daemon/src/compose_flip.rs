@@ -3457,6 +3457,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let late_turn_admission = Arc::new(crate::late_session::LateTurnAdmission::default()); // `SessionDeps.turn_admission`, bound with the session workspaces
     let late_live_workspace = Arc::new(crate::late_session::LateLiveWorkspace::default()); // `SessionDeps.live_workspace`, bound with the session workspaces
     let late_room_members = Arc::new(mixdog_core::run_host::room_approvals::LateRoomMembers::default()); // `SessionDeps.room_members`: bound to the rooms below
+    let late_live_rooms: Arc<std::sync::OnceLock<std::sync::Weak<mixdog_core_rooms::rooms::live::LiveRooms>>> = Arc::default();
     let route_change = Arc::new(mixdog_core::run_host::route_change::RunHostRouteChange::new(route_facts, clock_agent.clone()));
     // The manual compaction and the inheritance fit (composition values, built before the path: they need the compaction world and the hook bus).
     let host_compaction = Arc::new(
@@ -3691,6 +3692,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             let late_new_route = late_new_route.clone();
             let late_live_workspace = late_live_workspace.clone();
             let late_draft_settings = late_draft_settings.clone();
+            let (reuses, side_store, late_live_rooms) = (reuses.clone(), side_store.clone(), late_live_rooms.clone());
             let office_startup = crate::office_startup::OfficeStartup::new(handoff_hub.clone(), b.ext_host.clone(), b.data_dir.to_string_lossy().into_owned());
             let mcp_glue = mcp.glue.clone();
             // The sessions' lifecycle hooks (`SessionStart`, `UserPromptSubmit`, `Stop`, `StopFailure`, `SessionEnd`, `CwdChanged`) over the one bus; a moved folder reconciles the session's MCP scope.
@@ -3800,18 +3802,36 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     agents: Some(Arc::new(RetiredAgentPurge(agents.clone()))),
                     agent_processes: Some(acp_processes), // a closed, deleted or unloaded session's ACP agent ends with it
                     releases: {
-                        let (providers, worker_turns, agents, unloaded_routes) =
-                            (registry.clone(), session_worker_turns.clone(), session_agents.clone(), session_routes.clone());
-                        let (routes, exclusions, logins, delegated) =
-                            (session_routes.clone(), exclusions.clone(), session_saved_logins.clone(), session_delegated.clone());
+                        let (providers, worker_turns, agents, unloaded_routes, unloaded_goals, unloaded_rooms) = (
+                            registry.clone(),
+                            session_worker_turns.clone(),
+                            session_agents.clone(),
+                            session_routes.clone(),
+                            early_goals.clone(),
+                            late_live_rooms.clone(),
+                        );
+                        let (rested_reuses, rested_sides) = (reuses.clone(), side_store.clone());
+                        let (routes, exclusions, logins, delegated, deleted_goals) =
+                            (session_routes.clone(), exclusions.clone(), session_saved_logins.clone(), session_delegated.clone(), early_goals.clone());
                         let ended_providers = registry.clone();
                         mixdog_core_session::session::purge::SessionReleases {
-                            // The runtime is gone: its parked provider sockets and chains (the session's HTTP pin and throttled conversation stay until it ends), the listener on its turns and its Lead's view of its agents.
+                            // The thread rested: drop its reusable read-text cache and cached last side-question request/response.
+                            rested: vec![
+                                Arc::new(move |id: &str| rested_reuses.release_rested(id)),
+                                Arc::new(move |id: &str| rested_sides.release_rested(&mixdog_core_api::ids::ThreadId::from(id))),
+                            ],
+                            // The runtime is gone: its parked provider sockets and chains (the session's HTTP pin and throttled conversation stay until it ends), the listener on its turns, its Lead's view of its agents, its idle goal slot, and idle room recent rows.
                             unloaded: vec![
                                 Arc::new(move |id: &str| providers.release_unloaded_session(id)),
                                 Arc::new(move |id: &str| worker_turns.forget(id)),
                                 Arc::new(move |id: &str| agents.forget_scope(id)),
                                 Arc::new(move |id: &str| unloaded_routes.release_unloaded(&mixdog_core_api::ids::ThreadId::from(id))),
+                                Arc::new(move |id: &str| unloaded_goals.release_unloaded(id)),
+                                Arc::new(move |id: &str| {
+                                    if let Some(rooms) = unloaded_rooms.get().and_then(std::sync::Weak::upgrade) {
+                                        rooms.release_session(id);
+                                    }
+                                }),
                             ],
                             // The session is over: what only the session itself owned, its HTTP pin and throttled conversation included.
                             ended: vec![
@@ -3820,7 +3840,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                                 Arc::new(move |id: &str| exclusions.forget(&mixdog_core_api::ids::ThreadId::from(id))),
                                 Arc::new(move |id: &str| delegated.session_ended(id)),
                             ],
-                            deleted: vec![Arc::new(move |id: &str| logins.session_deleted(&mixdog_core_api::ids::ThreadId::from(id)))],
+                            deleted: vec![
+                                Arc::new(move |id: &str| logins.session_deleted(&mixdog_core_api::ids::ThreadId::from(id))),
+                                Arc::new(move |id: &str| deleted_goals.forget_session(id)),
+                            ],
                         }
                     },
                 }),
@@ -4685,6 +4708,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(mixdog_core_rooms::rooms::exchange_run::ExchangeRunner::new(live_rooms.clone())),
         room_log.clone(),
     );
+    let _ = late_live_rooms.set(Arc::downgrade(&live_rooms));
     live_rooms.bind_relays(Arc::new({
         let calls = Arc::downgrade(&room_calls);
         move |room: &str, error: &str| {

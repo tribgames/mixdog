@@ -223,6 +223,8 @@ pub struct AgentSession {
     pub cwd: AbsPath,
     /// The stored session could not be reopened and a new one was started.
     pub restarted: bool,
+    /// True from `session/new` until a prompt carrying any conversation handoff is actually sent on this handle.
+    handoff_pending: AtomicBool,
     /// What the user approved for the rest of the Mixdog session, each under the policy's key of the action
     /// ([`crate::rows::AgentTool::grant_key`]); they outlive this process.
     pub grants: Arc<Mutex<HashSet<GrantKey>>>,
@@ -404,6 +406,52 @@ struct On<'a> {
     replayed: Option<&'a mut mpsc::UnboundedReceiver<Incoming>>,
 }
 
+/// Error returned when opening a session on a shared server.
+pub(crate) enum OpenSharedError {
+    /// Opening or reopening the session exceeded the configured shared-open deadline.
+    TimedOut,
+    Fault(Fault),
+}
+
+/// Bounds cumulative time spent awaiting permission-refusal writes across a whole turn (active refusal + `detach`
+/// teardown) so a stalled stdin pipe cannot multiply waits or spawn lingering detached tasks, while unrelated wall
+/// time (such as closing tool cards) never consumes refusal budget.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RefuseBudget {
+    remaining: std::time::Duration,
+    stalled: bool,
+}
+
+impl RefuseBudget {
+    pub(crate) const LIMIT: std::time::Duration = std::time::Duration::from_millis(200);
+
+    pub(crate) fn new() -> Self {
+        Self { remaining: Self::LIMIT, stalled: false }
+    }
+
+    pub(crate) fn stalled(&self) -> bool {
+        self.stalled
+    }
+
+    pub(crate) async fn refuse(&mut self, session: &AgentSession, id: Value) {
+        if self.stalled || session.connection.exited().is_cancelled() {
+            return;
+        }
+        if self.remaining.is_zero() {
+            self.stalled = true;
+            session.break_connection("permission refusal budget exhausted on stalled stdin");
+            return;
+        }
+        let started = tokio::time::Instant::now();
+        let timed = mixdog_rt::time::timeout(self.remaining, session.connection.respond(id, Ok(json!({ "outcome": { "outcome": "cancelled" } })))).await;
+        self.remaining = self.remaining.saturating_sub(started.elapsed());
+        if timed.is_err() {
+            self.stalled = true;
+            session.break_connection("permission refusal write timed out on stalled stdin");
+        }
+    }
+}
+
 impl AgentSession {
     /// Starts the agent in `open.cwd`, a process of the session's own, and opens its session: the stored one where there
     /// is one, else a new one.
@@ -450,7 +498,13 @@ impl AgentSession {
 
     /// Opens the session on the preset's shared server the lease holds, beside the sessions it already serves: the stored
     /// one where there is one, else a new one. The session's tool server is its own, and so are its folder and settings.
-    pub(crate) async fn open_on_shared(lease: Lease, open: Open<'_>, wake: Wake, on_exit: Box<dyn FnOnce() + Send>) -> Result<Arc<Self>, Fault> {
+    pub(crate) async fn open_on_shared(
+        lease: Lease,
+        open: Open<'_>,
+        wake: Wake,
+        on_exit: Box<dyn FnOnce() + Send>,
+        open_timeout: Option<std::time::Duration>,
+    ) -> Result<Arc<Self>, OpenSharedError> {
         let shared = lease.server().clone();
         let started = start_tools(open.handed.as_ref()).await;
         let (servers, tools) = handed_entry(&shared.capabilities, open.handed.as_ref(), started);
@@ -463,7 +517,15 @@ impl AgentSession {
             servers,
             replayed: None,
         };
-        let (session, answer) = Self::open_session(open, on, wake).await?;
+        let (session, answer) = match open_timeout {
+            Some(limit) if limit.is_zero() => return Err(OpenSharedError::TimedOut),
+            Some(limit) => match mixdog_rt::time::timeout(limit, Self::open_session(open, on, wake)).await {
+                Ok(Ok(opened)) => opened,
+                Ok(Err(fault)) => return Err(OpenSharedError::Fault(fault)),
+                Err(_) => return Err(OpenSharedError::TimedOut),
+            },
+            None => Self::open_session(open, on, wake).await.map_err(OpenSharedError::Fault)?,
+        };
         let first = shared.register(&session);
         drop(lease);
         drop(mixdog_rt::spawn("acp.route.shared", mixdog_rt::TaskClass::Work, route_on_shared(session.clone(), tools, on_exit)));
@@ -531,6 +593,7 @@ impl AgentSession {
                 Err(fault) => return Err(fault),
             }
         }
+        let opened_fresh = opened.is_none();
         let (session_id, answer) = match opened {
             Some(opened) => opened,
             None => {
@@ -541,7 +604,7 @@ impl AgentSession {
             }
         };
         // A session that does not hold the prompt yet, in an agent whose system prompt takes none: its next prompt carries it.
-        let holds = open.stored.as_deref() == Some(session_id.as_str()) && prompt == open.held;
+        let holds = !opened_fresh && open.stored.as_deref() == Some(session_id.as_str()) && prompt == open.held;
         let unsent = appendix.filter(|_| appended.is_none() && !holds);
         let connected = server.map(ToolServer::initialized);
         let session = Arc::new(Self {
@@ -552,6 +615,7 @@ impl AgentSession {
             session_id,
             cwd: open.cwd,
             restarted,
+            handoff_pending: AtomicBool::new(opened_fresh),
             grants: open.grants,
             handed,
             prompt,
@@ -577,12 +641,31 @@ impl AgentSession {
         &self.gone
     }
 
+    /// True when this session was created via `session/new` and has not yet sent a prompt carrying conversation handoff.
+    pub fn handoff_pending(&self) -> bool {
+        self.handoff_pending.load(Ordering::SeqCst)
+    }
+
+    /// Records that a prompt (carrying any required conversation handoff) has been sent on this session.
+    pub fn mark_handoff_sent(&self) {
+        self.handoff_pending.store(false, Ordering::SeqCst);
+    }
+
     /// Ends the session's own process, or takes the session alone off the shared server it runs on, which goes on serving
     /// the others: nothing more of it arrives, and its tool server closes.
     pub fn end(&self) {
         match &self.host {
             Host::Own => self.connection.kill(),
             Host::Shared(shared) => shared.detach(self),
+        }
+    }
+
+    /// Breaks the underlying connection and retires any wedged shared server so neither an admitted permission grant
+    /// nor an orphaned unanswered RPC request can survive on a live connection past a stalled stdin pipe.
+    pub(crate) fn break_connection(&self, why: &str) {
+        self.connection.break_off(why);
+        if let Host::Shared(shared) = &self.host {
+            shared.retire_wedged();
         }
     }
 
@@ -594,6 +677,10 @@ impl AgentSession {
             Host::Own => None,
             Host::Shared(shared) => shared.lease(),
         }
+    }
+
+    pub(crate) fn on_server(&self, server: &Arc<SharedServer>) -> bool {
+        matches!(&self.host, Host::Shared(held) if Arc::ptr_eq(held, server))
     }
 
     /// What a turn of the session fails with once it is gone: the end of its process, or its leaving the shared server.
@@ -611,8 +698,12 @@ impl AgentSession {
         if let Host::Shared(shared) = &self.host {
             shared.owns_prompt(id, &self.session_id);
         }
+        // Only disown on a clean write error; if this future is dropped in flight after stdin may have
+        // already admitted the prompt bytes, keep ownership so `detach` sends `session/cancel`.
         let sent = self.connection.send_as(id, "session/prompt", json!({ "sessionId": self.session_id, "prompt": blocks })).await;
-        if let (Err(_), Host::Shared(shared)) = (&sent, &self.host) {
+        if sent.is_err()
+            && let Host::Shared(shared) = &self.host
+        {
             shared.disown_prompt(id);
         }
         sent.map(|()| id)
@@ -650,9 +741,10 @@ impl AgentSession {
             routing.quiet = true;
             std::mem::take(&mut routing.waiting)
         };
+        let mut budget = RefuseBudget::new();
         for incoming in dropped {
             match incoming {
-                Incoming::Request { id, .. } => self.act(Routed::Refuse(id)).await,
+                Incoming::Request { id, .. } => budget.refuse(self, id).await,
                 Incoming::Tool(ask) => ask.refuse(why),
                 _ => {}
             }
@@ -702,7 +794,18 @@ impl AgentSession {
     /// The turn ended; `background` are the tool calls it left running in the agent, by the agent's id of each. What
     /// the agent sent the turn after its last read is sorted here as if no turn had run, in the order it was sent
     /// and before anything newer.
-    pub async fn detach(&self, mut stream: mpsc::UnboundedReceiver<Incoming>, background: impl IntoIterator<Item = (String, Background)>) {
+    pub async fn detach(&self, stream: mpsc::UnboundedReceiver<Incoming>, background: impl IntoIterator<Item = (String, Background)>) {
+        let mut budget = RefuseBudget::new();
+        self.detach_with_budget(stream, background, &mut budget).await;
+    }
+
+    /// [`Self::detach`], sharing the turn's single [`RefuseBudget`] with any refusal already attempted in `turn::run`.
+    pub(crate) async fn detach_with_budget(
+        &self,
+        mut stream: mpsc::UnboundedReceiver<Incoming>,
+        background: impl IntoIterator<Item = (String, Background)>,
+        refuse_budget: &mut RefuseBudget,
+    ) {
         let (unread, end): (Vec<Routed>, bool) = {
             let mut routing = lock(&self.routing);
             routing.turn = None;
@@ -711,7 +814,10 @@ impl AgentSession {
             (unread, std::mem::take(&mut routing.end_after_turn))
         };
         for routed in unread {
-            self.act(routed).await;
+            match routed {
+                Routed::Refuse(id) => refuse_budget.refuse(self, id).await,
+                other => self.act(other).await,
+            }
         }
         // Ids carry their turn, so none of this turn's is issued again by a later one; a call left running keeps its
         // id, which the later turn that shows its result must not issue again.
@@ -749,14 +855,17 @@ impl AgentSession {
         let session = self.clone();
         drop(mixdog_rt::spawn("acp.cancel", mixdog_rt::TaskClass::Work, async move {
             // A permission request among what waited for a turn is answered: the agent waits on it.
+            let mut budget = RefuseBudget::new();
             for incoming in dropped {
                 match incoming {
-                    Incoming::Request { id, .. } => session.act(Routed::Refuse(id)).await,
+                    Incoming::Request { id, .. } => budget.refuse(&session, id).await,
                     Incoming::Tool(ask) => session.act(Routed::RefuseTool(ask)).await,
                     _ => {}
                 }
             }
-            let _ = session.connection.notify("session/cancel", json!({ "sessionId": session.session_id })).await;
+            if !budget.stalled() {
+                let _ = session.connection.notify("session/cancel", json!({ "sessionId": session.session_id })).await;
+            }
         }));
     }
 
@@ -815,7 +924,10 @@ impl AgentSession {
         match routed {
             Routed::Done => {}
             Routed::Wake => (self.wake)(),
-            Routed::Refuse(id) => self.connection.respond(id, Ok(json!({ "outcome": { "outcome": "cancelled" } }))).await,
+            Routed::Refuse(id) => {
+                let mut budget = RefuseBudget::new();
+                budget.refuse(self, id).await;
+            }
             Routed::RefuseTool(ask) => ask.refuse(NO_TURN),
         }
     }
@@ -836,6 +948,72 @@ impl AgentSession {
     /// The agent's last report of its own context; `None` until it made one.
     pub fn context_use(&self) -> Option<ContextUse> {
         *lock(&self.context)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_session_for(connection: Arc<Connection>) -> Arc<Self> {
+        let mut preset = crate::preset::builtin().into_iter().find(|preset| preset.id == "antigravity").expect("antigravity preset");
+        preset.quirks.replies_without_prompt = true;
+        let cwd = AbsPath::new(std::env::current_dir().expect("cwd")).expect("abs cwd");
+        Arc::new(Self {
+            preset,
+            connection,
+            host: Host::Own,
+            gone: CancellationToken::new(),
+            session_id: "sess-test".into(),
+            cwd,
+            restarted: false,
+            handoff_pending: AtomicBool::new(false),
+            grants: Arc::default(),
+            handed: None,
+            prompt: None,
+            images: false,
+            embedded: false,
+            closes: false,
+            context: Mutex::default(),
+            reports: std::sync::atomic::AtomicU64::new(0),
+            unsent: Mutex::default(),
+            connected: None,
+            told_unconnected: AtomicBool::new(false),
+            models: Mutex::default(),
+            routing: Mutex::default(),
+            kept: Mutex::default(),
+            closed_prompt: tokio::sync::Notify::new(),
+            wake: Arc::new(|| {}),
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_shared_session_for(shared: Arc<SharedServer>, session_id: &str) -> Arc<Self> {
+        let mut preset = crate::preset::builtin().into_iter().find(|preset| preset.id == "antigravity").expect("antigravity preset");
+        preset.quirks.replies_without_prompt = true;
+        let cwd = AbsPath::new(std::env::current_dir().expect("cwd")).expect("abs cwd");
+        Arc::new(Self {
+            preset,
+            connection: shared.connection.clone(),
+            host: Host::Shared(shared),
+            gone: CancellationToken::new(),
+            session_id: session_id.to_owned(),
+            cwd,
+            restarted: false,
+            handoff_pending: AtomicBool::new(false),
+            grants: Arc::default(),
+            handed: None,
+            prompt: None,
+            images: false,
+            embedded: false,
+            closes: false,
+            context: Mutex::default(),
+            reports: std::sync::atomic::AtomicU64::new(0),
+            unsent: Mutex::default(),
+            connected: None,
+            told_unconnected: AtomicBool::new(false),
+            models: Mutex::default(),
+            routing: Mutex::default(),
+            kept: Mutex::default(),
+            closed_prompt: tokio::sync::Notify::new(),
+            wake: Arc::new(|| {}),
+        })
     }
 
     pub(crate) fn take(&self, incoming: Incoming) -> Routed {
@@ -1083,5 +1261,124 @@ mod tests {
         merge(&mut meta, json!({ "a": { "prompt": { "append": "R" } } }));
         merge(&mut meta, json!({ "a": { "tools": [1] } }));
         assert_eq!(meta, json!({ "a": { "prompt": { "append": "R" }, "tools": [1] } }));
+    }
+
+    struct OpenEvents(tokio::sync::Notify);
+
+    #[async_trait]
+    impl mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent> for OpenEvents {
+        async fn next(&mut self) -> Option<mixdog_core_api::domain::process::ProcessEvent> {
+            self.0.notified().await;
+            None
+        }
+    }
+
+    struct StalledProcesses {
+        writes: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl ProcessManager for StalledProcesses {
+        async fn spawn(
+            &self,
+            request: mixdog_core_api::domain::process::SpawnRequest,
+        ) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
+            Ok(mixdog_core_api::domain::process::SpawnedProcess { handle: request.handle, pid: 1 })
+        }
+
+        fn subscribe(
+            &self,
+            _handle: &mixdog_protocol::ProcessHandle,
+            _from_seq: Option<u64>,
+        ) -> Result<
+            Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>,
+            mixdog_core_api::domain::process::ProcessError,
+        > {
+            Ok(Box::new(OpenEvents(tokio::sync::Notify::new())))
+        }
+
+        fn subscribe_holding(
+            &self,
+            handle: &mixdog_protocol::ProcessHandle,
+            from_seq: Option<u64>,
+        ) -> Result<
+            Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>,
+            mixdog_core_api::domain::process::ProcessError,
+        > {
+            self.subscribe(handle, from_seq)
+        }
+
+        async fn write_stdin(&self, _handle: &mixdog_protocol::ProcessHandle, _bytes: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            self.writes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            std::future::pending().await
+        }
+
+        fn close_stdin(&self, _handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            Ok(())
+        }
+
+        fn resize_pty(
+            &self,
+            _handle: &mixdog_protocol::ProcessHandle,
+            _size: mixdog_core_api::domain::process::PtySize,
+        ) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            Ok(())
+        }
+
+        fn kill(&self, _handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            Ok(())
+        }
+
+        fn list(&self) -> Vec<mixdog_core_api::domain::process::ProcessInfo> {
+            Vec::new()
+        }
+    }
+
+    #[tokio::test]
+    async fn detach_bounds_permission_refusals_by_single_turn_deadline_on_stalled_stdin() {
+        let _ = mixdog_rt::testing::tokens();
+        let writes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let processes: Arc<dyn ProcessManager> = Arc::new(StalledProcesses { writes: writes.clone() });
+        let (connection, _incoming) =
+            Connection::start(processes, Launch { program: "fake".into(), args: Vec::new(), env: Vec::new(), env_remove: Vec::new(), cwd: here() })
+                .await
+                .expect("connection");
+        let mut preset = antigravity();
+        preset.quirks.replies_without_prompt = false;
+        let session = AgentSession {
+            preset,
+            connection,
+            host: Host::Own,
+            gone: CancellationToken::new(),
+            session_id: "sess-stalled".into(),
+            cwd: here(),
+            restarted: false,
+            handoff_pending: AtomicBool::new(false),
+            grants: Arc::default(),
+            handed: None,
+            prompt: None,
+            images: false,
+            embedded: false,
+            closes: false,
+            context: Mutex::default(),
+            reports: std::sync::atomic::AtomicU64::new(0),
+            unsent: Mutex::default(),
+            connected: None,
+            told_unconnected: AtomicBool::new(false),
+            models: Mutex::default(),
+            routing: Mutex::default(),
+            kept: Mutex::default(),
+            closed_prompt: tokio::sync::Notify::new(),
+            wake: Arc::new(|| {}),
+        };
+        let (tx, rx) = mpsc::unbounded_channel();
+        for i in 0..50 {
+            let _ = tx.send(Incoming::Request { id: json!(i), method: "session/request_permission".into(), params: json!({}) });
+        }
+        let started = tokio::time::Instant::now();
+        session.detach(rx, []).await;
+        let elapsed = started.elapsed();
+        assert!(elapsed < std::time::Duration::from_secs(1), "permission teardown must be bounded per turn, not per request: {elapsed:?}");
+        assert_eq!(writes.load(std::sync::atomic::Ordering::SeqCst), 1, "stalled stdin must stop refusing after the single deadline expires");
     }
 }

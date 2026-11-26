@@ -940,6 +940,8 @@ pub struct SendIdentity {
     stages: std::sync::Arc<std::sync::Mutex<Vec<RaisedStage>>>,
     /// Whether this send raised its once-per-send `requesting` yet.
     requested: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// The notices this send raised with [`Self::raise_notice_once`].
+    noticed: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     /// The phase clock of the send's current attempt ([`AttemptContext`]): shared by the send future and the adapter's stream,
     /// restarted by every attempt. It holds no deadline of the logical send.
     attempt: std::sync::Arc<std::sync::Mutex<AttemptContext>>,
@@ -1317,6 +1319,14 @@ impl SendIdentity {
             return;
         }
         self.stages.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((stage, Some(payload)));
+    }
+
+    /// Raises the transcript notice `message` (tone `warn` or `info`) once for the whole send: a later attempt that raises the
+    /// same text raises nothing.
+    pub fn raise_notice_once(&self, message: String, warn: bool) {
+        if self.noticed.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(message.clone()) {
+            self.raise_stage_with("notice", serde_json::json!({ "tone": if warn { "warn" } else { "info" }, "message": message }));
+        }
     }
 
     /// Raises `requesting` for a provider that raises it once before its whole retry ladder (Node raises it outside

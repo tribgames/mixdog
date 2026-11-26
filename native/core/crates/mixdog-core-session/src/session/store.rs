@@ -617,6 +617,7 @@ enum ContextAt {
 /// J2's reads, handed to decode.
 struct Window {
     window: Vec<(u64, ItemRecord)>,
+    ends: std::collections::HashMap<String, mixdog_store::schema::record::TurnEndForm>,
     archived: Vec<u64>,
     dividers: Vec<super::seams::WindowDivider>,
     has_older: bool,
@@ -625,6 +626,12 @@ struct Window {
     drafts: Vec<(String, RunDraft)>,
     approvals: Vec<(u64, mixdog_store::schema::record::ApprovalRecord)>,
     queue: Vec<(u64, mixdog_store::schema::record::QueueRecord)>,
+}
+
+/// Extracts the `TurnEndForm` map already computed by [`StoreThreads::read_window`] so `load`
+/// does not re-read `history_tail_decor` over the same window.
+pub(super) fn take_window_ends(window: &mut WindowRead) -> Option<std::collections::HashMap<String, mixdog_store::schema::record::TurnEndForm>> {
+    window.0.downcast_mut::<Window>().map(|window| std::mem::take(&mut window.ends))
 }
 
 fn unexpected(what: &str) -> CoreError {
@@ -1141,10 +1148,123 @@ mod projector_tests {
         directory.unload_settled(&id).await;
         assert!(directory.handle(&id).is_none(), "the thread was unloaded");
         let read = crate::session::sub_agent_retention::activity_at(&directory.stored_header(&id).await.expect("header"));
-        keep_reads(&threads, &id).await;
+        static FIELDS: [&str; 2] = ["cwd", "createdAt"];
+        mixdog_core_base::support::on_lane_wait(mixdog_rt::testing::tokens().interactive_io, &mixdog_rt::CancellationToken::new(), {
+            let (threads, id) = (threads.clone(), id.clone());
+            move |lane| {
+                ThreadStore::read_header_fields(&*threads, lane, &id, &FIELDS)?;
+                ThreadStore::context_len(&*threads, lane, &id)?;
+                Ok::<_, CoreError>(())
+            }
+        })
+        .await
+        .expect("job")
+        .expect("the reads");
+        assert_eq!(threads.kept_for(&id), (true, 1, true), "unloaded probes warm bounded shape and picked header cache");
         assert!(directory.close_stored(id.as_str(), read, &mixdog_rt::CancellationToken::new()).await.expect("close"));
         assert!(directory.handle(&id).is_none(), "the tombstone took the slot");
         assert_eq!(threads.kept_for(&id), (false, 0, false));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn probing_unloaded_sessions_retains_bounded_shape_and_picked_header_cache() {
+        static FIELDS: [&str; 2] = ["cwd", "createdAt"];
+        let (_data, _rig, threads, directory) = kept_rig().await;
+        let tokens = mixdog_rt::testing::tokens();
+
+        // Keep one loaded thread pinned so eviction never drops retained entries.
+        let pinned = crate::session::tests::start_thread(&directory).await.id.clone();
+        threads.projected().await;
+        keep_reads(&threads, &pinned).await;
+
+        let total = UNLOADED_READ_CACHE_CAP + 4;
+        let mut unloaded = Vec::with_capacity(total);
+        for _ in 0..total {
+            let id = crate::session::tests::start_thread(&directory).await.id.clone();
+            threads.projected().await;
+            directory.release(&id).await;
+            directory.unload_settled(&id).await;
+            assert_eq!(threads.kept_for(&id), (false, 0, false));
+            unloaded.push(id);
+        }
+
+        // Probing the first unloaded session warms both LogShape and PickedHeader and reuses the same shape on immediate re-read.
+        let first = unloaded[0].clone();
+        let (reused, header_present) = mixdog_core_base::support::on_lane_wait(tokens.interactive_io, &mixdog_rt::CancellationToken::new(), {
+            let (threads, id) = (threads.clone(), first.clone());
+            move |lane| {
+                let header = ThreadStore::read_header_fields(&*threads, lane, &id, &FIELDS)?;
+                let shape1 = threads.shape(lane, &id)?;
+                let shape2 = threads.shape(lane, &id)?;
+                Ok::<_, CoreError>((shape1.of_one_read(&shape2), header.is_some()))
+            }
+        })
+        .await
+        .expect("job")
+        .expect("unloaded probes");
+        assert!(header_present, "unloaded header probe answers");
+        assert!(reused, "immediate re-read reuses warmed unloaded LogShape");
+        assert_eq!(threads.kept_for(&first), (true, 1, false), "unloaded probe retains shape and picked header");
+
+        // Probing the remaining unloaded sessions pushes past UNLOADED_READ_CACHE_CAP and evicts the oldest entries.
+        mixdog_core_base::support::on_lane_wait(tokens.interactive_io, &mixdog_rt::CancellationToken::new(), {
+            let (threads, ids) = (threads.clone(), unloaded[1..].to_vec());
+            move |lane| {
+                for id in &ids {
+                    let _ = ThreadStore::read_header_fields(&*threads, lane, id, &FIELDS)?;
+                    let _ = threads.shape(lane, id)?;
+                }
+                Ok::<_, CoreError>(())
+            }
+        })
+        .await
+        .expect("job")
+        .expect("probes past cap");
+
+        for evicted in &unloaded[..4] {
+            assert_eq!(threads.kept_for(evicted), (false, 0, false), "oldest unloaded entry evicted once over cap");
+        }
+        for retained in &unloaded[4..] {
+            assert_eq!(threads.kept_for(retained), (true, 1, false), "recent unloaded entries remain warm up to cap");
+        }
+        assert_eq!(threads.kept_for(&pinned), (true, 1, true), "loaded retained thread is never evicted by unloaded probes");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn dropping_an_unretained_store_log_clears_shape_and_picked_header() {
+        static FIELDS: [&str; 2] = ["cwd", "createdAt"];
+        let (_data, _rig, threads, directory) = kept_rig().await;
+        let id = crate::session::tests::start_thread(&directory).await.id.clone();
+        threads.projected().await;
+        directory.release(&id).await;
+        directory.unload_settled(&id).await;
+        assert_eq!(threads.kept_for(&id), (false, 0, false));
+
+        let log = mixdog_core_base::support::on_lane_wait(mixdog_rt::testing::tokens().durability_io, &mixdog_rt::CancellationToken::new(), {
+            let (threads, id) = (threads.clone(), id.clone());
+            move |lane| ThreadStore::open_log(&*threads, lane, &id, AppendPosition(Arc::new(std::sync::Mutex::new(None::<log::OpenedLog>))))
+        })
+        .await
+        .expect("durability job")
+        .expect("open log");
+
+        mixdog_core_base::support::on_lane_wait(mixdog_rt::testing::tokens().interactive_io, &mixdog_rt::CancellationToken::new(), {
+            let (threads, id) = (threads.clone(), id.clone());
+            move |lane| {
+                let _ = ThreadStore::read_header_fields(&*threads, lane, &id, &FIELDS)?;
+                let _ = threads.shape(lane, &id)?;
+                Ok::<_, CoreError>(())
+            }
+        })
+        .await
+        .expect("read job")
+        .expect("reads while log open");
+        let (has_shape, picked_count, _) = threads.kept_for(&id);
+        assert_eq!((has_shape, picked_count), (true, 1), "open log keeps shape and picked header cached");
+
+        drop(log);
+        let (has_shape, picked_count, _) = threads.kept_for(&id);
+        assert_eq!((has_shape, picked_count), (false, 0), "dropping the last unretained StoreLog clears shape and picked header");
     }
 
     /// The index reads a store job makes on the read lane run on the job's own thread: a job never waits for a lane slot behind
@@ -1604,6 +1724,99 @@ impl Projector {
         }
     }
 }
+/// Maximum unloaded threads retained in [`ReadCache`] so a preview read immediately preceding
+/// `load()` reuses the warmed `LogShape` / `PickedHeader` without unbounded memory growth.
+pub(super) const UNLOADED_READ_CACHE_CAP: usize = 16;
+
+/// Read caches and the lifecycles that keep them populated, guarded together so `forget` and `StoreLog::drop` cannot
+/// race a concurrent cache insertion.
+#[derive(Default)]
+struct ReadCache {
+    /// Threads loaded in the directory: pinned threads keep `shapes` and `picked` entries without counting against
+    /// [`UNLOADED_READ_CACHE_CAP`].
+    retained: std::collections::HashSet<String>,
+    /// Open [`StoreLog`] writers per thread.
+    open_logs: std::collections::HashMap<String, usize>,
+    /// Unloaded threads currently present in `shapes` or `picked`, oldest first.
+    unloaded_order: std::collections::VecDeque<String>,
+    /// What the reads of a thread's rows take from its opened log, by thread, with the stamp of the log it was read from
+    /// ([`StoreThreads::shape`]).
+    shapes: std::collections::HashMap<String, Arc<LogShape>>,
+    /// The header members read of a stored thread, by thread and by the members asked for, with the version of its log
+    /// they were read at ([`ThreadStore::read_header_fields`]).
+    picked: std::collections::HashMap<String, std::collections::HashMap<&'static [&'static str], PickedHeader>>,
+}
+
+impl ReadCache {
+    fn is_pinned(&self, id: &str) -> bool {
+        self.retained.contains(id) || self.open_logs.contains_key(id)
+    }
+
+    fn touch_unloaded(&mut self, id: &str) {
+        if self.is_pinned(id) {
+            return;
+        }
+        if let Some(pos) = self.unloaded_order.iter().position(|entry| entry == id) {
+            self.unloaded_order.remove(pos);
+        }
+        self.unloaded_order.push_back(id.to_owned());
+        while self.unloaded_order.len() > UNLOADED_READ_CACHE_CAP {
+            let Some(evicted) = self.unloaded_order.pop_front() else { break };
+            if !self.is_pinned(&evicted) {
+                self.shapes.remove(&evicted);
+                self.picked.remove(&evicted);
+            }
+        }
+    }
+
+    fn touch_if_unloaded(&mut self, id: &str) {
+        if !self.is_pinned(id) && (self.shapes.contains_key(id) || self.picked.contains_key(id)) {
+            self.touch_unloaded(id);
+        }
+    }
+
+    fn insert_shape(&mut self, id: &str, shape: Arc<LogShape>) {
+        self.shapes.insert(id.to_owned(), shape);
+        self.touch_unloaded(id);
+    }
+
+    fn remove_shape(&mut self, id: &str) {
+        self.shapes.remove(id);
+        if !self.picked.contains_key(id) {
+            self.unloaded_order.retain(|entry| entry != id);
+        }
+    }
+
+    fn insert_picked(&mut self, id: &str, fields: &'static [&'static str], entry: PickedHeader) {
+        self.picked.entry(id.to_owned()).or_default().insert(fields, entry);
+        self.touch_unloaded(id);
+    }
+
+    fn forget_picked_fields(&mut self, id: &str, fields: &'static [&'static str]) {
+        if let Some(by_fields) = self.picked.get_mut(id) {
+            by_fields.remove(fields);
+            if by_fields.is_empty() {
+                self.picked.remove(id);
+            }
+        }
+        if !self.shapes.contains_key(id) && !self.picked.contains_key(id) {
+            self.unloaded_order.retain(|entry| entry != id);
+        }
+    }
+
+    fn retain(&mut self, id: &str) {
+        self.retained.insert(id.to_owned());
+        self.unloaded_order.retain(|entry| entry != id);
+    }
+
+    fn forget(&mut self, id: &str) {
+        self.retained.remove(id);
+        self.unloaded_order.retain(|entry| entry != id);
+        self.shapes.remove(id);
+        self.picked.remove(id);
+    }
+}
+
 /// [`SessionLog`] over a `LogWriter` (which places checkpoints and rotates by itself).
 struct StoreLog {
     /// `None` when the log could not be reopened after a rewrite: the next start settles it (`log_rewrite::recover`).
@@ -1618,6 +1831,26 @@ struct StoreLog {
     activation: u64,
     /// The store's kept context lengths: this log's batches run inside them.
     context_lens: Arc<super::context_lens::ContextLens>,
+    /// Store read caches: tracks this open log and drops unretained caches when the last log closes.
+    read_cache: Arc<std::sync::Mutex<ReadCache>>,
+}
+
+impl Drop for StoreLog {
+    fn drop(&mut self) {
+        let mut cache = self.read_cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(count) = cache.open_logs.get_mut(&self.thread) {
+            if *count <= 1 {
+                cache.open_logs.remove(&self.thread);
+                if !cache.retained.contains(&self.thread) {
+                    cache.unloaded_order.retain(|entry| entry != &self.thread);
+                    cache.shapes.remove(&self.thread);
+                    cache.picked.remove(&self.thread);
+                }
+            } else {
+                *count -= 1;
+            }
+        }
+    }
 }
 impl Rewrites {
     fn start(self: &Arc<Self>) -> Rewriting {
@@ -1856,14 +2089,10 @@ pub struct StoreThreads {
     /// Told when a rewritten session is released: its search-copy debt can be discharged ([`Self::discharge_search_debt`]).
     search_debt: tokio::sync::Notify,
     retention: Arc<std::sync::atomic::AtomicU64>,
-    /// What the reads of a thread's rows take from its opened log, by thread, with the stamp of the log it was read from
-    /// ([`StoreThreads::shape`]).
-    shapes: std::sync::Mutex<std::collections::HashMap<String, Arc<LogShape>>>,
+    /// Per-thread read caches (`shapes`, `picked`) and the lifecycles (`retained`, `open_logs`) that keep them populated.
+    read_cache: Arc<std::sync::Mutex<ReadCache>>,
     /// The length of each thread's model context, followed in memory through the thread's own commits.
     context_lens: Arc<super::context_lens::ContextLens>,
-    /// The header members read of a stored thread, by thread and by the members asked for, with the version of its log
-    /// they were read at ([`ThreadStore::read_header_fields`]).
-    picked: std::sync::Mutex<std::collections::HashMap<String, std::collections::HashMap<&'static [&'static str], PickedHeader>>>,
     /// A test's pause between a marks read's snapshot and its check.
     #[cfg(any(test, feature = "test-support"))]
     after_snapshot: std::sync::Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
@@ -1897,9 +2126,8 @@ impl StoreThreads {
             owed: Arc::default(),
             search_debt: tokio::sync::Notify::new(),
             retention: Arc::default(),
-            shapes: std::sync::Mutex::default(),
+            read_cache: Arc::default(),
             context_lens: Arc::default(),
-            picked: std::sync::Mutex::default(),
             #[cfg(any(test, feature = "test-support"))]
             after_snapshot: std::sync::Mutex::default(),
             #[cfg(any(test, feature = "test-support"))]
@@ -1932,8 +2160,10 @@ impl StoreThreads {
     #[cfg(any(test, feature = "test-support"))]
     #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests"))]
     pub(super) fn kept_for(&self, id: &ThreadId) -> (bool, usize, bool) {
-        let shape = self.shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains_key(id.as_str());
-        let picked = self.picked.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(id.as_str()).map_or(0, |by_fields| by_fields.len());
+        let cache = self.read_cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let shape = cache.shapes.contains_key(id.as_str());
+        let picked = cache.picked.get(id.as_str()).map_or(0, |by_fields| by_fields.len());
+        drop(cache);
         (shape, picked, self.context_lens.holds(id.as_str()))
     }
 
@@ -2308,6 +2538,11 @@ impl StoreThreads {
             journal: self.journal.get().cloned(),
             rewrites: self.rewrites.clone(),
         });
+        {
+            let mut cache = self.read_cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            *cache.open_logs.entry(id.as_str().to_owned()).or_insert(0) += 1;
+            cache.unloaded_order.retain(|entry| entry != id.as_str());
+        }
         Box::new(StoreLog {
             writer: Some(writer),
             projector: self.projector.clone(),
@@ -2316,6 +2551,7 @@ impl StoreThreads {
             thread: id.as_str().to_owned(),
             activation,
             context_lens: self.context_lens.clone(),
+            read_cache: self.read_cache.clone(),
         })
     }
 
@@ -2410,14 +2646,19 @@ impl StoreThreads {
     }
 
     fn shape(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Arc<LogShape>, CoreError> {
-        let lock = || self.shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let lock = || self.read_cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let versions = |logs: &[String]| logs.iter().map(|log| mixdog_store::log_epoch::settled(log)).collect::<Option<Vec<u64>>>();
         let shapes = |logs: &[String]| logs.iter().map(|log| mixdog_store::log_epoch::shape_settled(log)).collect::<Option<Vec<u64>>>();
-        let held = lock().get(id.as_str()).cloned();
-        if let Some(held) = &held {
-            if held.is_current() {
-                return Ok(held.clone());
+        let held = {
+            let mut cache = lock();
+            let held = cache.shapes.get(id.as_str()).cloned();
+            if held.as_ref().is_some_and(|shape| shape.is_current()) {
+                cache.touch_if_unloaded(id.as_str());
+                return Ok(held.unwrap());
             }
+            held
+        };
+        if let Some(held) = &held {
             // The versions first: an append that begins after them leaves this shape not current, whatever it holds.
             let now = versions(&held.logs);
             if held.stands() {
@@ -2429,7 +2670,7 @@ impl StoreThreads {
                     base_cut: held.base_cut,
                     history_rev: held.history_rev,
                 });
-                lock().insert(id.as_str().to_owned(), shape.clone());
+                lock().insert_shape(id.as_str(), shape.clone());
                 return Ok(shape);
             }
         }
@@ -2440,7 +2681,7 @@ impl StoreThreads {
             let (lineage, base_cut, history_rev) = match read {
                 Ok(read) => read,
                 Err(error) => {
-                    lock().remove(id.as_str());
+                    lock().remove_shape(id.as_str());
                     return Err(error);
                 }
             };
@@ -2461,10 +2702,11 @@ impl StoreThreads {
                 base_cut,
                 history_rev,
             });
+            let mut cache = lock();
             if keep {
-                lock().insert(id.as_str().to_owned(), shape.clone());
+                cache.insert_shape(id.as_str(), shape.clone());
             } else {
-                lock().remove(id.as_str());
+                cache.remove_shape(id.as_str());
             }
             return Ok(shape);
         }
@@ -2807,7 +3049,8 @@ impl StoreThreads {
                 asked.push(turn.to_owned());
             }
         }
-        let found = self.index.turn_messages_on_lane(lane, lineage, cut, &asked).map_err(|e| internal("history", &e))?;
+        let found =
+            if asked.is_empty() { Vec::new() } else { self.index.turn_messages_on_lane(lane, lineage, cut, &asked).map_err(|e| internal("history", &e))? };
         let gone_whole = |turn: &str| asked.iter().position(|asked| asked == turn).is_some_and(|at| found[at].0 && !found[at].1);
         Ok(rows
             .iter()
@@ -3104,32 +3347,27 @@ impl ThreadStore for StoreThreads {
     /// Kept by the version of the session's log (`log_epoch`), as [`StoreThreads::shape`] is: the header is folded
     /// from the session's own log alone, so the picked members hold until an operation on that log begins.
     fn read_header_fields(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, fields: &'static [&'static str]) -> Result<Option<Header>, CoreError> {
-        let lock = || self.picked.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let forget = || {
-            let mut picked = lock();
-            if let Some(by_fields) = picked.get_mut(id.as_str()) {
-                by_fields.remove(fields);
-                if by_fields.is_empty() {
-                    picked.remove(id.as_str());
-                }
-            }
-        };
+        let lock = || self.read_cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let version = mixdog_store::log_epoch::settled(id.as_str());
-        if let Some(version) = version
-            && let Some((_, held)) = lock().get(id.as_str()).and_then(|by_fields| by_fields.get(fields)).filter(|(at, _)| *at == version)
-        {
-            return Ok(held.clone());
+        if let Some(version) = version {
+            let mut cache = lock();
+            if let Some((_, held)) = cache.picked.get(id.as_str()).and_then(|by_fields| by_fields.get(fields)).filter(|(at, _)| *at == version) {
+                let held = held.clone();
+                cache.touch_if_unloaded(id.as_str());
+                return Ok(held);
+            }
         }
         let picked = match self.with_header(lane, id, |header| super::seams::header_fields(header.iter(), fields)) {
             Ok(picked) => picked,
             Err(error) => {
-                forget();
+                lock().forget_picked_fields(id.as_str(), fields);
                 return Err(error);
             }
         };
+        let mut cache = lock();
         match version.filter(|version| mixdog_store::log_epoch::settled(id.as_str()) == Some(*version)) {
-            Some(version) => drop(lock().entry(id.as_str().to_owned()).or_default().insert(fields, (version, picked.clone()))),
-            None => forget(),
+            Some(version) => cache.insert_picked(id.as_str(), fields, (version, picked.clone())),
+            None => cache.forget_picked_fields(id.as_str(), fields),
         };
         Ok(picked)
     }
@@ -3161,14 +3399,33 @@ impl ThreadStore for StoreThreads {
         let _gate = self.read_gate(id)?;
         let opened = head.0.downcast_ref::<log::OpenedLog>().expect("StoreThreads head");
         let fold = &opened.fold;
-        let lineage = self.lineage(lane, fold)?;
-        let (rows, cursor) = self.index.history_page_on_lane(lane, &lineage, fold.base_cut, None, WINDOW_ROWS).map_err(|e| internal("window", &e))?;
+        let lineage = {
+            let mut cache = self.read_cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let held = cache.shapes.get(id.as_str()).cloned();
+            match held {
+                Some(held) if !held.logs.is_empty() && held.is_current() && held.base_cut == fold.base_cut && held.history_rev == fold.history_rev => {
+                    cache.touch_if_unloaded(id.as_str());
+                    held.lineage.as_ref().clone()
+                }
+                _ => {
+                    drop(cache);
+                    self.lineage(lane, fold)?
+                }
+            }
+        };
+        let (mut rows, cursor) = self.index.history_page_on_lane(lane, &lineage, fold.base_cut, None, WINDOW_ROWS + 1).map_err(|e| internal("window", &e))?;
+        let has_older = rows.len() > WINDOW_ROWS || cursor.is_some();
+        rows.truncate(WINDOW_ROWS);
         let mut window = Vec::with_capacity(rows.len());
+        let mut ends = std::collections::HashMap::new();
         for row in rows.iter().rev() {
+            if let Some(end) = row.end {
+                ends.insert(row.iid.clone(), end);
+            }
             window.push((row.ordinal, self.history_item(lane, id, row)?));
         }
-        let archived = archived_ordinals(&rows);
-        let dividers = self.window_dividers(lane, &lineage, fold.base_cut, &rows, cursor.is_some(), true)?;
+        let archived = if !has_older { archived_ordinals(&rows) } else { self.archived_among(lane, &lineage, fold.base_cut, &rows)? };
+        let dividers = self.window_dividers(lane, &lineage, fold.base_cut, &rows, has_older, true)?;
         let prompts = self.index.prompts_on_lane(lane, &lineage, fold.base_cut).map_err(|e| internal("prompts", &e))?;
         let dir = &opened.dir;
         let mut runs = Vec::new();
@@ -3212,7 +3469,7 @@ impl ThreadStore for StoreThreads {
             }
             queue.push((entry.enqueued.ordinal, record));
         }
-        Ok(WindowRead(Box::new(Window { window, archived, dividers, has_older: cursor.is_some(), prompts, runs, drafts, approvals, queue })))
+        Ok(WindowRead(Box::new(Window { window, ends, archived, dividers, has_older, prompts, runs, drafts, approvals, queue })))
     }
 
     fn decode(&self, _lane: &InLane<CpuInteractive>, _id: &ThreadId, head: HeadRead, window: WindowRead) -> Result<OpenedLog, CoreError> {
@@ -3615,9 +3872,12 @@ impl ThreadStore for StoreThreads {
         Box::pin(async move { owed.settled(&session).await })
     }
 
+    fn retain(&self, id: &ThreadId) {
+        self.read_cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(id.as_str());
+    }
+
     fn forget(&self, id: &ThreadId) {
-        self.shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(id.as_str());
-        self.picked.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(id.as_str());
+        self.read_cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner).forget(id.as_str());
         self.context_lens.forget(id.as_str());
     }
 
@@ -4126,3 +4386,137 @@ impl super::seams::CloseIngest for MemoryCloseIngest {
 
 /// The version of a log and the header members read of it at that version.
 type PickedHeader = (u64, Option<Header>);
+
+#[cfg(test)]
+mod cold_window_tests {
+    use super::*;
+    use mixdog_core_api::ThreadHandle;
+    use mixdog_core_api::call::{CallContext, CoreRequest, Reply};
+    use mixdog_core_api::ids::{ConnectionId, Method, SubscriptionId};
+    use mixdog_core_api::mock::{MockConnection, MockLimits};
+    use mixdog_protocol::ThreadItem;
+    use serde_json::{Value, json};
+
+    struct PositionedText;
+
+    impl super::super::seams::Transcript for PositionedText {
+        fn items(&self, lane: &InLane<CpuInteractive>, record: &ItemRecord) -> Vec<super::super::seams::Shown> {
+            let mut shown = super::super::testing::TextTranscript.items(lane, record);
+            let rows = shown.iter_mut().filter_map(|shown| match shown {
+                super::super::seams::Shown::Item(item) => Some(item),
+                super::super::seams::Shown::Update(_) => None,
+            });
+            for (row, item) in rows.enumerate() {
+                super::super::reads::mark_history_position(item, record.iid.as_str(), row);
+            }
+            shown
+        }
+
+        fn rows(&self, lane: &InLane<CpuInteractive>, record: &ItemRecord) -> Vec<(ThreadItem, usize)> {
+            self.items(lane, record)
+                .into_iter()
+                .filter_map(|shown| match shown {
+                    super::super::seams::Shown::Item(item) => {
+                        let bytes = serde_json::to_vec(&item).expect("protocol types serialize").len();
+                        Some((item, bytes))
+                    }
+                    super::super::seams::Shown::Update(_) => None,
+                })
+                .collect()
+        }
+
+        fn queued(&self, qid: &str, entry: &Value) -> Value {
+            super::super::testing::TextTranscript.queued(qid, entry)
+        }
+
+        fn user_message(&self, input: &mixdog_app_protocol::v2::thread::TurnInput, originals_missing: u32) -> Value {
+            super::super::testing::TextTranscript.user_message(input, originals_missing)
+        }
+
+        fn summary(&self, id: &ThreadId, header: &Header) -> mixdog_protocol::ThreadSummary {
+            super::super::testing::TextTranscript.summary(id, header)
+        }
+    }
+
+    fn positioned_directory(rig: &super::super::testing::Rig, store: Arc<dyn ThreadStore>) -> super::super::SessionDirectory {
+        let mut deps = rig.deps_parts(store);
+        deps.transcript = Arc::new(PositionedText);
+        deps.feeds = Arc::new(CoreThreadFeeds::new(&mixdog_app_protocol::limits::Limits::default(), mixdog_rt::testing::tokens().cpu_interactive));
+        super::super::SessionDirectory::new(Arc::new(deps))
+    }
+
+    fn lane_frames(frames: &[String]) -> Vec<Value> {
+        frames
+            .iter()
+            .filter(|frame| !frame.starts_with("control:"))
+            .filter_map(|frame| frame.split_once(':'))
+            .map(|(_, frame)| serde_json::from_str(frame).expect("lane frame JSON"))
+            .collect()
+    }
+
+    async fn cold_positioned_snapshot(directory: &super::super::SessionDirectory, id: &ThreadId, conn_id: u64) -> Value {
+        let conn = MockConnection::new(ConnectionId(conn_id), MockLimits::default());
+        let handle = directory.open_handle(id, &CallContext::internal("test")).await.expect("cold open");
+        let params = json!({ "threadId": id, "window": { "lastItems": WINDOW_ROWS }, "positionedWindow": true });
+        let Reply::Subscribe(reply) = handle.request(super::super::tests::request("thread/resume", params, "resume")).await.expect("thread/resume") else {
+            panic!("thread/resume subscribes");
+        };
+        let sub = SubscriptionId::from("sub");
+        let attached = mixdog_core_api::feed::subscribe(&reply.feed, sub.clone(), reply.window, reply.resume_from, &conn).expect("attach");
+        mixdog_core_api::sink::ConnectionSink::send_control_release(&conn, bytes::Bytes::from_static(b"{}"), attached.release).expect("release");
+        let frames = lane_frames(&conn.drain_text_until(|frames| frames.iter().any(|frame| frame.contains("thread/snapshot"))).await);
+        reply.feed.detach(sub);
+        frames.into_iter().find(|frame| frame["method"] == "thread/snapshot").expect("snapshot")
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn exact_page_size_cold_window_does_not_advertise_older_history() {
+        let data = tempfile::tempdir().expect("data dir");
+        let store = super::super::tests::real_store(data.path()).await;
+
+        let rig = super::super::testing::Rig::new();
+        let first = positioned_directory(&rig, store.clone());
+        let handle = super::super::tests::start_thread(&first).await;
+        let id = handle.id.clone();
+        let messages: Vec<Value> =
+            (0..WINDOW_ROWS).map(|n| json!({ "role": if n % 2 == 0 { "user" } else { "assistant" }, "content": format!("m{n}") })).collect();
+        handle
+            .request(CoreRequest {
+                method: Method("thread/inheritedRows/append"),
+                params: json!({ "messages": messages }),
+                op: None,
+                ctx: CallContext::internal("test"),
+            })
+            .await
+            .expect("append exact page rows");
+        first.shutdown().await;
+
+        let second = positioned_directory(&rig, store.clone());
+        let exact = cold_positioned_snapshot(&second, &id, 101).await;
+        let exact_units = exact["params"]["window"]["added"][0]["units"].as_array().expect("exact tail units");
+        assert_eq!(exact_units.len(), WINDOW_ROWS);
+        assert_eq!(exact["params"]["hasOlder"], json!(false), "exact WINDOW_ROWS thread has no older rows");
+        assert_eq!(exact["params"]["window"]["ranges"][0]["older"]["kind"], json!("end"));
+
+        // Adding one more row makes the thread strictly larger than WINDOW_ROWS, so older history genuinely exists.
+        let loaded = second.open_handle(&id, &CallContext::internal("test")).await.expect("loaded handle");
+        loaded
+            .request(CoreRequest {
+                method: Method("thread/inheritedRows/append"),
+                params: json!({ "messages": [{ "role": "user", "content": format!("m{WINDOW_ROWS}") }] }),
+                op: None,
+                ctx: CallContext::internal("test"),
+            })
+            .await
+            .expect("append overflow row");
+        second.shutdown().await;
+
+        let third = positioned_directory(&rig, store.clone());
+        let overflow = cold_positioned_snapshot(&third, &id, 102).await;
+        let overflow_units = overflow["params"]["window"]["added"][0]["units"].as_array().expect("overflow tail units");
+        assert_eq!(overflow_units.len(), WINDOW_ROWS);
+        assert_eq!(overflow["params"]["hasOlder"], json!(true), "WINDOW_ROWS + 1 thread has older rows");
+        assert_eq!(overflow["params"]["window"]["ranges"][0]["older"]["kind"], json!("continuation"));
+        third.shutdown().await;
+    }
+}

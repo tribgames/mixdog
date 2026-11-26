@@ -230,6 +230,12 @@ impl SideQuestionStore {
         self.warm_end(thread, SideEnd::Transcript);
     }
 
+    /// Releases a resting session's cached last request and response without ending its warm chain
+    /// or firing `on_end`: a later side question rebuilds from committed history via [`NextMainRequest::next`].
+    pub fn release_rested(&self, thread: &ThreadId) {
+        self.requests().remove(thread.as_str());
+    }
+
     /// `forgetSideQuestion(id, { cancel })` for `end`: the saved request goes, and the session's cache warm as [`SideEnd`] says.
     pub fn end(&self, thread: &ThreadId, end: SideEnd) {
         self.requests().remove(thread.as_str());
@@ -897,5 +903,57 @@ mod tests {
         assert!(retired.settled && retired.compacted, "settled, but a compaction rewrote the transcript since");
         store.end(&thread(), SideEnd::Transcript);
         assert_eq!(store.saved_request(&thread()), None);
+    }
+
+    #[tokio::test]
+    async fn a_resting_session_releases_its_cached_request_and_rebuilds_from_history() {
+        struct RecordWarm {
+            forgotten: Mutex<Vec<String>>,
+            cancelled: Mutex<Vec<String>>,
+        }
+        impl SendWarmth for RecordWarm {
+            fn sending(&self, _: &ThreadId, _: &str, _: &SideMaterial, _: u64) {}
+            fn settled(&self, _: &ThreadId, _: &str, _: &SideMaterial, _: u64, _: &ModelResponse) {}
+            fn forget(&self, thread: &ThreadId) {
+                self.forgotten.lock().unwrap().push(thread.as_str().to_owned());
+            }
+            fn cancel(&self, thread: &ThreadId) {
+                self.cancelled.lock().unwrap().push(thread.as_str().to_owned());
+            }
+        }
+        struct CountedRebuild(Arc<Recording>, AtomicU64);
+        #[async_trait]
+        impl NextMainRequest for CountedRebuild {
+            async fn next(&self, _: &ThreadId) -> Option<SideMaterial> {
+                self.1.fetch_add(1, Ordering::SeqCst);
+                Some(material(self.0.clone()))
+            }
+        }
+
+        let store = Arc::new(SideQuestionStore::new());
+        let warm = Arc::new(RecordWarm { forgotten: Mutex::default(), cancelled: Mutex::default() });
+        store.bind_warm(warm.clone());
+        let ended: Arc<Mutex<Vec<(String, SideEnd)>>> = Arc::default();
+        let sink = ended.clone();
+        store.on_end(move |t, end| sink.lock().unwrap().push((t.as_str().to_owned(), end)));
+
+        let t1 = ThreadId::from("t1");
+        let t2 = ThreadId::from("t2");
+        let c1 = store.capture(&t1, request(1), Arc::new(Tagged("one")), idle_material(), false);
+        store.settle(&c1, Some(ModelResponse::default()));
+        let c2 = store.capture(&t2, request(2), Arc::new(Tagged("two")), idle_material(), false);
+        store.settle(&c2, Some(ModelResponse::default()));
+
+        store.release_rested(&t1);
+        assert_eq!(store.saved_request(&t1), None, "resting drops the cached request and response");
+        assert!(store.saved_request(&t2).is_some(), "other sessions stay cached");
+        assert!(warm.forgotten.lock().unwrap().is_empty() && warm.cancelled.lock().unwrap().is_empty(), "resting keeps the warm chain");
+        assert!(ended.lock().unwrap().is_empty(), "resting does not fire on_end");
+
+        let provider = Recording::new([MockAttempt::Body(b"t:rebuilt\ndone\n".to_vec())]);
+        let next = Arc::new(CountedRebuild(provider, AtomicU64::new(0)));
+        let side = service(&store, next.clone());
+        assert_eq!(ask_side_question(&side, &t1, "q", true).await.unwrap(), "rebuilt");
+        assert_eq!(next.1.load(Ordering::SeqCst), 1, "rebuilt from committed history");
     }
 }

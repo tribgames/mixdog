@@ -73,6 +73,18 @@ fn stored_part(message: &Message, slot: usize) -> u32 {
     if message.stored_parts.is_empty() { slot as u32 } else { message.stored_parts[slot] }
 }
 
+/// The content slot of `message` that holds stored part `part` of an occurrence of it.
+fn slot_of(message: &Message, part: u32) -> usize {
+    if message.stored_parts.is_empty() {
+        part as usize
+    } else {
+        message.stored_parts.iter().position(|&p| p == part).expect("an occurrence names a part of this message")
+    }
+}
+
+/// What a model that reads no image is sent in the place of each image ([`DraftRequest::omitting`]).
+pub const OMITTED_IMAGE: &str = "[image omitted: this model takes no image input]";
+
 fn is_data_url(url: &str) -> bool {
     url.get(..5).is_some_and(|scheme| scheme.eq_ignore_ascii_case("data:"))
 }
@@ -201,6 +213,54 @@ fn write_recorded_images(value: &mut Value, bodies: &[&Body], next: &mut usize) 
         let Some(Value::Object(map)) = value.pointer_mut(&path) else { unreachable!("the walk found a block there") };
         write_recorded(map, bodies[*next]);
         *next += 1;
+    }
+}
+
+/// Each image of a recorded form whose ordinal (in the walk of [`recorded_image_paths`], `next` counting the images met so far)
+/// is in `omitted`, as the omission text.
+fn omit_recorded_images(value: &mut Value, omitted: &[u32], next: &mut u32) {
+    let mut paths = Vec::new();
+    recorded_image_paths(value, &mut String::new(), &mut paths);
+    for path in paths {
+        if omitted.contains(next) {
+            let Some(Value::Object(map)) = value.pointer_mut(&path) else { unreachable!("the walk found a block there") };
+            omit_recorded(map);
+        }
+        *next += 1;
+    }
+}
+
+/// A recorded image block as [`OMITTED_IMAGE`] in the spelling of the wire that recorded it, keeping the block's other keys.
+fn omit_recorded(map: &mut Map<String, Value>) {
+    let text = Value::String(OMITTED_IMAGE.to_owned());
+    match text_of(map, "type").map(str::to_owned).as_deref() {
+        Some("image" | "image_url") => {
+            map.remove("source");
+            map.remove("image_url");
+            map.insert("type".into(), Value::String("text".into()));
+            map.insert("text".into(), text);
+        }
+        Some("input_image") => {
+            for key in ["image_url", "file_id", "detail"] {
+                map.remove(key);
+            }
+            map.insert("type".into(), Value::String("input_text".into()));
+            map.insert("text".into(), text);
+        }
+        // A generated image is an output item of its own, with no text form: an assistant message stands in for it.
+        Some("image_generation_call") => {
+            let Value::Object(message) = serde_json::json!({ "type": "message", "role": "assistant", "content": [{ "type": "output_text", "text": text }] })
+            else {
+                unreachable!("an object literal")
+            };
+            *map = message;
+        }
+        _ => {
+            for key in GEMINI_INLINE.into_iter().chain(GEMINI_FILE) {
+                map.remove(key);
+            }
+            map.insert("text".into(), text);
+        }
     }
 }
 
@@ -335,6 +395,45 @@ impl DraftRequest {
             not_sent.offer_new_context(prompt);
         }
     }
+
+    /// How many of `origins` are images of the person's latest message while no assistant message follows it: the images of
+    /// the message this request sends for the first time.
+    pub fn new_prompt_images(&self, origins: &[Origin]) -> usize {
+        let messages = &self.request.messages;
+        let Some(prompt) = latest_prompt(messages) else { return 0 };
+        if messages[prompt + 1..].iter().any(|message| message.role == Role::Assistant) {
+            return 0;
+        }
+        origins.iter().filter(|origin| origin.part_path[0] as usize == prompt && !origin.in_recorded_form()).count()
+    }
+
+    /// The draft with each occurrence in `omitted` sent as [`OMITTED_IMAGE`] in the place it had (a text part, or a text block
+    /// in the spelling of the recorded form that held it), and no longer an occurrence. The request the draft was made from
+    /// keeps its images.
+    pub fn omitting(self, omitted: &[Origin]) -> Self {
+        if omitted.is_empty() {
+            return self;
+        }
+        let mut request = (*self.request).clone();
+        for (index, message) in request.messages.iter_mut().enumerate() {
+            let mut recorded = Vec::new();
+            for path in omitted.iter().map(|origin| &origin.part_path).filter(|path| path[0] as usize == index) {
+                if path[1] == RECORDED_FORM {
+                    recorded.push(path[2]);
+                    continue;
+                }
+                let slot = slot_of(message, path[1]);
+                let Content::Parts(parts) = &mut message.content else { unreachable!("a content image sits in parts") };
+                parts[slot] = ContentPart::Text(OMITTED_IMAGE.to_owned(), None);
+            }
+            if !recorded.is_empty() {
+                let mut next = 0;
+                message.recorded_form_mut().for_each(|value| omit_recorded_images(value, &recorded, &mut next));
+            }
+        }
+        let intents = self.intents.into_iter().filter(|intent| !omitted.contains(&intent.origin)).collect();
+        Self { request: Arc::new(request), intents }
+    }
 }
 
 /// A request whose every image occurrence is accounted for against one plan. It is made by [`PreparedRequest::seal`] alone:
@@ -414,11 +513,7 @@ impl PreparedRequest {
                     recorded.push(image.body());
                     continue;
                 }
-                let slot = if message.stored_parts.is_empty() {
-                    path[1] as usize
-                } else {
-                    message.stored_parts.iter().position(|&p| p == path[1]).expect("a sealed image names a part of this message")
-                };
+                let slot = slot_of(message, path[1]);
                 let Content::Parts(parts) = &mut message.content else { unreachable!("a sealed content image sits in parts") };
                 parts[slot] = ContentPart::Image(match image.body() {
                     Body::Inline { mime, bytes } => {

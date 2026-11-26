@@ -85,4 +85,8 @@ pub trait TransportKeepalive: Send + Sync {
     fn liveness(&self) -> LinkLiveness;
     /// Whether a new response may start on this connection (WS age limit).
     fn may_start_response(&self) -> bool;
+    /// Remaining lifetime before [`Self::may_start_response`] turns false, when bounded.
+    fn max_age_remaining(&self) -> Option<Duration> {
+        None
+    }
 }

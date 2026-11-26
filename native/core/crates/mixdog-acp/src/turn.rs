@@ -105,6 +105,8 @@ pub struct TurnContext {
     /// The window the user selected for the session, below the agent's own: it sets the effective window and the
     /// compaction boundary, and the agent's reports move only the raw window.
     pub selected_window: Option<u64>,
+    /// The session's attachments, used to resolve `AttachmentRef` parts in mid-turn steers.
+    pub attachments: Option<Arc<dyn crate::runs::Attachments>>,
 }
 
 /// What a turn's owner hears of each tool result: its card diff, where it has one.
@@ -643,7 +645,13 @@ impl Reply<'_> {
             return true;
         }
         // The session's surface may have moved since it was last read: a name it does not hold is looked for once more.
-        let Ok(tools) = handed.tools.definitions(&handed.thread).await else { return false };
+        let definitions = tokio::select! {
+            biased;
+            () = self.context.cancel.cancelled() => return false,
+            () = self.session.gone().cancelled() => return false,
+            definitions = handed.tools.definitions(&handed.thread) => definitions,
+        };
+        let Ok(tools) = definitions else { return false };
         let listed: Vec<String> = tools.into_iter().map(|tool| tool.name).collect();
         let found = is_listed(&listed);
         self.listed = Some(listed);
@@ -667,7 +675,7 @@ impl Reply<'_> {
     /// over by then, the answer that it goes on as a background task, no longer the turn's. The answer to the agent, with
     /// the failure to store the result row; `Err` where the session did not take the row that makes the call, and it did
     /// not run.
-    async fn run_call(&mut self, handed: &Handover, name: String, arguments: Value, due: Due) -> Result<(Value, Option<RunError>), RunError> {
+    async fn run_call(&mut self, handed: &Handover, name: String, arguments: Value, due: Due) -> Result<(Value, bool, Option<RunError>), RunError> {
         let id = self.open_handed(&name, &arguments).await?;
         let call = ToolCall { id: id.clone(), name: name.clone(), arguments: arguments.clone(), native_type: None };
         let ran = match self.context.calls.clone() {
@@ -675,22 +683,22 @@ impl Reply<'_> {
             None => Ok(crate::mcp::unrun(&id, "This turn runs no Mixdog tools.")),
         };
         self.context.mark(|progress, now| progress.tool_call(None, now));
-        let (row, answer) = match ran {
-            Ok(outcome) => (rows::tool_message(new_item_id(), &outcome.message), crate::mcp::rendered(&outcome)),
+        let (row, answer, handed_off) = match ran {
+            Ok(outcome) => (rows::tool_message(new_item_id(), &outcome.message), crate::mcp::rendered(&outcome), false),
             Err((_, Unfinished::Gone)) => {
                 let text = "The agent's session ended before this call did.".to_owned();
-                (rows::tool_result(new_item_id(), &id, text.clone(), true, None), crate::mcp::result_text(text, true))
+                (rows::tool_result(new_item_id(), &id, text.clone(), true, None), crate::mcp::result_text(text, true), false)
             }
             Err((calls, Unfinished::Due(running))) => {
                 calls.let_go(&id).await;
                 let task = self.keep(handed, &name, (calls, id.clone()), running);
                 self.session.keep_call(name.clone(), arguments, task.clone());
                 let text = crate::mcp::kept(&name, &task);
-                (rows::tool_result(new_item_id(), &id, text.clone(), false, None), crate::mcp::result_text(text, false))
+                (rows::tool_result(new_item_id(), &id, text.clone(), false, None), crate::mcp::result_text(text, false), true)
             }
         };
         let unstored = self.commit_result(row).await.err();
-        Ok((answer, unstored))
+        Ok((answer, handed_off, unstored))
     }
 
     /// Lets `running`, a call of the Mixdog tool `tool` that the turn's `calls` let go of under its id, go on as a
@@ -725,6 +733,136 @@ impl Reply<'_> {
         started.expect("the table gives a task that names no id a new one")
     }
 
+    /// Delivers `base` to `ask`, attaching any ready mid-turn user messages or task notifications first.
+    /// Steers are peeked for attachment resolution, then atomically claimed and committed BEFORE `ask.answer.send`
+    /// so a concurrently stopped submission is never delivered to the agent without being recorded, while a racing
+    /// Stop or `due` expiration during attachment resolution leaves queued entries untouched.
+    async fn deliver_answer(&self, ask: ToolAsk, base: Value, due: Due, handed_off: bool) -> Result<(), RunError> {
+        let name = ask.name;
+        let send_base = |answer_tx: tokio::sync::oneshot::Sender<Value>, base: Value| {
+            if answer_tx.send(base).is_err() {
+                tracing::warn!("[acp] {} gave up its call of {} before it was answered; the call's row holds its answer", self.agent(), name);
+            }
+        };
+        let expired = || due.answer.is_some_and(|deadline| tokio::time::Instant::now() >= deadline);
+        if handed_off || expired() || ask.answer.is_closed() || self.context.cancel.is_cancelled() || self.session.gone().is_cancelled() {
+            send_base(ask.answer, base);
+            return Ok(());
+        }
+        let peeked = tokio::select! {
+            biased;
+            () = self.context.cancel.cancelled() => None,
+            () = self.session.gone().cancelled() => None,
+            () = until(due.answer) => None,
+            steers = self.surface.peek_steers() => Some(steers),
+        };
+        let steers = match peeked {
+            None => {
+                send_base(ask.answer, base);
+                return Ok(());
+            }
+            Some(Ok(steers)) if steers.is_empty() => {
+                send_base(ask.answer, base);
+                return Ok(());
+            }
+            Some(Ok(steers)) => steers,
+            Some(Err(RunError::Cancelled)) => {
+                send_base(ask.answer, base);
+                return Ok(());
+            }
+            Some(Err(error)) => {
+                send_base(ask.answer, base);
+                return Err(error);
+            }
+        };
+        let fallback = crate::runs::NoAttachments;
+        let attachments: &dyn crate::runs::Attachments = self.context.attachments.as_deref().unwrap_or(&fallback);
+        let capabilities = (self.session.images, self.session.embedded);
+        let resolved = tokio::select! {
+            biased;
+            () = self.context.cancel.cancelled() => None,
+            () = self.session.gone().cancelled() => None,
+            () = until(due.answer) => None,
+            resolved = async {
+                let mut entries = Vec::with_capacity(steers.len());
+                for steer in &steers {
+                    let (value, left) = crate::mcp::with_steers(json!({ "content": [] }), std::slice::from_ref(steer), capabilities, attachments).await;
+                    let blocks = value.get("content").and_then(Value::as_array).cloned().unwrap_or_default();
+                    entries.push((steer, blocks, left));
+                }
+                entries
+            } => Some(resolved),
+        };
+        let Some(mut resolved) = resolved else {
+            send_base(ask.answer, base);
+            return Ok(());
+        };
+        if expired() || ask.answer.is_closed() || self.context.cancel.is_cancelled() || self.session.gone().is_cancelled() {
+            send_base(ask.answer, base);
+            return Ok(());
+        }
+        let queued_ids = steers.iter().flat_map(|steer| steer.queued_ids.iter().cloned()).collect();
+        // Bound pre-dequeue waiting by turn stop, session loss, and the MCP call deadline without
+        // ever dropping `commit_fut` mid-commit: once the actor dequeues, the committed steers are
+        // returned and delivered rather than discarded.
+        let commit_cancel = self.context.cancel.child_token();
+        let commit_fut = self.surface.commit_steers(queued_ids, (self.context.now_ms)(), commit_cancel.clone());
+        tokio::pin!(commit_fut);
+        let commit_result = loop {
+            tokio::select! {
+                biased;
+                res = &mut commit_fut => break res,
+                () = self.session.gone().cancelled(), if !commit_cancel.is_cancelled() => commit_cancel.cancel(),
+                () = until(due.answer), if !commit_cancel.is_cancelled() => commit_cancel.cancel(),
+            }
+        };
+        let claimed = match commit_result {
+            Ok(claimed) if claimed.is_empty() => {
+                send_base(ask.answer, base);
+                return Ok(());
+            }
+            Ok(claimed) => claimed,
+            Err(RunError::Cancelled) => {
+                send_base(ask.answer, base);
+                return Ok(());
+            }
+            Err(error) => {
+                send_base(ask.answer, base);
+                return Err(error);
+            }
+        };
+        let mut answer = base;
+        if !answer.get("content").is_some_and(Value::is_array) {
+            answer["content"] = json!([]);
+        }
+        let blocks = answer["content"].as_array_mut().expect("content is an array");
+        let mut left_out = crate::runs::LeftOut::default();
+        for entry in &claimed {
+            if let Some(pos) =
+                resolved.iter().position(|(steer, _, _)| steer.queued_ids == entry.queued_ids && steer.task_notification == entry.task_notification)
+            {
+                let (_, mut entry_blocks, entry_left) = resolved.remove(pos);
+                blocks.append(&mut entry_blocks);
+                left_out.images += entry_left.images;
+                left_out.files.extend(entry_left.files);
+            }
+        }
+        if ask.answer.send(answer).is_err() {
+            tracing::warn!("[acp] {} gave up its call of {} before it was answered; the call's row holds its answer", self.agent(), name);
+            return Ok(());
+        }
+        let label = &self.session.preset.label;
+        if left_out.images > 0 {
+            let why = if self.session.images { "could not be read".to_owned() } else { format!("{label} takes no images") };
+            let _ = self.surface.closing().notice(format!("{} image(s) of this message were not sent to {label}: {why}.", left_out.images), true).await;
+        }
+        if !left_out.files.is_empty() {
+            let named = left_out.files.iter().map(|file| format!("\"{file}\"")).collect::<Vec<_>>().join(", ");
+            let _ = self.surface.closing().notice(format!("Not sent to {label} (not readable where the session keeps its attachments): {named}."), true).await;
+        }
+        Ok(())
+    }
+
     /// A call the agent made of a Mixdog tool through the session's server: shown as that tool's call, run through
     /// Mixdog's pipeline, and given its row however it ends; the agent is answered with its result, or, where it gives up
     /// a call after a deadline and the call is not over in time, with the background task the call goes on as. A call of
@@ -736,7 +874,19 @@ impl Reply<'_> {
             return Ok(());
         };
         // The agent is handed the session's surface as it is now, and nothing beyond it.
-        match handed.tools.definitions(&handed.thread).await {
+        let definitions = tokio::select! {
+            biased;
+            () = self.context.cancel.cancelled() => {
+                ask.refuse("Cancelled");
+                return Ok(());
+            }
+            () = self.session.gone().cancelled() => {
+                ask.refuse("The agent's session ended before this call did.");
+                return Ok(());
+            }
+            definitions = handed.tools.definitions(&handed.thread) => definitions,
+        };
+        match definitions {
             Ok(tools) if tools.iter().any(|tool| tool.name == ask.name) => {}
             Ok(_) => {
                 let why = format!("{} is not a tool of this session.", ask.name);
@@ -748,23 +898,26 @@ impl Reply<'_> {
                 return Ok(());
             }
         }
+        let due = Due::of(self.session.preset.quirks.mcp_call_deadline, ask.received);
         let running = |task: &str| handed.tools.tasks().get(task, &Scope::default()).is_some_and(|row| !row.is_terminal());
         if let Some(task) = self.session.kept_call(&ask.name, &ask.arguments, running) {
-            let _ = ask.answer.send(crate::mcp::result_text(crate::mcp::kept_again(&ask.name, &task), false));
-            return Ok(());
+            let base = crate::mcp::result_text(crate::mcp::kept_again(&ask.name, &task), false);
+            return self.deliver_answer(ask, base, due, false).await;
         }
-        let due = Due::of(self.session.preset.quirks.mcp_call_deadline, ask.received);
-        let (answer, unstored) = match self.run_call(&handed, ask.name.clone(), ask.arguments.clone(), due).await {
+        let (answer, handed_off, unstored) = match self.run_call(&handed, ask.name.clone(), ask.arguments.clone(), due).await {
             Ok(ran) => ran,
             Err(error) => {
                 ask.refuse("The session stopped taking this turn's work; the call was not run.");
                 return Err(error);
             }
         };
-        if ask.answer.send(answer).is_err() {
-            tracing::warn!("[acp] {} gave up its call of {} before it was answered; the call's row holds its answer", self.agent(), ask.name);
+        if let Some(error) = unstored {
+            if ask.answer.send(answer).is_err() {
+                tracing::warn!("[acp] {} gave up its call of {} before it was answered; the call's row holds its answer", self.agent(), ask.name);
+            }
+            return Err(error);
         }
-        unstored.map_or(Ok(()), Err)
+        self.deliver_answer(ask, answer, due, handed_off).await
     }
 
     /// Stores the result row of a call whose assistant row is stored. A stop of the turn that lands while the row is on
@@ -1067,6 +1220,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
         held: None,
         draft: Draft::default(),
     };
+    let mut refuse_budget = crate::session::RefuseBudget::new();
     let replying = matches!(ask, Ask::Reply);
     let prompt = match ask {
         Ask::Prompt(blocks) => {
@@ -1081,6 +1235,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             match sent {
                 Some(Ok(id)) => {
                     // Written, the prompt is the agent's: what is left to wait for is its first answer.
+                    session.mark_handoff_sent();
                     context.mark(|progress, now| progress.stream_delta(StreamKind::Transport, now));
                     // The agent holds the prompt: its session is the conversation's from here. A record that cannot be
                     // saved leaves the conversation naming no session, and the next turn hands it over again.
@@ -1102,7 +1257,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
                 // The agent stopped reading while the prompt was written: how much of it it holds is unknown.
                 None => {
                     session.end();
-                    session.detach(stream, Vec::new()).await;
+                    session.detach_with_budget(stream, Vec::new(), &mut refuse_budget).await;
                     context.mark(|progress, now| progress.settle("done", now, false));
                     return TurnEnd::Interrupted;
                 }
@@ -1159,16 +1314,93 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
                 };
                 match answered {
                     // A shared server goes on with its other sessions: its question is not left without an answer.
+                    // Bound the write by the turn's shared refusal budget so a stalled pipe never blocks turn exit.
                     None => {
-                        session.connection.respond(id, Ok(outcome(None))).await;
+                        refuse_budget.refuse(session, id).await;
                         break Ended::Gone;
                     }
                     Some(Ok(answer)) => {
-                        session.connection.respond(id, Ok(answer)).await;
-                        Ok(())
+                        if context.cancel.is_cancelled() {
+                            refuse_budget.refuse(session, id).await;
+                            break Ended::Stopped;
+                        }
+                        // Arm synchronous cancellation hooks before polling `respond`: if Stop or session-loss fires
+                        // once bytes may already be admitted to stdin (`GRANT_WRITING`), the hook calls
+                        // `Connection::break_off` synchronously inside `CancellationToken::cancel()` so the process
+                        // is killed before stdin can drain ahead of this turn task being rescheduled.
+                        let write_state = Arc::new(std::sync::atomic::AtomicU8::new(GRANT_BEFORE_WRITE));
+                        let cancel_hook = SyncGrantCancelHook::arm(
+                            &context.cancel,
+                            write_state.clone(),
+                            session.connection.clone(),
+                            "permission response write stalled past turn stop",
+                            false,
+                        );
+                        let gone_hook = SyncGrantCancelHook::arm(
+                            session.gone(),
+                            write_state.clone(),
+                            session.connection.clone(),
+                            "permission response write stalled on ended session",
+                            true,
+                        );
+                        let write_id = id.clone();
+                        let write_state_for_send = write_state.clone();
+                        let respond = async move {
+                            if write_state_for_send
+                                .compare_exchange(GRANT_BEFORE_WRITE, GRANT_WRITING, std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst)
+                                .is_err()
+                            {
+                                return false;
+                            }
+                            session.connection.respond(write_id, Ok(answer)).await;
+                            write_state_for_send.store(GRANT_DONE, std::sync::atomic::Ordering::SeqCst);
+                            true
+                        };
+                        tokio::select! {
+                            biased;
+                            () = context.cancel.cancelled() => {
+                                cancel_hook.disarm();
+                                gone_hook.disarm();
+                                let state = write_state.load(std::sync::atomic::Ordering::SeqCst);
+                                if state == GRANT_BEFORE_WRITE || state == GRANT_CANCELLED_BEFORE_WRITE {
+                                    refuse_budget.refuse(session, id).await;
+                                } else {
+                                    session.break_connection("permission response write stalled past turn stop");
+                                }
+                                break Ended::Stopped;
+                            }
+                            () = session.gone().cancelled() => {
+                                cancel_hook.disarm();
+                                gone_hook.disarm();
+                                if !session.connection.exited().is_cancelled() {
+                                    let state = write_state.load(std::sync::atomic::Ordering::SeqCst);
+                                    if state == GRANT_BEFORE_WRITE || state == GRANT_CANCELLED_BEFORE_WRITE {
+                                        refuse_budget.refuse(session, id).await;
+                                    } else {
+                                        session.break_connection("permission response write stalled on ended session");
+                                    }
+                                }
+                                break Ended::Gone;
+                            }
+                            wrote = respond => {
+                                cancel_hook.disarm();
+                                gone_hook.disarm();
+                                if wrote {
+                                    Ok(())
+                                } else if context.cancel.is_cancelled() {
+                                    refuse_budget.refuse(session, id).await;
+                                    break Ended::Stopped;
+                                } else {
+                                    if !session.connection.exited().is_cancelled() {
+                                        refuse_budget.refuse(session, id).await;
+                                    }
+                                    break Ended::Gone;
+                                }
+                            }
+                        }
                     }
                     Some(Err(error)) => {
-                        session.connection.respond(id, Ok(outcome(None))).await;
+                        refuse_budget.refuse(session, id).await;
                         Err(error)
                     }
                 }
@@ -1197,7 +1429,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
         Ended::Agent(Some(Err(error))) => {
             let _ = reply.show_held().await;
             reply.close(surface.as_ref(), ("The agent's turn failed before this call ended.", true)).await;
-            session.detach(stream, Vec::new()).await;
+            session.detach_with_budget(stream, Vec::new(), &mut refuse_budget).await;
             let timing = timing_of(started_at_ms, &reply.model_time, (context.now_ms)());
             if let Some(usage) = usage_of(&Value::Null, reported, &context, timing, tool_calls) {
                 let _ = surface.usage(usage).await;
@@ -1219,7 +1451,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             };
             // A call still open when the agent closes its turn is work it keeps running in its own process.
             let background = reply.close(surface.as_ref(), ("Still running in the agent's background.", false)).await;
-            session.detach(stream, background).await;
+            session.detach_with_budget(stream, background, &mut refuse_budget).await;
             let answer = answer.unwrap_or(Value::Null);
             let timing = timing_of(started_at_ms, &reply.model_time, (context.now_ms)());
             if let Some(usage) = usage_of(&answer, session.context_use(), &context, timing, tool_calls) {
@@ -1245,7 +1477,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
         Ended::Gone => {
             let _ = reply.show_held().await;
             reply.close(surface.as_ref(), ("The agent's process ended before this call did.", true)).await;
-            session.detach(stream, Vec::new()).await;
+            session.detach_with_budget(stream, Vec::new(), &mut refuse_budget).await;
             TurnEnd::Failed { message: session.closed().to_string(), code: None, reported: false }
         }
         // The user stopped the turn, the agent says it was stopped, or the session is gone from under the turn: the
@@ -1257,7 +1489,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             }
             let closing = surface.closing();
             reply.close(closing.as_ref(), ("Cancelled", true)).await;
-            session.detach(stream, Vec::new()).await;
+            session.detach_with_budget(stream, Vec::new(), &mut refuse_budget).await;
             let timing = timing_of(started_at_ms, &reply.model_time, (context.now_ms)());
             if let Some(usage) = usage_of(&Value::Null, reported, &context, timing, tool_calls) {
                 let _ = closing.usage(usage).await;
@@ -1268,6 +1500,76 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
     let stage = if matches!(end, TurnEnd::Failed { .. } | TurnEnd::Refused { .. }) { "error" } else { "done" };
     context.mark(|progress, now| progress.settle(stage, now, false));
     end
+}
+
+const GRANT_BEFORE_WRITE: u8 = 0;
+const GRANT_WRITING: u8 = 1;
+const GRANT_DONE: u8 = 2;
+const GRANT_CANCELLED_BEFORE_WRITE: u8 = 3;
+
+struct GrantCancelWaker {
+    armed: std::sync::atomic::AtomicBool,
+    state: Arc<std::sync::atomic::AtomicU8>,
+    connection: Arc<crate::connection::Connection>,
+    why: &'static str,
+    skip_if_exited: bool,
+}
+
+impl std::task::Wake for GrantCancelWaker {
+    fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        if !self.armed.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        if self.skip_if_exited && self.connection.exited().is_cancelled() {
+            return;
+        }
+        if self
+            .state
+            .compare_exchange(GRANT_BEFORE_WRITE, GRANT_CANCELLED_BEFORE_WRITE, std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst)
+            .is_err()
+            && self.state.load(std::sync::atomic::Ordering::SeqCst) == GRANT_WRITING
+        {
+            self.connection.break_off(self.why);
+        }
+    }
+}
+
+struct SyncGrantCancelHook {
+    waker_state: Arc<GrantCancelWaker>,
+    _waiter: std::pin::Pin<Box<tokio_util::sync::WaitForCancellationFutureOwned>>,
+}
+
+impl SyncGrantCancelHook {
+    fn arm(
+        token: &CancellationToken,
+        state: Arc<std::sync::atomic::AtomicU8>,
+        connection: Arc<crate::connection::Connection>,
+        why: &'static str,
+        skip_if_exited: bool,
+    ) -> Self {
+        let waker_state = Arc::new(GrantCancelWaker { armed: std::sync::atomic::AtomicBool::new(true), state, connection, why, skip_if_exited });
+        let mut waiter = Box::pin(token.clone().cancelled_owned());
+        let waker = std::task::Waker::from(waker_state.clone());
+        let mut cx = std::task::Context::from_waker(&waker);
+        if waiter.as_mut().poll(&mut cx).is_ready() {
+            std::task::Wake::wake_by_ref(&waker_state);
+        }
+        Self { waker_state, _waiter: waiter }
+    }
+
+    fn disarm(&self) {
+        self.waker_state.armed.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl Drop for SyncGrantCancelHook {
+    fn drop(&mut self) {
+        self.disarm();
+    }
 }
 
 #[cfg(test)]
@@ -1356,5 +1658,724 @@ mod tests {
         let mut once = ModelTime::default();
         once.chunk(5_000);
         assert_eq!((once.worked_ms(), speed(&once, 172)), (0, None));
+    }
+
+    struct OpenEvents(tokio::sync::Notify);
+
+    #[async_trait::async_trait]
+    impl mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent> for OpenEvents {
+        async fn next(&mut self) -> Option<mixdog_core_api::domain::process::ProcessEvent> {
+            self.0.notified().await;
+            None
+        }
+    }
+
+    struct ActiveGuard(Arc<std::sync::atomic::AtomicUsize>);
+
+    impl Drop for ActiveGuard {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    struct GatedStdinProcesses {
+        active_writes: Arc<std::sync::atomic::AtomicUsize>,
+        total_writes: Arc<std::sync::atomic::AtomicUsize>,
+        write_started: Arc<tokio::sync::Notify>,
+        drain_gate: Arc<tokio::sync::Notify>,
+        delivered: Arc<std::sync::Mutex<Vec<String>>>,
+        killed: Arc<std::sync::atomic::AtomicBool>,
+        kill_notify: Arc<tokio::sync::Notify>,
+        block_all: bool,
+        pass_immediately: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl mixdog_core_api::domain::process::ProcessManager for GatedStdinProcesses {
+        async fn spawn(
+            &self,
+            request: mixdog_core_api::domain::process::SpawnRequest,
+        ) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
+            Ok(mixdog_core_api::domain::process::SpawnedProcess { handle: request.handle, pid: 1 })
+        }
+
+        fn subscribe(
+            &self,
+            _handle: &mixdog_protocol::ProcessHandle,
+            _from_seq: Option<u64>,
+        ) -> Result<
+            Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>,
+            mixdog_core_api::domain::process::ProcessError,
+        > {
+            Ok(Box::new(OpenEvents(tokio::sync::Notify::new())))
+        }
+
+        fn subscribe_holding(
+            &self,
+            handle: &mixdog_protocol::ProcessHandle,
+            from_seq: Option<u64>,
+        ) -> Result<
+            Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>,
+            mixdog_core_api::domain::process::ProcessError,
+        > {
+            self.subscribe(handle, from_seq)
+        }
+
+        async fn write_stdin(&self, _handle: &mixdog_protocol::ProcessHandle, bytes: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            if self.killed.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(mixdog_core_api::domain::process::ProcessError::StdinClosed);
+            }
+            let line = String::from_utf8_lossy(&bytes).into_owned();
+            // Ignore session/cancel notifications spawned by session.cancel so assertions track permission writes cleanly.
+            if line.contains("\"session/cancel\"") {
+                return Ok(());
+            }
+            self.total_writes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if self.pass_immediately {
+                self.delivered.lock().unwrap().push(line);
+                return Ok(());
+            }
+            self.active_writes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let guard = ActiveGuard(self.active_writes.clone());
+            self.write_started.notify_waiters();
+            // Faithfully model LocalProcessManager::queue_input_whole post-admission semantics:
+            // once admitted, dropping this future does NOT un-admit the queued bytes — they will still
+            // be delivered when `drain_gate` opens UNLESS `kill()` aborts the process and its input queue.
+            let delivered = self.delivered.clone();
+            let drain_gate = self.drain_gate.clone();
+            let killed = self.killed.clone();
+            let kill_notify = self.kill_notify.clone();
+            let block_all = self.block_all;
+            let delivery = tokio::spawn(async move {
+                let _guard = guard;
+                if killed.load(std::sync::atomic::Ordering::SeqCst) {
+                    return Err(mixdog_core_api::domain::process::ProcessError::StdinClosed);
+                }
+                if block_all {
+                    kill_notify.notified().await;
+                    return Err(mixdog_core_api::domain::process::ProcessError::StdinClosed);
+                }
+                tokio::select! {
+                    biased;
+                    () = kill_notify.notified() => Err(mixdog_core_api::domain::process::ProcessError::StdinClosed),
+                    () = drain_gate.notified() => {
+                        if killed.load(std::sync::atomic::Ordering::SeqCst) {
+                            Err(mixdog_core_api::domain::process::ProcessError::StdinClosed)
+                        } else {
+                            delivered.lock().unwrap().push(line);
+                            Ok(())
+                        }
+                    }
+                }
+            });
+            delivery.await.unwrap_or(Err(mixdog_core_api::domain::process::ProcessError::StdinClosed))
+        }
+
+        fn close_stdin(&self, _handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            Ok(())
+        }
+
+        fn resize_pty(
+            &self,
+            _handle: &mixdog_protocol::ProcessHandle,
+            _size: mixdog_core_api::domain::process::PtySize,
+        ) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            Ok(())
+        }
+
+        fn kill(&self, _handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            self.killed.store(true, std::sync::atomic::Ordering::SeqCst);
+            self.kill_notify.notify_waiters();
+            Ok(())
+        }
+
+        fn list(&self) -> Vec<mixdog_core_api::domain::process::ProcessInfo> {
+            Vec::new()
+        }
+    }
+
+    #[derive(Clone)]
+    struct TestApproveSurface {
+        on_approve: Arc<dyn Fn() -> ApprovalResolution + Send + Sync>,
+        commit_delay: Duration,
+    }
+
+    impl TestApproveSurface {
+        fn new(on_approve: impl Fn() -> ApprovalResolution + Send + Sync + 'static) -> Self {
+            Self { on_approve: Arc::new(on_approve), commit_delay: Duration::ZERO }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl TurnSurface for TestApproveSurface {
+        async fn item_started(&self, _: ThreadItem) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn delta(&self, _: ItemId, _: String) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn text_settled(&self, _: ItemId) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn reasoning_delta(&self, _: ItemId, _: String) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn reasoning_completed(&self, _: ItemId, _: String) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn commit(&self, _: mixdog_core_session::session::ItemCommit) -> Result<(), RunError> {
+            if !self.commit_delay.is_zero() {
+                mixdog_rt::time::sleep(self.commit_delay).await;
+            }
+            Ok(())
+        }
+        async fn notice(&self, _: String, _: bool) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn usage(&self, _: TurnUsage) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn draft(&self, _: Value) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn save_header(&self, _: HeaderChange) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn approve(&self, _: ApprovalAsk) -> ApprovalResolution {
+            (self.on_approve)()
+        }
+        async fn stage(&self, _: &str) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn compact_event(&self, _: crate::surface::CompactEvent) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn call_mark(&self, _: CallMark) -> Result<(), RunError> {
+            Ok(())
+        }
+        fn call_epoch(&self) -> u64 {
+            0
+        }
+        fn closing(&self) -> Arc<dyn TurnSurface> {
+            Arc::new(self.clone())
+        }
+    }
+
+    fn permission_request(id: u64, call_id: &str) -> Incoming {
+        Incoming::Request {
+            id: json!(id),
+            method: "session/request_permission".into(),
+            params: json!({
+                "toolCall": { "toolCallId": call_id, "title": "Run command", "kind": "execute", "status": "pending" },
+                "options": [
+                    { "optionId": "once", "name": "Allow", "kind": "allow_once" },
+                    { "optionId": "no", "name": "Reject", "kind": "reject_once" }
+                ]
+            }),
+        }
+    }
+
+    fn test_context(cancel: CancellationToken) -> TurnContext {
+        TurnContext {
+            turn: TurnId::from("t-1"),
+            model: "default".into(),
+            effort: None,
+            now_ms: Arc::new(|| 1_000),
+            cancel,
+            progress: None,
+            calls: None,
+            on_tool_result: None,
+            record: None,
+            selected_window: None,
+            attachments: None,
+        }
+    }
+
+    /// Defect 1: cancelling a turn while an affirmative permission response is admitted/stalled on stdin
+    /// breaks/invalidates the connection rather than returning cleanly on a live connection where the admitted
+    /// grant would land ahead of `session/cancel` once stdin drains.
+    #[tokio::test]
+    async fn stop_during_blocked_affirmative_permission_response_never_sends_grant() {
+        let _ = mixdog_rt::testing::tokens();
+        let active_writes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let total_writes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let write_started = Arc::new(tokio::sync::Notify::new());
+        let drain_gate = Arc::new(tokio::sync::Notify::new());
+        let delivered = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let killed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let kill_notify = Arc::new(tokio::sync::Notify::new());
+        let processes: Arc<dyn mixdog_core_api::domain::process::ProcessManager> = Arc::new(GatedStdinProcesses {
+            active_writes: active_writes.clone(),
+            total_writes: total_writes.clone(),
+            write_started: write_started.clone(),
+            drain_gate: drain_gate.clone(),
+            delivered: delivered.clone(),
+            killed: killed.clone(),
+            kill_notify,
+            block_all: false,
+            pass_immediately: false,
+        });
+        let cwd = mixdog_core_api::domain::common::AbsPath::new(std::env::current_dir().expect("cwd")).expect("abs cwd");
+        let (connection, _incoming) = crate::connection::Connection::start(
+            processes,
+            crate::connection::Launch { program: "fake".into(), args: Vec::new(), env: Vec::new(), env_remove: Vec::new(), cwd },
+        )
+        .await
+        .expect("connection");
+        let session = AgentSession::test_session_for(connection);
+        session.take(permission_request(42, "p-grant"));
+
+        let approve_once: ApprovalResolution =
+            serde_json::from_value(json!({ "kind": "decided", "decision": { "approved": true }, "device": "PC", "connectionKind": "desktop", "at": 0 }))
+                .expect("approved resolution");
+        let surface: Arc<dyn TurnSurface> = Arc::new(TestApproveSurface::new(move || approve_once.clone()));
+        let cancel = CancellationToken::new();
+
+        let started_wait = write_started.notified();
+        tokio::pin!(started_wait);
+        started_wait.as_mut().enable();
+        let turn = run(&session, surface, Ask::Reply, test_context(cancel.clone()));
+        let stop = async {
+            started_wait.await;
+            cancel.cancel();
+        };
+        let (end, ()) = tokio::join!(turn, stop);
+        assert_eq!(end, TurnEnd::Interrupted);
+        assert!(killed.load(std::sync::atomic::Ordering::SeqCst), "stalled admitted grant past Stop must break/kill the connection");
+
+        // Drain stdin after Stop: because the connection was broken/killed, no affirmative grant is delivered.
+        drain_gate.notify_waiters();
+        mixdog_rt::time::sleep(Duration::from_millis(30)).await;
+        assert_eq!(active_writes.load(std::sync::atomic::Ordering::SeqCst), 0, "no writer task may remain active after Stop");
+        let sent = delivered.lock().unwrap().clone();
+        assert!(sent.iter().all(|line| !line.contains("\"once\"")), "interrupted turn must never deliver an affirmative grant after Stop: {sent:?}");
+    }
+
+    /// Defect 5: Stop with one active permission request and additional buffered permission requests on stalled stdin
+    /// shares a single 200 ms per-turn refusal budget and breaks/kills the wedged connection when the budget expires
+    /// instead of leaving orphaned unanswered RPC requests on a live shared connection.
+    #[tokio::test]
+    async fn active_and_buffered_permission_refusals_share_single_turn_budget_without_lingering_tasks() {
+        let _ = mixdog_rt::testing::tokens();
+        let active_writes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let total_writes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let write_started = Arc::new(tokio::sync::Notify::new());
+        let drain_gate = Arc::new(tokio::sync::Notify::new());
+        let delivered = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let killed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let kill_notify = Arc::new(tokio::sync::Notify::new());
+        let processes: Arc<dyn mixdog_core_api::domain::process::ProcessManager> = Arc::new(GatedStdinProcesses {
+            active_writes: active_writes.clone(),
+            total_writes: total_writes.clone(),
+            write_started,
+            drain_gate,
+            delivered,
+            killed: killed.clone(),
+            kill_notify,
+            block_all: true,
+            pass_immediately: false,
+        });
+        let cwd = mixdog_core_api::domain::common::AbsPath::new(std::env::current_dir().expect("cwd")).expect("abs cwd");
+        let (connection, _incoming) = crate::connection::Connection::start(
+            processes,
+            crate::connection::Launch { program: "fake".into(), args: Vec::new(), env: Vec::new(), env_remove: Vec::new(), cwd },
+        )
+        .await
+        .expect("connection");
+        let session = AgentSession::test_session_for(connection);
+        session.take(permission_request(1, "p-active"));
+
+        let cancel = CancellationToken::new();
+        let session_for_approve = session.clone();
+        let cancel_for_approve = cancel.clone();
+        let surface: Arc<dyn TurnSurface> = Arc::new(TestApproveSurface::new(move || {
+            // Buffer additional permission requests into the active turn's stream while the first is being decided,
+            // then fire Stop so both the active refusal and detach teardown contend on the same stalled stdin.
+            session_for_approve.take(permission_request(2, "p-buf-1"));
+            session_for_approve.take(permission_request(3, "p-buf-2"));
+            cancel_for_approve.cancel();
+            ApprovalResolution::Unavailable { at: 0 }
+        }));
+
+        let started = tokio::time::Instant::now();
+        let end = run(&session, surface, Ask::Reply, test_context(cancel)).await;
+        let elapsed = started.elapsed();
+        assert_eq!(end, TurnEnd::Interrupted);
+        assert!(elapsed < Duration::from_millis(380), "active + buffered refusals must share one 200 ms turn budget, took {elapsed:?}");
+        assert_eq!(
+            total_writes.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "buffered refusals in detach must short-circuit after the active refusal exhausted the turn budget"
+        );
+        assert!(killed.load(std::sync::atomic::Ordering::SeqCst), "exhausting refusal budget must break/kill the wedged connection");
+        mixdog_rt::time::sleep(Duration::from_millis(10)).await;
+        assert_eq!(active_writes.load(std::sync::atomic::Ordering::SeqCst), 0, "no lingering refusal writer task may survive turn exit");
+    }
+
+    /// Defect 5: when Stop fires while an active permission request is being approved on a healthy stdin pipe,
+    /// the active popped request receives a `"cancelled"` refusal and the healthy connection stays alive.
+    #[tokio::test]
+    async fn stop_before_permission_write_sends_refusal_for_active_request_on_healthy_connection() {
+        let _ = mixdog_rt::testing::tokens();
+        let delivered = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let killed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let processes: Arc<dyn mixdog_core_api::domain::process::ProcessManager> = Arc::new(GatedStdinProcesses {
+            active_writes: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            total_writes: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            write_started: Arc::new(tokio::sync::Notify::new()),
+            drain_gate: Arc::new(tokio::sync::Notify::new()),
+            delivered: delivered.clone(),
+            killed: killed.clone(),
+            kill_notify: Arc::new(tokio::sync::Notify::new()),
+            block_all: false,
+            pass_immediately: true,
+        });
+        let cwd = mixdog_core_api::domain::common::AbsPath::new(std::env::current_dir().expect("cwd")).expect("abs cwd");
+        let (connection, _incoming) = crate::connection::Connection::start(
+            processes,
+            crate::connection::Launch { program: "fake".into(), args: Vec::new(), env: Vec::new(), env_remove: Vec::new(), cwd },
+        )
+        .await
+        .expect("connection");
+        let session = AgentSession::test_session_for(connection);
+        session.take(permission_request(77, "p-refuse-active"));
+
+        let cancel = CancellationToken::new();
+        let cancel_on_approve = cancel.clone();
+        let approve_once: ApprovalResolution =
+            serde_json::from_value(json!({ "kind": "decided", "decision": { "approved": true }, "device": "PC", "connectionKind": "desktop", "at": 0 }))
+                .expect("approved resolution");
+        let surface: Arc<dyn TurnSurface> = Arc::new(TestApproveSurface::new(move || {
+            cancel_on_approve.cancel();
+            approve_once.clone()
+        }));
+
+        let end = run(&session, surface, Ask::Reply, test_context(cancel)).await;
+        assert_eq!(end, TurnEnd::Interrupted);
+        assert!(!killed.load(std::sync::atomic::Ordering::SeqCst), "healthy connection must stay alive after clean refusal");
+        let sent = delivered.lock().unwrap().clone();
+        assert!(
+            sent.iter().any(|line| line.contains("\"id\":77") && line.contains("\"cancelled\"")),
+            "active popped permission request must receive a cancelled refusal, got: {sent:?}"
+        );
+        assert!(sent.iter().all(|line| !line.contains("\"once\"")), "grant must never be written after Stop: {sent:?}");
+    }
+
+    #[derive(Clone)]
+    struct SteerCommitTestSurface {
+        steers: Arc<std::sync::Mutex<Vec<crate::surface::SteerDelivery>>>,
+        on_commit: Arc<
+            dyn Fn(CancellationToken) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<crate::surface::SteerDelivery>, RunError>> + Send>>
+                + Send
+                + Sync,
+        >,
+    }
+
+    #[async_trait::async_trait]
+    impl TurnSurface for SteerCommitTestSurface {
+        async fn item_started(&self, _: ThreadItem) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn delta(&self, _: ItemId, _: String) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn text_settled(&self, _: ItemId) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn reasoning_delta(&self, _: ItemId, _: String) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn reasoning_completed(&self, _: ItemId, _: String) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn commit(&self, _: mixdog_core_session::session::ItemCommit) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn notice(&self, _: String, _: bool) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn usage(&self, _: TurnUsage) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn draft(&self, _: Value) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn save_header(&self, _: HeaderChange) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn approve(&self, _: ApprovalAsk) -> ApprovalResolution {
+            ApprovalResolution::Unavailable { at: 0 }
+        }
+        async fn stage(&self, _: &str) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn compact_event(&self, _: crate::surface::CompactEvent) -> Result<(), RunError> {
+            Ok(())
+        }
+        async fn call_mark(&self, _: CallMark) -> Result<(), RunError> {
+            Ok(())
+        }
+        fn call_epoch(&self) -> u64 {
+            0
+        }
+        async fn peek_steers(&self) -> Result<Vec<crate::surface::SteerDelivery>, RunError> {
+            Ok(self.steers.lock().unwrap().clone())
+        }
+        async fn commit_steers(
+            &self,
+            _queued_ids: Vec<mixdog_core_api::ids::QueuedId>,
+            _now_ms: i64,
+            cancel: CancellationToken,
+        ) -> Result<Vec<crate::surface::SteerDelivery>, RunError> {
+            (self.on_commit)(cancel).await
+        }
+        fn closing(&self) -> Arc<dyn TurnSurface> {
+            Arc::new(self.clone())
+        }
+    }
+
+    /// Defect 2 & Defect 4: `deliver_answer` never drops already-committed steers when Stop races after
+    /// `commit_steers`, and bounds pre-dequeue `commit_steers` waiting by `due.answer` leaving steers queued.
+    #[tokio::test]
+    async fn deliver_answer_preserves_committed_steers_on_stop_and_bounds_pre_dequeue_commit_by_deadline() {
+        let _ = mixdog_rt::testing::tokens();
+        let processes: Arc<dyn mixdog_core_api::domain::process::ProcessManager> = Arc::new(GatedStdinProcesses {
+            active_writes: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            total_writes: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            write_started: Arc::new(tokio::sync::Notify::new()),
+            drain_gate: Arc::new(tokio::sync::Notify::new()),
+            delivered: Arc::new(std::sync::Mutex::new(Vec::new())),
+            killed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            kill_notify: Arc::new(tokio::sync::Notify::new()),
+            block_all: false,
+            pass_immediately: true,
+        });
+        let cwd = mixdog_core_api::domain::common::AbsPath::new(std::env::current_dir().expect("cwd")).expect("abs cwd");
+        let (connection, _incoming) = crate::connection::Connection::start(
+            processes,
+            crate::connection::Launch { program: "fake".into(), args: Vec::new(), env: Vec::new(), env_remove: Vec::new(), cwd },
+        )
+        .await
+        .expect("connection");
+        let session = AgentSession::test_session_for(connection);
+
+        // Case 1 (Defect 2): Stop fires AFTER `commit_steers` commits the steer -> committed steer must be delivered.
+        let cancel = CancellationToken::new();
+        let steer = crate::surface::SteerDelivery {
+            queued_ids: vec![mixdog_core_api::ids::QueuedId::from("q-post-commit")],
+            content: mixdog_core_api::domain::provider::Content::Text("committed steer survives stop".into()),
+            task_notification: false,
+        };
+        let steers = Arc::new(std::sync::Mutex::new(vec![steer.clone()]));
+        let cancel_after_commit = cancel.clone();
+        let committed_steer = steer.clone();
+        let surface: Arc<dyn TurnSurface> = Arc::new(SteerCommitTestSurface {
+            steers: steers.clone(),
+            on_commit: Arc::new(move |_commit_cancel| {
+                let cancel_after_commit = cancel_after_commit.clone();
+                let committed_steer = committed_steer.clone();
+                Box::pin(async move {
+                    cancel_after_commit.cancel();
+                    Ok(vec![committed_steer])
+                })
+            }),
+        });
+        let context = test_context(cancel);
+        let reply = Reply {
+            session: &session,
+            surface,
+            context: &context,
+            cwd: String::new(),
+            epoch: 0,
+            text: None,
+            blank: String::new(),
+            reasoning: None,
+            calls: HashMap::new(),
+            order: Vec::new(),
+            late: 0,
+            last_text: String::new(),
+            marked: None,
+            model_time: ModelTime::default(),
+            plans: 0,
+            handed: 0,
+            reports: HashSet::new(),
+            listed: None,
+            said: String::new(),
+            differ: LineDiffer::new(),
+            reported: false,
+            window: None,
+            occupancy: None,
+            held: None,
+            draft: Draft::default(),
+        };
+        let (answer_tx, answer_rx) = tokio::sync::oneshot::channel();
+        let ask = ToolAsk { name: "read".into(), arguments: json!({}), received: tokio::time::Instant::now(), answer: answer_tx };
+        reply.deliver_answer(ask, crate::mcp::result_text("base output".into(), false), Due::default(), false).await.expect("deliver");
+        let delivered = answer_rx.await.expect("tool answer");
+        let rendered = delivered.to_string();
+        assert!(rendered.contains("base output"), "base output missing: {rendered}");
+        assert!(rendered.contains("committed steer survives stop"), "already-committed steer must not be discarded on Stop: {rendered}");
+
+        // Case 2 (Defect 4): `commit_steers` stalls before dequeue -> cancelled when `due.answer` expires, base sent on time.
+        let queued = Arc::new(std::sync::Mutex::new(vec![crate::surface::SteerDelivery {
+            queued_ids: vec![mixdog_core_api::ids::QueuedId::from("q-deadline")],
+            content: mixdog_core_api::domain::provider::Content::Text("stalled steer stays queued".into()),
+            task_notification: false,
+        }]));
+        let queued_for_commit = queued.clone();
+        let surface2: Arc<dyn TurnSurface> = Arc::new(SteerCommitTestSurface {
+            steers: queued.clone(),
+            on_commit: Arc::new(move |commit_cancel| {
+                let queued_for_commit = queued_for_commit.clone();
+                Box::pin(async move {
+                    commit_cancel.cancelled().await;
+                    // Cancelled prior to mutation: leave `queued_for_commit` untouched.
+                    assert_eq!(queued_for_commit.lock().unwrap().len(), 1);
+                    Err(RunError::Cancelled)
+                })
+            }),
+        });
+        let context2 = test_context(CancellationToken::new());
+        let reply2 = Reply { surface: surface2, context: &context2, ..reply };
+        let (answer_tx2, answer_rx2) = tokio::sync::oneshot::channel();
+        let ask2 = ToolAsk { name: "read".into(), arguments: json!({}), received: tokio::time::Instant::now(), answer: answer_tx2 };
+        let started = tokio::time::Instant::now();
+        let due = Due { answer: Some(started + Duration::from_millis(60)), hold: None };
+        reply2.deliver_answer(ask2, crate::mcp::result_text("timely base".into(), false), due, false).await.expect("deliver timely");
+        assert!(started.elapsed() < Duration::from_millis(300), "commit_steers stall must be bounded by due.answer");
+        let delivered2 = answer_rx2.await.expect("timely answer").to_string();
+        assert!(delivered2.contains("timely base"), "{delivered2}");
+        assert!(!delivered2.contains("stalled steer stays queued"), "{delivered2}");
+        assert_eq!(queued.lock().unwrap().len(), 1, "deadline-aborted steer must stay queued");
+    }
+
+    /// r5 Defect 1: when Stop fires while an affirmative grant write is already admitted and stalled on stdin,
+    /// `CancellationToken::cancel()` must synchronously break/kill the connection BEFORE returning, so even if
+    /// stdin drains immediately before the turn task is rescheduled, the grant is never delivered.
+    #[tokio::test]
+    async fn stop_kills_stalled_grant_synchronously_before_stdin_drains_without_yielding() {
+        let _ = mixdog_rt::testing::tokens();
+        let active_writes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let total_writes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let write_started = Arc::new(tokio::sync::Notify::new());
+        let drain_gate = Arc::new(tokio::sync::Notify::new());
+        let delivered = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let killed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let kill_notify = Arc::new(tokio::sync::Notify::new());
+        let processes: Arc<dyn mixdog_core_api::domain::process::ProcessManager> = Arc::new(GatedStdinProcesses {
+            active_writes: active_writes.clone(),
+            total_writes: total_writes.clone(),
+            write_started: write_started.clone(),
+            drain_gate: drain_gate.clone(),
+            delivered: delivered.clone(),
+            killed: killed.clone(),
+            kill_notify,
+            block_all: false,
+            pass_immediately: false,
+        });
+        let cwd = mixdog_core_api::domain::common::AbsPath::new(std::env::current_dir().expect("cwd")).expect("abs cwd");
+        let (connection, _incoming) = crate::connection::Connection::start(
+            processes,
+            crate::connection::Launch { program: "fake".into(), args: Vec::new(), env: Vec::new(), env_remove: Vec::new(), cwd },
+        )
+        .await
+        .expect("connection");
+        let session = AgentSession::test_session_for(connection);
+        session.take(permission_request(42, "p-sync-grant"));
+
+        let approve_once: ApprovalResolution =
+            serde_json::from_value(json!({ "kind": "decided", "decision": { "approved": true }, "device": "PC", "connectionKind": "desktop", "at": 0 }))
+                .expect("approved resolution");
+        let surface: Arc<dyn TurnSurface> = Arc::new(TestApproveSurface::new(move || approve_once.clone()));
+        let cancel = CancellationToken::new();
+
+        let started_wait = write_started.notified();
+        tokio::pin!(started_wait);
+        started_wait.as_mut().enable();
+        let mut turn_fut = Box::pin(run(&session, surface, Ask::Reply, test_context(cancel.clone())));
+        tokio::select! {
+            _ = turn_fut.as_mut() => panic!("turn_fut must stall while grant write is gated"),
+            () = started_wait => {}
+        }
+
+        // Fire Stop and immediately unblock stdin WITHOUT yielding to the turn task first.
+        cancel.cancel();
+        assert!(killed.load(std::sync::atomic::Ordering::SeqCst), "cancel() must synchronously kill the stalled grant connection before returning");
+        drain_gate.notify_waiters();
+
+        let end = turn_fut.await;
+        assert_eq!(end, TurnEnd::Interrupted);
+        mixdog_rt::time::sleep(Duration::from_millis(30)).await;
+        assert_eq!(active_writes.load(std::sync::atomic::Ordering::SeqCst), 0);
+        let sent = delivered.lock().unwrap().clone();
+        assert!(
+            sent.iter().all(|line| !line.contains("\"once\"")),
+            "synchronous kill on Stop must prevent grant delivery even if stdin drains immediately: {sent:?}"
+        );
+    }
+
+    /// r5 Defect 7: wall time elapsed while closing open tool cards (`reply.close`) between an active permission
+    /// refusal and `detach_with_budget` must NOT consume `RefuseBudget` or kill a healthy connection.
+    #[tokio::test]
+    async fn slow_tool_card_close_does_not_exhaust_refuse_budget_on_healthy_connection() {
+        let _ = mixdog_rt::testing::tokens();
+        let delivered = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let killed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let processes: Arc<dyn mixdog_core_api::domain::process::ProcessManager> = Arc::new(GatedStdinProcesses {
+            active_writes: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            total_writes: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            write_started: Arc::new(tokio::sync::Notify::new()),
+            drain_gate: Arc::new(tokio::sync::Notify::new()),
+            delivered: delivered.clone(),
+            killed: killed.clone(),
+            kill_notify: Arc::new(tokio::sync::Notify::new()),
+            block_all: false,
+            pass_immediately: true,
+        });
+        let cwd = mixdog_core_api::domain::common::AbsPath::new(std::env::current_dir().expect("cwd")).expect("abs cwd");
+        let (connection, _incoming) = crate::connection::Connection::start(
+            processes,
+            crate::connection::Launch { program: "fake".into(), args: Vec::new(), env: Vec::new(), env_remove: Vec::new(), cwd },
+        )
+        .await
+        .expect("connection");
+        let session = AgentSession::test_session_for(connection);
+        // Queue an open tool call so `reply.close` invokes `surface.commit` (which sleeps > RefuseBudget::LIMIT).
+        session.take(Incoming::Notification {
+            method: "session/update".into(),
+            params: json!({
+                "update": { "sessionUpdate": "tool_call", "toolCallId": "tc-slow", "title": "Slow close", "kind": "execute", "status": "in_progress" }
+            }),
+        });
+        session.take(permission_request(10, "p-first"));
+
+        let cancel = CancellationToken::new();
+        let session_for_approve = session.clone();
+        let cancel_for_approve = cancel.clone();
+        let approve_once: ApprovalResolution =
+            serde_json::from_value(json!({ "kind": "decided", "decision": { "approved": true }, "device": "PC", "connectionKind": "desktop", "at": 0 }))
+                .expect("approved resolution");
+        let surface: Arc<dyn TurnSurface> = Arc::new(TestApproveSurface {
+            on_approve: Arc::new(move || {
+                // Buffer a second permission request to be refused in `detach_with_budget` AFTER `reply.close`.
+                session_for_approve.take(permission_request(11, "p-second"));
+                cancel_for_approve.cancel();
+                approve_once.clone()
+            }),
+            commit_delay: Duration::from_millis(260),
+        });
+
+        let end = run(&session, surface, Ask::Reply, test_context(cancel)).await;
+        assert_eq!(end, TurnEnd::Interrupted);
+        assert!(
+            !killed.load(std::sync::atomic::Ordering::SeqCst),
+            "unrelated wall time closing tool cards must never exhaust RefuseBudget or kill a healthy connection"
+        );
+        let sent = delivered.lock().unwrap().clone();
+        assert!(sent.iter().any(|line| line.contains("\"id\":10") && line.contains("\"cancelled\"")), "first refusal missing: {sent:?}");
+        assert!(
+            sent.iter().any(|line| line.contains("\"id\":11") && line.contains("\"cancelled\"")),
+            "second refusal after slow tool-card close missing: {sent:?}"
+        );
     }
 }

@@ -1,5 +1,6 @@
 //! Intervals follow Node's `REMOTE_STATS_REFRESH_INTERVAL_MS` ([`REFRESH_INTERVAL`]) and `USAGE_DASHBOARD_REFRESH_INTERVAL_MS` ([`DASHBOARD_INTERVAL`]).
 
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock, Weak};
 use std::time::Duration;
 
@@ -26,6 +27,11 @@ pub const DASHBOARD_KEY: &str = "dashboard";
 pub const REFRESH_INTERVAL: Duration = Duration::from_millis(30_000);
 /// `USAGE_DASHBOARD_REFRESH_INTERVAL_MS`: the least time between the starts of two dashboard reads.
 pub const DASHBOARD_INTERVAL: Duration = Duration::from_millis(5 * 60_000);
+/// Small settle offset after a quota window's `resetAt` passes before polling upstream.
+pub const RESET_SETTLE_DELAY: Duration = Duration::from_secs(2);
+/// Bounded follow-up delays if upstream still echoes an elapsed `resetAt` briefly due to clock skew or caching.
+pub const RESET_FOLLOWUP_DELAYS: [Duration; 3] = [Duration::from_secs(5), Duration::from_secs(15), Duration::from_secs(30)];
+const MAX_RESET_HORIZON_MS: i64 = 365 * 24 * 60 * 60 * 1_000;
 
 /// `Date.now()`, in milliseconds.
 pub type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
@@ -142,14 +148,180 @@ impl SectionSource for DashboardSlot {
     }
 }
 
-/// Waits for the next ledger change or binding; `false` when the writer is gone.
-async fn woken(changes: &mut watch::Receiver<u64>, bindings: &mut Option<watch::Receiver<u64>>) -> bool {
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum Wake {
+    Closed,
+    Signal,
+    Reset,
+}
+
+struct DashboardResetWindow {
+    key: String,
+    reset_at: i64,
+}
+
+fn dashboard_reset_windows(value: &Value) -> Vec<DashboardResetWindow> {
+    let mut out = Vec::new();
+    let Some(rows) = value.get("rows").and_then(Value::as_array) else { return out };
+    for (row_idx, row) in rows.iter().enumerate() {
+        let Some(windows) = row.get("windows").and_then(Value::as_array) else { continue };
+        let provider = row.get("id").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map_or_else(|| format!("row:{row_idx}"), str::to_owned);
+        let account = row.get("credentialStamp").or_else(|| row.get("accountId")).and_then(Value::as_str).map(str::trim).unwrap_or("");
+        let mut seen_labels: HashMap<String, usize> = HashMap::new();
+        for (win_idx, window) in windows.iter().enumerate() {
+            let Some(raw) = window.get("resetAt").and_then(Value::as_f64) else { continue };
+            if !raw.is_finite() || raw <= 0.0 {
+                continue;
+            }
+            let base = ["id", "window", "period", "label"]
+                .iter()
+                .find_map(|field| window.get(*field).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()))
+                .map_or_else(|| format!("window:{win_idx}"), str::to_lowercase);
+            let occ = seen_labels.entry(base.clone()).or_insert(0);
+            let key = format!("{provider}\u{1f}{account}\u{1f}{base}\u{1f}{occ}");
+            *occ += 1;
+            out.push(DashboardResetWindow { key, reset_at: raw.round() as i64 });
+        }
+    }
+    out
+}
+
+struct ElapsedWindowState {
+    attempts: usize,
+    next_due_at: Option<i64>,
+    transport_failed: bool,
+}
+
+#[derive(Default)]
+struct ResetSchedule {
+    elapsed: HashMap<String, ElapsedWindowState>,
+    known_future_resets: Vec<DashboardResetWindow>,
+}
+
+impl ResetSchedule {
+    fn next_deadline(&mut self, value: &Value, read_started_ms: i64, now_ms: i64, now_instant: Instant) -> Option<Instant> {
+        let windows = dashboard_reset_windows(value);
+        let active_elapsed: HashSet<&str> = windows.iter().filter(|w| w.reset_at <= now_ms).map(|w| w.key.as_str()).collect();
+        self.elapsed.retain(|key, _| active_elapsed.contains(key.as_str()));
+
+        self.known_future_resets.clear();
+        let settle_ms = i64::try_from(RESET_SETTLE_DELAY.as_millis()).unwrap_or(2_000);
+        let mut soonest_delay: Option<Duration> = None;
+        let mut consider = |delay: Duration| {
+            soonest_delay = Some(soonest_delay.map_or(delay, |current| current.min(delay)));
+        };
+
+        for window in &windows {
+            if window.reset_at > now_ms {
+                let remaining_ms = window.reset_at - now_ms;
+                if remaining_ms <= MAX_RESET_HORIZON_MS {
+                    self.known_future_resets.push(DashboardResetWindow { key: window.key.clone(), reset_at: window.reset_at });
+                    consider(Duration::from_millis(remaining_ms as u64) + RESET_SETTLE_DELAY);
+                }
+                continue;
+            }
+
+            let entry = self.elapsed.entry(window.key.clone()).or_insert_with(|| ElapsedWindowState {
+                attempts: 0,
+                next_due_at: Some(window.reset_at.saturating_add(settle_ms)),
+                transport_failed: false,
+            });
+
+            if entry.transport_failed {
+                entry.transport_failed = false;
+                if let Some(&delay) = RESET_FOLLOWUP_DELAYS.get(entry.attempts) {
+                    entry.attempts += 1;
+                    let delay_ms = i64::try_from(delay.as_millis()).unwrap_or(0);
+                    entry.next_due_at = Some(now_ms.saturating_add(delay_ms));
+                    consider(delay);
+                } else {
+                    entry.attempts += 1;
+                    entry.next_due_at = None;
+                }
+            } else if let Some(due_at) = entry.next_due_at {
+                if read_started_ms >= due_at {
+                    if let Some(&delay) = RESET_FOLLOWUP_DELAYS.get(entry.attempts) {
+                        entry.attempts += 1;
+                        let delay_ms = i64::try_from(delay.as_millis()).unwrap_or(0);
+                        entry.next_due_at = Some(now_ms.saturating_add(delay_ms));
+                        consider(delay);
+                    } else {
+                        entry.attempts += 1;
+                        entry.next_due_at = None;
+                    }
+                } else {
+                    let remaining_ms = due_at.saturating_sub(now_ms).max(0);
+                    consider(Duration::from_millis(remaining_ms as u64));
+                }
+            }
+        }
+
+        soonest_delay.and_then(|delay| now_instant.checked_add(delay))
+    }
+
+    fn next_deadline_after_failure(&mut self, read_started_ms: i64, now_ms: i64, now_instant: Instant) -> Option<Instant> {
+        let settle_ms = i64::try_from(RESET_SETTLE_DELAY.as_millis()).unwrap_or(2_000);
+        let mut soonest_delay: Option<Duration> = None;
+        let mut consider = |delay: Duration| {
+            soonest_delay = Some(soonest_delay.map_or(delay, |current| current.min(delay)));
+        };
+        let mut remaining_future = Vec::with_capacity(self.known_future_resets.len());
+        for window in self.known_future_resets.drain(..) {
+            let settle_at = window.reset_at.saturating_add(settle_ms);
+            if settle_at > read_started_ms {
+                let remaining_ms = settle_at.saturating_sub(now_ms).max(0);
+                if remaining_ms <= MAX_RESET_HORIZON_MS {
+                    consider(Duration::from_millis(remaining_ms as u64));
+                }
+                remaining_future.push(window);
+            } else {
+                self.elapsed
+                    .entry(window.key)
+                    .and_modify(|entry| {
+                        entry.next_due_at = None;
+                        entry.transport_failed = true;
+                    })
+                    .or_insert(ElapsedWindowState { attempts: 0, next_due_at: None, transport_failed: true });
+            }
+        }
+        self.known_future_resets = remaining_future;
+        for entry in self.elapsed.values_mut() {
+            if let Some(due_at) = entry.next_due_at {
+                if due_at > read_started_ms {
+                    let remaining_ms = due_at.saturating_sub(now_ms).max(0);
+                    if remaining_ms <= MAX_RESET_HORIZON_MS {
+                        consider(Duration::from_millis(remaining_ms as u64));
+                    }
+                } else {
+                    entry.next_due_at = None;
+                    entry.transport_failed = true;
+                }
+            }
+        }
+        soonest_delay.and_then(|delay| now_instant.checked_add(delay))
+    }
+}
+
+/// Waits for the next ledger change, binding, or reset deadline; `Wake::Closed` when the writer is gone.
+async fn woken(changes: &mut watch::Receiver<u64>, bindings: &mut Option<watch::Receiver<u64>>, reset_deadline: Option<Instant>) -> Wake {
+    let sleep_reset = async {
+        match reset_deadline {
+            Some(deadline) => mixdog_rt::time::sleep_until(deadline).await,
+            None => std::future::pending::<()>().await,
+        }
+    };
     match bindings {
         Some(bindings) => tokio::select! {
-            changed = changes.changed() => changed.is_ok(),
-            bound = bindings.changed() => bound.is_ok(),
+            biased;
+            changed = changes.changed() => if changed.is_ok() { Wake::Signal } else { Wake::Closed },
+            bound = bindings.changed() => if bound.is_ok() { Wake::Signal } else { Wake::Closed },
+            () = sleep_reset => Wake::Reset,
         },
-        None => changes.changed().await.is_ok(),
+        None => tokio::select! {
+            biased;
+            changed = changes.changed() => if changed.is_ok() { Wake::Signal } else { Wake::Closed },
+            () = sleep_reset => Wake::Reset,
+        },
     }
 }
 
@@ -190,6 +362,9 @@ async fn run<S: SectionSource>(
     interval: Duration,
 ) {
     let mut stamp: Option<Instant> = None;
+    let mut reset_schedule = ResetSchedule::default();
+    let mut reset_deadline: Option<Instant> = None;
+    let mut wake = Wake::Signal;
     loop {
         // Everything signalled so far is covered by the read below; a signal during it is the next one.
         changes.borrow_and_update();
@@ -201,24 +376,42 @@ async fn run<S: SectionSource>(
         let ready = live.ready();
         drop(live);
         if ready {
-            if let Some(began) = stamp {
-                mixdog_rt::time::sleep_until(began + interval).await;
+            if wake != Wake::Reset
+                && let Some(began) = stamp
+            {
+                let throttle_until = began + interval;
+                let wait_until = reset_deadline.map_or(throttle_until, |deadline| deadline.min(throttle_until));
+                mixdog_rt::time::sleep_until(wait_until).await;
             }
             let Some(live) = source.upgrade() else { return };
             // Whatever was signalled while waiting is in this read, too.
             changes.borrow_and_update();
+            let read_started_ms = (push.clock)();
             stamp = Some(Instant::now());
             match live.read(&push.clock).await {
-                Ok(value) => match change_of(&value) {
-                    SectionChange::Stub { count } => {
-                        tracing::warn!(key, count, "[usage] the entry exceeds the inline section limit and was not published");
+                Ok(value) => {
+                    if key == DASHBOARD_KEY {
+                        reset_deadline = reset_schedule.next_deadline(&value, read_started_ms, (push.clock)(), Instant::now());
                     }
-                    change => push.publisher.publish(SectionName::Usage, Some(key.to_owned()), change),
-                },
-                Err(error) => tracing::warn!(key, %error, "[usage] the entry could not be read for the usage section"),
+                    match change_of(&value) {
+                        SectionChange::Stub { count } => {
+                            tracing::warn!(key, count, "[usage] the entry exceeds the inline section limit and was not published");
+                        }
+                        change => push.publisher.publish(SectionName::Usage, Some(key.to_owned()), change),
+                    }
+                }
+                Err(error) => {
+                    if key == DASHBOARD_KEY {
+                        reset_deadline = reset_schedule.next_deadline_after_failure(read_started_ms, (push.clock)(), Instant::now());
+                    } else {
+                        reset_deadline = None;
+                    }
+                    tracing::warn!(key, %error, "[usage] the entry could not be read for the usage section");
+                }
             }
         }
-        if !woken(&mut changes, &mut bindings).await {
+        wake = woken(&mut changes, &mut bindings, reset_deadline).await;
+        if wake == Wake::Closed {
             return;
         }
     }

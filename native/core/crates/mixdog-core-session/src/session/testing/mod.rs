@@ -1225,6 +1225,7 @@ impl ThreadStore for CallCounted {
         fn read_header(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Header, CoreError>;
         fn read_header_fields(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, fields: &'static [&'static str]) -> Result<Option<Header>, CoreError>;
         fn listed_rows(&self, lane: &InLane<InteractiveIo>, ids: &[ThreadId], fields: &[&str]) -> Result<Vec<Option<Option<Header>>>, CoreError>;
+        fn retain(&self, id: &ThreadId) -> ();
         fn forget(&self, id: &ThreadId) -> ();
         fn read_log_id(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<String, CoreError>;
         fn read_window(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, head: &HeadRead) -> Result<WindowRead, CoreError>;

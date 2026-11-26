@@ -74,10 +74,21 @@ struct StripPublisher {
     armed: Mutex<Option<TimerHandle>>,
 }
 
+pub(crate) fn is_empty_strip(state: &ShellJobsState) -> bool {
+    state.count == 0 && state.jobs.is_empty() && state.finished.is_empty()
+}
+
 impl TaskPublisher for StripPublisher {
     fn thread_updated(&self, thread: &str, state: &ShellJobsState) {
-        self.threads.send_modify(|all| {
+        self.threads.send_if_modified(|all| {
+            if is_empty_strip(state) && !all.contains_key(thread) {
+                return false;
+            }
+            if all.get(thread) == Some(state) {
+                return false;
+            }
             all.insert(thread.to_owned(), state.clone());
+            true
         });
     }
 
@@ -109,6 +120,8 @@ pub struct ExecEvents {
     pub host_strip: watch::Receiver<HostShellJobs>,
     /// Drops a thread's snapshot from the strips, for a thread that no longer exists.
     pub forget_thread: ForgetThread,
+    /// Drops a thread's snapshot from the strips only if it is still empty.
+    pub(crate) prune_empty_thread: ForgetThread,
 }
 
 pub type ForgetThread = Arc<dyn Fn(&str) + Send + Sync>;
@@ -117,6 +130,8 @@ pub struct Exec {
     pub runtime: Arc<ExecRuntime>,
     pub wakes: Arc<WakeHub>,
     pub configured_shell: Arc<ConfiguredShell>,
+    /// Drops a thread's snapshot from the strips when its session is unloaded or deleted.
+    pub forget_thread: ForgetThread,
 }
 
 impl ShellSource for ConfiguredShell {
@@ -194,12 +209,24 @@ pub fn build_exec(
         policy: Arc::new(NodeCommandPolicy),
         now_ms: Arc::new(now_ms),
     });
-    let forget_thread: ForgetThread = Arc::new(move |thread| {
-        publisher.threads.send_modify(|all| {
-            all.remove(thread);
+    let forget_thread: ForgetThread = {
+        let publisher = publisher.clone();
+        Arc::new(move |thread| {
+            publisher.threads.send_if_modified(|all| all.remove(thread).is_some());
+        })
+    };
+    let prune_empty_thread: ForgetThread = Arc::new(move |thread| {
+        publisher.threads.send_if_modified(|all| {
+            if all.get(thread).is_some_and(is_empty_strip) {
+                all.remove(thread);
+            }
+            false
         });
     });
-    (Exec { runtime, wakes, configured_shell }, ExecEvents { finished, thread_strips, host_strip, forget_thread })
+    (
+        Exec { runtime, wakes, configured_shell, forget_thread: forget_thread.clone() },
+        ExecEvents { finished, thread_strips, host_strip, forget_thread, prune_empty_thread },
+    )
 }
 
 // The recorded Node fixture is the Windows form of the commands.

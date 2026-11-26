@@ -740,5 +740,29 @@ async fn a_queued_send_keeps_the_band_across_the_hand_off() {
     assert_eq!(rig.approvals.log.seen(), ["| b", "u2 | b", "u2 | …", "u2 | a"]);
 }
 
+#[tokio::test]
+async fn an_idle_room_with_no_listener_releases_its_recent_rows() {
+    let rig = rig(&["a", "b"]).await;
+    rig.live.bind_relays(Arc::new(|_: &str, _: &str| {}));
+    let host = rig.live.host("room01").unwrap();
+
+    // Idle room: unloading the room log session releases `recent` at once.
+    host.post(vec![speech("s1", "a")]).await.unwrap();
+    assert_eq!(rig.live.recent_held("room01"), 1);
+    rig.live.release_session("sess_room_room01");
+    assert_eq!(rig.live.recent_held("room01"), 0);
+    assert!(host.rows().await.unwrap().is_empty(), "after release, rows come from storage");
+
+    // Active exchange: unloading while tracked defers the release until the exchange untracks.
+    let state = exchange();
+    host.track(&state);
+    host.post(vec![speech("s2", "a")]).await.unwrap();
+    assert_eq!(rig.live.recent_held("room01"), 1);
+    rig.live.release_session("sess_room_room01");
+    assert_eq!(rig.live.recent_held("room01"), 1, "recent stays while the exchange runs");
+    assert!(host.untrack(&state));
+    assert_eq!(rig.live.recent_held("room01"), 0, "released as soon as the exchange ends");
+}
+
 #[path = "send_rules.rs"]
 mod send_rules;

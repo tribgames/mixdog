@@ -550,6 +550,7 @@ impl Agent {
         }
         match method {
             "initialize" => {
+                wait_for("FAKE_AGENT_INIT_UNTIL");
                 self.client = params["clientCapabilities"].clone();
                 answer(
                     &id,
@@ -679,6 +680,7 @@ impl Agent {
             }
             "session/prompt" => self.prompt(id, &params["prompt"]),
             // Only the session it names is cancelled.
+            "session/cancel" if setting("FAKE_AGENT_SILENT_CANCEL").is_some() => {}
             "session/cancel" => {
                 if let Some(prompt) = self.session().hanging.take() {
                     self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "h1", "status": "failed" }));

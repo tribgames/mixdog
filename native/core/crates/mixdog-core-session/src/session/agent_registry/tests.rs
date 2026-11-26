@@ -32,6 +32,8 @@ struct Store {
     maps: Mutex<Vec<(String, Row)>>,
     /// The kept maps of deleted sessions (`StoreWorkers`' `KeptRows`): they outlive the index's rows and a restart.
     kept: Mutex<Vec<(String, Row)>>,
+    /// Mirrors `StoreWorkers`' `KeptMemory` change log so tests observe real `keep` -> `forget_session` ordering.
+    kept_memory: Mutex<super::store_workers::KeptMemory>,
     sessions: Mutex<Vec<Row>>,
     headers: Mutex<HashMap<String, Row>>,
     dirs: Mutex<HashSet<String>>,
@@ -105,9 +107,10 @@ impl WorkerStore for Store {
         self.revision.fetch_add(1, Ordering::SeqCst);
         let mut kept = self.kept.lock().unwrap();
         kept.retain(|(id, _)| id != session);
-        if let Some(map) = worker {
+        if let Some(map) = worker.clone() {
             kept.push((session.to_owned(), map));
         }
+        self.kept_memory.lock().unwrap().set(session, worker);
     }
 
     fn kept(&self, session: &str) -> bool {
@@ -170,6 +173,7 @@ impl WorkerStore for Store {
 
     fn forget_session(&self, session: &str) {
         self.forgotten.lock().unwrap().push(session.to_owned());
+        self.kept_memory.lock().unwrap().forget(session);
     }
 
     fn hold_signals(&self, sessions: &[String]) -> Box<dyn Send> {
@@ -4777,6 +4781,61 @@ async fn a_failed_settlement_fails_the_pool_and_every_spawn_over_a_warm_registry
 #[tokio::test]
 async fn a_settled_worker_is_in_the_pool_and_its_tag_is_given_to_no_spawn() {
     spawns_and_the_pool_over_held_worker_rows(false, false).await;
+}
+
+#[tokio::test]
+async fn deleting_a_worker_session_clears_kept_memory_and_registry_state() {
+    let rig = Rig::new();
+    let registry = rig.registry();
+
+    // Production order: a kept migrated Lead row is removed by `forget_row` before `store.forget_session` runs,
+    // so `KeptMemory::forget` sees it gone and prunes its `changed`/`changed_at` entries.
+    rig.store.keep("lead-dead", Some(obj(json!({ "sessionId": "lead-dead", "agent": "lead", "status": "idle" }))));
+    rig.store.keep("w-live", Some(worker_row("w-live", "w2", json!({}))));
+    let (r_before, _) = rig.store.kept_memory.lock().unwrap().since(None);
+    assert_eq!(rig.store.kept_memory.lock().unwrap().changed_counts(), (2, 2));
+
+    registry.parked.lock().unwrap().insert("lead-dead".to_owned());
+    registry.cancelled.lock().unwrap().insert("lead-dead".to_owned());
+    registry.restart_notices.lock().unwrap().insert(
+        "restart:task-dead".to_owned(),
+        restart::RestartNotice { session: "lead-dead".to_owned(), owner: "lead-1".to_owned(), stage: restart::NoticeStage::Stored },
+    );
+    registry.restart_notices.lock().unwrap().insert(
+        "restart:task-owned-by-dead".to_owned(),
+        restart::RestartNotice { session: "w-other".to_owned(), owner: "lead-dead".to_owned(), stage: restart::NoticeStage::Stored },
+    );
+    registry.restart_notices.lock().unwrap().insert(
+        "restart:task-live".to_owned(),
+        restart::RestartNotice { session: "w-live".to_owned(), owner: "lead-1".to_owned(), stage: restart::NoticeStage::Stored },
+    );
+
+    // Transient `reload()` failure must not erase restart-notice dedup entries while an unnotified row may remain in storage.
+    rig.store.fail.store(true, Ordering::SeqCst);
+    assert!(!registry.forget_deleted_session("lead-dead").await);
+    assert!(registry.restart_notices.lock().unwrap().contains_key("restart:task-dead"), "transient reload failure keeps restart-notice dedup entry");
+    assert!(
+        registry.restart_notices.lock().unwrap().contains_key("restart:task-owned-by-dead"),
+        "transient reload failure keeps owned restart-notice dedup entry"
+    );
+
+    // Once reload succeeds, `forget_row` removes the kept row before `store.forget_session` prunes `KeptMemory`,
+    // and the dead session's restart-notice entries are cleared.
+    rig.store.fail.store(false, Ordering::SeqCst);
+    assert!(registry.forget_deleted_session("lead-dead").await);
+    assert_eq!(
+        rig.store.kept_memory.lock().unwrap().changed_counts(),
+        (1, 1),
+        "forgetting a deleted session removes its changed and changed_at entries after forget_row removes the kept row"
+    );
+    let (_, answer) = rig.store.kept_memory.lock().unwrap().since(Some(r_before));
+    assert!(matches!(answer, super::store_workers::KeptSince::All(rows) if rows.len() == 1 && rows[0].0 == "w-live"));
+    assert!(!registry.parked.lock().unwrap().contains("lead-dead"), "deleted session leaves parked");
+    assert!(!registry.cancelled.lock().unwrap().contains("lead-dead"), "deleted session leaves cancelled");
+    let notices = registry.restart_notices.lock().unwrap();
+    assert!(!notices.contains_key("restart:task-dead"), "deleted session's restart notice is removed");
+    assert!(!notices.contains_key("restart:task-owned-by-dead"), "deleted owner's restart notice is removed");
+    assert!(notices.contains_key("restart:task-live"), "unrelated session's restart notice stays");
 }
 
 #[path = "release_receipt_tests.rs"]

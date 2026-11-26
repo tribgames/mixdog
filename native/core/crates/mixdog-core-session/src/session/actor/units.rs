@@ -125,11 +125,34 @@ async fn read_held(deps: &SessionDeps, id: &ThreadId, spans: Vec<(Arc<str>, u64)
 
 fn sized(ordinal: u64, position: String, items: Vec<ThreadItem>) -> StoredUnit {
     let unit = mixdog_app_protocol::v2::thread::TranscriptUnit { position, items, ordinal: Some(ordinal) };
-    let bytes = serde_json::to_vec(&unit).map_or(0, |encoded| encoded.len());
+    let bytes = reads::unit_bytes(&unit);
     StoredUnit { ordinal, unit, bytes }
 }
 
 impl SessionActor {
+    /// Maximum stored units retained in `self.tail`, bounded by the loaded window size so positioned resumes honor
+    /// `lastItems` above `window::TAIL_RECORDS` without an extra disk round-trip.
+    pub(in crate::session) fn tail_cap(&self) -> usize {
+        self.deps.limits.view_items.max(window::TAIL_RECORDS)
+    }
+
+    /// Seeds `self.tail` from records already read during cold open, removing the initial `UnitJob::Tail` disk read.
+    pub(in crate::session) fn seed_tail(&mut self, units: Vec<StoredUnit>, older: bool) {
+        self.tail = units.into_iter().map(Arc::new).collect();
+        self.tail_older = older;
+        self.tail_next = self.tail_next.max(self.tail.last().map_or(0, |last| last.ordinal + 1));
+        self.tail_unread = None;
+        self.unit_jobs.retain(|job| !matches!(job, UnitJob::Tail));
+        let mut view = self.view();
+        if view.state.agents.is_none() {
+            view.state.agents = self.cell.view.load().state.agents.clone();
+        }
+        let view = Arc::new(view);
+        self.cell.view.store(view.clone());
+        self.deferred_frames = 0;
+        self.view_built_ms = self.deps.clock.now_ms();
+        let _ = self.feed.publish(&[], Some(view));
+    }
     /// A record is stored at `ordinal`. An occurrence it adds to the transcript (`unit`: the rows its commit projected,
     /// or a compaction's divider) is sent as its unit to the positioned subscriptions whose grants hold it; the stored
     /// occurrences that read differently for it are read again.
@@ -299,9 +322,10 @@ impl SessionActor {
                 }
                 UnitJob::Tail => {
                     self.unit_reading = true;
+                    let cap = self.tail_cap();
                     tokio::spawn(async move {
                         let ctl = ctl("thread/transcript/unit", &id, "tail", CancellationToken::new());
-                        let read = reads::transcript_units(&deps.store, &deps.transcript, deps.lanes, &id, PageAt::Newest, window::TAIL_RECORDS, &ctl).await;
+                        let read = reads::transcript_units(&deps.store, &deps.transcript, deps.lanes, &id, PageAt::Newest, cap, &ctl).await;
                         let _ = jobs.send(JobDone::UnitsRead(Box::new(UnitsRead::Tail(read))));
                     });
                 }
@@ -376,7 +400,8 @@ impl SessionActor {
             None if unit.ordinal < self.tail_next => {}
             None => {
                 self.tail.push(unit.clone());
-                if self.tail.len() > window::TAIL_RECORDS {
+                let cap = self.tail_cap();
+                if self.tail.len() > cap {
                     self.tail.remove(0);
                     self.tail_older = true;
                 }

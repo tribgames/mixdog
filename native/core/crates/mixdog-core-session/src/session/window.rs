@@ -40,8 +40,8 @@ use super::reads::StoredUnit;
 use super::seams::PageAt;
 use super::view::TAIL_RANGE;
 
-/// The newest records a demand for the tail acquires, and a positioned snapshot carries at most.
-pub(crate) const TAIL_RECORDS: usize = 32;
+/// The newest records a demand for the tail acquires when re-attaching `followTail`.
+pub(crate) const TAIL_RECORDS: usize = 64;
 /// The most records one wanted range reads on either side of its position (`CURSOR_PAGE_MAX_ROWS`).
 const MAX_RECORDS: usize = 512;
 
@@ -176,7 +176,7 @@ impl Calls {
                 None => super::live_end::open_call(item),
             }
         }
-        settled.bytes = serde_json::to_vec(&settled.unit).map_or(0, |encoded| encoded.len());
+        settled.bytes = reads::unit_bytes(&settled.unit);
         Some(settled)
     }
 }

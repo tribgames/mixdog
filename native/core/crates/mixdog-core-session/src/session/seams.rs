@@ -723,6 +723,9 @@ pub trait ThreadStore: Send + Sync + 'static {
         self.unheld_all(std::slice::from_ref(id))
     }
 
+    /// Thread `id` is loaded in the directory: the store may retain read caches (`shapes`, `picked`) until [`Self::forget`].
+    fn retain(&self, _id: &ThreadId) {}
+
     /// Thread `id` was unloaded or deleted: what the store kept of it for its reads goes (a read after this keeps its own).
     fn forget(&self, _id: &ThreadId) {}
 

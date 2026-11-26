@@ -312,9 +312,9 @@ type Sessions = Arc<Mutex<std::collections::HashMap<String, Inner>>>;
 
 /// The result caches of the sessions, for the lifetime of each session: Node keeps them in module maps keyed by the
 /// session id (`read-cache.mjs` `_bySession`, `scoped-cache.mjs` `_scopedBySession`), so a turn that starts after another
-/// of the same session finds what the earlier one read. They end with the session (`clearReadDedupSession`: a close, a
-/// delete, a working-folder change), a compaction (`resetReadStateAfterCompaction`: the read cache only), the process, and, entry by
-/// entry, the 100-entry / 8 MiB bound of each cache. An execution that began before a clear cannot refill it.
+/// of the same session finds what the earlier one read. They end with the session (`clearReadDedupSession`: a rest, a close,
+/// a delete, a working-folder change), a compaction (`resetReadStateAfterCompaction`: the read cache only), the process, and,
+/// entry by entry, the 100-entry / 8 MiB bound of each cache. An execution that began before a clear cannot refill it.
 #[derive(Default)]
 pub struct LiveReuses {
     sessions: Sessions,
@@ -693,6 +693,31 @@ mod tests {
             assert!(cache.prepare(&read, "pdf").await.is_none());
             assert!(cache.lookup(&read, true).await.is_none());
         }
+    }
+
+    #[tokio::test]
+    async fn resting_a_session_releases_its_cached_texts_and_repopulates_on_next_read() {
+        let dir = tempdir();
+        std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
+        let live = watched();
+        let s1 = CacheAt(live.run(io(), "s1", Arc::new(Fixed(0))), dir.path());
+        let s2 = CacheAt(live.run(io(), "s2", Arc::new(Fixed(0))), dir.path());
+        let read = call("read", json!({"path": "a.txt"}));
+        s1.fill(&read, "hello", "r1").await;
+        s2.fill(&read, "hello", "r2").await;
+        let in_flight = s1.prepare(&read, "r-pending").await.unwrap();
+        assert!(live.has_session("s1") && live.has_session("s2"));
+
+        live.release_rested("s1");
+        assert!(!live.has_session("s1"), "resting drops the session's text caches");
+        assert!(live.has_session("s2"), "other sessions stay cached");
+        assert!(s1.lookup(&read, true).await.is_none());
+        in_flight.store("stale", &complete_output()).await;
+        assert!(!live.has_session("s1"), "writes prepared before rest cannot refill it");
+
+        s1.fill(&read, "hello", "r3").await;
+        assert!(live.has_session("s1"));
+        assert_eq!(s1.lookup(&read, true).await.unwrap().content, "hello");
     }
 }
 
@@ -1239,6 +1264,17 @@ impl LiveReuses {
     /// `clearReadDedupSession(session_id)`: the read and scoped caches of the id are dropped.
     pub fn clear_session(&self, session_id: &str) {
         self.sessions.lock().unwrap_or_else(|e| e.into_inner()).remove(session_id);
+    }
+
+    /// Releases a resting session's cached texts without discarding its `ReadState` snapshots;
+    /// the next turn repopulates from disk if needed.
+    pub fn release_rested(&self, session_id: &str) {
+        self.clear_session(session_id);
+    }
+
+    #[cfg(test)]
+    fn has_session(&self, session_id: &str) -> bool {
+        self.sessions.lock().unwrap_or_else(|e| e.into_inner()).contains_key(session_id)
     }
 
     /// `resetReadStateAfterCompaction(session_id)`, for a compaction that ran outside a turn.

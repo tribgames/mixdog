@@ -1189,3 +1189,28 @@ async fn a_real_goal_subscription_seeds_existing_state_and_remains_live_after_bi
     drop(rig);
     goals.close().await;
 }
+
+#[tokio::test(start_paused = true)]
+async fn goal_follower_removes_revisions_for_gone_sessions() {
+    let rig = rig();
+    rig.phone("phone", DevicePreferences::default());
+    let gate = Arc::new(AsyncGate::default());
+    let follower = attach_initial_goal(&rig, Some(gate.clone()));
+
+    rig.input.row(row("s1", "First", false));
+    gate.entered.notified().await;
+    rig.input.row(row("s2", "Second", false));
+    assert_eq!(follower.revisions_held(), 2);
+
+    rig.input.row_gone("s1");
+    assert_eq!(follower.revisions_held(), 1, "deleted session leaves GoalFollower::revisions");
+    follower.changed("s1", None);
+    assert_eq!(follower.revisions_held(), 1, "cleared goal event does not re-insert a gone session");
+
+    gate.release.notify_one();
+    settle().await;
+    assert_eq!(follower.revisions_held(), 1, "stale snapshot from before removal does not re-insert");
+
+    rig.input.row_gone("s2");
+    assert_eq!(follower.revisions_held(), 0, "all gone sessions removed from GoalFollower::revisions");
+}

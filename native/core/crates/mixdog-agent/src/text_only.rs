@@ -100,8 +100,8 @@ pub fn degrade_media_parts(parts: &[ContentPart], media: &dyn MediaText) -> Resu
     for part in parts {
         let text = match part {
             ContentPart::Text(_, _) => None,
-            // An image is never turned into text: it stays in the request, where the route it takes (a text-only model takes
-            // none) refuses it by name before anything is sent.
+            // An image is never turned into text here: it stays in the request, and the route it takes sends a model that
+            // reads no image the omission text in its place.
             ContentPart::Image(_) => None,
             ContentPart::File { source: BinarySource::AttachmentRef(_), mime_type, text: None, .. }
                 if js_trim(mime_type).to_lowercase().starts_with("image/") =>

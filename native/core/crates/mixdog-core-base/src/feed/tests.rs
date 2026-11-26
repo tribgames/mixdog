@@ -497,6 +497,28 @@ fn a_resting_feed_keeps_no_frame_its_view_describes_and_serves_the_view_to_an_ol
     }
 }
 
+/// A feed that rests drops the snapshots encoded of its view with its frames: a resting thread keeps none, and an attach after
+/// the rest is served the view encoded again.
+#[test]
+fn a_resting_feed_drops_the_snapshots_of_its_view() {
+    let encodes = Arc::new(Encodes::default());
+    let mut actor = Actor::new("resting-snapshots", KEYS, FeedLimits { ring_bytes: 64 << 10, max_snapshot_bytes: 4096 }, &encodes);
+    actor.run_to(10);
+    let conn = MockConnection::new(ConnectionId(80), MockLimits::default());
+    let decision = attach(&actor.feed, &conn, "a", Window::Fixed, None);
+    assert_eq!(decision.mode, AttachMode::Snapshot);
+    let mut clients = one("a", Client::default());
+    fold(&conn, &mut clients);
+    assert_eq!(actor.feed.snapshots_held(), 1, "the encoded view is cached for the next attach");
+    actor.feed.rest();
+    assert_eq!(actor.feed.snapshots_held(), 0);
+    let decision = attach(&actor.feed, &conn, "b", Window::Fixed, None);
+    assert_eq!(decision.mode, AttachMode::Snapshot);
+    let mut clients = HashMap::from([(SubscriptionId::from("a"), Client::default()), (SubscriptionId::from("b"), Client::default())]);
+    assert_eq!(fold(&conn, &mut clients), 1, "the view is encoded again");
+    assert_eq!(clients[&SubscriptionId::from("b")].state, actor.state());
+}
+
 fn cpu() -> CpuInteractive {
     mixdog_rt::testing::tokens().cpu_interactive
 }
@@ -519,6 +541,58 @@ fn a_scoped_feed_is_found_by_its_id_while_its_owner_holds_it() {
     assert!(feeds.find(&FeedId::from("login:other")).is_none());
     drop(feed);
     assert!(feeds.find(&id).is_none());
+}
+
+#[test]
+fn scoped_feed_last_detach_runs_through_registry_find_replacement() {
+    use std::sync::atomic::AtomicUsize;
+
+    use mixdog_core_api::feed::ScopedFeeds;
+
+    let limits = MockLimits::default();
+    let feeds = super::CoreScopedFeeds::new(feed_limits(limits), cpu());
+    let id = FeedId::from("search:s1");
+    let detached = Arc::new(AtomicUsize::new(0));
+    let owner_feed: Arc<Mutex<Option<Arc<dyn mixdog_core_api::feed::ScopedFeed>>>> = Arc::new(Mutex::new(None));
+    let feed = feeds.create_watching_detach(id.clone(), Arc::new(EchoView), {
+        let detached = Arc::clone(&detached);
+        let owner_feed = Arc::clone(&owner_feed);
+        Arc::new(move || {
+            detached.fetch_add(1, Ordering::SeqCst);
+            // Owner cleanup closes the feed from inside the callback: must not deadlock.
+            if let Some(live) = owner_feed.lock().unwrap().take() {
+                live.close();
+            }
+        })
+    });
+    *owner_feed.lock().unwrap() = Some(feed.clone());
+
+    let initial: Arc<dyn FeedSource> = feed.clone();
+    let looked_up = feeds.find(&id).expect("feed/subscribe lookup finds live scoped feed");
+    let c1 = MockConnection::new(ConnectionId(1), limits);
+    let c2 = MockConnection::new(ConnectionId(2), limits);
+
+    let sub1 = SubscriptionId::from("initial");
+    let sub2 = SubscriptionId::from("replacement");
+    let _a1 = subscribe(&initial, sub1.clone(), Window::Fixed, None, &c1).unwrap();
+    let _a2 = subscribe(&looked_up, sub2.clone(), Window::Fixed, None, &c2).unwrap();
+    assert_eq!(feed.subscribers(), 2);
+
+    // Original subscription detaches while replacement from `feed/subscribe` is still attached.
+    initial.detach(sub1.clone());
+    assert_eq!(feed.subscribers(), 1);
+    assert_eq!(detached.load(Ordering::SeqCst), 0);
+
+    // Final subscriber detaches through the `feed/subscribe` source: cleanup fires once.
+    looked_up.detach(sub2.clone());
+    assert_eq!(feed.subscribers(), 0);
+    assert_eq!(detached.load(Ordering::SeqCst), 1);
+
+    // Repeated or unknown detaches do not re-fire cleanup.
+    initial.detach(sub1);
+    looked_up.detach(sub2);
+    looked_up.detach(SubscriptionId::from("never-attached"));
+    assert_eq!(detached.load(Ordering::SeqCst), 1);
 }
 impl Actor {
     fn new(name: &str, keys: u64, limits: FeedLimits, encodes: &Arc<Encodes>) -> Self {

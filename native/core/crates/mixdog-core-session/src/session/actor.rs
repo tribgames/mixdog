@@ -212,7 +212,8 @@ pub(super) const STATUS_SETTLE: Duration = Duration::from_millis(16);
 /// How long a route move waits for its new route's context status before it is accepted without it.
 const ROUTE_STATUS_DEADLINE: Duration = Duration::from_secs(10);
 /// The header keys that move the route's context window (`applyRouteContextWindow`).
-const WINDOW_KEYS: [&str; 5] = ["provider", "model", "contextWindow", "compactBoundaryTokens", "autoCompactTokenLimit"];
+const WINDOW_KEYS: [&str; 7] =
+    ["provider", "model", "contextWindow", "rawContextWindow", "effectiveContextWindowPercent", "compactBoundaryTokens", "autoCompactTokenLimit"];
 /// The header keys the workflow section is read from ([`SessionState::workflow`]).
 const WORKFLOW_KEYS: [&str; 4] = ["workflow", "orchestrationMode", "pendingWorkflowId", "pendingOrchestrationMode"];
 
@@ -1753,6 +1754,8 @@ pub(crate) struct SessionActor {
     stops: super::stop::StopBook,
     /// A queue drain waited for [`Self::drain_gated`]: the pump runs it once starts are free.
     drain_held: bool,
+    /// Open-time `refresh_resumed_tools` gate holding resumed queue drains until the refreshed tool surface lands.
+    resumed_tools: Option<Arc<super::handle::ResumedToolsGate>>,
     /// A delete closed the thread (`Ctl::Delete`): no run starts again.
     deleting: bool,
     /// The thread's tombstone landed (`Ctl::Closed`).
@@ -2088,6 +2091,13 @@ async fn sleep_until(deadline: Option<tokio::time::Instant>) {
     }
 }
 
+async fn resumed_tools_settled(gate: Option<&super::handle::ResumedToolsGate>) {
+    match gate {
+        Some(gate) => gate.settled().await,
+        None => std::future::pending().await,
+    }
+}
+
 /// A delete's go for its mark; an error when the delete dropped it.
 async fn mark_go(mark: &mut Option<oneshot::Receiver<serde_json::Map<String, Value>>>) -> Result<serde_json::Map<String, Value>, oneshot::error::RecvError> {
     match mark {
@@ -2254,6 +2264,7 @@ impl SessionActor {
             pending_work: None,
             stops: Default::default(),
             drain_held: false,
+            resumed_tools: None,
             deleting: false,
             tombstoned: false,
             closed_acks: Vec::new(),
@@ -2360,6 +2371,11 @@ impl SessionActor {
         self.slot = Some(slot);
     }
 
+    /// Attaches the open-time `refresh_resumed_tools` gate before the actor runs or its handle is published.
+    pub(super) fn arm_resumed_tools(&mut self, gate: Arc<super::handle::ResumedToolsGate>) {
+        self.resumed_tools = Some(gate);
+    }
+
     pub async fn run(mut self, init: Init) {
         let mut settings = self.boot(init);
         self.stepped();
@@ -2378,6 +2394,13 @@ impl SessionActor {
                 // The core's hold moved while a queue drain waits on it: the pump below drains once it is open (a release, a
                 // cancelled drain).
                 Ok(()) = self.start_hold.changed(), if self.drain_held => self.stepping(),
+                () = resumed_tools_settled(self.resumed_tools.as_deref()), if self.resumed_tools.is_some() => {
+                    self.stepping();
+                    let cancelled = self.resumed_tools.take().is_some_and(|gate| gate.is_cancelled());
+                    if cancelled || self.cell.closed.load(SeqCst) || self.shutting_down {
+                        self.drain_held = false;
+                    }
+                }
                 _ = sleep_until(deadline), if deadline.is_some() => { self.stepping(); self.on_deadline() }
                 _ = sleep_until(self.idle_evict_at), if self.idle_evict_at.is_some() => { self.stepping(); self.on_idle_evict() }
                 _ = sleep_until(self.rest_at), if self.rest_at.is_some() => { self.stepping(); self.on_rest() }
@@ -2675,6 +2698,9 @@ impl SessionActor {
     }
 
     fn follow_header_moves(&mut self, entry: u64, moves: &HeaderMoves, window_before: &(Option<Value>, Option<Value>)) {
+        if moves.window && (self.projected.header.get("contextWindow").cloned(), self.projected.header.get("rawContextWindow").cloned()) != *window_before {
+            self.held_display = None;
+        }
         let figures = match self.route_status.take().filter(|_| moves.window) {
             Some(Some((pass, status))) => {
                 self.apply_measurement(pass, &status);
@@ -3271,7 +3297,8 @@ impl SessionActor {
     fn release_ready(&mut self) -> (Vec<Note>, bool) {
         let mut notes = Vec::new();
         let mut header_moved = false;
-        if !self.starting {
+        // Keep a drained prompt's dequeue paired while the idle auto-clear meter check is running or about to hand off into deferred_start.
+        if !self.starting && !((self.idle_clearing || (self.deferred_start.is_some() && !self.starts_gated())) && !self.compacting()) {
             self.outbox.unpair_pending();
         }
         self.releasing = true;
@@ -4153,8 +4180,9 @@ impl SessionActor {
                 // deadline decided before the client's attach is counted is void ([`Self::idle_checked`]).
                 self.arm_idle_evict();
                 self.arm_rest();
+                let refresh_cancelled = self.sync_resumed_tools();
                 let restored = std::mem::take(&mut self.restored_queue);
-                if restored || !self.projected.queued_rows().is_empty() {
+                if !refresh_cancelled && (restored || !self.projected.queued_rows().is_empty()) {
                     self.start_next_queued();
                 }
                 // The session boundary of the resume (`rearmGoalContinuationOnSessionBoundaries`): the continuation queued before it
@@ -4199,6 +4227,13 @@ impl SessionActor {
                 if let Some(titles) = &self.deps.titles {
                     titles.session_disposed(self.id.as_str());
                 }
+                if let Some(directory) = self.ch.directory.upgrade()
+                    && let Some(handle) = directory.loaded_handle(&self.id)
+                {
+                    handle.resumed_tools.cancel();
+                }
+                self.resumed_tools = None;
+                self.drain_held = false;
                 self.tombstoned = true;
                 self.closed_acks.push(taken);
                 self.try_unload();
@@ -4206,6 +4241,8 @@ impl SessionActor {
             Ctl::Delete { abort, idle, guard, closed, mark, marked } => self.delete(&abort, idle, guard, closed, mark, marked),
             Ctl::Shutdown(done) => {
                 self.cell.close();
+                self.resumed_tools = None;
+                self.drain_held = false;
                 self.cell.abort_compaction(&mixdog_agent::cancel::Abort::runtime_close(self.id.as_str(), "cli-exit"));
                 // Node's exit drain: what a failed write left is written once more, in accept order.
                 self.shutting_down = true;
@@ -4401,10 +4438,34 @@ impl SessionActor {
         self.turn_unsettled() || self.compaction_held() || self.idle_clearing || self.clear_holds > 0 || self.carrying() || self.prune_holds()
     }
 
+    fn sync_resumed_tools(&mut self) -> bool {
+        if self.cell.closed.load(SeqCst) || self.shutting_down || self.deleting || self.tombstoned {
+            self.resumed_tools = None;
+            self.drain_held = false;
+            return true;
+        }
+        let loaded = self.ch.directory.upgrade().and_then(|dir| dir.loaded_handle(&self.id));
+        let Some(handle) = loaded.filter(|handle| Arc::ptr_eq(&handle.cell, &self.cell)) else {
+            self.resumed_tools = None;
+            self.drain_held = false;
+            return true;
+        };
+        if self.resumed_tools.as_ref().is_some_and(|gate| gate.is_cancelled()) || handle.resumed_tools.is_cancelled() {
+            self.resumed_tools = None;
+            self.drain_held = false;
+            return true;
+        }
+        false
+    }
+
     fn drain_gated(&self) -> bool {
         // A manual compaction holds the queue too (`commandBusy`, `drain.mjs` `mayStartDrain`); a turn already admitted goes on.
         // So does a Project move, recorded or under way: what queued behind it runs where the session is wanted.
-        self.starts_gated() || self.move_held() || self.compacting() || self.core_hold() != StartHold::Open
+        self.starts_gated()
+            || self.move_held()
+            || self.compacting()
+            || self.core_hold() != StartHold::Open
+            || self.resumed_tools.as_ref().is_some_and(|gate| gate.is_in_flight() || gate.is_cancelled())
     }
 
     /// The core's hold on new turn starts as it reads now.
@@ -5514,9 +5575,13 @@ impl SessionActor {
 
     /// Whether a completion may wake this idle thread: the session did not turn
     /// `autoWakeCompletions` off (`infrastructure.mjs:154`, default on at
-    /// `runtime-core.mjs:31`) and its owner is not closing (`notification-bus.mjs:27-31`).
+    /// `runtime-core.mjs:31`), its owner is not closing (`notification-bus.mjs:27-31`), and its
+    /// last turn did not stop on provider quota: a wake would fail the same way, so the
+    /// completion waits for that turn's retry or the user's next message.
     fn completion_wake(&self) -> bool {
-        !self.cell.closed.load(SeqCst) && self.acked.header.get(super::session_options::AUTO_WAKE_COMPLETIONS) != Some(&Value::Bool(false))
+        !self.cell.closed.load(SeqCst)
+            && self.acked.header.get(super::session_options::AUTO_WAKE_COMPLETIONS) != Some(&Value::Bool(false))
+            && !self.quota_stopped()
     }
 
     /// [`Self::start_run`] over an input row already built. `wake`: a completion wake, which

@@ -377,6 +377,8 @@ pub type SessionRelease = Arc<dyn Fn(&str) + Send + Sync>;
 /// loads again, so each is safe to run any number of times.
 #[derive(Default)]
 pub struct SessionReleases {
+    /// The session's runtime rested, still loaded: what it kept only for its next turn.
+    pub rested: Vec<SessionRelease>,
     /// The session's runtime unloaded: what only that runtime used.
     pub unloaded: Vec<SessionRelease>,
     /// The session ended (closed for good or deleted): what the session itself owned. An end is an unload too.
@@ -386,6 +388,12 @@ pub struct SessionReleases {
 }
 
 impl SessionReleases {
+    fn rested(&self, session_id: &str) {
+        for release in &self.rested {
+            release(session_id);
+        }
+    }
+
     fn unloaded(&self, session_id: &str) {
         for release in &self.unloaded {
             release(session_id);
@@ -449,6 +457,10 @@ impl DeleteSeams for SessionDeletion {
         self.mcp_scopes.release_unloaded(session_id);
         self.read_state.release_session(session_id);
         self.releases.unloaded(session_id);
+    }
+
+    fn release_rested(&self, session_id: &str) {
+        self.releases.rested(session_id);
     }
 
     fn session_ended(&self, session_id: &str) {
