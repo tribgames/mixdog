@@ -530,6 +530,71 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
     };
     let outcome = agents.run(begun).await;
     drop(watchdog);
+    finish_outside_turn(
+        OutsideCompletion {
+            parts,
+            stalled_thread,
+            turn_id,
+            model,
+            system,
+            asked_at,
+            held,
+            stopped_item,
+            ended_input,
+            redactor,
+            calls,
+            guards,
+            hints,
+            signal,
+            cancel,
+            end_port,
+            report,
+        },
+        outcome,
+    )
+    .await
+}
+
+struct OutsideCompletion {
+    parts: Arc<dyn RunParts>,
+    stalled_thread: ThreadId,
+    turn_id: TurnId,
+    model: String,
+    system: Vec<AgentMessage>,
+    asked_at: i64,
+    held: Arc<std::sync::atomic::AtomicUsize>,
+    stopped_item: ItemId,
+    ended_input: Value,
+    redactor: mixdog_core_session::session::run::ModelContext,
+    calls: Arc<HandedCalls>,
+    guards: Arc<dyn TurnGuards>,
+    hints: ToolHints,
+    signal: mixdog_agent::cancel::Cancel,
+    cancel: tokio_util::sync::CancellationToken,
+    end_port: RunPort,
+    report: Arc<OutsideReport>,
+}
+
+async fn finish_outside_turn(completion: OutsideCompletion, outcome: RunOutcome) -> RunOutcome {
+    let OutsideCompletion {
+        parts,
+        stalled_thread,
+        turn_id,
+        model,
+        system,
+        asked_at,
+        held,
+        stopped_item,
+        ended_input,
+        redactor,
+        calls,
+        guards,
+        hints,
+        signal,
+        cancel,
+        end_port,
+        report,
+    } = completion;
     // The watchdog's stop is a stalled failure, as the loop's is: its sentence is the error, and the shells the turn
     // registered while it unwound are swept.
     let outcome = if !matches!(outcome, RunOutcome::Completed(_)) && signal.is_aborted() && is_watchdog_abort(&signal.reason()) {

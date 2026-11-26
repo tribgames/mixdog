@@ -166,10 +166,7 @@ impl SharedServer {
         let temp = Temp { folder: agents.server_temp().await?, files: files.clone() };
         let (connection, incoming) = Connection::start_in(agents.parts.processes.clone(), launch(preset, program, cwd), Some(temp)).await?;
         let abort_init = |connection: Arc<Connection>| {
-            connection.kill();
-            agents.track_stop(mixdog_rt::spawn("acp.shared.init_abort", TaskClass::Work, async move {
-                connection.exited().cancelled().await;
-            }));
+            agents.kill_and_track("acp.shared.init_abort", connection);
             Fault::Start(format!("{} did not initialize in time", preset.label))
         };
         if cancel.is_cancelled() {
@@ -183,11 +180,7 @@ impl SharedServer {
             capabilities = initialize(&connection) => match capabilities {
                 Ok(capabilities) => capabilities,
                 Err(fault) => {
-                    let conn = connection.clone();
-                    conn.kill();
-                    agents.track_stop(mixdog_rt::spawn("acp.shared.init_fail", TaskClass::Work, async move {
-                        conn.exited().cancelled().await;
-                    }));
+                    agents.kill_and_track("acp.shared.init_fail", connection);
                     return Err(fault);
                 }
             },
@@ -353,7 +346,7 @@ impl SharedServer {
         lock(&self.state).sessions.get(id).and_then(Weak::upgrade).filter(|session| !session.gone.is_cancelled())
     }
 
-    /// Hands `message` to the session it is of. A read is answered from that session's folder alone, and a question about
+    /// Sends `response` for `id` within `RefuseBudget::LIMIT`, breaking and retiring the shared server if stdin stalls.
     async fn respond_bounded(self: &Arc<Self>, id: Value, response: Result<Value, RpcError>, why: &str) {
         if self.connection.exited().is_cancelled() {
             return;
@@ -655,6 +648,24 @@ impl Agents {
         }
     }
 
+    fn kill_and_track(&self, task: &'static str, connection: Arc<Connection>) {
+        connection.kill();
+        self.track_stop(mixdog_rt::spawn(task, TaskClass::Work, async move {
+            connection.exited().cancelled().await;
+        }));
+    }
+
+    fn end_sessions(&self, mut matches: impl FnMut(&AgentSession) -> bool) {
+        let victims: Vec<Arc<AgentSession>> = {
+            let mut sessions = lock(&self.sessions);
+            let threads: Vec<ThreadId> = sessions.iter().filter(|(_, session)| matches(session)).map(|(thread, _)| thread.clone()).collect();
+            threads.into_iter().filter_map(|thread| sessions.remove(&thread)).collect()
+        };
+        for session in victims {
+            session.end();
+        }
+    }
+
     /// Retires and kills a wedged shared server immediately so the next open starts a fresh process instead of
     /// hanging behind a stalled stdin pipe. Only removes `server` if it is still the preset's active shared server,
     /// and removes only sessions belonging to `server` atomically under the sessions lock so a thread that already
@@ -664,20 +675,9 @@ impl Agents {
             let mut shared = lock(&self.shared);
             Self::forget_in(&mut shared, server);
             lock(&server.state).retired = true;
-            server.connection.kill();
-            let connection = server.connection.clone();
-            self.track_stop(mixdog_rt::spawn("acp.shared.kill", TaskClass::Work, async move {
-                connection.exited().cancelled().await;
-            }));
+            self.kill_and_track("acp.shared.kill", server.connection.clone());
         }
-        let victims: Vec<Arc<AgentSession>> = {
-            let mut sessions = lock(&self.sessions);
-            let threads: Vec<ThreadId> = sessions.iter().filter(|(_, session)| session.on_server(server)).map(|(thread, _)| thread.clone()).collect();
-            threads.into_iter().filter_map(|thread| sessions.remove(&thread)).collect()
-        };
-        for session in victims {
-            session.end();
-        }
+        self.end_sessions(|session| session.on_server(server));
     }
 
     /// Takes `preset_id`'s shared server out of use and its sessions off it, and begins closing it in a task the app's stop
@@ -689,14 +689,7 @@ impl Agents {
             let mut shared = lock(&self.shared);
             shared.remove(preset_id).map(|slot| self.stop_slot(&mut shared, slot))
         };
-        let victims: Vec<Arc<AgentSession>> = {
-            let mut sessions = lock(&self.sessions);
-            let threads: Vec<ThreadId> = sessions.iter().filter(|(_, session)| session.preset.id == preset_id).map(|(thread, _)| thread.clone()).collect();
-            threads.into_iter().filter_map(|thread| sessions.remove(&thread)).collect()
-        };
-        for session in victims {
-            session.end();
-        }
+        self.end_sessions(|session| session.preset.id == preset_id);
         stopped
     }
 
@@ -951,7 +944,7 @@ mod tests {
         })
     }
 
-    /// Defect 6: dropping `AgentSession::prompt` in flight after stdin may have admitted the prompt bytes
+    /// Dropping `AgentSession::prompt` in flight after stdin may have admitted the prompt bytes
     /// keeps the prompt owned on the shared server so `detach` still sends `session/cancel` while a sibling
     /// keeps the server alive.
     #[tokio::test]
@@ -1023,7 +1016,7 @@ mod tests {
         assert!(!killed.load(Ordering::SeqCst), "sibling keeps shared server alive");
     }
 
-    /// Defect 8b: `retire_wedged_shared` targets only sessions belonging to the specific wedged server instance
+    /// `retire_wedged_shared` targets only sessions belonging to the specific wedged server instance
     /// atomically under the sessions lock and never terminates a healthy replacement session on the same thread.
     #[tokio::test]
     async fn retire_wedged_shared_does_not_terminate_replacement_session_on_same_thread() {
@@ -1089,21 +1082,11 @@ mod tests {
         assert!(!killed_healthy.load(Ordering::SeqCst), "healthy replacement server must not be killed");
     }
 
-    /// r5 Defect 6: a late permission request routed to `Routed::Refuse` (or an unknown session) on a shared server
+    /// A late permission request routed to `Routed::Refuse` (or an unknown session) on a shared server
     /// with stalled stdin must time out within `RefuseBudget::LIMIT`, break/retire the wedged server, and never
     /// block the shared router loop indefinitely.
     #[tokio::test]
     async fn late_permission_refusal_on_stalled_stdin_times_out_and_retires_wedged_server_without_blocking_router() {
-        struct StalledOpenEvents(tokio::sync::Notify);
-
-        #[async_trait::async_trait]
-        impl mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent> for StalledOpenEvents {
-            async fn next(&mut self) -> Option<mixdog_core_api::domain::process::ProcessEvent> {
-                self.0.notified().await;
-                None
-            }
-        }
-
         struct StalledWriteProcesses {
             killed: Arc<std::sync::atomic::AtomicBool>,
             kill_notify: Arc<tokio::sync::Notify>,
@@ -1125,7 +1108,7 @@ mod tests {
                 Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>,
                 mixdog_core_api::domain::process::ProcessError,
             > {
-                Ok(Box::new(StalledOpenEvents(tokio::sync::Notify::new())))
+                Ok(Box::new(SharedTestEvents(tokio::sync::Notify::new())))
             }
             fn subscribe_holding(
                 &self,

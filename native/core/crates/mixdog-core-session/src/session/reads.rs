@@ -220,10 +220,15 @@ impl std::io::Write for ByteCounter {
     }
 }
 
+/// Exact UTF-8 JSON byte length of `value` without allocating a serialized buffer.
+pub(crate) fn json_bytes<T: serde::Serialize>(value: &T) -> usize {
+    let mut counter = ByteCounter(0);
+    serde_json::to_writer(&mut counter, value).map_or(0, |()| counter.0)
+}
+
 /// Exact UTF-8 JSON byte length of `unit` without allocating a serialized buffer.
 pub(crate) fn unit_bytes(unit: &mixdog_app_protocol::v2::thread::TranscriptUnit) -> usize {
-    let mut counter = ByteCounter(0);
-    serde_json::to_writer(&mut counter, unit).map_or(0, |()| counter.0)
+    json_bytes(unit)
 }
 
 /// The unit of one compaction boundary.

@@ -168,9 +168,18 @@ fn header_retry_after_at(headers: &Headers<'_>, now: chrono::DateTime<chrono::Ut
     (None, None)
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 fn header_delay_label(headers: &Headers<'_>) -> Option<String> {
     header_retry_after_at(headers, chrono::Utc::now()).0
+}
+
+impl GoogleErrorMeta {
+    fn set_reset_at(&mut self, dt: chrono::DateTime<chrono::Utc>) {
+        if self.reset_at_ts.is_none() {
+            self.reset_at_ts = Some(dt.timestamp());
+            self.reset_at_iso = Some(dt.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+        }
+    }
 }
 
 fn parse_google_error_meta(text: &str, detail: &str, headers: &Headers<'_>) -> GoogleErrorMeta {
@@ -238,11 +247,8 @@ fn parse_google_error_meta(text: &str, detail: &str, headers: &Headers<'_>) -> G
                 if let Some(stamp_str) = metadata.get("quotaResetTimeStamp").and_then(Value::as_str) {
                     meta.quota_hint = true;
                     meta.has_structured_quota = true;
-                    if meta.reset_at_ts.is_none()
-                        && let Ok(dt) = chrono::DateTime::parse_from_rfc3339(js_trim(stamp_str))
-                    {
-                        meta.reset_at_ts = Some(dt.timestamp());
-                        meta.reset_at_iso = Some(dt.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+                    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(js_trim(stamp_str)) {
+                        meta.set_reset_at(dt.with_timezone(&chrono::Utc));
                     }
                 }
             }
@@ -260,11 +266,8 @@ fn parse_google_error_meta(text: &str, detail: &str, headers: &Headers<'_>) -> G
         if meta.delay.is_none() {
             meta.delay = hdr_delay;
         }
-        if meta.reset_at_ts.is_none()
-            && let Some(dt) = hdr_reset
-        {
-            meta.reset_at_ts = Some(dt.timestamp());
-            meta.reset_at_iso = Some(dt.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+        if let Some(dt) = hdr_reset {
+            meta.set_reset_at(dt);
         }
     }
     meta

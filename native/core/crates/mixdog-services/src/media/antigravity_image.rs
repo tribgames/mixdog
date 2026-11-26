@@ -60,112 +60,119 @@ struct ParsedStream {
     usage: Option<Value>,
 }
 
-fn apply_sse_record(
-    value: Value,
-    parts: &mut Vec<Value>,
-    failure: &mut Option<String>,
-    finish_reason: &mut Option<String>,
-    block_reason: &mut Option<String>,
-    in_band_error: &mut Option<Value>,
-    usage_metadata: &mut Value,
-) {
-    let root = match &value {
-        Value::Array(items) => items.first().unwrap_or(&value),
-        _ => &value,
-    };
-    // In-band error events stay top level; content chunks are nested.
-    if let Some(error) = root.get("error").filter(|e| truthy(Some(e))) {
-        *in_band_error = Some(error.clone());
-        *failure = Some(match error.get("message").filter(|m| truthy(Some(m))) {
-            Some(message) => value_to_string(message),
-            None => mixdog_js::json_stringify(error),
-        });
-    }
-    let chunk = match root.get("response") {
-        Some(nested) if truthy(Some(nested)) && (nested.is_object() || nested.is_array()) => nested,
-        _ => root,
-    };
-    if let Some(candidate) = chunk.get("candidates").and_then(|c| c.get(0)) {
-        if let Some(content) = candidate.get("content").and_then(|c| c.get("parts")).and_then(Value::as_array) {
-            parts.extend(content.iter().cloned());
-        }
-        if let Some(reason) =
-            candidate.get("finishReason").or_else(|| candidate.get("finish_reason")).and_then(Value::as_str).map(mixdog_js::js_trim).filter(|r| !r.is_empty())
-        {
-            *finish_reason = Some(reason.to_owned());
-        }
-    }
-    // usageMetadata is cumulative; the last chunk that carries it is the total.
-    if let Some(meta) = chunk.get("usageMetadata").filter(|m| truthy(Some(m))) {
-        *usage_metadata = meta.clone();
-    }
-    let blocked = chunk
-        .get("promptFeedback")
-        .or_else(|| chunk.get("prompt_feedback"))
-        .and_then(|f| f.get("blockReason").or_else(|| f.get("block_reason")))
-        .filter(|b| truthy(Some(b)))
-        .map(value_to_string);
-    if let Some(reason) = blocked {
-        *block_reason = Some(reason.clone());
-        if failure.as_deref().is_none_or(str::is_empty) {
-            *failure = Some(format!("prompt blocked ({reason})"));
-        }
-    }
+#[derive(Default)]
+struct StreamAccumulator {
+    parts: Vec<Value>,
+    failure: Option<String>,
+    finish_reason: Option<String>,
+    block_reason: Option<String>,
+    in_band_error: Option<Value>,
+    usage_metadata: Value,
 }
 
-fn flush_sse_event(
-    data_lines: &mut Vec<&str>,
-    parts: &mut Vec<Value>,
-    failure: &mut Option<String>,
-    finish_reason: &mut Option<String>,
-    block_reason: &mut Option<String>,
-    in_band_error: &mut Option<Value>,
-    usage_metadata: &mut Value,
-) {
-    if data_lines.is_empty() {
-        return;
-    }
-    let joined = data_lines.join("\n");
-    let trimmed = mixdog_js::js_trim(&joined);
-    if !trimmed.is_empty() && trimmed != "[DONE]" {
-        if let Ok(value) = mixdog_js::json_parse(trimmed) {
-            apply_sse_record(value, parts, failure, finish_reason, block_reason, in_band_error, usage_metadata);
-        } else if data_lines.len() > 1 {
-            // Fall back to line-by-line parsing if consecutive single-line JSON events lacked blank separators.
-            for raw_line in data_lines.iter() {
-                let line = mixdog_js::js_trim(raw_line);
-                if line.is_empty() || line == "[DONE]" {
-                    continue;
-                }
-                if let Ok(value) = mixdog_js::json_parse(line) {
-                    apply_sse_record(value, parts, failure, finish_reason, block_reason, in_band_error, usage_metadata);
-                }
+impl StreamAccumulator {
+    fn apply_record(&mut self, value: Value) {
+        let root = match &value {
+            Value::Array(items) => items.first().unwrap_or(&value),
+            _ => &value,
+        };
+        // In-band error events stay top level; content chunks are nested.
+        if let Some(error) = root.get("error").filter(|e| truthy(Some(e))) {
+            self.in_band_error = Some(error.clone());
+            self.failure = Some(match error.get("message").filter(|m| truthy(Some(m))) {
+                Some(message) => value_to_string(message),
+                None => mixdog_js::json_stringify(error),
+            });
+        }
+        let chunk = match root.get("response") {
+            Some(nested) if truthy(Some(nested)) && (nested.is_object() || nested.is_array()) => nested,
+            _ => root,
+        };
+        if let Some(candidate) = chunk.get("candidates").and_then(|c| c.get(0)) {
+            if let Some(content) = candidate.get("content").and_then(|c| c.get("parts")).and_then(Value::as_array) {
+                self.parts.extend(content.iter().cloned());
+            }
+            if let Some(reason) = candidate
+                .get("finishReason")
+                .or_else(|| candidate.get("finish_reason"))
+                .and_then(Value::as_str)
+                .map(mixdog_js::js_trim)
+                .filter(|r| !r.is_empty())
+            {
+                self.finish_reason = Some(reason.to_owned());
+            }
+        }
+        // usageMetadata is cumulative; the last chunk that carries it is the total.
+        if let Some(meta) = chunk.get("usageMetadata").filter(|m| truthy(Some(m))) {
+            self.usage_metadata = meta.clone();
+        }
+        let blocked = chunk
+            .get("promptFeedback")
+            .or_else(|| chunk.get("prompt_feedback"))
+            .and_then(|f| f.get("blockReason").or_else(|| f.get("block_reason")))
+            .filter(|b| truthy(Some(b)))
+            .map(value_to_string);
+        if let Some(reason) = blocked {
+            self.block_reason = Some(reason.clone());
+            if self.failure.as_deref().is_none_or(str::is_empty) {
+                self.failure = Some(format!("prompt blocked ({reason})"));
             }
         }
     }
-    data_lines.clear();
+
+    fn flush_event(&mut self, data_lines: &mut Vec<&str>) {
+        if data_lines.is_empty() {
+            return;
+        }
+        let joined = data_lines.join("\n");
+        let trimmed = mixdog_js::js_trim(&joined);
+        if !trimmed.is_empty() && trimmed != "[DONE]" {
+            if let Ok(value) = mixdog_js::json_parse(trimmed) {
+                self.apply_record(value);
+            } else if data_lines.len() > 1 {
+                // Fall back to line-by-line parsing if consecutive single-line JSON events lacked blank separators.
+                for raw_line in data_lines.iter() {
+                    let line = mixdog_js::js_trim(raw_line);
+                    if line.is_empty() || line == "[DONE]" {
+                        continue;
+                    }
+                    if let Ok(value) = mixdog_js::json_parse(line) {
+                        self.apply_record(value);
+                    }
+                }
+            }
+        }
+        data_lines.clear();
+    }
+
+    fn into_parsed(self) -> ParsedStream {
+        let usage = gemini_usage(&self.usage_metadata);
+        ParsedStream {
+            parts: self.parts,
+            failure: self.failure,
+            finish_reason: self.finish_reason,
+            block_reason: self.block_reason,
+            in_band_error: self.in_band_error,
+            usage,
+        }
+    }
 }
 
 fn parse_antigravity_stream(sse_text: &str) -> ParsedStream {
-    let mut parts = Vec::new();
-    let mut failure: Option<String> = None;
-    let mut finish_reason: Option<String> = None;
-    let mut block_reason: Option<String> = None;
-    let mut in_band_error: Option<Value> = None;
-    let mut usage_metadata = Value::Null;
+    let mut acc = StreamAccumulator::default();
     let mut data_lines: Vec<&str> = Vec::new();
     for raw_line in sse_text.split('\n') {
         let line = raw_line.strip_suffix('\r').unwrap_or(raw_line);
         if line.is_empty() {
-            flush_sse_event(&mut data_lines, &mut parts, &mut failure, &mut finish_reason, &mut block_reason, &mut in_band_error, &mut usage_metadata);
+            acc.flush_event(&mut data_lines);
             continue;
         }
         if let Some(rest) = line.strip_prefix("data:") {
             data_lines.push(rest.strip_prefix(' ').unwrap_or(rest));
         }
     }
-    flush_sse_event(&mut data_lines, &mut parts, &mut failure, &mut finish_reason, &mut block_reason, &mut in_band_error, &mut usage_metadata);
-    ParsedStream { parts, failure, finish_reason, block_reason, in_band_error, usage: gemini_usage(&usage_metadata) }
+    acc.flush_event(&mut data_lines);
+    acc.into_parsed()
 }
 
 /// Candidate parts across the stream; the gateway nests each chunk under `response`.

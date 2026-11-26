@@ -5674,7 +5674,7 @@ async fn partial_steer_claim_reuses_resolved_attachments_without_re_reading_and_
     assert_eq!(surface.0.steers.lock().unwrap().len(), 1, "pre-dequeue cancel must leave steer queued");
 }
 
-/// Defect 1: when a shared server wedges (ignores `session/cancel` and stalls `session/new`), recovery immediately
+/// When a shared server wedges (ignores `session/cancel` and stalls `session/new`), recovery immediately
 /// unsets the abandoned `SESSION_KEY` header before blocking on `session/new`, retires/kills the wedged server after
 /// `shared_open_timeout`, and recovers cleanly on a fresh shared server.
 #[tokio::test]
@@ -5742,7 +5742,7 @@ async fn wedged_shared_server_unsets_abandoned_header_promptly_and_recovers_past
     assert_ne!(fresh_handle, wedged_handle, "wedged shared server must be replaced with a fresh server process");
 }
 
-/// Defect 4: `deliver_answer` respects `mcp_call_deadline` — a tool that already handed off to background answers
+/// `deliver_answer` respects `mcp_call_deadline` — a tool that already handed off to background answers
 /// immediately without waiting on steers, and slow steer attachment reads on a fast tool are bounded by the remaining
 /// deadline before `commit_steers`, leaving queued steers untouched for the next boundary.
 #[tokio::test]
@@ -5822,7 +5822,7 @@ async fn deliver_answer_respects_mcp_call_deadline_and_hands_off_immediately_wit
     assert_eq!(surface.0.steers.lock().unwrap().len(), 1, "timed-out steer must remain queued for the next boundary");
 }
 
-/// Defect 5: repeated silent cancels on a shared server with a live sibling clean up abandoned prompt ids from
+/// Repeated silent cancels on a shared server with a live sibling clean up abandoned prompt ids from
 /// `Connection::sent` immediately on detach instead of leaking one entry per recovery forever.
 #[tokio::test]
 async fn repeated_silent_cancels_on_shared_server_do_not_leak_connection_sent_ids() {
@@ -5864,7 +5864,7 @@ async fn repeated_silent_cancels_on_shared_server_do_not_leak_connection_sent_id
     assert_eq!(shared_conn.sent_len(), 0);
 }
 
-/// Defect 3: when a wedged shared server is replaced by a fresh process that allocates the exact same
+/// When a wedged shared server is replaced by a fresh process that allocates the exact same
 /// `sessionId` (`sess-1`) as the abandoned stored session and has the same prompt digest, recovery must
 /// still run conversation handoff (sending the summary) and restore the cleared `SESSION_KEY` header.
 #[tokio::test]
@@ -5937,7 +5937,7 @@ async fn replacement_shared_server_with_same_session_id_still_runs_handoff_and_r
     assert!(restore_pos > unset_pos, "restored header must follow abandoned unset: {header_events:?}");
 }
 
-/// Defect 4: a stalled `commit_steers` (actor/IO delay before dequeue) is bounded by `mcp_call_deadline`,
+/// A stalled `commit_steers` (actor/IO delay before dequeue) is bounded by `mcp_call_deadline`,
 /// sending the base tool answer on time and leaving the steer queued untouched.
 #[tokio::test]
 async fn stalled_commit_steers_is_bounded_by_mcp_call_deadline_and_leaves_steer_queued() {
@@ -5970,7 +5970,7 @@ async fn stalled_commit_steers_is_bounded_by_mcp_call_deadline_and_leaves_steer_
     assert_eq!(surface.0.steers.lock().unwrap().len(), 1, "stalled steer must stay queued for the next boundary");
 }
 
-/// Defect 8a: when a wedged shared server is retired and the fresh replacement server ALSO stalls on `session/new`,
+/// When a wedged shared server is retired and the fresh replacement server also stalls on `session/new`,
 /// the retry path honors `shared_open_timeout` and fails cleanly instead of hanging indefinitely.
 #[tokio::test]
 async fn replacement_shared_server_stalled_session_new_honors_open_timeout_instead_of_hanging() {
@@ -6017,10 +6017,10 @@ async fn replacement_shared_server_stalled_session_new_honors_open_timeout_inste
     world.all_exited().await;
 }
 
-/// r5 Defect 3: when `session/new` opens a fresh handle with the same `sessionId` as the stored header,
+/// When `session/new` opens a fresh handle with the same `sessionId` as the stored header,
 /// and model selection fails before the prompt carrying the handoff is ever sent, retrying with a valid
-/// model reuses the cached handle and must STILL run conversation handoff and restore `SESSION_KEY`
-/// (and only clear `handoff_pending` once that prompt is actually sent).
+/// model reuses the cached handle and still runs conversation handoff and restores `SESSION_KEY`
+/// (clearing `handoff_pending` only once that prompt is actually sent).
 #[tokio::test]
 async fn reused_handle_after_failed_model_selection_still_runs_handoff_and_restores_header() {
     let world = World::of(&["antigravity"], &[("FAKE_AGENT_SILENT_CANCEL", "1")], |preset, _| {
@@ -6123,9 +6123,9 @@ async fn reused_handle_after_failed_model_selection_still_runs_handoff_and_resto
     assert_eq!(hand_over_calls.load(Ordering::SeqCst), 2);
 }
 
-/// r5 Defect 4: when a wedged shared server is replaced and the replacement server stalls during `initialize`,
-/// the retry path must bound `shared_server` startup + `open_session` by `shared_open_timeout`, kill and clean up
-/// the stalled `Starting` slot, unblock sibling opens waiting on that slot, and allow later opens to succeed.
+/// When a wedged shared server is replaced and the replacement server stalls during `initialize`,
+/// the retry path bounds `shared_server` startup and `open_session` by `shared_open_timeout`, kills and cleans up
+/// the stalled `Starting` slot, unblocks sibling opens waiting on that slot, and allows later opens to succeed.
 #[tokio::test]
 async fn replacement_shared_server_stalled_initialize_honors_open_timeout_and_unblocks_sibling() {
     let world = World::official(&[("FAKE_AGENT_SILENT_CANCEL", "1")]);

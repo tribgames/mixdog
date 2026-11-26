@@ -749,7 +749,7 @@ mod tests {
         let _ = incoming.recv().await;
     }
 
-    /// Defect 7b: abandoning >256 requests advances the monotonic eviction watermark so valid late answers for
+    /// Abandoning >256 requests advances the monotonic eviction watermark so valid late answers for
     /// earlier evicted abandoned ids never break off sibling sessions, while live requests still resolve and
     /// unissued ids still break off the connection.
     #[tokio::test]
@@ -798,7 +798,7 @@ mod tests {
         let _ = incoming.recv().await;
     }
 
-    /// Defect 7a: removing an id from `sent` and inserting it into `abandoned` happen under one lock,
+    /// Removing an id from `sent` and inserting it into `abandoned` happen under one lock,
     /// so a concurrent response dispatch can never fall between them and call `break_off`.
     #[tokio::test]
     async fn concurrent_forget_sent_and_dispatch_has_no_race_window() {

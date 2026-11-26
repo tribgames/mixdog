@@ -192,6 +192,21 @@ struct ElapsedWindowState {
     transport_failed: bool,
 }
 
+impl ElapsedWindowState {
+    fn schedule_followup(&mut self, now_ms: i64) -> Option<Duration> {
+        let delay = RESET_FOLLOWUP_DELAYS.get(self.attempts).copied();
+        self.attempts += 1;
+        if let Some(delay) = delay {
+            let delay_ms = i64::try_from(delay.as_millis()).unwrap_or(0);
+            self.next_due_at = Some(now_ms.saturating_add(delay_ms));
+            Some(delay)
+        } else {
+            self.next_due_at = None;
+            None
+        }
+    }
+}
+
 #[derive(Default)]
 struct ResetSchedule {
     elapsed: HashMap<String, ElapsedWindowState>,
@@ -229,25 +244,13 @@ impl ResetSchedule {
 
             if entry.transport_failed {
                 entry.transport_failed = false;
-                if let Some(&delay) = RESET_FOLLOWUP_DELAYS.get(entry.attempts) {
-                    entry.attempts += 1;
-                    let delay_ms = i64::try_from(delay.as_millis()).unwrap_or(0);
-                    entry.next_due_at = Some(now_ms.saturating_add(delay_ms));
+                if let Some(delay) = entry.schedule_followup(now_ms) {
                     consider(delay);
-                } else {
-                    entry.attempts += 1;
-                    entry.next_due_at = None;
                 }
             } else if let Some(due_at) = entry.next_due_at {
                 if read_started_ms >= due_at {
-                    if let Some(&delay) = RESET_FOLLOWUP_DELAYS.get(entry.attempts) {
-                        entry.attempts += 1;
-                        let delay_ms = i64::try_from(delay.as_millis()).unwrap_or(0);
-                        entry.next_due_at = Some(now_ms.saturating_add(delay_ms));
+                    if let Some(delay) = entry.schedule_followup(now_ms) {
                         consider(delay);
-                    } else {
-                        entry.attempts += 1;
-                        entry.next_due_at = None;
                     }
                 } else {
                     let remaining_ms = due_at.saturating_sub(now_ms).max(0);

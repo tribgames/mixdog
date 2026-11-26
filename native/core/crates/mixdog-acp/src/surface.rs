@@ -195,6 +195,17 @@ fn steer_entry_of(input: SteerInput) -> SteerEntry {
     }
 }
 
+fn steer_deliveries(inputs: Vec<SteerInput>) -> Vec<SteerDelivery> {
+    let mut deliveries = Vec::with_capacity(inputs.len());
+    for input in inputs {
+        let queued_ids = input.queued_ids.clone();
+        let entry = steer_entry_of(input);
+        let Some(merged) = mixdog_agent::steer::normalize(&entry) else { continue };
+        deliveries.push(SteerDelivery { queued_ids, content: merged.content, task_notification: merged.task_notification });
+    }
+    deliveries
+}
+
 #[async_trait]
 impl TurnSurface for RunPort {
     async fn item_started(&self, item: ThreadItem) -> Result<(), RunError> {
@@ -275,14 +286,7 @@ impl TurnSurface for RunPort {
 
     async fn peek_steers(&self) -> Result<Vec<SteerDelivery>, RunError> {
         let inputs = RunPort::peek_steers(self, DrainRequest { stage: DrainStage::PreSend, max_priority: Priority::Next }).await?;
-        let mut ready = Vec::new();
-        for input in inputs {
-            let queued_ids = input.queued_ids.clone();
-            let entry = steer_entry_of(input);
-            let Some(merged) = mixdog_agent::steer::normalize(&entry) else { continue };
-            ready.push(SteerDelivery { queued_ids, content: merged.content, task_notification: merged.task_notification });
-        }
-        Ok(ready)
+        Ok(steer_deliveries(inputs))
     }
 
     async fn commit_steers(&self, queued_ids: Vec<QueuedId>, now_ms: i64, cancel: CancellationToken) -> Result<Vec<SteerDelivery>, RunError> {
@@ -292,14 +296,7 @@ impl TurnSurface for RunPort {
         // Claim, dequeue, and commit transcript rows atomically in a single durable journal unit.
         let inputs =
             RunPort::consume_steers_until(self, DrainRequest { stage: DrainStage::PreSend, max_priority: Priority::Next }, queued_ids, now_ms, cancel).await?;
-        let mut claimed = Vec::with_capacity(inputs.len());
-        for input in inputs {
-            let queued_ids = input.queued_ids.clone();
-            let entry = steer_entry_of(input);
-            let Some(merged) = mixdog_agent::steer::normalize(&entry) else { continue };
-            claimed.push(SteerDelivery { queued_ids, content: merged.content, task_notification: merged.task_notification });
-        }
-        Ok(claimed)
+        Ok(steer_deliveries(inputs))
     }
 
     fn closing(&self) -> Arc<dyn TurnSurface> {

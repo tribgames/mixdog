@@ -807,17 +807,21 @@ impl GoalRuntime {
         self.inner.subscribe(listener)
     }
 
-    /// `snapshot`: the visible Goal, arming its deadline when active or already tracked.
-    pub async fn snapshot(&self, session_id: &str) -> GoalResult<Option<Goal>> {
-        let id = assert_session_id(session_id)?;
-        let goal = self.inner.visible_snapshot(&id).await?;
+    async fn snapshot_for_id(&self, id: &str) -> GoalResult<Option<Goal>> {
+        let goal = self.inner.visible_snapshot(id).await?;
         if let Some(g) = &goal {
             let running = super::js::string(g, "status") == "active" && truthy(g.get("lastStartedAt"));
-            if running || self.inner.has_retained_slot(&id) {
-                self.inner.arm_observed(&id).await?;
+            if running || self.inner.has_retained_slot(id) {
+                self.inner.arm_observed(id).await?;
             }
         }
         Ok(goal)
+    }
+
+    /// `snapshot`: the visible Goal, arming its deadline when active or already tracked.
+    pub async fn snapshot(&self, session_id: &str) -> GoalResult<Option<Goal>> {
+        let id = assert_session_id(session_id)?;
+        self.snapshot_for_id(&id).await
     }
 
     /// `readStoredGoalSnapshot({ dataDir, sessionId })`: the Goal a reader without the runtime sees in its file, the
@@ -859,13 +863,7 @@ impl GoalRuntime {
             return Ok(None);
         }
         let id = assert_session_id(session_id)?;
-        let goal = self.inner.visible_snapshot(&id).await?;
-        if let Some(g) = &goal {
-            let running = super::js::string(g, "status") == "active" && truthy(g.get("lastStartedAt"));
-            if running || self.inner.has_retained_slot(&id) {
-                self.inner.arm_observed(&id).await?;
-            }
-        }
+        let goal = self.snapshot_for_id(&id).await?;
         self.inner.emit_direct(&id, goal.clone());
         Ok(goal)
     }

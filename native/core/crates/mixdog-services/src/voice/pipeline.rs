@@ -250,6 +250,27 @@ impl VoicePipeline {
         self.transcribe_inner(audio, Some(attachment_id), Some(session_id), cancel).await
     }
 
+    fn evict_cached<'a>(&self, ids: impl IntoIterator<Item = &'a str> + Clone) {
+        {
+            let mut transcripts = self.transcripts.lock().unwrap();
+            for id in ids.clone() {
+                transcripts.remove(id);
+            }
+            if transcripts.is_empty() {
+                transcripts.shrink_to_fit();
+            }
+        }
+        {
+            let mut wavs = self.wav_by_attachment.lock().unwrap();
+            for id in ids {
+                wavs.remove(id);
+            }
+            if wavs.is_empty() {
+                wavs.shrink_to_fit();
+            }
+        }
+    }
+
     /// Drops the cached transcript and converted WAV path once the attachment is sent or removed.
     pub fn forget_attachment(&self, attachment_id: &str) {
         let mut state = self.attachments.lock().unwrap();
@@ -261,20 +282,7 @@ impl VoicePipeline {
             state.sessions.shrink_to_fit();
         }
         state.invalidate_in_flight(attachment_id);
-        {
-            let mut transcripts = self.transcripts.lock().unwrap();
-            transcripts.remove(attachment_id);
-            if transcripts.is_empty() {
-                transcripts.shrink_to_fit();
-            }
-        }
-        {
-            let mut wavs = self.wav_by_attachment.lock().unwrap();
-            wavs.remove(attachment_id);
-            if wavs.is_empty() {
-                wavs.shrink_to_fit();
-            }
-        }
+        self.evict_cached([attachment_id]);
     }
 
     /// Drops every cached transcript and WAV path associated with a session that ended.
@@ -289,24 +297,7 @@ impl VoicePipeline {
         for id in &orphaned {
             state.invalidate_in_flight(id);
         }
-        {
-            let mut transcripts = self.transcripts.lock().unwrap();
-            for id in &orphaned {
-                transcripts.remove(id);
-            }
-            if transcripts.is_empty() {
-                transcripts.shrink_to_fit();
-            }
-        }
-        {
-            let mut wavs = self.wav_by_attachment.lock().unwrap();
-            for id in &orphaned {
-                wavs.remove(id);
-            }
-            if wavs.is_empty() {
-                wavs.shrink_to_fit();
-            }
-        }
+        self.evict_cached(orphaned.iter().map(String::as_str));
     }
 
     #[cfg(test)]
@@ -425,10 +416,9 @@ impl VoicePipeline {
         {
             return Ok(None);
         }
-        let Some(id) = attachment_id else {
+        let Some((id, run_guard)) = attachment_id.zip(run_guard) else {
             return Arc::clone(self).transcribe_uncached(audio.to_owned(), None, None).await;
         };
-        let run_guard = run_guard.expect("started when attachment_id is Some");
         if let Some(text) = self.transcripts.lock().unwrap().get(id).cloned() {
             return Ok(Some(text));
         }

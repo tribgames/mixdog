@@ -146,22 +146,15 @@ pub fn rendered(handed: &Handed) -> Value {
     json!({ "content": content(handed), "isError": handed.failed })
 }
 
-/// Appends mid-turn user messages and task notifications peeked at a Mixdog tool-call boundary to the MCP tool result
-/// so the running ACP agent receives them on its next model step, resolving `AttachmentRef` images, files, and
-/// offloaded long pastes through the same path as `runs::prompt_blocks`.
-pub(crate) async fn with_steers(
-    mut result: Value,
+/// Formats mid-turn user messages and task notifications into MCP content blocks so the running ACP agent
+/// receives them on its next model step, resolving `AttachmentRef` images, files, and offloaded long pastes
+/// through the same path as `runs::prompt_blocks`.
+pub(crate) async fn steer_blocks(
     steers: &[crate::surface::SteerDelivery],
     capabilities: (bool, bool),
     attachments: &dyn crate::runs::Attachments,
-) -> (Value, crate::runs::LeftOut) {
-    if steers.is_empty() {
-        return (result, crate::runs::LeftOut::default());
-    }
-    if !result.get("content").is_some_and(Value::is_array) {
-        result["content"] = json!([]);
-    }
-    let blocks = result["content"].as_array_mut().expect("content is an array");
+) -> (Vec<Value>, crate::runs::LeftOut) {
+    let mut blocks = Vec::new();
     let mut left_out = crate::runs::LeftOut::default();
     for steer in steers {
         match &steer.content {
@@ -193,7 +186,7 @@ pub(crate) async fn with_steers(
             }
         }
     }
-    (result, left_out)
+    (blocks, left_out)
 }
 
 /// A finished call's result as the text a background task keeps: [`rendered`]'s text, an image noted where it was.

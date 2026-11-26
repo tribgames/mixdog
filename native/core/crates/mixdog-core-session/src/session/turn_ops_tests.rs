@@ -3692,8 +3692,8 @@ async fn cancelling_blocked_consume_or_take_steers_returns_cancelled_and_leaves_
     }
 }
 
-/// Defect 2: cancelling a turn while `consume_steers` is awaiting durability AFTER the session actor has
-/// already dequeued the steer and queued its atomic outbox unit must NOT return `RunError::Cancelled`
+/// Cancelling a turn while `consume_steers` is awaiting durability after the session actor has
+/// already dequeued the steer and queued its atomic outbox unit does not return `RunError::Cancelled`
 /// (which would drop the already-dequeued steer); once durability finishes it returns the committed steers.
 #[tokio::test]
 async fn consume_steers_cancelled_during_durability_wait_returns_committed_steers() {
@@ -3799,7 +3799,7 @@ async fn consume_steers_cancelled_during_durability_wait_returns_committed_steer
     directory.shutdown().await;
 }
 
-/// Defect 4: cancelling the caller token passed to `consume_steers_until` before the actor mutates state
+/// Cancelling the caller token passed to `consume_steers_until` before the actor mutates state
 /// returns `RunError::Cancelled` promptly without aborting the turn and leaves the steer queued.
 #[tokio::test]
 async fn consume_steers_until_caller_cancel_before_mutation_leaves_steer_queued() {
@@ -3924,8 +3924,8 @@ async fn consume_steers_until_caller_cancel_before_mutation_leaves_steer_queued(
     directory.shutdown().await;
 }
 
-/// r5 Defect 2: a recoverable journal write failure during `consume_steers` must return `RunError::NotApplied`
-/// (never `Ok` for an undurable steer), keep the steer queued, and allow re-consuming once persistence recovers.
+/// A recoverable journal write failure during `consume_steers` returns `RunError::NotApplied`
+/// (never `Ok` for an undurable steer), keeps the steer queued, and allows re-consuming once persistence recovers.
 #[tokio::test]
 async fn consume_steers_recoverable_write_failure_returns_not_applied_and_keeps_steer_queued() {
     use mixdog_core_api::ids::QueuedId;
@@ -4025,8 +4025,8 @@ async fn consume_steers_recoverable_write_failure_returns_not_applied_and_keeps_
     directory.shutdown().await;
 }
 
-/// r5 Defect 5: if a cancellation token is already cancelled when `finish_consume_steers` crosses the commit point
-/// while `SteerConsumeGate` is still `PENDING`, the actor must return `RunError::Cancelled` without mutating state
+/// If a cancellation token is already cancelled when `finish_consume_steers` crosses the commit point
+/// while `SteerConsumeGate` is still `PENDING`, the actor returns `RunError::Cancelled` without mutating state
 /// or dequeuing the steer.
 #[tokio::test]
 async fn finish_consume_steers_rejects_cancelled_token_even_while_gate_is_pending() {

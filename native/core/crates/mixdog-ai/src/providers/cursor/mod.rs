@@ -1096,7 +1096,9 @@ impl CursorStream {
             return ResumeOutcome::NotEligible;
         }
 
-        let live = self.live.take().expect("checked above");
+        let Some(live) = self.live.take() else {
+            return ResumeOutcome::NotEligible;
+        };
         let Live { body, sink, mut decoder, mut secret, fingerprint, conversation_id, original_request_id, .. } = live;
         drop((body, sink));
 

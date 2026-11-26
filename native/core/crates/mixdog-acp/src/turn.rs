@@ -739,14 +739,16 @@ impl Reply<'_> {
     /// Stop or `due` expiration during attachment resolution leaves queued entries untouched.
     async fn deliver_answer(&self, ask: ToolAsk, base: Value, due: Due, handed_off: bool) -> Result<(), RunError> {
         let name = ask.name;
-        let send_base = |answer_tx: tokio::sync::oneshot::Sender<Value>, base: Value| {
-            if answer_tx.send(base).is_err() {
+        let send_answer = |answer_tx: tokio::sync::oneshot::Sender<Value>, answer: Value| {
+            let sent = answer_tx.send(answer).is_ok();
+            if !sent {
                 tracing::warn!("[acp] {} gave up its call of {} before it was answered; the call's row holds its answer", self.agent(), name);
             }
+            sent
         };
         let expired = || due.answer.is_some_and(|deadline| tokio::time::Instant::now() >= deadline);
         if handed_off || expired() || ask.answer.is_closed() || self.context.cancel.is_cancelled() || self.session.gone().is_cancelled() {
-            send_base(ask.answer, base);
+            send_answer(ask.answer, base);
             return Ok(());
         }
         let peeked = tokio::select! {
@@ -757,21 +759,17 @@ impl Reply<'_> {
             steers = self.surface.peek_steers() => Some(steers),
         };
         let steers = match peeked {
-            None => {
-                send_base(ask.answer, base);
+            None | Some(Err(RunError::Cancelled)) => {
+                send_answer(ask.answer, base);
                 return Ok(());
             }
             Some(Ok(steers)) if steers.is_empty() => {
-                send_base(ask.answer, base);
+                send_answer(ask.answer, base);
                 return Ok(());
             }
             Some(Ok(steers)) => steers,
-            Some(Err(RunError::Cancelled)) => {
-                send_base(ask.answer, base);
-                return Ok(());
-            }
             Some(Err(error)) => {
-                send_base(ask.answer, base);
+                send_answer(ask.answer, base);
                 return Err(error);
             }
         };
@@ -786,19 +784,18 @@ impl Reply<'_> {
             resolved = async {
                 let mut entries = Vec::with_capacity(steers.len());
                 for steer in &steers {
-                    let (value, left) = crate::mcp::with_steers(json!({ "content": [] }), std::slice::from_ref(steer), capabilities, attachments).await;
-                    let blocks = value.get("content").and_then(Value::as_array).cloned().unwrap_or_default();
+                    let (blocks, left) = crate::mcp::steer_blocks(std::slice::from_ref(steer), capabilities, attachments).await;
                     entries.push((steer, blocks, left));
                 }
                 entries
             } => Some(resolved),
         };
         let Some(mut resolved) = resolved else {
-            send_base(ask.answer, base);
+            send_answer(ask.answer, base);
             return Ok(());
         };
         if expired() || ask.answer.is_closed() || self.context.cancel.is_cancelled() || self.session.gone().is_cancelled() {
-            send_base(ask.answer, base);
+            send_answer(ask.answer, base);
             return Ok(());
         }
         let queued_ids = steers.iter().flat_map(|steer| steer.queued_ids.iter().cloned()).collect();
@@ -818,48 +815,41 @@ impl Reply<'_> {
         };
         let claimed = match commit_result {
             Ok(claimed) if claimed.is_empty() => {
-                send_base(ask.answer, base);
+                send_answer(ask.answer, base);
                 return Ok(());
             }
             Ok(claimed) => claimed,
             Err(RunError::Cancelled) => {
-                send_base(ask.answer, base);
+                send_answer(ask.answer, base);
                 return Ok(());
             }
             Err(error) => {
-                send_base(ask.answer, base);
+                send_answer(ask.answer, base);
                 return Err(error);
             }
         };
-        let mut answer = base;
-        if !answer.get("content").is_some_and(Value::is_array) {
-            answer["content"] = json!([]);
-        }
-        let blocks = answer["content"].as_array_mut().expect("content is an array");
+        let mut steer_blocks = Vec::new();
         let mut left_out = crate::runs::LeftOut::default();
         for entry in &claimed {
             if let Some(pos) =
                 resolved.iter().position(|(steer, _, _)| steer.queued_ids == entry.queued_ids && steer.task_notification == entry.task_notification)
             {
                 let (_, mut entry_blocks, entry_left) = resolved.remove(pos);
-                blocks.append(&mut entry_blocks);
+                steer_blocks.append(&mut entry_blocks);
                 left_out.images += entry_left.images;
                 left_out.files.extend(entry_left.files);
             }
         }
-        if ask.answer.send(answer).is_err() {
-            tracing::warn!("[acp] {} gave up its call of {} before it was answered; the call's row holds its answer", self.agent(), name);
+        let mut answer = base;
+        if let Some(blocks) = answer.get_mut("content").and_then(Value::as_array_mut) {
+            blocks.append(&mut steer_blocks);
+        } else {
+            answer["content"] = Value::Array(steer_blocks);
+        }
+        if !send_answer(ask.answer, answer) {
             return Ok(());
         }
-        let label = &self.session.preset.label;
-        if left_out.images > 0 {
-            let why = if self.session.images { "could not be read".to_owned() } else { format!("{label} takes no images") };
-            let _ = self.surface.closing().notice(format!("{} image(s) of this message were not sent to {label}: {why}.", left_out.images), true).await;
-        }
-        if !left_out.files.is_empty() {
-            let named = left_out.files.iter().map(|file| format!("\"{file}\"")).collect::<Vec<_>>().join(", ");
-            let _ = self.surface.closing().notice(format!("Not sent to {label} (not readable where the session keeps its attachments): {named}."), true).await;
-        }
+        left_out.notify(self.surface.closing().as_ref(), &self.session.preset.label, self.session.images).await;
         Ok(())
     }
 
@@ -1186,6 +1176,120 @@ fn failure(quirks: &crate::preset::Quirks, message: String, code: Option<i64>) -
     TurnEnd::Failed { message, code, reported: true }
 }
 
+async fn abort_grant_write(
+    session: &Arc<AgentSession>,
+    refuse_budget: &mut crate::session::RefuseBudget,
+    write_state: &std::sync::atomic::AtomicU8,
+    id: Value,
+    why: &str,
+) {
+    let state = write_state.load(std::sync::atomic::Ordering::SeqCst);
+    if state == GRANT_BEFORE_WRITE || state == GRANT_CANCELLED_BEFORE_WRITE {
+        refuse_budget.refuse(session, id).await;
+    } else {
+        session.break_connection(why);
+    }
+}
+
+async fn handle_permission_request(
+    reply: &mut Reply<'_>,
+    session: &Arc<AgentSession>,
+    context: &TurnContext,
+    refuse_budget: &mut crate::session::RefuseBudget,
+    id: Value,
+    params: Value,
+) -> Result<Option<Ended>, RunError> {
+    // A session that is gone while its question is open (on a card, or in the session's own judging) has
+    // nobody to answer: the turn ends with it.
+    let answered = tokio::select! {
+        biased;
+        () = session.gone().cancelled() => None,
+        answered = reply.permission(&params) => Some(answered),
+    };
+    match answered {
+        // A shared server goes on with its other sessions: its question is not left without an answer.
+        // Bound the write by the turn's shared refusal budget so a stalled pipe never blocks turn exit.
+        None => {
+            refuse_budget.refuse(session, id).await;
+            Ok(Some(Ended::Gone))
+        }
+        Some(Ok(answer)) => {
+            if context.cancel.is_cancelled() {
+                refuse_budget.refuse(session, id).await;
+                return Ok(Some(Ended::Stopped));
+            }
+            // Arm synchronous cancellation hooks before polling `respond`: if Stop or session-loss fires
+            // once bytes may already be admitted to stdin (`GRANT_WRITING`), the hook calls
+            // `Connection::break_off` synchronously inside `CancellationToken::cancel()` so the process
+            // is killed before stdin can drain ahead of this turn task being rescheduled.
+            let write_state = Arc::new(std::sync::atomic::AtomicU8::new(GRANT_BEFORE_WRITE));
+            let cancel_hook = SyncGrantCancelHook::arm(
+                &context.cancel,
+                write_state.clone(),
+                session.connection.clone(),
+                "permission response write stalled past turn stop",
+                false,
+            );
+            let gone_hook = SyncGrantCancelHook::arm(
+                session.gone(),
+                write_state.clone(),
+                session.connection.clone(),
+                "permission response write stalled on ended session",
+                true,
+            );
+            let write_id = id.clone();
+            let write_state_for_send = write_state.clone();
+            let respond = async move {
+                if write_state_for_send
+                    .compare_exchange(GRANT_BEFORE_WRITE, GRANT_WRITING, std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst)
+                    .is_err()
+                {
+                    return false;
+                }
+                session.connection.respond(write_id, Ok(answer)).await;
+                write_state_for_send.store(GRANT_DONE, std::sync::atomic::Ordering::SeqCst);
+                true
+            };
+            tokio::select! {
+                biased;
+                () = context.cancel.cancelled() => {
+                    cancel_hook.disarm();
+                    gone_hook.disarm();
+                    abort_grant_write(session, refuse_budget, &write_state, id, "permission response write stalled past turn stop").await;
+                    Ok(Some(Ended::Stopped))
+                }
+                () = session.gone().cancelled() => {
+                    cancel_hook.disarm();
+                    gone_hook.disarm();
+                    if !session.connection.exited().is_cancelled() {
+                        abort_grant_write(session, refuse_budget, &write_state, id, "permission response write stalled on ended session").await;
+                    }
+                    Ok(Some(Ended::Gone))
+                }
+                wrote = respond => {
+                    cancel_hook.disarm();
+                    gone_hook.disarm();
+                    if wrote {
+                        Ok(None)
+                    } else if context.cancel.is_cancelled() {
+                        refuse_budget.refuse(session, id).await;
+                        Ok(Some(Ended::Stopped))
+                    } else {
+                        if !session.connection.exited().is_cancelled() {
+                            refuse_budget.refuse(session, id).await;
+                        }
+                        Ok(Some(Ended::Gone))
+                    }
+                }
+            }
+        }
+        Some(Err(error)) => {
+            refuse_budget.refuse(session, id).await;
+            Err(error)
+        }
+    }
+}
+
 /// Runs one turn on `session` and reports it to `surface`.
 pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask: Ask, mut context: TurnContext) -> TurnEnd {
     let record = context.record.take();
@@ -1304,107 +1408,11 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
         };
         let step = match incoming {
             Incoming::Notification { method, params } if method == "session/update" => reply.update(params.get("update").unwrap_or(&Value::Null)).await,
-            Incoming::Request { id, params, .. } => {
-                // A session that is gone while its question is open (on a card, or in the session's own judging) has
-                // nobody to answer: the turn ends with it.
-                let answered = tokio::select! {
-                    biased;
-                    () = session.gone().cancelled() => None,
-                    answered = reply.permission(&params) => Some(answered),
-                };
-                match answered {
-                    // A shared server goes on with its other sessions: its question is not left without an answer.
-                    // Bound the write by the turn's shared refusal budget so a stalled pipe never blocks turn exit.
-                    None => {
-                        refuse_budget.refuse(session, id).await;
-                        break Ended::Gone;
-                    }
-                    Some(Ok(answer)) => {
-                        if context.cancel.is_cancelled() {
-                            refuse_budget.refuse(session, id).await;
-                            break Ended::Stopped;
-                        }
-                        // Arm synchronous cancellation hooks before polling `respond`: if Stop or session-loss fires
-                        // once bytes may already be admitted to stdin (`GRANT_WRITING`), the hook calls
-                        // `Connection::break_off` synchronously inside `CancellationToken::cancel()` so the process
-                        // is killed before stdin can drain ahead of this turn task being rescheduled.
-                        let write_state = Arc::new(std::sync::atomic::AtomicU8::new(GRANT_BEFORE_WRITE));
-                        let cancel_hook = SyncGrantCancelHook::arm(
-                            &context.cancel,
-                            write_state.clone(),
-                            session.connection.clone(),
-                            "permission response write stalled past turn stop",
-                            false,
-                        );
-                        let gone_hook = SyncGrantCancelHook::arm(
-                            session.gone(),
-                            write_state.clone(),
-                            session.connection.clone(),
-                            "permission response write stalled on ended session",
-                            true,
-                        );
-                        let write_id = id.clone();
-                        let write_state_for_send = write_state.clone();
-                        let respond = async move {
-                            if write_state_for_send
-                                .compare_exchange(GRANT_BEFORE_WRITE, GRANT_WRITING, std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst)
-                                .is_err()
-                            {
-                                return false;
-                            }
-                            session.connection.respond(write_id, Ok(answer)).await;
-                            write_state_for_send.store(GRANT_DONE, std::sync::atomic::Ordering::SeqCst);
-                            true
-                        };
-                        tokio::select! {
-                            biased;
-                            () = context.cancel.cancelled() => {
-                                cancel_hook.disarm();
-                                gone_hook.disarm();
-                                let state = write_state.load(std::sync::atomic::Ordering::SeqCst);
-                                if state == GRANT_BEFORE_WRITE || state == GRANT_CANCELLED_BEFORE_WRITE {
-                                    refuse_budget.refuse(session, id).await;
-                                } else {
-                                    session.break_connection("permission response write stalled past turn stop");
-                                }
-                                break Ended::Stopped;
-                            }
-                            () = session.gone().cancelled() => {
-                                cancel_hook.disarm();
-                                gone_hook.disarm();
-                                if !session.connection.exited().is_cancelled() {
-                                    let state = write_state.load(std::sync::atomic::Ordering::SeqCst);
-                                    if state == GRANT_BEFORE_WRITE || state == GRANT_CANCELLED_BEFORE_WRITE {
-                                        refuse_budget.refuse(session, id).await;
-                                    } else {
-                                        session.break_connection("permission response write stalled on ended session");
-                                    }
-                                }
-                                break Ended::Gone;
-                            }
-                            wrote = respond => {
-                                cancel_hook.disarm();
-                                gone_hook.disarm();
-                                if wrote {
-                                    Ok(())
-                                } else if context.cancel.is_cancelled() {
-                                    refuse_budget.refuse(session, id).await;
-                                    break Ended::Stopped;
-                                } else {
-                                    if !session.connection.exited().is_cancelled() {
-                                        refuse_budget.refuse(session, id).await;
-                                    }
-                                    break Ended::Gone;
-                                }
-                            }
-                        }
-                    }
-                    Some(Err(error)) => {
-                        refuse_budget.refuse(session, id).await;
-                        Err(error)
-                    }
-                }
-            }
+            Incoming::Request { id, params, .. } => match handle_permission_request(&mut reply, session, &context, &mut refuse_budget, id, params).await {
+                Ok(Some(ended)) => break ended,
+                Ok(None) => Ok(()),
+                Err(error) => Err(error),
+            },
             Incoming::Response { id, result } if Some(id) == prompt => break Ended::Agent(Some(result)),
             Incoming::Tool(ask) => {
                 let handed = reply.handed(ask).await;
@@ -1891,7 +1899,7 @@ mod tests {
         }
     }
 
-    /// Defect 1: cancelling a turn while an affirmative permission response is admitted/stalled on stdin
+    /// Cancelling a turn while an affirmative permission response is admitted/stalled on stdin
     /// breaks/invalidates the connection rather than returning cleanly on a live connection where the admitted
     /// grant would land ahead of `session/cancel` once stdin drains.
     #[tokio::test]
@@ -1951,7 +1959,7 @@ mod tests {
         assert!(sent.iter().all(|line| !line.contains("\"once\"")), "interrupted turn must never deliver an affirmative grant after Stop: {sent:?}");
     }
 
-    /// Defect 5: Stop with one active permission request and additional buffered permission requests on stalled stdin
+    /// Stop with one active permission request and additional buffered permission requests on stalled stdin
     /// shares a single 200 ms per-turn refusal budget and breaks/kills the wedged connection when the budget expires
     /// instead of leaving orphaned unanswered RPC requests on a live shared connection.
     #[tokio::test]
@@ -2012,7 +2020,7 @@ mod tests {
         assert_eq!(active_writes.load(std::sync::atomic::Ordering::SeqCst), 0, "no lingering refusal writer task may survive turn exit");
     }
 
-    /// Defect 5: when Stop fires while an active permission request is being approved on a healthy stdin pipe,
+    /// When Stop fires while an active permission request is being approved on a healthy stdin pipe,
     /// the active popped request receives a `"cancelled"` refusal and the healthy connection stays alive.
     #[tokio::test]
     async fn stop_before_permission_write_sends_refusal_for_active_request_on_healthy_connection() {
@@ -2134,8 +2142,8 @@ mod tests {
         }
     }
 
-    /// Defect 2 & Defect 4: `deliver_answer` never drops already-committed steers when Stop races after
-    /// `commit_steers`, and bounds pre-dequeue `commit_steers` waiting by `due.answer` leaving steers queued.
+    /// `deliver_answer` never drops already-committed steers when Stop races after `commit_steers`,
+    /// and bounds pre-dequeue `commit_steers` waiting by `due.answer`, leaving steers queued.
     #[tokio::test]
     async fn deliver_answer_preserves_committed_steers_on_stop_and_bounds_pre_dequeue_commit_by_deadline() {
         let _ = mixdog_rt::testing::tokens();
@@ -2159,7 +2167,7 @@ mod tests {
         .expect("connection");
         let session = AgentSession::test_session_for(connection);
 
-        // Case 1 (Defect 2): Stop fires AFTER `commit_steers` commits the steer -> committed steer must be delivered.
+        // Stop fires after `commit_steers` commits the steer -> committed steer must be delivered.
         let cancel = CancellationToken::new();
         let steer = crate::surface::SteerDelivery {
             queued_ids: vec![mixdog_core_api::ids::QueuedId::from("q-post-commit")],
@@ -2216,7 +2224,7 @@ mod tests {
         assert!(rendered.contains("base output"), "base output missing: {rendered}");
         assert!(rendered.contains("committed steer survives stop"), "already-committed steer must not be discarded on Stop: {rendered}");
 
-        // Case 2 (Defect 4): `commit_steers` stalls before dequeue -> cancelled when `due.answer` expires, base sent on time.
+        // `commit_steers` stalls before dequeue -> cancelled when `due.answer` expires, base sent on time.
         let queued = Arc::new(std::sync::Mutex::new(vec![crate::surface::SteerDelivery {
             queued_ids: vec![mixdog_core_api::ids::QueuedId::from("q-deadline")],
             content: mixdog_core_api::domain::provider::Content::Text("stalled steer stays queued".into()),
@@ -2249,8 +2257,8 @@ mod tests {
         assert_eq!(queued.lock().unwrap().len(), 1, "deadline-aborted steer must stay queued");
     }
 
-    /// r5 Defect 1: when Stop fires while an affirmative grant write is already admitted and stalled on stdin,
-    /// `CancellationToken::cancel()` must synchronously break/kill the connection BEFORE returning, so even if
+    /// When Stop fires while an affirmative grant write is already admitted and stalled on stdin,
+    /// `CancellationToken::cancel()` synchronously breaks/kills the connection before returning, so even if
     /// stdin drains immediately before the turn task is rescheduled, the grant is never delivered.
     #[tokio::test]
     async fn stop_kills_stalled_grant_synchronously_before_stdin_drains_without_yielding() {
@@ -2314,8 +2322,8 @@ mod tests {
         );
     }
 
-    /// r5 Defect 7: wall time elapsed while closing open tool cards (`reply.close`) between an active permission
-    /// refusal and `detach_with_budget` must NOT consume `RefuseBudget` or kill a healthy connection.
+    /// Wall time elapsed while closing open tool cards (`reply.close`) between an active permission
+    /// refusal and `detach_with_budget` does not consume `RefuseBudget` or kill a healthy connection.
     #[tokio::test]
     async fn slow_tool_card_close_does_not_exhaust_refuse_budget_on_healthy_connection() {
         let _ = mixdog_rt::testing::tokens();

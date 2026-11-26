@@ -11,16 +11,19 @@ fn positive(value: Option<&Value>) -> bool {
     value.and_then(Value::as_f64).is_some_and(|n| n.is_finite() && n > 0.0)
 }
 
+fn balance_limit_reached(balance: &Value) -> bool {
+    balance.get("overageLimitReached") == Some(&Value::Bool(true))
+        || balance.get("spendControlReached") == Some(&Value::Bool(true))
+        || balance.get("workspaceLimitReached") == Some(&Value::Bool(true))
+}
+
 /// Tri-state credit verdict from a reading's `balance`:
 /// - `Some(true)`: measured evidence that credit overage can serve requests now.
 /// - `Some(false)`: measured evidence that credit overage is disabled, capped, or depleted.
 /// - `None`: no credit verdict in this balance.
 pub fn balance_credit_state(balance: Option<&Value>) -> Option<bool> {
     let balance = balance.filter(|b| !b.is_null())?;
-    if balance.get("overageLimitReached") == Some(&Value::Bool(true))
-        || balance.get("spendControlReached") == Some(&Value::Bool(true))
-        || balance.get("workspaceLimitReached") == Some(&Value::Bool(true))
-    {
+    if balance_limit_reached(balance) {
         return Some(false);
     }
     if balance.get("unlimited") == Some(&Value::Bool(true)) {
@@ -58,10 +61,7 @@ pub fn snapshot_credit_state(provider: &str, snapshot: &Value) -> Option<bool> {
         || snapshot.get("source").and_then(Value::as_str) == Some("cursor-dashboard")
         || balance.get("source").and_then(Value::as_str) == Some("cursor-dashboard")
     {
-        if balance.get("overageLimitReached") == Some(&Value::Bool(true))
-            || balance.get("spendControlReached") == Some(&Value::Bool(true))
-            || balance.get("workspaceLimitReached") == Some(&Value::Bool(true))
-        {
+        if balance_limit_reached(balance) {
             return Some(false);
         }
         if balance.get("unlimited") == Some(&Value::Bool(true)) {

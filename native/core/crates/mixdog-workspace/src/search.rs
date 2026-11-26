@@ -159,17 +159,11 @@ impl SearchSessions {
                 }),
             );
             if !superseded.is_empty() {
-                let live: HashSet<_> = sessions.values().flat_map(|s| s.config.roots.iter().map(|r| index_key(r, &s.config))).collect();
-                self.indexes.lock().expect("search indexes").retain(|key, _| live.contains(key));
+                self.prune_unused_indexes(&sessions);
             }
             (publisher, superseded)
         };
-        for other in superseded {
-            for idx in 0..other.config.roots.len() {
-                self.watcher.unwatch(&index_watch_id(&other.id, idx));
-            }
-            other.publisher.close();
-        }
+        self.teardown_sessions(superseded);
         Ok(publisher)
     }
 
@@ -193,6 +187,20 @@ impl SearchSessions {
         self.stop_if(session_id, Some(instance));
     }
 
+    fn prune_unused_indexes(&self, sessions: &HashMap<String, Arc<Session>>) {
+        let live: HashSet<_> = sessions.values().flat_map(|s| s.config.roots.iter().map(|r| index_key(r, &s.config))).collect();
+        self.indexes.lock().expect("search indexes").retain(|key, _| live.contains(key));
+    }
+
+    fn teardown_sessions(&self, sessions: impl IntoIterator<Item = Arc<Session>>) {
+        for session in sessions {
+            for idx in 0..session.config.roots.len() {
+                self.watcher.unwatch(&index_watch_id(&session.id, idx));
+            }
+            session.publisher.close();
+        }
+    }
+
     fn stop_if(&self, session_id: &str, expected_instance: Option<u64>) {
         let session = {
             let mut sessions = self.sessions.lock().expect("search sessions");
@@ -204,14 +212,10 @@ impl SearchSessions {
             let Some(session) = sessions.remove(session_id) else { return };
             session.generation.fetch_add(1, Ordering::SeqCst);
             session.cancel.cancel();
-            let live: HashSet<_> = sessions.values().flat_map(|s| s.config.roots.iter().map(|r| index_key(r, &s.config))).collect();
-            self.indexes.lock().expect("search indexes").retain(|key, _| live.contains(key));
+            self.prune_unused_indexes(&sessions);
             session
         };
-        for i in 0..session.config.roots.len() {
-            self.watcher.unwatch(&index_watch_id(session_id, i));
-        }
-        session.publisher.close();
+        self.teardown_sessions(std::iter::once(session));
     }
 
     pub fn stop_owned_by(&self, owner: &str) {
@@ -226,16 +230,10 @@ impl SearchSessions {
                 session.generation.fetch_add(1, Ordering::SeqCst);
                 session.cancel.cancel();
             }
-            let live: HashSet<_> = sessions.values().flat_map(|s| s.config.roots.iter().map(|r| index_key(r, &s.config))).collect();
-            self.indexes.lock().expect("search indexes").retain(|key, _| live.contains(key));
+            self.prune_unused_indexes(&sessions);
             owned
         };
-        for session in owned {
-            for idx in 0..session.config.roots.len() {
-                self.watcher.unwatch(&index_watch_id(&session.id, idx));
-            }
-            session.publisher.close();
-        }
+        self.teardown_sessions(owned);
     }
 
     /// Index slots for watched roots (freed when the last matching session stops).

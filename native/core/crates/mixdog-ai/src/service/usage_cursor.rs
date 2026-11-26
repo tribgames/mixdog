@@ -174,7 +174,8 @@ fn decode_message(all: &[u8], start: usize, end: usize, schema: &'static [(u128,
                     return Err("Invalid Cursor protobuf double".into());
                 }
                 // Bounded by the backing buffer only: a nested message reads on into its parent's bytes.
-                let bytes: [u8; 8] = all.get(wire.at..wire.at + 8).ok_or("Offset is outside the bounds of the DataView")?.try_into().expect("8 bytes");
+                let bytes: [u8; 8] =
+                    all.get(wire.at..wire.at + 8).and_then(|slice| slice.try_into().ok()).ok_or("Offset is outside the bounds of the DataView")?;
                 wire.at += 8;
                 // A value that is not a finite number stays one for `Number(..)` as its JavaScript text.
                 let double = f64::from_le_bytes(bytes);
@@ -399,6 +400,10 @@ fn on_demand_uncapped(od: &Map<String, Value>) -> bool {
     od.get("enabled") == Some(&Value::Bool(true)) && od.get("limit").is_none_or(Value::is_null)
 }
 
+fn finite_num(map: &Map<String, Value>, key: &str) -> Option<f64> {
+    map.get(key).filter(|v| !v.is_null()).map(|v| to_number_of(Some(v))).filter(|n| n.is_finite())
+}
+
 /// Returns `(limit, used, remaining)` in cents for an enabled `onDemand` bucket with a positive limit.
 /// Derives `used = limit - remaining` when `used` is `0`/omitted and `remaining < limit`,
 /// derives `remaining = limit - used` when `used > 0` accompanies a stale `remaining: 0`,
@@ -407,9 +412,9 @@ fn on_demand_figures(od: &Map<String, Value>) -> Option<(f64, f64, f64)> {
     if on_demand_disabled_obj(od) {
         return None;
     }
-    let limit = od.get("limit").filter(|v| !v.is_null()).map(|v| to_number_of(Some(v))).filter(|n| n.is_finite() && *n > 0.0)?;
-    let raw_used = od.get("used").filter(|v| !v.is_null()).map(|v| to_number_of(Some(v))).filter(|n| n.is_finite() && *n >= 0.0);
-    let raw_remaining = od.get("remaining").filter(|v| !v.is_null()).map(|v| to_number_of(Some(v))).filter(|n| n.is_finite() && *n >= 0.0);
+    let limit = finite_num(od, "limit").filter(|n| *n > 0.0)?;
+    let raw_used = finite_num(od, "used").filter(|n| *n >= 0.0);
+    let raw_remaining = finite_num(od, "remaining").filter(|n| *n >= 0.0);
     let (used, remaining) = match (raw_used, raw_remaining) {
         (None, None) => return None,
         (None | Some(0.0), Some(rem)) if rem < limit => ((limit - rem).max(0.0), rem.max(0.0)),
@@ -434,7 +439,7 @@ fn cursor_overage_credit_state(summary: Option<&Map<String, Value>>, spend: Opti
         if let Some((_, _, remaining)) = on_demand_figures(od) {
             return Some(remaining > 0.0);
         }
-        let raw_remaining = od.get("remaining").filter(|v| !v.is_null()).map(|v| to_number_of(Some(v))).filter(|n| n.is_finite());
+        let raw_remaining = finite_num(od, "remaining");
         if on_demand_uncapped(od) {
             if spend.is_some_and(SpendPool::exhausted) {
                 return Some(false);
@@ -464,9 +469,9 @@ fn unified_windows(summary: &Map<String, Value>, weekly_reset_at: Option<f64>, s
     let individual = summary.get("individualUsage").and_then(Value::as_object).unwrap_or(&empty);
     let mut windows = Vec::new();
     if let Some(plan) = individual.get("plan").and_then(Value::as_object).filter(|p| p.get("enabled") != Some(&Value::Bool(false))) {
-        let limit = plan.get("limit").filter(|v| !v.is_null()).map(|v| to_number_of(Some(v))).filter(|n| n.is_finite() && *n > 0.0);
-        let used = plan.get("used").filter(|v| !v.is_null()).map(|v| to_number_of(Some(v))).filter(|n| n.is_finite());
-        let pct = plan.get("totalPercentUsed").filter(|v| !v.is_null()).map(|v| to_number_of(Some(v))).filter(|n| n.is_finite());
+        let limit = finite_num(plan, "limit").filter(|n| *n > 0.0);
+        let used = finite_num(plan, "used");
+        let pct = finite_num(plan, "totalPercentUsed");
         let computed_pct = match (limit, used, pct) {
             (Some(l), u, p) => Some(p.unwrap_or(0.0).max(u.map_or(0.0, |u| (u / l) * 100.0)).max(0.0)),
             (None, _, Some(p)) => Some(p.max(0.0)),
@@ -508,8 +513,8 @@ fn unified_windows(summary: &Map<String, Value>, weekly_reset_at: Option<f64>, s
             row.insert("remainingUsd".into(), cents_to_usd(remaining));
             windows.push(Value::Object(row));
         } else if on_demand_uncapped(od) {
-            let raw_used = od.get("used").filter(|v| !v.is_null()).map(|v| to_number_of(Some(v))).filter(|n| n.is_finite() && *n >= 0.0);
-            let raw_remaining = od.get("remaining").filter(|v| !v.is_null()).map(|v| to_number_of(Some(v))).filter(|n| n.is_finite());
+            let raw_used = finite_num(od, "used").filter(|n| *n >= 0.0);
+            let raw_remaining = finite_num(od, "remaining");
             let exhausted = spend_exhausted || raw_remaining.is_some_and(|r| r <= 0.0);
             row.insert("usedPct".into(), jn(if exhausted { 100.0 } else { 0.0 }));
             if let Some(used) = raw_used {
@@ -800,8 +805,7 @@ impl CursorUsage {
             Ok(body) => decode_plan_response(&body).map_err(UsageError::new)?,
             Err(_) => Map::new(),
         };
-        let weekly_reset_at = epoch_ms(plan.get("planInfo").and_then(Value::as_object).and_then(|p| p.get("includedUsageResetsAt")));
-        let Value::Object(mut snapshot) = normalize_cursor_usage_with_summary(&usage, &plan, summary.as_ref(), weekly_reset_at) else {
+        let Value::Object(mut snapshot) = normalize_cursor_usage_with_summary(&usage, &plan, summary.as_ref(), None) else {
             unreachable!("a snapshot is an object")
         };
         snapshot.insert("provider".into(), self.provider.clone().into());

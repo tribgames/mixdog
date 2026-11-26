@@ -302,22 +302,25 @@ impl PageCtx {
         })
     }
 
+    fn with_reply_page<R>(&self, facts: &PageFacts, downloads: &[DownloadItem], f: impl FnOnce(&mut ReplyPage<'_>) -> R) -> R {
+        let mut state = self.state_lock();
+        let SlotState { reply, .. } = &mut *state;
+        let mut all_reports = locked(&self.inner.download_reports);
+        let reports = all_reports.entry(self.session().to_owned()).or_default();
+        let mut page = ReplyPage { facts, state: reply, downloads, download_reports: reports, now_ms: wall_clock_ms() };
+        let out = f(&mut page);
+        if page.download_reports.is_empty() {
+            all_reports.remove(self.session());
+        }
+        out
+    }
+
     /// What this page's reply has not said yet, without a snapshot (`reportPage`); empty when nothing is new.
     pub(super) fn page_report(&self, downloads: &[DownloadItem]) -> String {
         let facts = self.page_facts();
         let redact = |text: &str| self.redact(text);
         let ctx = ReplyContext { redact: &redact, files: &*self.inner.ports.files };
-        let mut state = self.state_lock();
-        let SlotState { reply, .. } = &mut *state;
-        let mut all_reports = locked(&self.inner.download_reports);
-        let reports = all_reports.entry(self.session().to_owned()).or_default();
-        let mut page = ReplyPage { facts: &facts, state: reply, downloads, download_reports: reports, now_ms: wall_clock_ms() };
-        let text = self.with_ledgers(|ledgers| page_report_text(&ctx, &mut page, ledgers));
-        let empty = page.download_reports.is_empty();
-        if empty {
-            all_reports.remove(self.session());
-        }
-        text
+        self.with_reply_page(&facts, downloads, |page| self.with_ledgers(|ledgers| page_report_text(&ctx, page, ledgers)))
     }
 
     /// The handles one command acts on its page's elements with.
@@ -451,19 +454,9 @@ impl PageCtx {
         let redact = |text: &str| self.redact(text);
         let ctx = ReplyContext { redact: &redact, files: &*self.inner.ports.files };
         let capture = SnapshotCapture { payload: &result.payload, observation: result.observation.as_deref() };
-        let mut reply = {
-            let mut state = self.state_lock();
-            let SlotState { reply, .. } = &mut *state;
-            let mut all_reports = locked(&self.inner.download_reports);
-            let reports = all_reports.entry(self.session().to_owned()).or_default();
-            let mut page = ReplyPage { facts: &facts, state: reply, downloads: &downloads, download_reports: reports, now_ms: wall_clock_ms() };
-            let built = self.with_ledgers(|ledgers| finish_now(build_reply(&ctx, &request, &mut page, ledgers, Some(capture), None)));
-            let empty = page.download_reports.is_empty();
-            if empty {
-                all_reports.remove(self.session());
-            }
-            built?
-        };
+        let mut reply = self.with_reply_page(&facts, &downloads, |page| {
+            self.with_ledgers(|ledgers| finish_now(build_reply(&ctx, &request, page, ledgers, Some(capture), None)))
+        })?;
         if command.get("includeScreenshot") == Some(&Value::Bool(true)) {
             self.attach_shot(command, &mut reply).await?;
         }

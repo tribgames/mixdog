@@ -355,34 +355,12 @@ impl SessionActor {
         let mut out: Vec<SteerInput> = Vec::new();
         // The steered entries first, then the host's own queued prompts (`drainPendingSteering`, `session-flow/steering.mjs:204`):
         // every typed prompt within the drain's priority is its own input at every boundary, never merged.
-        let host_prompts: Vec<QueuedId> = self
-            .projected
-            .queue
-            .iter()
-            .filter(|q| {
-                !self.steer_marked.iter().any(|s| s.as_str() == q.qid)
-                    && !completions::is_notification(&q.entry)
-                    && !super::super::goal_lane::is_goal_entry(&q.entry)
-                    && !pending::is_slash_entry(&q.entry)
-            })
-            .map(|q| QueuedId::from(q.qid.as_str()))
-            .collect();
         // Every boundary takes the most urgent first, and of one priority the queue's order (a later promotion sits ahead of
         // an earlier one: `prioritizeQueued` puts it at the front; `dequeueQueueBatch`).
-        let mut candidates: Vec<QueuedId> = self.steer_marked.iter().cloned().chain(host_prompts).collect();
-        let position = |qid: &QueuedId| self.projected.queue.iter().position(|q| q.qid == qid.as_str());
-        candidates.sort_by_key(|qid| (position(qid).map_or(u8::MAX, |at| priority_rank(&self.projected.queue[at].entry)), position(qid)));
-        for qid in candidates {
+        for qid in self.steer_candidates(None) {
             // Eligibility reads the accepted queue the order was chosen from: a promotion still being saved counts at both. An entry
             // whose enqueue is not durable yet waits. No boundary injects work a user Stop froze.
-            let Some(entry) = self
-                .projected
-                .queue
-                .iter()
-                .find(|q| q.qid == qid.as_str() && within_priority(&q.entry, max_priority) && !self.queued_stopped(q))
-                .filter(|q| self.acked.queue.iter().any(|acked| acked.qid == q.qid))
-                .map(|q| q.entry.clone())
-            else {
+            let Some(entry) = self.eligible_steer_entry(&qid, max_priority) else {
                 continue;
             };
             let delivered = if super::super::goal_lane::is_goal_entry(&entry) { Ok(self.late_delivery(&entry)) } else { self.deliverable_entry(&entry) };
@@ -456,85 +434,19 @@ impl SessionActor {
         let _ = reply.send(out);
     }
 
-    fn peek_steers(&mut self, turn: TurnId, request: DrainRequest, reply: oneshot::Sender<Vec<SteerInput>>) {
-        if !self.active(&turn) || reply.is_closed() || self.run.as_ref().is_some_and(|run| run.token.is_cancelled()) {
-            let _ = reply.send(Vec::new());
-            return;
-        }
-        let max_priority = request.max_priority;
-        let mut taken: Vec<QueuedId> = Vec::new();
-        let mut out: Vec<SteerInput> = Vec::new();
-        let host_prompts: Vec<QueuedId> = self
-            .projected
-            .queue
-            .iter()
-            .filter(|q| {
-                !self.steer_marked.iter().any(|s| s.as_str() == q.qid)
-                    && !completions::is_notification(&q.entry)
-                    && !super::super::goal_lane::is_goal_entry(&q.entry)
-                    && !pending::is_slash_entry(&q.entry)
-            })
-            .map(|q| QueuedId::from(q.qid.as_str()))
-            .collect();
-        let mut candidates: Vec<QueuedId> = self.steer_marked.iter().cloned().chain(host_prompts).collect();
-        let position = |qid: &QueuedId| self.projected.queue.iter().position(|q| q.qid == qid.as_str());
-        candidates.sort_by_key(|qid| (position(qid).map_or(u8::MAX, |at| priority_rank(&self.projected.queue[at].entry)), position(qid)));
-        for qid in candidates {
-            let Some(entry) = self
-                .projected
-                .queue
-                .iter()
-                .find(|q| q.qid == qid.as_str() && within_priority(&q.entry, max_priority) && !self.queued_stopped(q))
-                .filter(|q| self.acked.queue.iter().any(|acked| acked.qid == q.qid))
-                .map(|q| q.entry.clone())
-            else {
-                continue;
-            };
-            let Ok(delivered) = (if super::super::goal_lane::is_goal_entry(&entry) { Ok(self.late_delivery(&entry)) } else { self.deliverable_entry(&entry) })
-            else {
-                continue;
-            };
-            if !self.can_claim_steer(qid.as_str(), &entry) {
-                continue;
-            }
-            out.push(pending::steered(qid.clone(), &delivered));
-            taken.push(qid);
-        }
-        if !self.route_held() {
-            let rest = self.drain_rest(&taken, max_priority);
-            let only_notifications = !rest.is_empty() && rest.iter().all(|q| completions::is_notification(&q.entry));
-            if request.stage == DrainStage::Terminal || only_notifications {
-                let deliver: Vec<(QueuedId, Value)> = self
-                    .durable_rest(&rest)
-                    .into_iter()
-                    .filter_map(|(qid, entry)| {
-                        if super::super::goal_lane::is_goal_entry(&entry) {
-                            return None;
-                        }
-                        let delivered = self.deliverable_entry(&entry).ok()?;
-                        self.can_claim_steer(qid.as_str(), &delivered).then_some((qid, delivered))
-                    })
-                    .collect();
-                out.extend(pending::groups(&deliver));
-            }
-        }
-        let _ = reply.send(out);
+    fn queued_matches_filter(q: &super::super::state::Queued, filter: Option<&[QueuedId]>) -> bool {
+        let Some(qids) = filter else { return true };
+        let sub = q.entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).filter(|id| !id.is_empty());
+        qids.iter().any(|wanted| wanted.as_str() == q.qid || sub == Some(wanted.as_str()))
     }
 
-    fn preview_consume_steers(&self, request: DrainRequest, qids: &[QueuedId]) -> Vec<SteerInput> {
-        let max_priority = request.max_priority;
-        let matches_queued = |q: &super::super::state::Queued| {
-            let sub = q.entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).filter(|id| !id.is_empty());
-            qids.iter().any(|wanted| wanted.as_str() == q.qid || sub == Some(wanted.as_str()))
-        };
-        let mut taken: Vec<QueuedId> = Vec::new();
-        let mut out: Vec<SteerInput> = Vec::new();
+    fn steer_candidates(&self, filter: Option<&[QueuedId]>) -> Vec<QueuedId> {
         let host_prompts: Vec<QueuedId> = self
             .projected
             .queue
             .iter()
             .filter(|q| {
-                matches_queued(q)
+                Self::queued_matches_filter(q, filter)
                     && !self.steer_marked.iter().any(|s| s.as_str() == q.qid)
                     && !completions::is_notification(&q.entry)
                     && !super::super::goal_lane::is_goal_entry(&q.entry)
@@ -545,21 +457,32 @@ impl SessionActor {
         let mut candidates: Vec<QueuedId> = self
             .steer_marked
             .iter()
-            .filter(|qid| self.projected.queue.iter().find(|q| q.qid == qid.as_str()).is_some_and(matches_queued))
+            .filter(|qid| {
+                filter.is_none() || self.projected.queue.iter().find(|q| q.qid == qid.as_str()).is_some_and(|q| Self::queued_matches_filter(q, filter))
+            })
             .cloned()
             .chain(host_prompts)
             .collect();
         let position = |qid: &QueuedId| self.projected.queue.iter().position(|q| q.qid == qid.as_str());
         candidates.sort_by_key(|qid| (position(qid).map_or(u8::MAX, |at| priority_rank(&self.projected.queue[at].entry)), position(qid)));
-        for qid in candidates {
-            let Some(entry) = self
-                .projected
-                .queue
-                .iter()
-                .find(|q| q.qid == qid.as_str() && within_priority(&q.entry, max_priority) && !self.queued_stopped(q))
-                .filter(|q| self.acked.queue.iter().any(|acked| acked.qid == q.qid))
-                .map(|q| q.entry.clone())
-            else {
+        candidates
+    }
+
+    fn eligible_steer_entry(&self, qid: &QueuedId, max_priority: Priority) -> Option<Value> {
+        self.projected
+            .queue
+            .iter()
+            .find(|q| q.qid == qid.as_str() && within_priority(&q.entry, max_priority) && !self.queued_stopped(q))
+            .filter(|q| self.acked.queue.iter().any(|acked| acked.qid == q.qid))
+            .map(|q| q.entry.clone())
+    }
+
+    fn preview_steers(&self, request: DrainRequest, filter: Option<&[QueuedId]>) -> Vec<SteerInput> {
+        let max_priority = request.max_priority;
+        let mut taken: Vec<QueuedId> = Vec::new();
+        let mut out: Vec<SteerInput> = Vec::new();
+        for qid in self.steer_candidates(filter) {
+            let Some(entry) = self.eligible_steer_entry(&qid, max_priority) else {
                 continue;
             };
             let Ok(delivered) = (if super::super::goal_lane::is_goal_entry(&entry) { Ok(self.late_delivery(&entry)) } else { self.deliverable_entry(&entry) })
@@ -573,7 +496,7 @@ impl SessionActor {
             taken.push(qid);
         }
         if !self.route_held() {
-            let rest: Vec<_> = self.drain_rest(&taken, max_priority).into_iter().filter(|q| matches_queued(q)).collect();
+            let rest: Vec<_> = self.drain_rest(&taken, max_priority).into_iter().filter(|q| Self::queued_matches_filter(q, filter)).collect();
             let only_notifications = !rest.is_empty() && rest.iter().all(|q| completions::is_notification(&q.entry));
             if request.stage == DrainStage::Terminal || only_notifications {
                 let deliver: Vec<(QueuedId, Value)> = self
@@ -591,6 +514,14 @@ impl SessionActor {
             }
         }
         out
+    }
+
+    fn peek_steers(&mut self, turn: TurnId, request: DrainRequest, reply: oneshot::Sender<Vec<SteerInput>>) {
+        if !self.active(&turn) || reply.is_closed() || self.run.as_ref().is_some_and(|run| run.token.is_cancelled()) {
+            let _ = reply.send(Vec::new());
+            return;
+        }
+        let _ = reply.send(self.preview_steers(request, None));
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -612,7 +543,7 @@ impl SessionActor {
             let _ = reply.send(Err(RunError::Cancelled));
             return;
         }
-        let preview = self.preview_consume_steers(request, &qids);
+        let preview = self.preview_steers(request, Some(&qids));
         if preview.is_empty() {
             let _ = reply.send(Ok((Vec::new(), None)));
             return;
@@ -701,43 +632,10 @@ impl SessionActor {
             return;
         }
         let max_priority = request.max_priority;
-        let matches_queued = |q: &super::super::state::Queued| {
-            let sub = q.entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).filter(|id| !id.is_empty());
-            qids.iter().any(|wanted| wanted.as_str() == q.qid || sub == Some(wanted.as_str()))
-        };
         let mut taken: Vec<QueuedId> = Vec::new();
         let mut out: Vec<SteerInput> = Vec::new();
-        let host_prompts: Vec<QueuedId> = self
-            .projected
-            .queue
-            .iter()
-            .filter(|q| {
-                matches_queued(q)
-                    && !self.steer_marked.iter().any(|s| s.as_str() == q.qid)
-                    && !completions::is_notification(&q.entry)
-                    && !super::super::goal_lane::is_goal_entry(&q.entry)
-                    && !pending::is_slash_entry(&q.entry)
-            })
-            .map(|q| QueuedId::from(q.qid.as_str()))
-            .collect();
-        let mut candidates: Vec<QueuedId> = self
-            .steer_marked
-            .iter()
-            .filter(|qid| self.projected.queue.iter().find(|q| q.qid == qid.as_str()).is_some_and(matches_queued))
-            .cloned()
-            .chain(host_prompts)
-            .collect();
-        let position = |qid: &QueuedId| self.projected.queue.iter().position(|q| q.qid == qid.as_str());
-        candidates.sort_by_key(|qid| (position(qid).map_or(u8::MAX, |at| priority_rank(&self.projected.queue[at].entry)), position(qid)));
-        for qid in candidates {
-            let Some(entry) = self
-                .projected
-                .queue
-                .iter()
-                .find(|q| q.qid == qid.as_str() && within_priority(&q.entry, max_priority) && !self.queued_stopped(q))
-                .filter(|q| self.acked.queue.iter().any(|acked| acked.qid == q.qid))
-                .map(|q| q.entry.clone())
-            else {
+        for qid in self.steer_candidates(Some(&qids)) {
+            let Some(entry) = self.eligible_steer_entry(&qid, max_priority) else {
                 continue;
             };
             let delivered = if super::super::goal_lane::is_goal_entry(&entry) { Ok(self.late_delivery(&entry)) } else { self.deliverable_entry(&entry) };
@@ -763,7 +661,7 @@ impl SessionActor {
         self.steer_marked.retain(|qid| !taken.contains(qid));
         self.sync_turn_chain();
         if !self.route_held() {
-            let rest: Vec<_> = self.drain_rest(&taken, max_priority).into_iter().filter(|q| matches_queued(q)).collect();
+            let rest: Vec<_> = self.drain_rest(&taken, max_priority).into_iter().filter(|q| Self::queued_matches_filter(q, Some(&qids))).collect();
             let only_notifications = !rest.is_empty() && rest.iter().all(|q| completions::is_notification(&q.entry));
             if request.stage == DrainStage::Terminal || only_notifications {
                 let durable = self.durable_rest(&rest);

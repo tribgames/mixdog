@@ -951,16 +951,16 @@ impl AgentSession {
     }
 
     #[cfg(test)]
-    pub(crate) fn test_session_for(connection: Arc<Connection>) -> Arc<Self> {
+    fn test_session(connection: Arc<Connection>, host: Host, session_id: &str) -> Arc<Self> {
         let mut preset = crate::preset::builtin().into_iter().find(|preset| preset.id == "antigravity").expect("antigravity preset");
         preset.quirks.replies_without_prompt = true;
         let cwd = AbsPath::new(std::env::current_dir().expect("cwd")).expect("abs cwd");
         Arc::new(Self {
             preset,
             connection,
-            host: Host::Own,
+            host,
             gone: CancellationToken::new(),
-            session_id: "sess-test".into(),
+            session_id: session_id.to_owned(),
             cwd,
             restarted: false,
             handoff_pending: AtomicBool::new(false),
@@ -984,36 +984,13 @@ impl AgentSession {
     }
 
     #[cfg(test)]
+    pub(crate) fn test_session_for(connection: Arc<Connection>) -> Arc<Self> {
+        Self::test_session(connection, Host::Own, "sess-test")
+    }
+
+    #[cfg(test)]
     pub(crate) fn test_shared_session_for(shared: Arc<SharedServer>, session_id: &str) -> Arc<Self> {
-        let mut preset = crate::preset::builtin().into_iter().find(|preset| preset.id == "antigravity").expect("antigravity preset");
-        preset.quirks.replies_without_prompt = true;
-        let cwd = AbsPath::new(std::env::current_dir().expect("cwd")).expect("abs cwd");
-        Arc::new(Self {
-            preset,
-            connection: shared.connection.clone(),
-            host: Host::Shared(shared),
-            gone: CancellationToken::new(),
-            session_id: session_id.to_owned(),
-            cwd,
-            restarted: false,
-            handoff_pending: AtomicBool::new(false),
-            grants: Arc::default(),
-            handed: None,
-            prompt: None,
-            images: false,
-            embedded: false,
-            closes: false,
-            context: Mutex::default(),
-            reports: std::sync::atomic::AtomicU64::new(0),
-            unsent: Mutex::default(),
-            connected: None,
-            told_unconnected: AtomicBool::new(false),
-            models: Mutex::default(),
-            routing: Mutex::default(),
-            kept: Mutex::default(),
-            closed_prompt: tokio::sync::Notify::new(),
-            wake: Arc::new(|| {}),
-        })
+        Self::test_session(shared.connection.clone(), Host::Shared(shared), session_id)
     }
 
     pub(crate) fn take(&self, incoming: Incoming) -> Routed {

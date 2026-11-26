@@ -181,6 +181,20 @@ pub(crate) struct LeftOut {
     pub(crate) files: Vec<String>,
 }
 
+impl LeftOut {
+    pub(crate) async fn notify(&self, surface: &dyn TurnSurface, label: &str, supports_images: bool) {
+        if self.images > 0 {
+            let why = if supports_images { "could not be read".to_owned() } else { format!("{label} takes no images") };
+            let _ = surface.notice(format!("{} image(s) of this message were not sent to {label}: {why}.", self.images), true).await;
+        }
+        if !self.files.is_empty() {
+            let named = self.files.iter().map(|name| format!("\"{name}\"")).collect::<Vec<_>>().join(", ");
+            let notice = format!("Not sent to {label} (not readable where the session keeps its attachments): {named}.");
+            let _ = surface.notice(notice, true).await;
+        }
+    }
+}
+
 /// The name a file part is shown under.
 fn file_name(part: &Value) -> &str {
     part.get("filename").and_then(Value::as_str).filter(|name| !name.is_empty()).unwrap_or("attachment")
@@ -335,7 +349,7 @@ pub async fn serve(agents: &Arc<Agents>, preset: &AgentPreset, request: TurnRequ
     // conversation handed over. A record that cannot be dropped fails to reopen there, which hands it over too.
     if matches!(end, TurnEnd::Failed { code: Some(crate::turn::SESSION_NOT_FOUND), .. }) {
         agents.end_process(&thread);
-        let _ = surface.save_header(HeaderChange { set: Default::default(), unset: vec![SESSION_KEY.to_owned()], patch: Default::default() }).await;
+        let _ = surface.save_header(unset_session_change()).await;
     }
     end
 }
@@ -352,8 +366,30 @@ async fn account_learned(agents: &Agents, preset: &AgentPreset, end: &TurnEnd) {
     }
 }
 
+fn unset_session_change() -> HeaderChange {
+    HeaderChange { set: Default::default(), unset: vec![SESSION_KEY.to_owned()], patch: Default::default() }
+}
+
 async fn unset_session(surface: &Arc<dyn TurnSurface>) {
-    let _ = surface.closing().save_header(HeaderChange { set: Default::default(), unset: vec![SESSION_KEY.to_owned()], patch: Default::default() }).await;
+    let _ = surface.closing().save_header(unset_session_change()).await;
+}
+
+async fn cancel_started_session(
+    agents: &Agents,
+    preset: &AgentPreset,
+    thread: &ThreadId,
+    session_id: &str,
+    stored: Option<&Stored>,
+    surface: &Arc<dyn TurnSurface>,
+) {
+    if preset.scope == ProcessScope::Shared {
+        agents.abandon_shared(preset, session_id);
+        if let Some(stored) = stored {
+            agents.abandon_shared(preset, &stored.session_id);
+            unset_session(surface).await;
+        }
+    }
+    agents.end_process(thread);
 }
 
 /// The start of a prompt's turn: the agent's process found or started, its session opened, its model chosen, and the
@@ -486,14 +522,7 @@ async fn begin(
                 let handed = tokio::select! {
                     biased;
                     () = context.cancel.cancelled() => {
-                        if preset.scope == ProcessScope::Shared {
-                            agents.abandon_shared(preset, &session.session_id);
-                            if let Some(stored) = &stored {
-                                agents.abandon_shared(preset, &stored.session_id);
-                                unset_session(surface).await;
-                            }
-                        }
-                        agents.end_process(&thread);
+                        cancel_started_session(agents, preset, &thread, &session.session_id, stored.as_ref(), surface).await;
                         return Err(TurnEnd::Interrupted);
                     }
                     handed = conversation.hand_over() => handed,
@@ -540,14 +569,7 @@ async fn begin(
             biased;
             // A request the agent never answers leaves its process in a state nobody knows: it is not kept.
             () = context.cancel.cancelled() => {
-                if preset.scope == ProcessScope::Shared {
-                    agents.abandon_shared(preset, &session.session_id);
-                    if let Some(stored) = &stored {
-                        agents.abandon_shared(preset, &stored.session_id);
-                        unset_session(surface).await;
-                    }
-                }
-                agents.end_process(&thread);
+                cancel_started_session(agents, preset, &thread, &session.session_id, stored.as_ref(), surface).await;
                 return Err(TurnEnd::Interrupted);
             }
             selected = session.select_model(&model) => selected,
@@ -557,15 +579,7 @@ async fn begin(
         }
     }
     let (mut blocks, left_out) = prompt_blocks(&input, (session.images, session.embedded), attachments.as_ref()).await;
-    if left_out.images > 0 {
-        let why = if session.images { "could not be read".to_owned() } else { format!("{} takes no images", preset.label) };
-        let _ = surface.notice(format!("{} image(s) of this message were not sent to {}: {why}.", left_out.images, preset.label), true).await;
-    }
-    if !left_out.files.is_empty() {
-        let named = left_out.files.iter().map(|name| format!("\"{name}\"")).collect::<Vec<_>>().join(", ");
-        let notice = format!("Not sent to {} (not readable where the session keeps its attachments): {named}.", preset.label);
-        let _ = surface.notice(notice, true).await;
-    }
+    left_out.notify(surface.as_ref(), &preset.label, session.images).await;
     // An agent whose system prompt takes nothing from its client is given Mixdog's prompt in the text of the first
     // prompt its session gets, and again when the prompt changed.
     let mut prompt: Vec<Value> = session.take_unsent_prompt().into_iter().chain(lead).map(|text| json!({ "type": "text", "text": text })).collect();
@@ -842,5 +856,5 @@ fn outcome(end: TurnEnd, transcript: Option<&TurnTranscript>) -> RunOutcome {
 /// header holds one.
 pub fn loop_turn(agents: &Agents, thread: &ThreadId, header: &Header) -> Option<HeaderChange> {
     agents.end_process(thread);
-    header.contains_key(SESSION_KEY).then(|| HeaderChange { set: Default::default(), unset: vec![SESSION_KEY.to_owned()], patch: Default::default() })
+    header.contains_key(SESSION_KEY).then(unset_session_change)
 }

@@ -2041,6 +2041,24 @@ fn prompt_state(input: &TurnInput, submitter: Option<&Submitter>, wake: bool) ->
     }))
 }
 
+struct TurnLaunch {
+    turn: TurnId,
+    admitted_pick: Option<Value>,
+    input: TurnInput,
+    input_iid: mixdog_core_api::ids::ItemId,
+    input_body: Value,
+    input_rx: watch::Receiver<InputState>,
+    token: CancellationToken,
+    cancel: mixdog_agent::cancel::Cancel,
+    shown: Arc<watch::Sender<bool>>,
+    review: super::turn_snapshot::TurnSnapshot,
+    agent_turn: Option<super::seams::AgentTurn>,
+    skill_selection: Option<String>,
+    goal_reminder: Option<super::goal_reminder::GoalReminder>,
+    notice: super::prompt_notice::CarriedNotice,
+    unattended: bool,
+}
+
 struct TurnTask {
     warm: super::turn_warm::WarmNote,
     hooks: Arc<dyn super::lifecycle_hooks::LifecycleHooks>,
@@ -4439,18 +4457,13 @@ impl SessionActor {
     }
 
     fn sync_resumed_tools(&mut self) -> bool {
-        if self.cell.closed.load(SeqCst) || self.shutting_down || self.deleting || self.tombstoned {
-            self.resumed_tools = None;
-            self.drain_held = false;
-            return true;
-        }
-        let loaded = self.ch.directory.upgrade().and_then(|dir| dir.loaded_handle(&self.id));
-        let Some(handle) = loaded.filter(|handle| Arc::ptr_eq(&handle.cell, &self.cell)) else {
-            self.resumed_tools = None;
-            self.drain_held = false;
-            return true;
-        };
-        if self.resumed_tools.as_ref().is_some_and(|gate| gate.is_cancelled()) || handle.resumed_tools.is_cancelled() {
+        let active_handle = (!self.cell.closed.load(SeqCst) && !self.shutting_down && !self.deleting && !self.tombstoned)
+            .then(|| self.ch.directory.upgrade().and_then(|dir| dir.loaded_handle(&self.id)))
+            .flatten()
+            .filter(|handle| Arc::ptr_eq(&handle.cell, &self.cell));
+        let live =
+            active_handle.is_some_and(|handle| !handle.resumed_tools.is_cancelled()) && !self.resumed_tools.as_ref().is_some_and(|gate| gate.is_cancelled());
+        if !live {
             self.resumed_tools = None;
             self.drain_held = false;
             return true;
@@ -6034,6 +6047,44 @@ impl SessionActor {
         self.outbox.end_unit();
         self.outbox.pair_with(started);
         self.announce_turn_start(&turn, &input_body, prompt);
+        self.spawn_turn_run(TurnLaunch {
+            turn,
+            admitted_pick,
+            input,
+            input_iid,
+            input_body,
+            input_rx,
+            token,
+            cancel,
+            shown,
+            review,
+            agent_turn,
+            skill_selection,
+            goal_reminder,
+            notice,
+            unattended,
+        });
+    }
+
+    /// Wires `RunPort`, workspace admission, `RunStart`, and `TurnTask` for an admitted turn and spawns `session-run`.
+    fn spawn_turn_run(&mut self, launch: TurnLaunch) {
+        let TurnLaunch {
+            turn,
+            admitted_pick,
+            input,
+            input_iid,
+            input_body,
+            input_rx,
+            token,
+            cancel,
+            shown,
+            review,
+            agent_turn,
+            skill_selection,
+            goal_reminder,
+            notice,
+            unattended,
+        } = launch;
         // `noteTurnForCacheWarm` (`ask-session.mjs:313`) runs in the run's task, below.
         let model_context = ModelContext {
             store: self.deps.store.clone(),

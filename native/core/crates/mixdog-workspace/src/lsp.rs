@@ -377,6 +377,10 @@ impl Session {
         }
     }
 
+    fn is_active(&self) -> bool {
+        !self.closing.load(Ordering::Acquire) && !self.cancel.is_cancelled()
+    }
+
     fn mark_exited(&self) {
         let _ = self.exited_tx.send(true);
     }
@@ -391,20 +395,43 @@ impl Session {
     }
 }
 
+async fn wait_closed(mut done: tokio::sync::watch::Receiver<()>) {
+    while done.changed().await.is_ok() {}
+}
+
+async fn wait_optional_closed(done: Option<tokio::sync::watch::Receiver<()>>) {
+    if let Some(done) = done {
+        wait_closed(done).await;
+    }
+}
+
+#[cfg(test)]
+async fn wait_test_gate(gate: &Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>) {
+    let gate = gate.lock().expect("lsp test gate").clone();
+    if let Some((arrived, release)) = gate {
+        let wait = release.notified();
+        arrived.notify_waiters();
+        wait.await;
+    }
+}
+
+fn decrement_count<K, Q>(map: &mut HashMap<K, usize>, key: &Q)
+where
+    K: Eq + std::hash::Hash + std::borrow::Borrow<Q>,
+    Q: Eq + std::hash::Hash + ?Sized,
+{
+    if let Some(count) = map.get_mut(key) {
+        *count = count.saturating_sub(1);
+        if *count == 0 {
+            map.remove(key);
+        }
+    }
+}
+
 async fn kill_and_wait_exited(pm: &dyn ProcessManager, session: &Session) {
     session.conn.fail_all();
-    if !session.killed.swap(true, Ordering::SeqCst) {
-        match pm.kill(&session.handle) {
-            Ok(()) => {}
-            Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle) => {
-                session.mark_exited();
-            }
-            Err(_) => {
-                if !session.reader_started.load(Ordering::Acquire) {
-                    session.mark_exited();
-                }
-            }
-        }
+    if !session.killed.swap(true, Ordering::SeqCst) && matches!(pm.kill(&session.handle), Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)) {
+        session.mark_exited();
     }
     if !session.reader_started.load(Ordering::Acquire) {
         session.mark_exited();
@@ -485,13 +512,12 @@ struct Health {
 struct PendingCall {
     id: u64,
     root: PathBuf,
-    cancelled: AtomicBool,
     cancel: tokio_util::sync::CancellationToken,
 }
 
 impl PendingCall {
     fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::SeqCst)
+        self.cancel.is_cancelled()
     }
 }
 
@@ -522,7 +548,6 @@ impl Drop for CallGuard<'_> {
 struct Starting {
     id: u64,
     done: tokio::sync::watch::Receiver<()>,
-    cancelled: AtomicBool,
     cancel: tokio_util::sync::CancellationToken,
     outcome: AtomicU8,
     session: Mutex<Option<Arc<Session>>>,
@@ -532,8 +557,16 @@ struct Starting {
 
 impl Starting {
     fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::SeqCst)
+        self.cancel.is_cancelled()
     }
+}
+
+struct StartTarget {
+    project_path: String,
+    root: PathBuf,
+    language_id: String,
+    spec: Spec,
+    key: String,
 }
 
 struct StartingGuard {
@@ -639,26 +672,20 @@ impl ManagerState {
         self.disposing_all > 0 || self.disposing_roots.values().any(|r| is_within(r, root))
     }
 
+    fn is_live_session(&self, session: &Arc<Session>) -> bool {
+        session.is_active() && !self.is_disposing(&session.root) && self.sessions.get(&session.key).is_some_and(|live| Arc::ptr_eq(live, session))
+    }
+
     fn has_active_open(&self, session: &Session) -> bool {
         self.active_opens.get(&session.id).copied().unwrap_or(0) > 0 || self.pending_opens_by_root.get(&session.comparable_root).copied().unwrap_or(0) > 0
     }
 
     fn release_open(&mut self, session_id: u64) {
-        if let Some(count) = self.active_opens.get_mut(&session_id) {
-            *count = count.saturating_sub(1);
-            if *count == 0 {
-                self.active_opens.remove(&session_id);
-            }
-        }
+        decrement_count(&mut self.active_opens, &session_id);
     }
 
     fn release_root_open(&mut self, comparable_root: &Path) {
-        if let Some(count) = self.pending_opens_by_root.get_mut(comparable_root) {
-            *count = count.saturating_sub(1);
-            if *count == 0 {
-                self.pending_opens_by_root.remove(comparable_root);
-            }
-        }
+        decrement_count(&mut self.pending_opens_by_root, comparable_root);
     }
 
     fn record_failure(&mut self, key: &str) -> u64 {
@@ -806,20 +833,13 @@ fn sync_document(session: &Session, input: &DocumentInput, uri: &str) {
                 DocInfo { language_id: input.language_id.clone(), rel_path: input.rel_path.clone(), server_version, owners: HashSet::from([owner.to_owned()]) },
             );
         }
-        Some(doc) if input.kind == "open" => {
-            doc.owners.insert(owner.to_owned());
-            doc.language_id = input.language_id.clone();
-            doc.rel_path = input.rel_path.clone();
-            doc.server_version = doc.server_version.saturating_add(1);
-            session.conn.notify(
-                "textDocument/didChange",
-                json!({ "textDocument": { "uri": uri, "version": doc.server_version }, "contentChanges": [{ "text": input.content }] }),
-            );
-        }
         Some(_) if input.kind == "save" => {
             session.conn.notify("textDocument/didSave", json!({ "textDocument": { "uri": uri }, "text": input.content }));
         }
         Some(doc) => {
+            if input.kind == "open" {
+                doc.owners.insert(owner.to_owned());
+            }
             doc.language_id = input.language_id.clone();
             doc.rel_path = input.rel_path.clone();
             doc.server_version = doc.server_version.saturating_add(1);
@@ -918,11 +938,9 @@ impl LspManager {
 
     fn begin_call(&self, root: &Path) -> CallGuard<'_> {
         let id = self.next_handle.fetch_add(1, Ordering::SeqCst);
-        let call =
-            Arc::new(PendingCall { id, root: root.to_path_buf(), cancelled: AtomicBool::new(false), cancel: tokio_util::sync::CancellationToken::new() });
+        let call = Arc::new(PendingCall { id, root: root.to_path_buf(), cancel: tokio_util::sync::CancellationToken::new() });
         let mut state = self.state.lock().expect("lsp state");
         let registered = if state.is_disposing(root) {
-            call.cancelled.store(true, Ordering::SeqCst);
             call.cancel.cancel();
             false
         } else {
@@ -984,12 +1002,7 @@ impl LspManager {
 
     fn refresh_capabilities(&self, session: &Arc<Session>) {
         let mut state = self.state.lock().expect("lsp state");
-        if !session.ready.load(Ordering::Acquire)
-            || session.closing.load(Ordering::Acquire)
-            || session.cancel.is_cancelled()
-            || state.is_disposing(&session.root)
-            || !state.sessions.get(&session.key).is_some_and(|live| Arc::ptr_eq(live, session))
-        {
+        if !session.ready.load(Ordering::Acquire) || !state.is_live_session(session) {
             return;
         }
         let docs: Vec<(String, String, String)> =
@@ -1055,7 +1068,7 @@ impl LspManager {
                 let mut state = self.state.lock().expect("lsp state");
                 if call.is_cancelled() || state.is_disposing(root) {
                     EnsureStep::Cancelled
-                } else if let Some(live) = state.sessions.get(&key).cloned().filter(|s| !s.closing.load(Ordering::SeqCst) && !s.cancel.is_cancelled()) {
+                } else if let Some(live) = state.sessions.get(&key).cloned().filter(|s| s.is_active()) {
                     live.cancel_idle();
                     let open_guard = hold_open.then(|| {
                         *state.active_opens.entry(live.id).or_default() += 1;
@@ -1077,7 +1090,6 @@ impl LspManager {
                         let flight = Arc::new(Starting {
                             id: self.next_handle.fetch_add(1, Ordering::SeqCst),
                             done: receiver,
-                            cancelled: AtomicBool::new(false),
                             cancel: tokio_util::sync::CancellationToken::new(),
                             outcome: AtomicU8::new(FLIGHT_PENDING),
                             session: Mutex::new(None),
@@ -1087,14 +1099,16 @@ impl LspManager {
                         state.starting.insert(key.clone(), flight.clone());
                         let guard = StartingGuard { manager: self.clone(), key: key.clone(), flight: flight.clone(), _mine: mine };
                         let manager = self.clone();
-                        let start_project = project_path.to_owned();
-                        let start_root = root.to_path_buf();
-                        let start_language = language_id.to_owned();
-                        let start_spec = spec.clone();
-                        let start_key = key.clone();
+                        let target = StartTarget {
+                            project_path: project_path.to_owned(),
+                            root: root.to_path_buf(),
+                            language_id: language_id.to_owned(),
+                            spec: spec.clone(),
+                            key: key.clone(),
+                        };
                         let start_flight = flight.clone();
                         mixdog_rt::spawn("lsp-start", mixdog_rt::TaskClass::Work, async move {
-                            manager.run_start(&start_project, &start_root, &start_language, &start_spec, start_key, &start_flight, guard).await;
+                            manager.run_start(target, &start_flight, guard).await;
                         });
                         EnsureStep::WaitFlight(flight, false)
                     }
@@ -1104,11 +1118,11 @@ impl LspManager {
                 EnsureStep::Live(live, guard) => return EnsureOutcome::Live(live, guard),
                 EnsureStep::Cancelled => return EnsureOutcome::Cancelled,
                 EnsureStep::Unavailable => return EnsureOutcome::Unavailable,
-                EnsureStep::WaitStopping(mut done) => {
+                EnsureStep::WaitStopping(done) => {
                     let cancelled = tokio::select! {
                         biased;
                         _ = call.cancel.cancelled() => true,
-                        _ = async { while done.changed().await.is_ok() {} } => false,
+                        _ = wait_closed(done) => false,
                     };
                     if cancelled || call.is_cancelled() {
                         return EnsureOutcome::Cancelled;
@@ -1116,7 +1130,7 @@ impl LspManager {
                 }
                 // The start task never sends: `changed` fails exactly when it drops `StartingGuard`.
                 EnsureStep::WaitFlight(other, is_waiter) => {
-                    let mut done = other.done.clone();
+                    let done = other.done.clone();
                     #[cfg(test)]
                     if is_waiter {
                         other.waiter_joined.notify_one();
@@ -1127,7 +1141,7 @@ impl LspManager {
                         biased;
                         _ = call.cancel.cancelled() => true,
                         _ = other.cancel.cancelled() => true,
-                        _ = async { while done.changed().await.is_ok() {} } => false,
+                        _ = wait_closed(done) => false,
                     };
                     let outcome = other.outcome.load(Ordering::SeqCst);
                     if cancelled || other.is_cancelled() || call.is_cancelled() || outcome == FLIGHT_CANCELLED {
@@ -1141,27 +1155,18 @@ impl LspManager {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn run_start(
-        self: &Arc<Self>,
-        project_path: &str,
-        root: &Path,
-        language_id: &str,
-        spec: &Spec,
-        key: String,
-        flight: &Starting,
-        guard: StartingGuard,
-    ) {
+    async fn run_start(self: &Arc<Self>, target: StartTarget, flight: &Starting, guard: StartingGuard) {
         let _guard = guard;
+        let StartTarget { project_path, root, language_id, spec, key } = target;
         {
             let mut state = self.state.lock().expect("lsp state");
-            if flight.is_cancelled() || state.is_disposing(root) {
+            if flight.is_cancelled() || state.is_disposing(&root) {
                 flight.outcome.store(FLIGHT_CANCELLED, Ordering::SeqCst);
                 return;
             }
-            self.emit_status_locked(&mut state, (project_path, root, language_id), Some(spec), "starting", None, None, None);
+            self.emit_status_locked(&mut state, (&project_path, &root, &language_id), Some(&spec), "starting", None, None, None);
         }
-        let (probe_spec, probe_root) = (spec.clone(), root.to_path_buf());
+        let (probe_spec, probe_root) = (spec.clone(), root.clone());
         #[cfg(test)]
         let probe_override = self.resolve_override.clone();
         let found = tokio::select! {
@@ -1184,18 +1189,18 @@ impl LspManager {
         }
         let Some(executable) = found else {
             let mut state = self.state.lock().expect("lsp state");
-            if flight.is_cancelled() || state.is_disposing(root) {
+            if flight.is_cancelled() || state.is_disposing(&root) {
                 flight.outcome.store(FLIGHT_CANCELLED, Ordering::SeqCst);
                 return;
             }
             state.health.missing_until.insert(key, Instant::now() + Duration::from_secs(30));
             flight.outcome.store(FLIGHT_FAILED, Ordering::SeqCst);
-            self.emit_status_locked(&mut state, (project_path, root, language_id), Some(spec), "missing", None, None, None);
+            self.emit_status_locked(&mut state, (&project_path, &root, &language_id), Some(&spec), "missing", None, None, None);
             return;
         };
         let session_id = self.next_handle.fetch_add(1, Ordering::SeqCst);
         let handle = ProcessHandle::from(format!("lsp-{}-{}", std::process::id(), session_id).as_str());
-        let Some(request) = spawn_request(&handle, &executable, spec, root, language_id) else {
+        let Some(request) = spawn_request(&handle, &executable, &spec, &root, &language_id) else {
             flight.outcome.store(FLIGHT_FAILED, Ordering::SeqCst);
             return;
         };
@@ -1205,15 +1210,15 @@ impl LspManager {
         let session = Arc::new(Session {
             id: session_id,
             key: key.clone(),
-            project_path: project_path.to_owned(),
-            root: root.to_path_buf(),
-            comparable_root: comparable(root),
+            project_path: project_path.clone(),
+            root: root.clone(),
+            comparable_root: comparable(&root),
             spec: spec.clone(),
             handle: handle.clone(),
             conn: conn.clone(),
             base_caps: Mutex::new(json!({})),
             registrations: Mutex::default(),
-            language_ids: Mutex::new(HashSet::from([language_id.to_owned()])),
+            language_ids: Mutex::new(HashSet::from([language_id.clone()])),
             documents: Mutex::default(),
             closing: AtomicBool::new(false),
             killed: AtomicBool::new(false),
@@ -1241,18 +1246,18 @@ impl LspManager {
                     return;
                 }
                 flight.outcome.store(FLIGHT_FAILED, Ordering::SeqCst);
-                self.fail_start(&session, flight, language_id, &format!("{} could not be started: {error:?}", spec.name)).await;
+                self.fail_start(&session, flight, &language_id, &format!("{} could not be started: {error:?}", spec.name)).await;
                 return;
             }
         };
         *flight.session.lock().expect("lsp starting session") = Some(session.clone());
-        self.attach_io(&session, events, out_rx, language_id);
+        self.attach_io(&session, events, out_rx, &language_id);
         if flight.is_cancelled() {
             flight.outcome.store(FLIGHT_CANCELLED, Ordering::SeqCst);
             self.shutdown_cancelled(&session, false).await;
             return;
         }
-        let params = initialize_params(root, spec);
+        let params = initialize_params(&root, &spec);
         let message = format!("{} did not finish initializing.", spec.name);
         let init = tokio::select! {
             biased;
@@ -1264,22 +1269,15 @@ impl LspManager {
                 let caps = lspcaps::normalize(&initialization);
                 *session.base_caps.lock().expect("lsp caps") = caps.clone();
                 #[cfg(test)]
-                {
-                    let gate = self.promote_gate.lock().expect("lsp promote gate").clone();
-                    if let Some((arrived, release)) = gate {
-                        let wait = release.notified();
-                        arrived.notify_waiters();
-                        wait.await;
-                    }
-                }
+                wait_test_gate(&self.promote_gate).await;
                 let stop_done = {
                     let mut state = self.state.lock().expect("lsp state");
-                    if flight.is_cancelled() || state.is_disposing(root) {
+                    if flight.is_cancelled() || state.is_disposing(&root) {
                         flight.outcome.store(FLIGHT_CANCELLED, Ordering::SeqCst);
                         self.begin_stop_locked(&mut state, &session, true, false, None)
                     } else if session.is_exited() || session.closing.load(Ordering::SeqCst) {
                         flight.outcome.store(FLIGHT_FAILED, Ordering::SeqCst);
-                        self.fail_start_locked(&mut state, &session, flight, language_id, "The language server exited during initialization.")
+                        self.fail_start_locked(&mut state, &session, flight, &language_id, "The language server exited during initialization.")
                     } else {
                         debug_assert!(!state.sessions.contains_key(&key));
                         state.sessions.insert(key.clone(), session.clone());
@@ -1290,14 +1288,12 @@ impl LspManager {
                         session.ready.store(true, Ordering::SeqCst);
                         flight.outcome.store(FLIGHT_READY, Ordering::SeqCst);
                         conn.notify("initialized", json!({}));
-                        self.emit_status_locked(&mut state, (project_path, root, language_id), Some(spec), "ready", None, Some(&caps), None);
+                        self.emit_status_locked(&mut state, (&project_path, &root, &language_id), Some(&spec), "ready", None, Some(&caps), None);
                         self.schedule_idle_locked(&mut state, &session);
                         None
                     }
                 };
-                if let Some(mut done) = stop_done {
-                    while done.changed().await.is_ok() {}
-                }
+                wait_optional_closed(stop_done).await;
             }
             Some(Err(error)) => {
                 if flight.is_cancelled() {
@@ -1305,7 +1301,7 @@ impl LspManager {
                     self.shutdown_cancelled(&session, false).await;
                 } else {
                     flight.outcome.store(FLIGHT_FAILED, Ordering::SeqCst);
-                    self.fail_start(&session, flight, language_id, &error).await;
+                    self.fail_start(&session, flight, &language_id, &error).await;
                 }
             }
             None => {
@@ -1320,9 +1316,7 @@ impl LspManager {
             let mut state = self.state.lock().expect("lsp state");
             self.begin_stop_locked(&mut state, session, initialized, false, None)
         };
-        if let Some(mut done) = done {
-            while done.changed().await.is_ok() {}
-        }
+        wait_optional_closed(done).await;
     }
 
     /// A writer task keeps outgoing frames in order; a reader task dispatches everything the server sends, from before `initialize`.
@@ -1412,9 +1406,7 @@ impl LspManager {
             let mut state = self.state.lock().expect("lsp state");
             self.fail_start_locked(&mut state, session, flight, language_id, error)
         };
-        if let Some(mut done) = done {
-            while done.changed().await.is_ok() {}
-        }
+        wait_optional_closed(done).await;
     }
 
     fn dispatch(&self, session: &Arc<Session>, message: Value) {
@@ -1433,7 +1425,7 @@ impl LspManager {
             }
             (Some(method), Some(id)) => self.server_request(session, method, id, message.get("params").unwrap_or(&Value::Null)),
             (Some("textDocument/publishDiagnostics"), None) => {
-                if !session.ready.load(Ordering::Acquire) || session.closing.load(Ordering::Acquire) || session.cancel.is_cancelled() {
+                if !session.ready.load(Ordering::Acquire) || !session.is_active() {
                     return;
                 }
                 let params = message.get("params").cloned().unwrap_or(Value::Null);
@@ -1442,12 +1434,7 @@ impl LspManager {
                 let diagnostics: Vec<Value> =
                     params.get("diagnostics").and_then(Value::as_array).map(|a| a.iter().take(2000).cloned().collect()).unwrap_or_default();
                 let state = self.state.lock().expect("lsp state");
-                if !session.ready.load(Ordering::Acquire)
-                    || session.closing.load(Ordering::Acquire)
-                    || session.cancel.is_cancelled()
-                    || state.is_disposing(&session.root)
-                    || !state.sessions.get(&session.key).is_some_and(|live| Arc::ptr_eq(live, session))
-                {
+                if !session.ready.load(Ordering::Acquire) || !state.is_live_session(session) {
                     return;
                 }
                 self.sink.diagnostics(json!({
@@ -1522,13 +1509,7 @@ impl LspManager {
     }
 
     fn schedule_idle_locked(self: &Arc<Self>, state: &mut ManagerState, session: &Arc<Session>) {
-        if !session.documents.lock().expect("lsp documents").is_empty()
-            || state.has_active_open(session)
-            || session.closing.load(Ordering::Acquire)
-            || session.cancel.is_cancelled()
-            || state.is_disposing(&session.root)
-            || !state.sessions.get(&session.key).is_some_and(|live| Arc::ptr_eq(live, session))
-        {
+        if !session.documents.lock().expect("lsp documents").is_empty() || state.has_active_open(session) || !state.is_live_session(session) {
             return;
         }
         let generation = session.idle_generation.fetch_add(1, Ordering::SeqCst) + 1;
@@ -1601,9 +1582,37 @@ impl LspManager {
             }
             self.begin_stop_locked(&mut state, session, true, true, idle_gen)
         };
-        if let Some(mut done) = done {
-            while done.changed().await.is_ok() {}
+        wait_optional_closed(done).await;
+    }
+
+    fn close_document(self: &Arc<Self>, project_path: &str, root: &Path, spec: &Spec, input: &DocumentInput, uri: &str, call: &mut CallGuard<'_>) -> Value {
+        let key = session_key(root, spec);
+        let mut state = self.state.lock().expect("lsp state");
+        call.finish_locked(&mut state);
+        if call.call.is_cancelled() || state.is_disposing(root) {
+            return public_state(Some(spec), "stopped", None, None);
         }
+        let Some(session) = state.sessions.get(&key).cloned() else {
+            let fallback = public_state(Some(spec), "stopped", None, None);
+            return state.states.get(&key).cloned().unwrap_or(fallback);
+        };
+        if !session.is_active() {
+            return public_state(Some(spec), "stopped", None, None);
+        }
+        session.language_ids.lock().expect("lsp languages").insert(input.language_id.clone());
+        let owner = input.attachment_id.as_deref().unwrap_or(DEFAULT_ATTACHMENT_ID);
+        let closed = {
+            let mut docs = session.documents.lock().expect("lsp documents");
+            let should_remove = docs.get_mut(uri).is_some_and(|doc| doc.owners.remove(owner) && doc.owners.is_empty());
+            if should_remove { docs.remove(uri) } else { None }
+        };
+        if let Some(doc) = closed {
+            session.conn.notify("textDocument/didClose", json!({ "textDocument": { "uri": uri } }));
+            self.clear_document_feeds(project_path, spec, uri, &doc.language_id, &input.rel_path);
+        }
+        self.schedule_idle_locked(&mut state, &session);
+        let caps = session.capabilities(&input.language_id, Some(uri));
+        public_state(Some(spec), "ready", None, Some(&caps))
     }
 
     /// Editor document events (`lsp/document`). An entry the project refuses fails the call and leaves the language's status alone.
@@ -1632,40 +1641,12 @@ impl LspManager {
         let key = session_key(root, &spec);
         // A late cleanup must never start a server merely to close a document.
         if input.kind == "close" {
-            let mut state = self.state.lock().expect("lsp state");
-            call.finish_locked(&mut state);
-            if call.call.is_cancelled() || state.is_disposing(root) {
-                return Ok(public_state(Some(&spec), "stopped", None, None));
-            }
-            let Some(session) = state.sessions.get(&key).cloned() else {
-                let fallback = public_state(Some(&spec), "stopped", None, None);
-                return Ok(state.states.get(&key).cloned().unwrap_or(fallback));
-            };
-            if session.closing.load(Ordering::Acquire) || session.cancel.is_cancelled() {
-                return Ok(public_state(Some(&spec), "stopped", None, None));
-            }
-            session.language_ids.lock().expect("lsp languages").insert(input.language_id.clone());
-            let owner = input.attachment_id.as_deref().unwrap_or(DEFAULT_ATTACHMENT_ID);
-            let closed = {
-                let mut docs = session.documents.lock().expect("lsp documents");
-                let should_remove = docs.get_mut(&uri).is_some_and(|doc| doc.owners.remove(owner) && doc.owners.is_empty());
-                if should_remove { docs.remove(&uri) } else { None }
-            };
-            if let Some(doc) = closed {
-                session.conn.notify("textDocument/didClose", json!({ "textDocument": { "uri": uri } }));
-                self.clear_document_feeds(project_path, &spec, &uri, &doc.language_id, &input.rel_path);
-            }
-            self.schedule_idle_locked(&mut state, &session);
-            let caps = session.capabilities(&input.language_id, Some(&uri));
-            return Ok(public_state(Some(&spec), "ready", None, Some(&caps)));
+            return Ok(self.close_document(project_path, root, &spec, &input, &uri, &mut call));
         }
         let (session, mut open_guard) = match self.ensure(project_path, root, &input.language_id, &spec, &call.call, true).await {
             EnsureOutcome::Live(session, guard) => (session, guard),
             EnsureOutcome::Cancelled => return Ok(public_state(Some(&spec), "stopped", None, None)),
             EnsureOutcome::Unavailable => {
-                if call.call.is_cancelled() {
-                    return Ok(public_state(Some(&spec), "stopped", None, None));
-                }
                 let state = self.state.lock().expect("lsp state");
                 if call.call.is_cancelled() || state.is_disposing(root) {
                     return Ok(public_state(Some(&spec), "stopped", None, None));
@@ -1675,22 +1656,10 @@ impl LspManager {
             }
         };
         #[cfg(test)]
-        {
-            let gate = self.document_post_ensure_gate.lock().expect("lsp post ensure gate").clone();
-            if let Some((arrived, release)) = gate {
-                let wait = release.notified();
-                arrived.notify_waiters();
-                wait.await;
-            }
-        }
+        wait_test_gate(&self.document_post_ensure_gate).await;
         let mut state = self.state.lock().expect("lsp state");
         call.finish_locked(&mut state);
-        if session.closing.load(Ordering::Acquire)
-            || session.cancel.is_cancelled()
-            || call.call.is_cancelled()
-            || state.is_disposing(root)
-            || !state.sessions.get(&key).is_some_and(|live| Arc::ptr_eq(live, &session))
-        {
+        if call.call.is_cancelled() || !state.is_live_session(&session) {
             if let Some(guard) = open_guard.as_mut() {
                 guard.release_locked(&mut state);
             }
@@ -1741,9 +1710,6 @@ impl LspManager {
             EnsureOutcome::Live(session, _) => session,
             EnsureOutcome::Cancelled => return Ok(stopped_reply()),
             EnsureOutcome::Unavailable => {
-                if call.call.is_cancelled() {
-                    return Ok(stopped_reply());
-                }
                 let state = self.state.lock().expect("lsp state");
                 if call.call.is_cancelled() || state.is_disposing(root) {
                     return Ok(stopped_reply());
@@ -1756,12 +1722,12 @@ impl LspManager {
                 return Ok(out);
             }
         };
-        if session.closing.load(Ordering::Acquire) || session.cancel.is_cancelled() || call.call.is_cancelled() {
+        if !session.is_active() || call.call.is_cancelled() {
             return Ok(stopped_reply());
         }
         let mut reply = async {
             let uri = file_uri(&project_entry_path(root, rel_path)?);
-            if session.closing.load(Ordering::Acquire) || session.cancel.is_cancelled() || call.call.is_cancelled() {
+            if !session.is_active() || call.call.is_cancelled() {
                 return Ok(stopped_reply());
             }
             let caps = session.capabilities(language_id, Some(&uri));
@@ -1786,25 +1752,12 @@ impl LspManager {
         }
         .await;
         #[cfg(test)]
-        {
-            let gate = self.request_finalize_gate.lock().expect("lsp finalize gate").clone();
-            if let Some((arrived, release)) = gate {
-                let wait = release.notified();
-                arrived.notify_waiters();
-                wait.await;
-            }
-        }
+        wait_test_gate(&self.request_finalize_gate).await;
         {
             let mut state = self.state.lock().expect("lsp state");
             call.finish_locked(&mut state);
             self.schedule_idle_locked(&mut state, &session);
-            if reply.is_ok()
-                && (call.call.is_cancelled()
-                    || session.closing.load(Ordering::Acquire)
-                    || session.cancel.is_cancelled()
-                    || state.is_disposing(root)
-                    || !state.sessions.get(&key).is_some_and(|live| Arc::ptr_eq(live, &session)))
-            {
+            if reply.is_ok() && (call.call.is_cancelled() || !state.is_live_session(&session)) {
                 reply = Ok(stopped_reply());
             }
         }
@@ -1826,13 +1779,11 @@ impl LspManager {
         };
         for call in state.calls.values() {
             if root.is_none_or(|r| is_within(r, &call.root)) {
-                call.cancelled.store(true, Ordering::SeqCst);
                 call.cancel.cancel();
             }
         }
         for (key, flight) in &state.starting {
             if root.is_none_or(|r| key_is_under(key, r)) {
-                flight.cancelled.store(true, Ordering::SeqCst);
                 flight.cancel.cancel();
             }
         }
@@ -1865,11 +1816,10 @@ impl LspManager {
                 break;
             }
             for flight in in_flight {
-                let mut done = flight.done.clone();
-                while done.changed().await.is_ok() {}
+                wait_closed(flight.done.clone()).await;
             }
-            for mut done in active_stops {
-                while done.changed().await.is_ok() {}
+            for done in active_stops {
+                wait_closed(done).await;
             }
         }
         {

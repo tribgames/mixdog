@@ -80,24 +80,6 @@ pub(crate) struct SnapshotParams<'a> {
 
 pub(crate) use mixdog_core_api::feed::TAIL_RANGE;
 
-struct ByteCounter(usize);
-
-impl std::io::Write for ByteCounter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0 += buf.len();
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-fn json_len<T: Serialize>(value: &T) -> usize {
-    let mut counter = ByteCounter(0);
-    serde_json::to_writer(&mut counter, value).map_or(0, |()| counter.0)
-}
-
 impl SessionView {
     pub fn build(feed: FeedId, summary: ThreadSummary, state: &SessionState, storage: StorageState, items: Option<Arc<[Arc<ThreadItem>]>>) -> Self {
         let items = items.unwrap_or_else(|| Self::items_of(state));
@@ -133,7 +115,7 @@ impl SessionView {
             };
             let params = SnapshotParams { thread: &self.summary, state: &self.state, items: self.in_progress_items(), has_older: false, window: Some(window) };
             const OUTER_OVERHEAD: usize = 200;
-            json_len(&params) + json_len(&self.feed.as_str()) + OUTER_OVERHEAD
+            super::reads::json_bytes(&params) + super::reads::json_bytes(&self.feed.as_str()) + OUTER_OVERHEAD
         })
     }
 
@@ -145,14 +127,14 @@ impl SessionView {
         let units = &self.tail.units;
         let bounded = self.tail.budget != usize::MAX;
         let envelope = if bounded { self.positioned_envelope_bytes() } else { 0 };
-        let end_edge_len = if bounded { json_len(&WindowEdge::End) } else { 0 };
+        let end_edge_len = if bounded { super::reads::json_bytes(&WindowEdge::End) } else { 0 };
         let (mut from, mut shown, mut bytes) = (units.len(), 0usize, 0usize);
         while from > 0 {
             let unit = &units[from - 1];
             let comma = usize::from(from < units.len());
             let next_bytes = bytes.saturating_add(unit.bytes).saturating_add(comma);
             let edge_extra = if bounded && (self.tail.older || from > 1) {
-                json_len(&WindowEdge::Continuation { position: unit.unit.position.clone() }).saturating_sub(end_edge_len)
+                super::reads::json_bytes(&WindowEdge::Continuation { position: unit.unit.position.clone() }).saturating_sub(end_edge_len)
             } else {
                 0
             };

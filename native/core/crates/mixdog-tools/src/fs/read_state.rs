@@ -1086,15 +1086,17 @@ impl Shared {
                     let mut inner = shared.lock();
                     inner.cache.retain(|e| !e.is_expired(now_ms, now_mono));
                     inner.cache_bytes = inner.cache.iter().map(|e| e.bytes).sum();
-                    if inner.cache.is_empty() {
-                        inner.cache.shrink_to_fit();
-                        inner.cache_expiry_armed = false;
-                        inner.cache_expiry_deadline = None;
-                        None
-                    } else {
-                        let next = inner.cache.iter().map(|e| e.expires_at).min().expect("non-empty cache");
-                        inner.cache_expiry_deadline = Some(next);
-                        Some(next)
+                    match inner.cache.iter().map(|e| e.expires_at).min() {
+                        None => {
+                            inner.cache.shrink_to_fit();
+                            inner.cache_expiry_armed = false;
+                            inner.cache_expiry_deadline = None;
+                            None
+                        }
+                        Some(next) => {
+                            inner.cache_expiry_deadline = Some(next);
+                            Some(next)
+                        }
                     }
                 };
                 drop(shared);
@@ -1387,8 +1389,6 @@ impl ReadState {
         let now = (self.shared.clock)();
         let now_mono = tokio::time::Instant::now();
         let mut inner = self.shared.lock();
-        // An entry past its TTL is never served again; only a lookup of its own key used to drop it, so up to the byte
-        // cap of dead answers stayed resident until evicted by size.
         inner.cache.retain(|e| e.key != key && !e.is_expired(now, now_mono));
         inner.cache_bytes = inner.cache.iter().map(|e| e.bytes).sum();
         inner.cache.push(CacheEntry {

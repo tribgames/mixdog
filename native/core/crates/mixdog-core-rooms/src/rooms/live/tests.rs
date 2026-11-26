@@ -764,5 +764,46 @@ async fn an_idle_room_with_no_listener_releases_its_recent_rows() {
     assert_eq!(rig.live.recent_held("room01"), 0, "released as soon as the exchange ends");
 }
 
+#[tokio::test]
+async fn in_flight_post_does_not_clear_release_on_idle_while_user_send_does() {
+    struct StubRunner;
+    #[async_trait]
+    impl crate::rooms::calls::CallRunner for StubRunner {
+        async fn run(&self, _: &str, _: &crate::rooms::calls::Request, _: &Arc<crate::rooms::calls::Run>) -> Result<(), String> {
+            Ok(())
+        }
+        async fn cut_off(&self, _: &str) {}
+    }
+
+    let rig = rig(&["a", "b"]).await;
+    rig.live.bind_relays(Arc::new(|_: &str, _: &str| {}));
+    let host = rig.live.host("room01").unwrap();
+
+    // Unload while an exchange is active, then post in-flight member speech before untracking.
+    let state = exchange();
+    host.track(&state);
+    rig.live.release_session("sess_room_room01");
+    host.post(vec![speech("s1", "a")]).await.unwrap();
+    assert_eq!(rig.live.recent_held("room01"), 1, "recent stays visible during the running exchange");
+    assert!(host.untrack(&state));
+    assert_eq!(rig.live.recent_held("room01"), 0, "in-flight post must not cancel deferred release_on_idle");
+
+    // Genuine user activation via send while tracked clears release_on_idle so recent stays warm.
+    let state2 = exchange();
+    host.track(&state2);
+    rig.live.release_session("sess_room_room01");
+    let calls = crate::rooms::calls::RoomCalls::new(Arc::new(StubRunner), Arc::new(|_| {}));
+    let msg = UserMessage {
+        session_id: "sess_room_room01".into(),
+        submission_id: "sub1".into(),
+        prompt: json!([{ "type": "text", "text": "back again" }]),
+        pasted_images: None,
+        pasted_texts: None,
+    };
+    assert!(rig.live.send(&rig.rooms, &calls, &msg).await.unwrap());
+    assert!(host.untrack(&state2));
+    assert_eq!(rig.live.recent_held("room01"), 1, "genuine user send re-activates the room");
+}
+
 #[path = "send_rules.rs"]
 mod send_rules;

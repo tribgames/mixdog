@@ -99,8 +99,8 @@ pub(super) fn pick_gemini_image_part_with_finish(
     finish_reason: Option<&str>,
     usage: Option<Value>,
 ) -> Result<GeneratedImage, AdapterError> {
-    let image = parts.iter().rev().find(|part| !is_thought_part(part) && inline_data_of(part).is_some_and(|d| truthy(d.get("data"))));
-    let Some(image) = image else {
+    let inline = parts.iter().rev().find_map(|part| (!is_thought_part(part)).then(|| inline_data_of(part)).flatten().filter(|d| truthy(d.get("data"))));
+    let Some(inline) = inline else {
         let non_thought = non_thought_text(parts);
         if let Some(reason) = finish_reason.map(mixdog_js::js_trim).filter(|r| is_safety_finish_reason(r)) {
             let suffix = non_thought.map_or_else(String::new, |text| format!(": {}", slice_utf16(&text, 200)));
@@ -119,7 +119,6 @@ pub(super) fn pick_gemini_image_part_with_finish(
         error.usage = reported_usage(usage).map(Box::new);
         return Err(error);
     };
-    let inline = inline_data_of(image).expect("inline data checked");
     let bytes = decode_base64_media(&inline["data"], &format!("{label} image"))?;
     let mime = inline_mime_of(inline);
     let revised_prompt = non_thought_text(parts);

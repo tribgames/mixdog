@@ -56,8 +56,9 @@ fn too_large(what: &str, limit: usize) -> ProviderError {
 
 /// A version-4-shaped UUID derived from `seed`.
 pub fn deterministic_uuid(seed: &str) -> String {
-    let hex: String = Sha256::digest(seed.as_bytes()).iter().take(16).map(|b| format!("{b:02x}")).collect();
-    let variant = (u8::from_str_radix(&hex[16..17], 16).expect("hex") & 3) | 8;
+    let digest = Sha256::digest(seed.as_bytes());
+    let hex: String = digest.iter().take(16).map(|b| format!("{b:02x}")).collect();
+    let variant = ((digest[8] >> 4) & 3) | 8;
     format!("{}-{}-4{}-{variant:x}{}-{}", &hex[0..8], &hex[8..12], &hex[13..16], &hex[17..20], &hex[20..32])
 }
 
@@ -498,24 +499,26 @@ fn turn_records(messages: &[Message]) -> Vec<TurnRecord> {
         match message.role {
             Role::User => turns.push(TurnRecord { said: text_of(&message.content), steps: Vec::new() }),
             Role::Assistant => {
-                // What the assistant did before anything the user said (a transcript compacted down to its tail)
-                // has no turn to stand in: it is the steps of a turn that says nothing, so its calls and their
-                // results are still named.
-                if turns.is_empty() {
-                    turns.push(TurnRecord { said: String::new(), steps: Vec::new() });
-                }
-                let turn = turns.last_mut().expect("just ensured");
+                let mut steps = Vec::new();
                 let text = text_of(&message.content);
                 if !text.is_empty() {
                     let mut said = Writer::new();
                     said.string(1, &text);
                     let mut step = Writer::new();
                     step.message(1, said);
-                    turn.steps.push(step.finish());
+                    steps.push(step.finish());
                 }
                 for call in &message.tool_calls {
                     let result = messages.iter().find(|m| m.role == Role::Tool && m.tool_call_id.as_deref() == Some(call.id.as_str()));
-                    turn.steps.push(tool_step(call, result));
+                    steps.push(tool_step(call, result));
+                }
+                if let Some(turn) = turns.last_mut() {
+                    turn.steps.extend(steps);
+                } else {
+                    // What the assistant did before anything the user said (a transcript compacted down to its tail)
+                    // has no turn to stand in: it is the steps of a turn that says nothing, so its calls and their
+                    // results are still named.
+                    turns.push(TurnRecord { said: String::new(), steps });
                 }
             }
             _ => {}

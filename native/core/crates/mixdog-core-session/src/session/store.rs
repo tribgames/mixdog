@@ -1809,11 +1809,15 @@ impl ReadCache {
         self.unloaded_order.retain(|entry| entry != id);
     }
 
-    fn forget(&mut self, id: &str) {
-        self.retained.remove(id);
+    fn clear_entries(&mut self, id: &str) {
         self.unloaded_order.retain(|entry| entry != id);
         self.shapes.remove(id);
         self.picked.remove(id);
+    }
+
+    fn forget(&mut self, id: &str) {
+        self.retained.remove(id);
+        self.clear_entries(id);
     }
 }
 
@@ -1842,9 +1846,7 @@ impl Drop for StoreLog {
             if *count <= 1 {
                 cache.open_logs.remove(&self.thread);
                 if !cache.retained.contains(&self.thread) {
-                    cache.unloaded_order.retain(|entry| entry != &self.thread);
-                    cache.shapes.remove(&self.thread);
-                    cache.picked.remove(&self.thread);
+                    cache.clear_entries(&self.thread);
                 }
             } else {
                 *count -= 1;
@@ -2652,11 +2654,15 @@ impl StoreThreads {
         let held = {
             let mut cache = lock();
             let held = cache.shapes.get(id.as_str()).cloned();
-            if held.as_ref().is_some_and(|shape| shape.is_current()) {
-                cache.touch_if_unloaded(id.as_str());
-                return Ok(held.unwrap());
+            if let Some(held) = held {
+                if held.is_current() {
+                    cache.touch_if_unloaded(id.as_str());
+                    return Ok(held);
+                }
+                Some(held)
+            } else {
+                None
             }
-            held
         };
         if let Some(held) = &held {
             // The versions first: an append that begins after them leaves this shape not current, whatever it holds.

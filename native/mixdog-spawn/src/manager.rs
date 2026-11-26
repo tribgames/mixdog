@@ -639,8 +639,7 @@ impl Inner {
         for owned in &mut table.owned {
             if owned.handle.as_ref() == Some(handle) {
                 owned.handle = None;
-                // Reusing a handle used to close the old Windows job. End it
-                // now without giving up the handle needed to confirm its exit.
+                // End the previous Windows job on handle reuse while keeping the handle to confirm its exit.
                 #[cfg(windows)]
                 owned.containment.kill();
             }
@@ -650,10 +649,15 @@ impl Inner {
         Ok(Admission { inner: Arc::clone(self), handle: handle.clone(), committed: false })
     }
 
-    fn finished(&self, proc: &Arc<Proc>, reaped: bool) {
-        let idle = reaped && proc.containment.shutdown_idle();
+    fn containment_idle(&self, proc: &Proc) -> bool {
+        let idle = proc.containment.shutdown_idle();
         #[cfg(test)]
         let idle = idle && !self.force_surviving_descendant.load(Ordering::Acquire);
+        idle
+    }
+
+    fn finished(&self, proc: &Arc<Proc>, reaped: bool) {
+        let idle = reaped && self.containment_idle(proc);
         let mut table = self.table();
         proc.done.send_replace(Some(reaped));
         if idle {
@@ -1527,7 +1531,8 @@ impl LocalProcessManager {
         subscribe: bool,
         cancel: Option<CancellationToken>,
     ) -> Result<(SpawnedProcess, Arc<Feed>, Option<crate::feed::Subscription>), ProcessError> {
-        if cancel.as_ref().is_some_and(CancellationToken::is_cancelled) {
+        let is_cancelled = || cancel.as_ref().is_some_and(CancellationToken::is_cancelled);
+        if is_cancelled() {
             return Err(ProcessError::Revoked);
         }
         let admission = self.inner.admit(&request.handle)?;
@@ -1573,14 +1578,14 @@ impl LocalProcessManager {
             }
             Err(_) => {
                 abandon.answered = true;
-                if cancel.as_ref().is_some_and(CancellationToken::is_cancelled) { Err(ProcessError::Revoked) } else { Err(ProcessError::Io { os_code: None }) }
+                if is_cancelled() { Err(ProcessError::Revoked) } else { Err(ProcessError::Io { os_code: None }) }
             }
             Ok(Err(error)) => {
                 abandon.answered = true;
-                if cancel.as_ref().is_some_and(CancellationToken::is_cancelled) { Err(ProcessError::Revoked) } else { Err(error) }
+                if is_cancelled() { Err(ProcessError::Revoked) } else { Err(error) }
             }
             Ok(Ok((spawned, proc, feed, first))) => {
-                if cancel.as_ref().is_some_and(CancellationToken::is_cancelled) {
+                if is_cancelled() {
                     kill_proc_on_cancel(&proc);
                     // Drop the holding subscription before awaiting exit so a full ring cannot stall `read_loop`.
                     drop(first);
@@ -1588,9 +1593,7 @@ impl LocalProcessManager {
                     let _ = done.wait_for(Option::is_some).await;
                     let reaped = *done.borrow() == Some(true);
                     proc.containment.shutdown_descendants().await;
-                    let idle = proc.containment.shutdown_idle();
-                    #[cfg(test)]
-                    let idle = idle && !self.inner.force_surviving_descendant.load(Ordering::Acquire);
+                    let idle = self.inner.containment_idle(&proc);
                     let error = self.finalize_cancelled_launch(&proc, reaped, idle);
                     abandon.answered = true;
                     return Err(error);
@@ -2273,10 +2276,10 @@ mod spawn_cancellable_tests {
         }
     }
 
-    fn spawn_request(handle: &ProcessHandle) -> SpawnRequest {
+    fn spawn_request_with_command(handle: &ProcessHandle, command: CommandSpec) -> SpawnRequest {
         SpawnRequest {
             handle: handle.clone(),
-            command: long_sleep_command(),
+            command,
             cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
             env: EnvSpec { inherit: true, ..EnvSpec::default() },
             pty: None,
@@ -2285,6 +2288,10 @@ mod spawn_cancellable_tests {
             owner: ProcessOwner::Internal,
             time_limit: None,
         }
+    }
+
+    fn spawn_request(handle: &ProcessHandle) -> SpawnRequest {
+        spawn_request_with_command(handle, long_sleep_command())
     }
 
     #[test]
@@ -2377,17 +2384,7 @@ mod spawn_cancellable_tests {
         let handle = ProcessHandle::from(format!("reuse-cancel-{}", std::process::id()));
         let cancel_a = CancellationToken::new();
 
-        let quick_exit = SpawnRequest {
-            handle: handle.clone(),
-            command: CommandSpec::Shell { script: "exit 0".to_owned(), shell: None },
-            cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
-            env: EnvSpec { inherit: true, ..EnvSpec::default() },
-            pty: None,
-            stdin_piped: true,
-            output: OutputMode::Separate,
-            owner: ProcessOwner::Internal,
-            time_limit: None,
-        };
+        let quick_exit = spawn_request_with_command(&handle, CommandSpec::Shell { script: "exit 0".to_owned(), shell: None });
 
         crate::testing::arm_answer_window();
         let spawn_a = tokio::spawn({
@@ -2433,9 +2430,9 @@ mod spawn_cancellable_tests {
         let handle = ProcessHandle::from(format!("descendant-cancel-{}", std::process::id()));
         let cancel = CancellationToken::new();
 
-        let launcher = SpawnRequest {
-            handle: handle.clone(),
-            command: if cfg!(windows) {
+        let launcher = spawn_request_with_command(
+            &handle,
+            if cfg!(windows) {
                 CommandSpec::Shell {
                     script: "$p = Start-Process ping -ArgumentList '-n','90','127.0.0.1' -PassThru -WindowStyle Hidden; \
                              Write-Output \"CHILD=$($p.Id)\""
@@ -2445,14 +2442,7 @@ mod spawn_cancellable_tests {
             } else {
                 CommandSpec::Shell { script: "sleep 90 >/dev/null 2>&1 & echo CHILD=$!".to_owned(), shell: None }
             },
-            cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
-            env: EnvSpec { inherit: true, ..EnvSpec::default() },
-            pty: None,
-            stdin_piped: true,
-            output: OutputMode::Separate,
-            owner: ProcessOwner::Internal,
-            time_limit: None,
-        };
+        );
 
         crate::testing::arm_answer_window();
         let spawn_task = tokio::spawn({

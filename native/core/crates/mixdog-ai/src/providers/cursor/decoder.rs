@@ -563,10 +563,10 @@ fn classify_error_object(
 }
 
 fn unwrap_error_body(body: &[u8]) -> &[u8] {
-    if body.len() >= 5 && (body[0] == 0 || body[0] == crate::providers::connect::frame::END_STREAM) {
-        let length = u32::from_be_bytes(body[1..5].try_into().expect("4 bytes")) as usize;
-        if body.len() == length + 5 {
-            return &body[5..];
+    if let [0 | crate::providers::connect::frame::END_STREAM, b0, b1, b2, b3, payload @ ..] = body {
+        let length = u32::from_be_bytes([*b0, *b1, *b2, *b3]) as usize;
+        if payload.len() == length {
+            return payload;
         }
     }
     body
