@@ -115,3 +115,4 @@ mixdog-app-server = { workspace = true, features = ["replay-controls"] }
 mixdog-browser-engine = { workspace = true, features = ["test-support"] }
 mixdog-image-egress = { workspace = true, features = ["test-support"] }
 mixdog-imaging = { workspace = true, features = ["test-support"] }
+mixdog-graph-host = { workspace = true, features = ["test-support"] }

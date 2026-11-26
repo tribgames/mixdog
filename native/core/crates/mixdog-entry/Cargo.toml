@@ -89,6 +89,7 @@ mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", 
 mixdog-app-server-client = { workspace = true, features = ["test-support"] }
 mixdog-image-egress = { workspace = true, features = ["test-support"] }
 mixdog-imaging = { workspace = true, features = ["test-support"] }
+mixdog-graph-host = { workspace = true, features = ["test-support"] }
 
 [target.'cfg(windows)'.dev-dependencies]
 # The replay's Ctrl+C (a console control event to the binary's own console) and the processes a killed run leaves.

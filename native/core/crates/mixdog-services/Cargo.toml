@@ -133,3 +133,4 @@ mixdog-browser-engine = { workspace = true, features = ["test-support"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
 mixdog-image-egress = { workspace = true, features = ["test-support"] }
 mixdog-imaging = { workspace = true, features = ["test-support"] }
+mixdog-graph-host = { workspace = true, features = ["test-support"] }

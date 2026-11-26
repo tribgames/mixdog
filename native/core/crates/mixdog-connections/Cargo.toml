@@ -67,3 +67,4 @@ mixdog-trace = { workspace = true, features = ["flush-probe"] }
 mixdog-app-server-client = { workspace = true, features = ["test-support"] }
 mixdog-image-egress = { workspace = true, features = ["test-support"] }
 mixdog-imaging = { workspace = true, features = ["test-support"] }
+mixdog-graph-host = { workspace = true, features = ["test-support"] }

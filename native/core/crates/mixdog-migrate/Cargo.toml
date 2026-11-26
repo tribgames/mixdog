@@ -98,6 +98,7 @@ mixdog-core-rooms = { workspace = true, features = ["test-support"] }
 mixdog-core-run = { workspace = true, features = ["replay-controls", "test-support"] }
 mixdog-image-egress = { workspace = true, features = ["test-support"] }
 mixdog-imaging = { workspace = true, features = ["test-support"] }
+mixdog-graph-host = { workspace = true, features = ["test-support"] }
 
 [target.'cfg(windows)'.dev-dependencies]
 windows-sys = { workspace = true, features = ["Win32_System_Threading"] }
