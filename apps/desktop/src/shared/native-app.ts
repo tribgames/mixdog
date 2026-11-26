@@ -20,6 +20,16 @@ export const NATIVE_BACKGROUND_EVENT = 'mixdognativebackground';
 export const NATIVE_FOREGROUND_EVENT = 'mixdognativeforeground';
 /** Fired on `window` by the shell when the active network changes while the app is on screen. */
 export const NATIVE_NETWORK_CHANGE_EVENT = 'mixdognativenetwork';
+/** Fired on `window` by the Android shell while a dictation take records (`NativeDictationEvent` detail). */
+export const NATIVE_DICTATION_EVENT = 'mixdognativedictation';
+
+/** `level`: a block of audio was captured (RMS of samples in [-1, 1]); the first one means audio flows.
+ *  `ended`: the mic stopped on its own. */
+export interface NativeDictationEvent {
+  take: number;
+  type: 'level' | 'ended';
+  level?: number;
+}
 
 export type NativeAppPlatform = 'ios' | 'android';
 
@@ -99,6 +109,11 @@ export interface MixdogNativeCalls extends NativeFileSaveCalls {
   peekPendingActions: [{ hostId: string }, NativeNotificationAction[]];
   ackPendingAction: [{ id: string }, boolean];
   openHostPicker: [undefined, boolean];
+  /** Android only: capture starts now; false without the mic permission or a mic, `null` from older shells. */
+  startDictation: [{ take: number }, boolean | null];
+  /** The take's audio, or `null` when it captured none. */
+  stopDictation: [{ take: number }, { data: string; mimeType: string } | null];
+  cancelDictation: [{ take: number }, boolean | null];
   /** Bundled pairing screen only: the relay origins the WebView may load. */
   setAllowedOrigins: [{ origins: string[] }, boolean];
 }

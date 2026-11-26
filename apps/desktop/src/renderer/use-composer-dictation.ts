@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { stashComposerDraft, stashedComposerDraft } from './composer-draft';
 import { t } from './i18n';
+import { NativeDictationRecorder, startNativeDictation } from './native-dictation';
 import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { subscribeSetupChanges } from './setup-change-refresh';
@@ -30,10 +31,19 @@ type DictationMeter = {
   frame: number;
 };
 type VoiceStatus = { installed?: boolean; enabled?: boolean };
+type DictationRecorder = MediaRecorder | NativeDictationRecorder;
 
 // The recording overlay paints its bars from a ref, never from React state: a
 // per-frame level in state would re-render the whole composer (model pickers
 // included) for as long as the user keeps speaking.
+function easeLevel(level: { current: number }, rms: number): void {
+  // Speech RMS sits near 0.05–0.2, so the gain lifts it into the bar range.
+  // The ease attacks fast and releases slowly: a symmetric filter reads as
+  // per-frame flicker instead of a voice.
+  const loudness = Math.min(1, rms * 7);
+  level.current += (loudness - level.current) * (loudness > level.current ? 0.5 : 0.15);
+}
+
 function startLevelMeter(stream: MediaStream, level: { current: number }): DictationMeter | null {
   const Context =
     window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -54,11 +64,7 @@ function startLevelMeter(stream: MediaStream, level: { current: number }): Dicta
       analyser.getFloatTimeDomainData(samples);
       let sum = 0;
       for (let index = 0; index < samples.length; index += 1) sum += samples[index] * samples[index];
-      // Speech RMS sits near 0.05–0.2, so the gain lifts it into the bar range.
-      // The ease attacks fast and releases slowly: a symmetric filter reads as
-      // per-frame flicker instead of a voice.
-      const loudness = Math.min(1, Math.sqrt(sum / samples.length) * 7);
-      level.current += (loudness - level.current) * (loudness > level.current ? 0.5 : 0.15);
+      easeLevel(level, Math.sqrt(sum / samples.length));
       meter.frame = window.requestAnimationFrame(sample);
     };
     meter.frame = window.requestAnimationFrame(sample);
@@ -90,7 +96,7 @@ function stopLevelMeter(meter: DictationMeter | null, level: { current: number }
 
 /** Stopping a recorder that has already stopped throws; every stop path here
  *  treats that as the state it asked for. */
-function stopRecorder(recorder: MediaRecorder): void {
+function stopRecorder(recorder: DictationRecorder): void {
   try {
     recorder.stop();
   } catch {
@@ -98,8 +104,14 @@ function stopRecorder(recorder: MediaRecorder): void {
   }
 }
 
-function whenTrackLive(stream: MediaStream): Promise<void> {
-  const track = stream.getAudioTracks()[0];
+/** Ends a take whose words are not wanted; the phone app then encodes and sends nothing. */
+function discardRecorder(recorder: DictationRecorder): void {
+  if (recorder instanceof NativeDictationRecorder) recorder.discard();
+  else stopRecorder(recorder);
+}
+
+function whenTrackLive(stream: MediaStream | null): Promise<void> {
+  const track = stream?.getAudioTracks()[0];
   if (!track?.muted) return Promise.resolve();
   return new Promise((resolve) => {
     const done = (): void => {
@@ -272,9 +284,9 @@ export function useComposerDictation({
   const conversation = useRef(identityScope);
   const mounted = useRef(true);
   const dictationSession = useRef<{
-    recorder: MediaRecorder;
-    stream: MediaStream;
-    chunks: Blob[];
+    recorder: DictationRecorder;
+    /** The browser mic; `null` while the phone app records natively. */
+    stream: MediaStream | null;
     cancelled: boolean;
     submitOnStop: boolean;
     stopTimer: number;
@@ -305,8 +317,8 @@ export function useComposerDictation({
     const active = dictationSession.current;
     if (!active) return;
     active.cancelled = true;
-    stopRecorder(active.recorder);
-    for (const track of active.stream.getTracks()) track.stop();
+    discardRecorder(active.recorder);
+    for (const track of active.stream?.getTracks() ?? []) track.stop();
   }, [cancelPendingAttempt]);
   useVoiceStatus(setVoiceStatus, voiceAvailableRef, voiceGeneration, discardTakeOnVoiceLoss);
 
@@ -338,27 +350,45 @@ export function useComposerDictation({
       }
       const generation = voiceGeneration.current;
       setDictationState('preparing');
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: { ideal: 1 },
-          sampleRate: { ideal: 16_000 },
-          echoCancellation: true,
-          noiseSuppression: true,
-        },
-      });
+      // The phone app records natively from the tap: the WebView's getUserMedia
+      // spends up to seconds opening the mic, and every word said meanwhile was
+      // lost. Elsewhere, and in an app that cannot record yet, the browser mic.
+      const nativeStart = startNativeDictation();
+      const native = nativeStart && (await nativeStart);
       if (attempt.cancelled || generation !== voiceGeneration.current) {
-        for (const track of stream.getTracks()) track.stop();
+        native?.discard();
         return;
       }
-      opened = stream;
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : 'audio/webm';
-      const recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 24_000 });
+      let stream: MediaStream | null = null;
+      let media: MediaRecorder | null = null;
+      const chunks: Blob[] = [];
+      let recorder: DictationRecorder;
+      if (native) recorder = native;
+      else {
+        const microphone = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: { ideal: 1 },
+            sampleRate: { ideal: 16_000 },
+            echoCancellation: true,
+            noiseSuppression: true,
+          },
+        });
+        if (attempt.cancelled || generation !== voiceGeneration.current) {
+          for (const track of microphone.getTracks()) track.stop();
+          return;
+        }
+        opened = stream = microphone;
+        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : 'audio/webm';
+        recorder = media = new MediaRecorder(microphone, { mimeType, audioBitsPerSecond: 24_000 });
+        media.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) chunks.push(event.data);
+        };
+      }
       const session = {
         recorder,
         stream,
-        chunks: [] as Blob[],
         cancelled: false,
         submitOnStop: false,
         stopTimer: 0,
@@ -366,11 +396,9 @@ export function useComposerDictation({
         live: false,
         home: conversation.current,
       };
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) session.chunks.push(event.data);
-      };
+      // A native recorder starts once audio flows; it has no browser track to wait on.
       recorder.onstart = () => {
-        void whenTrackLive(stream).then(() => {
+        void whenTrackLive(session.stream).then(() => {
           if (session.cancelled || recorder.state === 'inactive' || dictationSession.current !== session) return;
           session.live = true;
           setRecordingSince(Date.now());
@@ -387,8 +415,9 @@ export function useComposerDictation({
           // composer's state and overlay stay the shown conversation's.
           const own = dictationSession.current === session;
           if (own) dictationSession.current = null;
-          for (const track of session.stream.getTracks()) track.stop();
-          if (session.cancelled || !session.live || session.chunks.length === 0) {
+          for (const track of session.stream?.getTracks() ?? []) track.stop();
+          // A native take's audio is still being encoded: the state leaves recording now, as a browser take's does.
+          if (session.cancelled || !session.live || (!native && chunks.length === 0)) {
             if (own) setDictationState('idle');
             return;
           }
@@ -406,9 +435,13 @@ export function useComposerDictation({
           };
           let handedOff = false;
           try {
-            const blob = new Blob(session.chunks, {
-              type: recorder.mimeType || 'audio/webm',
-            });
+            const blob = native ? await native.audio : new Blob(chunks, { type: media?.mimeType || 'audio/webm' });
+            if (run.cancelled || generation !== voiceGeneration.current) return;
+            // The take was live, so the phone captured audio: none back means its encoding or the reply failed.
+            if (!blob) {
+              showNotice(t('Recorded audio could not be read.'), 'error');
+              return;
+            }
             const dataUrl = await blobDataUrl(blob);
             if (run.cancelled || generation !== voiceGeneration.current) return;
             const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
@@ -472,7 +505,8 @@ export function useComposerDictation({
       recorder.start();
       dictationSession.current = session;
       latestTake.current = session;
-      session.meter = startLevelMeter(stream, dictationLevelRef);
+      if (native) native.onlevel = (rms) => easeLevel(dictationLevelRef, rms);
+      else if (stream) session.meter = startLevelMeter(stream, dictationLevelRef);
       session.stopTimer = window.setTimeout(() => stopRecorder(recorder), 120_000);
     } catch (reason) {
       // Recording never started: the mic it opened is released, so the next tap starts a new take.
@@ -517,7 +551,7 @@ export function useComposerDictation({
     const active = dictationSession.current;
     if (!active) return;
     active.cancelled = true;
-    stopRecorder(active.recorder);
+    discardRecorder(active.recorder);
   }, [cancelPendingAttempt]);
 
   /** Ends the take in the conversation it was started in: the mic is released and its words wait in that draft, never

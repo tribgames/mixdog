@@ -38,11 +38,13 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
   static final String EVENT_BACKGROUND = "mixdognativebackground";
   static final String EVENT_FOREGROUND = "mixdognativeforeground";
   static final String EVENT_NETWORK = "mixdognativenetwork";
+  static final String EVENT_DICTATION = "mixdognativedictation";
   private static WeakReference<MixdogNativeHost> current = new WeakReference<>(null);
 
   private final MainActivity activity;
   private final MixdogAppUpdater updater;
   private final MixdogFileSave fileSave;
+  private final MixdogDictation dictation;
   private boolean backgrounded;
   // One token per loaded page: file-save handles belong to the page that began
   // them and die when the WebView navigates (touched on the UI thread only).
@@ -52,6 +54,16 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
     this.activity = activity;
     this.updater = new MixdogAppUpdater(activity, () -> dispatch("mixdognativeupdate"));
     this.fileSave = new MixdogFileSave(activity);
+    this.dictation =
+        new MixdogDictation(
+            activity,
+            detail ->
+                evaluate(
+                    "window.dispatchEvent(new CustomEvent('"
+                        + EVENT_DICTATION
+                        + "',{detail:"
+                        + detail
+                        + "}))"));
     current = new WeakReference<>(this);
   }
 
@@ -113,6 +125,7 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
   void onDestroy() {
     updater.close();
     fileSave.onDestroy();
+    dictation.close();
   }
 
   /** The WebView started loading a page (UI thread): the previous page's save handles end. */
@@ -122,6 +135,7 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
     Object previous = host.pageEpoch;
     host.pageEpoch = new Object();
     host.fileSave.release(previous);
+    host.dictation.reset();
   }
 
   /**
@@ -161,6 +175,11 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
             result -> activity.runOnUiThread(() -> reply(replyProxy, id, result)));
         return;
       }
+      if (MixdogDictation.handles(method)) {
+        dictation.handle(
+            method, safeArgs, result -> activity.runOnUiThread(() -> reply(replyProxy, id, result)));
+        return;
+      }
       reply(replyProxy, id, handle(method, safeArgs, OriginPolicy.isBundled(origin)));
     } catch (Exception ignored) {
       // Malformed message: no answer.
@@ -194,9 +213,12 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
    * lands before the OS freezes the page).
    */
   private void dispatch(String event) {
+    evaluate("window.dispatchEvent(new Event('" + event + "'))");
+  }
+
+  private void evaluate(String script) {
     WebView webView = activity.getBridge() == null ? null : activity.getBridge().getWebView();
     if (webView == null) return;
-    String script = "window.dispatchEvent(new Event('" + event + "'))";
     if (Looper.myLooper() == Looper.getMainLooper()) webView.evaluateJavascript(script, null);
     else webView.post(() -> webView.evaluateJavascript(script, null));
   }

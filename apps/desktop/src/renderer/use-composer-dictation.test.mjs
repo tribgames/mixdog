@@ -30,10 +30,56 @@ function fakeTrack(muted) {
   };
 }
 
-async function withDictation({ muted = false } = {}, run) {
+// The Android app's bridge (MixdogNativeHost.java): `startDictation` answers
+// `starts`; what is said once it started is captured and comes back from
+// `stopDictation`, and each captured block fires a level event.
+function fakeNativeHost(window, starts) {
+  const host = {
+    onmessage: null,
+    requests: [],
+    take: undefined,
+    captured: [],
+    // `null`: the phone failed to encode the take.
+    encodes: true,
+    // Set: the encoded take is answered only by `releaseStop()`.
+    holdStop: false,
+    releaseStop: null,
+    postMessage(message) {
+      const { id, method, args } = JSON.parse(message);
+      host.requests.push(method);
+      let result = true;
+      const answer = () => setTimeout(() => host.onmessage({ data: JSON.stringify({ id, result }) }));
+      if (method === 'startDictation') {
+        result = starts;
+        if (starts) host.take = args.take;
+      } else if (method === 'stopDictation') {
+        result = host.encodes
+          ? { data: Buffer.from(host.captured.join(' ')).toString('base64'), mimeType: 'audio/mp4' }
+          : null;
+        host.take = undefined;
+        if (host.holdStop) {
+          host.releaseStop = answer;
+          return;
+        }
+      } else host.take = undefined;
+      answer();
+    },
+    speak(words) {
+      if (host.take === undefined) return;
+      host.captured.push(words);
+      window.dispatchEvent(
+        new window.CustomEvent('mixdognativedictation', { detail: { take: host.take, type: 'level', level: 0.1 } })
+      );
+    },
+  };
+  return host;
+}
+
+async function withDictation({ muted = false, nativeStarts } = {}, run) {
   const dom = new JSDOM("<div id='root'></div><button>Send</button><textarea></textarea>", {
     url: 'https://voice.example',
   });
+  if (nativeStarts !== undefined) dom.window.MixdogNativeHost = fakeNativeHost(dom.window, nativeStarts);
   const originals = new Map();
   const expose = (key, value) => {
     originals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
@@ -268,6 +314,150 @@ for (const submitOnStop of [false, true]) {
     });
   });
 }
+
+// On the phone the WebView's getUserMedia took seconds to open the mic, and the
+// words said from the tap until then never reached the transcription.
+test('in the Android app, what is said from the tap reaches the transcription', async () => {
+  await withDictation({ nativeStarts: true }, async (ctx) => {
+    const native = ctx.dom.window.MixdogNativeHost;
+    let starting;
+    await act(async () => {
+      starting = ctx.hook.toggleDictation();
+      assert.deepEqual(native.requests, ['startDictation'], 'capture is asked for at the tap');
+      await starting;
+      await tick();
+    });
+    assert.equal(ctx.hook.dictationState, 'preparing', 'nothing is captured yet');
+    await act(async () => {
+      native.speak('opening');
+      await tick();
+    });
+    assert.equal(ctx.hook.dictationState, 'recording', 'listening once audio flows');
+    assert.ok(ctx.hook.dictationLevelRef.current > 0, 'the meter follows the native levels');
+    native.speak('words');
+    await act(async () => {
+      await ctx.hook.toggleDictation();
+      await ctx.transcriptReady;
+    });
+    assert.equal(ctx.micRequests, 0, 'the browser mic is never opened');
+    assert.equal(Buffer.from(ctx.uploaded.data, 'base64').toString(), 'opening words');
+    assert.equal(ctx.uploaded.mimeType, 'audio/mp4');
+    assert.equal(ctx.draft, 'first words');
+    assert.equal(ctx.hook.dictationState, 'idle');
+    assert.equal(ctx.hook.dictationLevelRef.current, 0);
+  });
+});
+
+async function recordNatively(ctx) {
+  const native = ctx.dom.window.MixdogNativeHost;
+  await act(async () => {
+    await ctx.hook.toggleDictation();
+    await tick();
+  });
+  await act(async () => {
+    native.speak('opening words');
+    await tick();
+  });
+  assert.equal(ctx.hook.dictationState, 'recording');
+  return native;
+}
+
+test('stopping an Android take leaves recording at once while the phone encodes', async () => {
+  await withDictation({ nativeStarts: true }, async (ctx) => {
+    const native = await recordNatively(ctx);
+    native.holdStop = true;
+    await act(async () => {
+      await ctx.hook.toggleDictation();
+      await tick();
+    });
+    assert.ok(native.releaseStop, 'the encoded audio has not come back yet');
+    assert.equal(ctx.hook.dictationState, 'transcribing');
+    assert.equal(ctx.hook.recordingElapsedMs, 0, 'the recording timer stopped');
+    await act(async () => {
+      native.releaseStop();
+      await ctx.transcriptReady;
+    });
+    assert.equal(Buffer.from(ctx.uploaded.data, 'base64').toString(), 'opening words');
+    assert.equal(ctx.hook.dictationState, 'idle');
+  });
+});
+
+test('a discarded Android take releases the mic with nothing encoded or sent', async () => {
+  for (const discard of ['overlay', 'voice off']) {
+    await withDictation({ nativeStarts: true }, async (ctx) => {
+      const native = await recordNatively(ctx);
+      await act(async () => {
+        if (discard === 'overlay') ctx.hook.cancelDictation();
+        else {
+          ctx.dom.window.dispatchEvent(
+            new ctx.dom.window.CustomEvent('mixdog:voice-runtime-changed', {
+              detail: { installed: true, enabled: false },
+            })
+          );
+        }
+        await tick();
+      });
+      assert.deepEqual(native.requests, ['startDictation', 'cancelDictation'], discard);
+      assert.equal(native.take, undefined, 'the mic is released');
+      assert.equal(ctx.hook.dictationState, 'idle');
+      assert.equal(ctx.called('transcribeAudio'), 0);
+    });
+  }
+});
+
+test('an Android take the phone fails to encode is said, not dropped silently', async () => {
+  await withDictation({ nativeStarts: true }, async (ctx) => {
+    const native = await recordNatively(ctx);
+    native.encodes = false;
+    await act(async () => {
+      await ctx.hook.toggleDictation();
+      await tick();
+      await tick();
+    });
+    assert.deepEqual(ctx.notices, ['Recorded audio could not be read.']);
+    assert.equal(ctx.hook.dictationState, 'idle');
+    assert.equal(ctx.called('transcribeAudio'), 0);
+  });
+});
+
+test('an Android app that cannot record natively falls back to the browser mic', async () => {
+  await withDictation({ nativeStarts: null }, async (ctx) => {
+    let starting;
+    await act(async () => {
+      starting = ctx.hook.toggleDictation();
+      await tick();
+    });
+    assert.equal(ctx.micRequests, 1);
+    await act(async () => {
+      ctx.resolveMic(ctx.stream);
+      await starting;
+    });
+    await ctx.fireStart();
+    assert.equal(ctx.hook.dictationState, 'recording');
+    await act(async () => {
+      await ctx.hook.toggleDictation();
+      await ctx.transcriptReady;
+    });
+    assert.equal(Buffer.from(ctx.uploaded.data, 'base64').toString(), 'first words');
+  });
+});
+
+test('cancelling while the Android app starts capturing releases its mic', async () => {
+  await withDictation({ nativeStarts: true }, async (ctx) => {
+    const native = ctx.dom.window.MixdogNativeHost;
+    let starting;
+    await act(async () => {
+      starting = ctx.hook.toggleDictation();
+      ctx.hook.cancelDictation();
+      await starting;
+      await tick();
+    });
+    assert.deepEqual(native.requests, ['startDictation', 'cancelDictation']);
+    assert.equal(native.take, undefined);
+    assert.equal(ctx.hook.dictationState, 'idle');
+    assert.equal(ctx.micRequests, 0);
+  });
+});
 
 test('a muted mic track stays preparing until it unmutes', async () => {
   await withDictation({ muted: true }, async (ctx) => {
