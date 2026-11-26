@@ -4,78 +4,27 @@ import React, { act } from 'react';
 import { installTestDom, toolModulesSource } from './test-support/test-dom.mjs';
 
 // After the update from 1.4.5 the conversation list filled behind the serving core with no signal (3 of 597 conversations four
-// seconds in), and what the migration set aside vanished without a word.
-test('while the earlier conversations convert the list says how many have settled; afterwards what was set aside is told once, with where it is', async (t) => {
+// seconds in).
+test('while the earlier conversations convert the list says how many have settled, and nothing once they have', async (t) => {
   const { root, document } = installTestDom(t, { rootId: 'root' });
   const source = toolModulesSource();
   window.mixdogDesktop = { sections: source.sections };
-  const { MigrationProgress, MigrationSetAsideNotice, SET_ASIDE_TOLD_KEY } = await import('./migration-progress.tsx');
-  const render = () =>
-    act(async () =>
-      root.render(
-        React.createElement(
-          React.Fragment,
-          null,
-          React.createElement(MigrationProgress),
-          React.createElement(MigrationSetAsideNotice)
-        )
-      )
-    );
+  const { MigrationProgress } = await import('./migration-progress.tsx');
   const converting = () => document.querySelector('.session-panel-indexing')?.textContent ?? null;
-  const notice = () => document.querySelector('.session-migration-notice');
-  await render();
+  await act(async () => root.render(React.createElement(MigrationProgress)));
   assert.equal(converting(), null, 'nothing is said before the core says it');
 
   await act(async () => source.publishSection('migration', { converting: true, done: 3, total: 597, setAside: null }));
   assert.equal(converting(), 'Converting earlier conversations… 3 of 597');
-  assert.equal(notice(), null);
 
-  const dir = 'C:\\Users\\me\\.mixdog\\data\\quarantine';
   await act(async () =>
     source.publishSection('migration', {
       converting: false,
       done: 0,
       total: 0,
-      setAside: { id: 'abc', count: 6, unexpected: 5, dir },
+      setAside: { id: 'abc', count: 6, dir: 'C:\\Users\\me\\.mixdog\\data\\quarantine' },
     })
   );
   assert.equal(converting(), null, 'the list is whole');
-  assert.equal(
-    notice()?.querySelector('p').textContent,
-    `Updating from the earlier version set aside 6 items it could not convert. They are kept in ${dir}.`
-  );
-  await act(async () => notice().querySelector('button').click());
-  assert.equal(notice(), null);
-  assert.equal(window.localStorage.getItem(SET_ASIDE_TOLD_KEY), 'abc');
-
-  await act(async () => root.render(null));
-  await render();
-  assert.equal(notice(), null, 'the next start publishes the same record: it is not told again');
-  await act(async () =>
-    source.publishSection('migration', { converting: false, setAside: { id: 'def', count: 1, dir } })
-  );
-  assert.ok(notice(), 'another migration is');
-
-  const file = 'C:\\Users\\me\\.mixdog\\data\\project-connectors.json';
-  await act(async () =>
-    source.publishSection('migration', {
-      converting: false,
-      setAside: { id: 'ghi', count: 1, moved: 0, inPlace: [file], dir },
-    })
-  );
-  assert.equal(
-    notice()?.querySelector('p').textContent,
-    `Updating from the earlier version found damaged files and left them in place: ${file}. Details are in ${dir}.`
-  );
-
-  await act(async () =>
-    source.publishSection('migration', {
-      converting: false,
-      setAside: { id: 'jkl', count: 3, moved: 2, inPlace: [file], dir },
-    })
-  );
-  assert.equal(
-    notice()?.querySelector('p').textContent,
-    `Updating from the earlier version set aside 2 items in ${dir} and left damaged files in place: ${file}.`
-  );
+  assert.equal(document.body.textContent.includes('set aside'), false, 'what the migration set aside is not announced');
 });

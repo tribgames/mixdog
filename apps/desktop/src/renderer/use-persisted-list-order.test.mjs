@@ -1,7 +1,37 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { dragEdgeScrollDelta, mergeNewAtDefault } from './use-persisted-list-order.ts';
+import React, { act } from 'react';
+import { installTestDom } from './test-support/test-dom.mjs';
+import { dragEdgeScrollDelta, mergeNewAtDefault, usePersistedListOrder } from './use-persisted-list-order.ts';
+
+// A session row dragged while its list re-rendered it away stayed dimmed for good: its drag never ended for the list.
+test('a row removed from the list mid-drag is no longer the dragged row once its drag ends', async (t) => {
+  const { root, document } = installTestDom(t, { rootId: 'root' });
+  function List({ ids }) {
+    const order = usePersistedListOrder('test:list-order', ids, { onCommit: () => {} });
+    return React.createElement(
+      'ul',
+      null,
+      ids.map((id) => {
+        const { draggable, onDragStart, onDragEnd, 'data-reordering': reordering } = order.getReorderProps(id);
+        return React.createElement('li', { key: id, id, draggable, onDragStart, onDragEnd, 'data-reordering': reordering });
+      })
+    );
+  }
+  const render = (ids) => act(async () => root.render(React.createElement(List, { ids })));
+  await render(['a', 'b']);
+  const dragged = document.getElementById('a');
+  const start = new window.Event('dragstart', { bubbles: true });
+  Object.defineProperty(start, 'dataTransfer', { value: { setData() {}, effectAllowed: '' } });
+  await act(async () => dragged.dispatchEvent(start));
+  assert.equal(dragged.getAttribute('data-reordering'), 'true');
+
+  await render(['b']);
+  await act(async () => dragged.dispatchEvent(new window.Event('dragend', { bubbles: true })));
+  await render(['a', 'b']);
+  assert.equal(document.getElementById('a').getAttribute('data-reordering'), null);
+});
 
 test('a saved order missing a newer id keeps that id at its default place', () => {
   const ids = ['agents', 'favorites', 'projects', 'recent', 'archived'];

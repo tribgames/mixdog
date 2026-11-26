@@ -166,6 +166,8 @@ export function usePersistedListOrder(
       stopEdgeScroll();
       draggingIdRef.current = id;
       setDraggingId(id);
+      // A row taken out of the document mid-drag still gets the native dragend, which never reaches React's root listener.
+      event.currentTarget.addEventListener('dragend', finishDrag, { once: true });
       startEdgeScroll(verticalScrollContainer(event.currentTarget));
       event.dataTransfer.effectAllowed = 'move';
       event.dataTransfer.setData('text/plain', id);

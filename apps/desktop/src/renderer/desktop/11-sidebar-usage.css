@@ -796,13 +796,6 @@
 .session-sidebar .session-row.selected .session-row-copy b {
   font-weight: var(--mx-weight-medium);
 }
-/* Group labels: small and strong in the faint ink, under the 14px titles. */
-.session-sidebar .sidebar-recent-heading.sidebar-heading-toggle {
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-micro);
-  font-weight: var(--mx-weight-semibold);
-  letter-spacing: 0.02em;
-}
 /* Groups sit 16px apart, open or folded, and the first 8px under the header. */
 .session-sidebar .session-sidebar-sessions > .session-sidebar-scroll > .sidebar-recent + .sidebar-recent {
   margin-top: 16px;

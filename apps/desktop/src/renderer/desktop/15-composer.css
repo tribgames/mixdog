@@ -1139,7 +1139,7 @@ ul.composer-island-jobs > .composer-island-row {
   box-shadow: none;
 }
 .composer-island ul.composer-island-jobs .composer-island-row-dismiss[data-icon] {
-  background: color-mix(in srgb, var(--mx-text) 7.5%, transparent);
+  background: transparent;
 }
 .composer-island ul.composer-island-jobs .composer-island-row-dismiss[data-icon]:hover:not(:disabled),
 .composer-island ul.composer-island-jobs .composer-island-row-dismiss[data-icon]:focus-visible {
@@ -2145,6 +2145,10 @@ html[data-mixdog-mobile-tabs]
 }
 html[data-mixdog-mobile-tabs] .composer-island .composer-island-git-row {
   min-height: var(--mx-touch, 44px);
+}
+/* Run takes the whole 44px row here, so the rows stand apart. */
+html[data-mixdog-mobile-tabs] .composer-island .composer-island-git-rows {
+  row-gap: 6px;
 }
 /* The scrollbars are hidden here: no gutter to make up for. */
 html[data-mixdog-mobile-tabs] .composer-island .session-goal-content {
