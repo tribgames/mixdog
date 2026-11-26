@@ -75,6 +75,7 @@ pub struct TurnRunner {
     early: Arc<EarlyNotice>,
     /// Each worker's turn in progress, by session id: one turn of a worker runs at a time, from its count of the
     /// session's rows to its outcome.
+    #[allow(clippy::disallowed_types, reason = "one turn of a worker runs at a time, held across the turn's awaits")]
     running: std::sync::Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>,
 }
 
@@ -91,6 +92,7 @@ impl TurnRunner {
     }
 
     /// The turn of worker `session_id` in progress, whoever holds it; the workers with none are let go.
+    #[allow(clippy::disallowed_types, reason = "see TurnRunner::running")]
     fn turn_of(&self, session_id: &str) -> Arc<tokio::sync::Mutex<()>> {
         let mut running = self.running.lock().unwrap_or_else(|p| p.into_inner());
         running.retain(|_, turn| turn.strong_count() > 0);

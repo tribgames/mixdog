@@ -975,6 +975,7 @@ impl LspManager {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn emit_status_locked(
         &self,
         state: &mut ManagerState,

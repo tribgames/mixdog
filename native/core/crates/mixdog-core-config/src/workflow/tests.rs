@@ -267,9 +267,7 @@ async fn set_web_search_route_validates_acp_providers_through_agent_readiness() 
     assert!(!ready_host.catalog_checked.lock().unwrap()[0].contains_key("acp-antigravity"));
 
     // An own-orchestration or incapable model is refused even when the ACP provider is ready.
-    let err = super::search::plan(&Doc::new(), &json!({ "provider": "acp-antigravity", "model": "gemini-pro-orchestrator" }), &ready_host)
-        .await
-        .unwrap_err();
+    let err = super::search::plan(&Doc::new(), &json!({ "provider": "acp-antigravity", "model": "gemini-pro-orchestrator" }), &ready_host).await.unwrap_err();
     assert!(err.contains("not marked as web-search capable"), "{err}");
 
     // A signed-out / not-installed ACP agent surfaces its readiness refusal.
@@ -279,9 +277,7 @@ async fn set_web_search_route_validates_acp_providers_through_agent_readiness() 
         catalog_checked: Mutex::default(),
         capable_models: vec!["gemini-3-flash".into()],
     };
-    let err = super::search::plan(&Doc::new(), &json!({ "provider": "acp-antigravity", "model": "gemini-3-flash" }), &unready_host)
-        .await
-        .unwrap_err();
+    let err = super::search::plan(&Doc::new(), &json!({ "provider": "acp-antigravity", "model": "gemini-3-flash" }), &unready_host).await.unwrap_err();
     assert!(err.contains("signed out"), "{err}");
     assert!(unready_host.catalog_checked.lock().unwrap().is_empty());
 }

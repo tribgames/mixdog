@@ -478,11 +478,14 @@ mod tests {
         // Attached file outside cwd -> allowed only for the session whose allowed_files includes it; sibling and other sessions still refused.
         let denied_before = read_text_file(&files, &folder, &json!({ "path": attached.as_path() })).await.expect_err("outside before allow");
         assert_eq!(denied_before.code, -32602);
-        let allowed = read_text_file_with(&files, &folder, std::slice::from_ref(&attached), &json!({ "path": attached.as_path() })).await.expect("attached allowed");
+        let allowed =
+            read_text_file_with(&files, &folder, std::slice::from_ref(&attached), &json!({ "path": attached.as_path() })).await.expect("attached allowed");
         assert_eq!(allowed["content"], "blob-text");
         let denied_other_session = read_text_file_with(&files, &folder, &[], &json!({ "path": attached.as_path() })).await.expect_err("other session denied");
         assert_eq!(denied_other_session.code, -32602);
-        let denied_sibling = read_text_file_with(&files, &folder, std::slice::from_ref(&attached), &json!({ "path": sibling.as_path() })).await.expect_err("sibling still denied");
+        let denied_sibling = read_text_file_with(&files, &folder, std::slice::from_ref(&attached), &json!({ "path": sibling.as_path() }))
+            .await
+            .expect_err("sibling still denied");
         assert_eq!(denied_sibling.code, -32602);
     }
 }

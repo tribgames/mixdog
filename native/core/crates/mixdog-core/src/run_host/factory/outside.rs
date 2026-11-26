@@ -1363,6 +1363,7 @@ pub(super) async fn drive_outside(outside: Outside) -> OutsideOutcome {
 
 /// Refreshes the persisted session header before a continuation round so the newly persisted ACP session id is
 /// preserved; any reconcile error fails the continuation rather than falling back to a stale header.
+#[allow(clippy::result_large_err)]
 pub(super) async fn refresh_continuation_header(
     parts: &dyn RunParts,
     thread: &ThreadId,

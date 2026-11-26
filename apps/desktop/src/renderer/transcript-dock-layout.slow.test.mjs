@@ -256,8 +256,8 @@ async function geometry(page, key) {
 }
 
 /** Every bottom-chrome member growing, then shrinking back to an empty dock.
- *  Island changes ease the slot's height (ISLAND_MOTION), the last content
- *  leaving first holds it for the grace (ISLAND_GRACE). */
+ *  Island changes set the slot's height in one step (ISLAND_MOTION), the last
+ *  content leaving first holds it for the grace (ISLAND_GRACE). */
 const ISLAND_MOTION = 'island-motion';
 const ISLAND_GRACE = 'island-grace';
 /** A panel floating over the transcript: the dock keeps its height on every
@@ -327,16 +327,15 @@ async function framesOf(page, change, key) {
   return { before, after: painted.at(-1), frames: [...resized, ...painted], painted };
 }
 
-/** How the dock moved between its two resting heights: an eased island
- *  change paints heights in between, an instant one (reduced motion) none, and
- *  the grace keeps the old height for ISLAND_COLLAPSE_GRACE_MS first. */
-function assertDockMotion(label, kind, instant, { before, after, painted }) {
+/** How the dock moved between its two resting heights: an island change
+ *  paints no height in between, and the grace keeps the old height for
+ *  ISLAND_COLLAPSE_GRACE_MS first. */
+function assertDockMotion(label, kind, { before, after, painted }) {
   if (!kind || kind === ISLAND_OVERLAY) return;
   const between = painted.filter(
     (frame) => Math.abs(frame.dockHeight - before.dockHeight) >= 1 && Math.abs(frame.dockHeight - after.dockHeight) >= 1
   );
-  if (instant) assert.equal(between.length, 0, `${label}: reduced motion moves the dock in one step`);
-  else assert.ok(between.length >= 3, `${label}: the slot eases over several painted frames (${between.length})`);
+  assert.equal(between.length, 0, `${label}: the slot moves the dock in one step`);
   if (kind !== ISLAND_GRACE) return;
   const moved = painted.find((frame) => Math.abs(frame.dockHeight - before.dockHeight) >= 1);
   assert.ok(
@@ -365,11 +364,11 @@ function assertDockHeight(label, kind, before, after, frames) {
  *  of it ends where the dock starts, and the tail sits
  *  TRANSCRIPT_BOTTOM_SPACER (24px) above the dock on every resized and painted
  *  frame, through the slot's whole easing. */
-async function assertFollowedChange(page, label, change, kind, instant = false) {
+async function assertFollowedChange(page, label, change, kind) {
   const result = await framesOf(page, change);
   const { before, after, frames } = result;
   assertDockHeight(label, kind, before, after, frames);
-  assertDockMotion(label, kind, instant, result);
+  assertDockMotion(label, kind, result);
   for (const frame of frames) {
     assert.equal(frame.following, true, `${label}: still following`);
     assert.ok(
@@ -394,7 +393,7 @@ async function assertReadChange(page, label, change, key, kind) {
   const result = await framesOf(page, change, key);
   const { before, after, frames } = result;
   assertDockHeight(label, kind, before, after, frames);
-  assertDockMotion(label, kind, false, result);
+  assertDockMotion(label, kind, result);
   for (const frame of frames) {
     assert.equal(frame.following, false, `${label}: the reader stays detached`);
     assert.ok(
@@ -660,7 +659,7 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
       await page.evaluate((session) => window.mountFixture(session), `reduced-${width}-${height}`);
       await settle(page);
       for (const [label, change, kind] of dockChanges(page).filter(([, , kind]) => kind)) {
-        await assertFollowedChange(page, `reduced motion: ${label}`, change, kind, true);
+        await assertFollowedChange(page, `reduced motion: ${label}`, change, kind);
       }
       assert.equal((await geometry(page)).slotHeight, 0, 'reduced motion: the emptied slot closes');
       await page.emulateMediaFeatures([]);

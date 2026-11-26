@@ -603,30 +603,42 @@ impl Migrator {
     /// Runs (or resumes) the part of the migration a core waits for before it serves: the plan, and every wave before the
     /// sessions (settings, stores, the ledger, the profile's tables). What is left is the returned [`Back`].
     pub fn front(&self) -> Result<Front> {
-        crate::legacy_blobs::import_on(&self.roots.data, &|point| self.fault(point), self.options.workers.max(1))?;
-        let result = self.front_inner()?;
-        crate::desktop_profile::connection_adoption::run_with(&self.roots.data, &|point| self.fault(point))?;
+        self.front_with(&|| {})
+    }
+
+    /// [`Self::front`], calling `on_converting` once before earlier-version data is actually converted.
+    /// A start with nothing to convert never calls `on_converting`.
+    pub fn front_with(&self, on_converting: &dyn Fn()) -> Result<Front> {
+        let announced = std::cell::Cell::new(false);
+        let converting = || {
+            if !announced.replace(true) {
+                on_converting();
+            }
+        };
+        crate::legacy_blobs::import_on_with(&self.roots.data, &|point| self.fault(point), &converting, self.options.workers.max(1))?;
+        let result = self.front_inner(&converting)?;
+        crate::desktop_profile::connection_adoption::run_with_progress(&self.roots.data, &|point| self.fault(point), &converting)?;
         Ok(result)
     }
 
-    fn front_inner(&self) -> Result<Front> {
+    fn front_inner(&self, on_converting: &dyn Fn()) -> Result<Front> {
         let data = &self.roots.data;
         // A publication a kill cut leaves its tmp file here (the main and the late pass publish into this directory); it goes before the marker is read, and the run publishes the name again under a new tmp.
         durable::sweep_tmp(data.join(MANIFEST_PATH).parent().expect("the migration dir"))?;
         let Some(bytes) = durable::read_optional(&data.join(COMPLETE_PATH))? else {
-            self.supplement(self.roots.profile.clone())?;
-            return self.begin(self.roots.clone(), Pass::First);
+            self.supplement(self.roots.profile.clone(), on_converting)?;
+            return self.begin(self.roots.clone(), Pass::First, on_converting);
         };
         let complete: Complete = serde_json::from_slice(&bytes).map_err(|e| Blocked::journal(format!("complete.json: {e}")))?;
         match self.late_profile(&complete)? {
             Some(profile) => {
-                self.supplement(Some(profile.clone()))?;
-                self.begin(MigrationRoots { profile: Some(profile), ..self.roots.clone() }, Pass::Late(complete.kinds.data))
+                self.supplement(Some(profile.clone()), on_converting)?;
+                self.begin(MigrationRoots { profile: Some(profile), ..self.roots.clone() }, Pass::Late(complete.kinds.data), on_converting)
             }
             None => {
                 // Generation 2: the profile files the first pass did not list, for the profile the migration completed with.
                 if self.roots.profile.is_some() {
-                    self.supplement(self.completed_profile()?)?;
+                    self.supplement(self.completed_profile()?, on_converting)?;
                 }
                 durable::remove_dir_all(&data.join(STAGE_DIR))?;
                 Ok(Front::Complete(complete))
@@ -635,10 +647,10 @@ impl Migrator {
     }
 
     /// Brings `profile` to generation 2 of the profile move (a no-op when none is named or the marker is current).
-    fn supplement(&self, profile: Option<PathBuf>) -> Result<()> {
+    fn supplement(&self, profile: Option<PathBuf>, on_converting: &dyn Fn()) -> Result<()> {
         let Some(profile) = profile else { return Ok(()) };
         let roots = MigrationRoots { profile: Some(profile), ..self.roots.clone() };
-        supplement::run_with(&roots, &|point| self.fault(point)).map(drop)
+        supplement::run_with_progress(&roots, &|point| self.fault(point), on_converting).map(drop)
     }
 
     /// The profile a completed migration moved: the late manifest's when a late pass ran, else the first manifest's.
@@ -652,7 +664,7 @@ impl Migrator {
         Ok(manifest.roots.profile.map(PathBuf::from))
     }
 
-    fn begin(&self, roots: MigrationRoots, pass: Pass) -> Result<Front> {
+    fn begin(&self, roots: MigrationRoots, pass: Pass, on_converting: &dyn Fn()) -> Result<Front> {
         let migrator = Migrator::new(roots, self.drivers.clone(), self.options.clone());
         let (manifest, manifest_sha256, journal) = migrator.open_or_plan(&pass)?;
         let quarantine_reasons = quarantine_reasons(&migrator.roots.data)?;
@@ -678,6 +690,21 @@ impl Migrator {
             late: LateSources::default(),
             judged: Judged::default(),
         };
+        let has_front_work = back.manifest.items.iter().try_fold(false, |found, item| -> Result<bool> {
+            if found || !back.migrator.driver(item)?.wave(item).before_serving() {
+                return Ok(found);
+            }
+            let settled = back
+                .journal
+                .lock()
+                .expect("journal")
+                .progress(item.key.as_str())
+                .is_some_and(|p| matches!(p.state, ItemState::Verified | ItemState::Quarantined | ItemState::Expired | ItemState::Disposed));
+            Ok(!settled)
+        })?;
+        if has_front_work {
+            on_converting();
+        }
         back.migrator.convert(&back.shared(), Wave::before_serving)?;
         Ok(Front::Pending(back))
     }

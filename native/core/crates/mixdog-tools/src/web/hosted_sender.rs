@@ -325,10 +325,10 @@ impl HostedSearchSender for ProviderSearchSender {
         let sent = backend.search(call.request, cancel).await;
         let ended_at = (self.deps.now)();
         let sent = match sent {
-            Ok(reply) if reply.calls.is_empty() => Err(AcpSearchError::refusal(format!(
-                "ACP web search on \"{provider}\" completed without calling search_web"
-            ))
-            .with_usage(reply.usage, reply.input_excludes_cache)),
+            Ok(reply) if reply.calls.is_empty() => {
+                Err(AcpSearchError::refusal(format!("ACP web search on \"{provider}\" completed without calling search_web"))
+                    .with_usage(reply.usage, reply.input_excludes_cache))
+            }
             other => other,
         };
         if let Err(error) = &sent

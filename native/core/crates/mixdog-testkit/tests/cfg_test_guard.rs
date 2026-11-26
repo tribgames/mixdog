@@ -131,6 +131,66 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "pub(crate) fn ledger_len(&self) -> usize {",
         "a read of the outcome ledger, for the inline write_marks tests alone: under `test-support` it would be unused",
     ),
+    (
+        "mixdog-core/src/run_host/result_reuse.rs",
+        "fn has_session(&self, session_id: &str) -> bool {",
+        "private cache-presence reader for the inline result_reuse tests alone: under `test-support` it would be unused",
+    ),
+    (
+        "mixdog-core-session/src/session/agent_registry/store_workers.rs",
+        "pub(super) fn changed_counts(&self) -> (usize, usize) {",
+        "a reader of the change-map counts for the inline store_workers tests alone: under `test-support` it would be unused",
+    ),
+    (
+        "mixdog-core-session/src/session/mark_journal.rs",
+        "type SyncDirHook = Box<dyn FnMut(&Path) -> Result<(), String> + Send>;",
+        "fault-injection hook for the inline mark_journal tests alone: under `test-support` it would be unused",
+    ),
+    (
+        "mixdog-core-session/src/session/mark_journal.rs",
+        "type ForgetHook = Box<dyn FnMut(&str) -> Option<Result<(), String>> + Send>;",
+        "the fault-injection hooks above",
+    ),
+    ("mixdog-core-session/src/session/mark_journal.rs", "struct TestHooks {", "the fault-injection hooks above"),
+    ("mixdog-core-session/src/session/mark_journal.rs", "test_hooks: TestHooks,", "the fault-injection hooks above"),
+    ("mixdog-core-session/src/session/mark_journal.rs", "test_hooks: TestHooks::default(),", "the fault-injection hooks above"),
+    (
+        "mixdog-core-session/src/session/mark_journal.rs",
+        "pub(crate) fn set_sync_dir_hook(&self, hook: Option<SyncDirHook>) {",
+        "the fault-injection hooks above",
+    ),
+    ("mixdog-core-session/src/session/mark_journal.rs", "pub(crate) fn set_forget_hook(&self, hook: Option<ForgetHook>) {", "the fault-injection hooks above"),
+    ("mixdog-core-session/src/session/mark_journal.rs", "if let Some(parent) = path.parent()", "the fault-injection hooks above"),
+    (
+        "mixdog-core-session/src/session/mark_journal.rs",
+        "if let Some(hook) = self.test_hooks.sync_dir.lock().unwrap_or_else(PoisonError::into_inner).as_mut() {",
+        "the fault-injection hooks above",
+    ),
+    (
+        "mixdog-core-session/src/session/mark_journal.rs",
+        "if let Some(result) = self.test_hooks.forget.lock().unwrap_or_else(PoisonError::into_inner).as_mut().and_then(|hook| hook(session)) {",
+        "the fault-injection hooks above",
+    ),
+    (
+        "mixdog-core-session/src/session/run.rs",
+        "pub(crate) async fn finish_consume_steers_for_test(",
+        "a steer-consumption helper for the inline run tests alone: under `test-support` it would be unused",
+    ),
+    (
+        "mixdog-core-session/src/session/thread_ops.rs",
+        "fn gates_held(&self) -> (usize, usize) {",
+        "private gate-count reader for the inline thread_ops tests alone: under `test-support` it would be unused",
+    ),
+    (
+        "mixdog-core-session/src/session/transcript_writer.rs",
+        "fn writers_held(&self) -> usize {",
+        "private writer-count reader for the inline transcript_writer tests alone: under `test-support` it would be unused",
+    ),
+    (
+        "mixdog-core-session/src/session/transcript_writer.rs",
+        "fn draining_held(&self) -> usize {",
+        "private draining-count reader for the inline transcript_writer tests alone: under `test-support` it would be unused",
+    ),
 ];
 
 /// The item an attribute applies to: the next line that is not itself an attribute or a comment.

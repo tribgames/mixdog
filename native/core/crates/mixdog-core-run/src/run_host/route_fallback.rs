@@ -1511,6 +1511,7 @@ impl RouteHop {
     /// move is a diversion): the first usable eligible route above `current`, else, while `current` is exhausted, the
     /// first one below it. Respects persisted `standing` failures (auth, quota, and unexpired transient cooldowns) in
     /// addition to turn-local `failed_here`. Supports cross-runner recovery (HTTP↔ACP) when `allow_outside` is true.
+    #[allow(clippy::too_many_arguments)]
     async fn reconsider_target(
         &self,
         order: &[Value],

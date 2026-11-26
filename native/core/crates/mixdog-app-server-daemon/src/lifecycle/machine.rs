@@ -302,6 +302,10 @@ impl Machine {
         self.boot_step(Phase::Blocked(blocked), |phase| matches!(phase, Phase::Booting | Phase::Blocked(_)))
     }
 
+    pub fn set_booting(&mut self) -> Result<(), CommandError> {
+        self.boot_step(Phase::Booting, |phase| matches!(phase, Phase::Booting | Phase::Blocked(_)))
+    }
+
     pub fn set_migrating(&mut self, migration: Migration) -> Result<(), CommandError> {
         self.boot_step(Phase::Migrating(migration), |phase| matches!(phase, Phase::Booting | Phase::Blocked(_) | Phase::Migrating(_)))
     }

@@ -332,13 +332,9 @@ mod tests {
         let path = dir.path().join("mixdog-config.json");
         #[allow(clippy::disallowed_methods, reason = "test setup writes config fixture")]
         std::fs::write(&path, br#"{"agent":{}}"#).unwrap();
-        let (config, _) = Config::open(
-            path,
-            Arc::new(MockStatePublisher::default()),
-            ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io },
-        )
-        .await
-        .unwrap();
+        let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io })
+            .await
+            .unwrap();
         let facts = Arc::new(AcpFacts { ready_calls: Mutex::default(), ready_result: Ok(()) });
         let hosts = ConfigHosts {
             config,

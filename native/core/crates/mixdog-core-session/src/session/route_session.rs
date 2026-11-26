@@ -89,6 +89,8 @@ pub trait RouteConfig: Send + Sync {
     fn bots(&self) -> &(dyn BotRoutes + Send + Sync);
 }
 
+type HopRollbackMap = std::collections::HashMap<(ThreadId, Option<u64>), Vec<(String, Option<Value>)>>;
+
 pub struct SessionRouteAdapter {
     directory: Arc<SessionDirectory>,
     threads: Arc<dyn ThreadState>,
@@ -97,7 +99,7 @@ pub struct SessionRouteAdapter {
     gauge: Arc<dyn ContextStatusCache>,
     config: Arc<dyn RouteConfig>,
     clock: Arc<dyn Clock>,
-    hop_rollback_keys: Arc<std::sync::Mutex<std::collections::HashMap<(ThreadId, Option<u64>), Vec<(String, Option<Value>)>>>>,
+    hop_rollback_keys: Arc<std::sync::Mutex<HopRollbackMap>>,
 }
 
 impl SessionRouteAdapter {

@@ -497,9 +497,7 @@ impl Connection {
             requests.waiting.insert(id, tx);
         }
         let mut guard = RequestGuard { connection: self, id, armed: true };
-        if let Err(fault) = self.write(json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })).await {
-            return Err(fault);
-        }
+        self.write(json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })).await?;
         let result = rx.await.unwrap_or_else(|_| Err(self.closed()));
         guard.armed = false;
         result
@@ -521,9 +519,7 @@ impl Connection {
     pub async fn send_as(&self, id: u64, method: &str, params: Value) -> Result<(), Fault> {
         lock(&self.requests).sent.insert(id);
         let mut guard = SendGuard { connection: self, id, armed: true };
-        if let Err(fault) = self.write(json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })).await {
-            return Err(fault);
-        }
+        self.write(json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })).await?;
         guard.armed = false;
         Ok(())
     }

@@ -370,7 +370,7 @@ for (const unavailable of [false, true]) {
         },
       },
     });
-    assert.match(document.body.textContent, /Manage sign-ins and accounts in the local window/);
+    assert.match(document.body.textContent, /Uses providers from your desktop; manage accounts locally\./);
     assert.equal(document.querySelector('input[type="password"]'), null);
     const actions = [...document.querySelectorAll('button')].map((button) => button.textContent.trim());
     assert.ok(!actions.some((text) => /^(Connect|Forget|Replace|Save|Get API key)/.test(text)));

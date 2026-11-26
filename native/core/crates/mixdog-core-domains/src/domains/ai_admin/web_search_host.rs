@@ -45,8 +45,7 @@ impl SearchHost for RegistrySearchHost {
     /// falling back to `RouteFacts::model_meta` for ACP routes that are not in the provider catalog.
     async fn main_model_row(&self, provider: &str, model: &str) -> Result<Option<Value>, String> {
         self.ready(provider).await?;
-        Ok(listed_row(&self.catalog, provider, model)
-            .or_else(|| self.facts.catalog_knows(model, provider).then(|| self.facts.model_meta(provider, model))))
+        Ok(listed_row(&self.catalog, provider, model).or_else(|| self.facts.catalog_knows(model, provider).then(|| self.facts.model_meta(provider, model))))
     }
 
     /// `getModelMetadataSync(model, provider)`.

@@ -324,11 +324,13 @@ struct HandedLimitState {
     turn_limit_noticed: bool,
 }
 
+type LaneFactory = Box<dyn Fn(Arc<Mutex<RepeatGuards>>) -> Lane + Send>;
+
 /// The calls of one turn.
 pub struct HandedCalls {
     /// A new run over the turn's parts, sharing the turn's repeat guards: each concurrent call runs on its own [`Lane`],
     /// so sibling calls and plan updates never serialize on one shared call mutex.
-    fresh: Mutex<Box<dyn Fn(Arc<Mutex<RepeatGuards>>) -> Lane + Send>>,
+    fresh: Mutex<LaneFactory>,
     /// Active calls' `answer_by` cells, keyed by call id, so [`Self::let_go`] clears only the released call's deadline.
     active: Mutex<HashMap<String, crate::tools::AnswerBy>>,
     env: Arc<crate::tools::CallEnv>,

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { restoreAttachmentsFromRecord } from './composer-attachment-restore';
+import { draftWithRestoredPrompt } from './composer-draft';
 import { buildIslandGitRequest, parseIslandGitRequestText, sendIslandGitRequest } from './island-git-request';
 
 const rows = [
@@ -135,6 +137,20 @@ test('the base ref is read for PRs and non-default branches only', async () => {
   assert.equal(islandGitBaseRef('commit', { branch: 'main', detached: false }, 'main'), '');
   assert.equal(islandGitBaseRef('commit', { branch: 'f', detached: false }, 'main'), 'origin/main');
   assert.equal(islandGitBaseRef('pr', { branch: '', detached: true }, 'main'), '');
+});
+
+test('a request rows as its card and never rides a typed message back to the composer', () => {
+  const push = buildIslandGitRequest({ ...base, action: 'commit-push' });
+  // The core draws a prompt's row from its content.
+  assert.deepEqual(parseIslandGitRequestText(push.content), {
+    action: 'commit-push',
+    label: 'Commit · push',
+    meta: 'Current session · Files 2',
+  });
+  // A queue hand-back holds the display text between typed messages; a rewind holds the whole prompt.
+  assert.equal(draftWithRestoredPrompt('typed', `first\n${push.displayText}\nlast`), 'first\nlast\ntyped');
+  const ids = { reservedIds: new Set(), sequence: { current: 1 } };
+  assert.equal(restoreAttachmentsFromRecord({ text: push.content }, push.content, ids).text, '');
 });
 
 test('plain user text is not a request card', () => {

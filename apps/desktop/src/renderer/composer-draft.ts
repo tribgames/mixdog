@@ -1,4 +1,5 @@
 import type { ComposerAttachment } from './composer-support';
+import { withoutIslandGitRequests } from './island-git-request-text';
 import { enforceRendererCacheBudget, registerBudgetedCache } from './renderer-cache-budget';
 import { sha256Hex } from './sha256';
 
@@ -422,7 +423,7 @@ export function wasSubmittedHere(id: string): boolean {
 /** Prompt text handed back to the composer of the device that sent it: it is
  *  placed beside whatever is already typed there, never replacing it. */
 export function draftWithRestoredPrompt(current: string, restored: string): string {
-  return [restored, current].filter(Boolean).join('\n');
+  return [withoutIslandGitRequests(restored), current].filter(Boolean).join('\n');
 }
 
 /** The chip with the SHA-256 of its data started: the same chip when its

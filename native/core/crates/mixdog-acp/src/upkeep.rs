@@ -349,7 +349,8 @@ impl Agents {
             None => Some(location.path.clone()),
         });
         for program in std::iter::once(preset.command.clone()).chain(installed) {
-            let launch = Launch { program: program.clone(), args: preset.version_args.clone(), env: preset.env.clone(), env_remove: Vec::new(), cwd: cwd.clone() };
+            let launch =
+                Launch { program: program.clone(), args: preset.version_args.clone(), env: preset.env.clone(), env_remove: Vec::new(), cwd: cwd.clone() };
             match run_to_exit(&self.parts.processes, launch).await {
                 Err(Fault::NotFound) => {}
                 Ok(ran) => return Ok((program, ran)),

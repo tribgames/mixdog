@@ -392,10 +392,11 @@ test('a row that lands under hundreds of rows with open hand-offs is the only ro
   const again = [...landed, watch('a-next', { ...reply, key: 'a-next', item: { ...reply.item, id: 'a-next' } })];
   noteCarried(again, landed, landed.length);
   linesOf(again);
+  // The turn index reads the row the new one lands under, to tell whether the turn goes on there.
   assert.deepEqual(
     [...reads.keys()],
-    ['a-next'],
-    'the new reply: the ended turns are not read to place their lines again'
+    ['a-next', 'a-new'],
+    'the new reply and the row above it: the ended turns are not read to place their lines again'
   );
 });
 
@@ -436,7 +437,12 @@ test('text streaming in the newest turn leaves the hand-off lines of every turn 
         `the lines of turn ${turn} are the ones placed, at "${text}"`
       );
     });
-    assert.deepEqual([...reads.keys()], ['live'], `only the streaming row is read, at "${text}"`);
+    // The turn index also reads the row above it, to tell whether the turn goes on there.
+    assert.deepEqual(
+      [...reads.keys()],
+      ['live', 'a2-99'],
+      `only the streaming row and the one above it are read, at "${text}"`
+    );
     const whole = shown.slice();
     assert.deepEqual(
       shown.map((_, at) => handoffLinesAt(shown, at)),

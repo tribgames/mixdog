@@ -1023,7 +1023,10 @@ mod tests {
         started.notified().await;
         let handle = directory.handle(&worker).expect("loaded");
         assert!(SessionCompletions::new(directory.clone()).enqueue_completion(worker.as_str(), COMPLETED, &completed_meta()));
-        eventually_on!(&[&handle.cell.stepped], || (!handle.cell.queued.load().is_empty()).then_some(())).await;
+        eventually_on!(&[&handle.cell.stepped], || {
+            (!handle.cell.queued.load().is_empty() && handle.cell.unacked.load(Ordering::SeqCst) == 0).then_some(())
+        })
+        .await;
         boundary.notify_one();
         assert_eq!(turn.await.expect("joined").expect("turn").content, "built and checked");
         eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;

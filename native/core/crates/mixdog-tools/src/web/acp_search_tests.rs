@@ -295,10 +295,7 @@ async fn unavailable_acp_candidate_falls_through_to_next_candidate_and_fails_una
                 { "provider": "anthropic", "model": "claude-sonnet-4-5" }
             ]
         }),
-        hosted_replies: Arc::new(Mutex::new(VecDeque::from([
-            Err(rate_limited()),
-            Ok(hosted_ok("From Anthropic second fallback.")),
-        ]))),
+        hosted_replies: Arc::new(Mutex::new(VecDeque::from([Err(rate_limited()), Ok(hosted_ok("From Anthropic second fallback."))]))),
         hosted_seen: Arc::default(),
         acp_ready_error: None,
     });
@@ -347,10 +344,7 @@ async fn unavailable_acp_candidate_falls_through_to_next_candidate_and_fails_una
         ProviderSearchSender::new(host, sender_deps(Arc::new(Ledger::default()), NativeSearchUsageSinks::new())),
     );
     let err = search.search(search_request(), CancellationToken::new()).await.unwrap_err();
-    assert!(
-        matches!(err, NativeSearchError::Unavailable(ref msg) if msg.contains("acp-antigravity") && msg.contains("acp-antigravity-cli")),
-        "{err:?}"
-    );
+    assert!(matches!(err, NativeSearchError::Unavailable(ref msg) if msg.contains("acp-antigravity") && msg.contains("acp-antigravity-cli")), "{err:?}");
 }
 
 #[tokio::test]
@@ -368,12 +362,22 @@ async fn acp_search_normalizes_results_accounts_ledger_and_reports_usage_delta()
             answer: "  Rust 1.90 released.  ".into(),
             model: Some("gemini-3-flash-high".into()),
             citations: vec![
-                NativeSource { url: "https://grounding.example/1".into(), title: "rust-lang.org".into(), snippet: "  Official  notes ".into(), published_date: None },
+                NativeSource {
+                    url: "https://grounding.example/1".into(),
+                    title: "rust-lang.org".into(),
+                    snippet: "  Official  notes ".into(),
+                    published_date: None,
+                },
                 NativeSource { url: "https://grounding.example/1".into(), title: "duplicate".into(), snippet: String::new(), published_date: None },
             ],
             calls: vec![SearchCall {
                 query: "rust release".into(),
-                sources: vec![NativeSource { url: "https://grounding.example/2".into(), title: "blog.rust-lang.org".into(), snippet: "Announcement".into(), published_date: None }],
+                sources: vec![NativeSource {
+                    url: "https://grounding.example/2".into(),
+                    title: "blog.rust-lang.org".into(),
+                    snippet: "Announcement".into(),
+                    published_date: None,
+                }],
                 urls: vec!["https://grounding.example/3".into(), "https://grounding.example/4".into()],
             }],
             usage: Some(Usage { input_tokens: 120, output_tokens: 45, cache_read_tokens: 30, ..Usage::default() }),
@@ -431,7 +435,10 @@ async fn acp_search_normalizes_results_accounts_ledger_and_reports_usage_delta()
     let seen = backend.seen.lock().unwrap();
     assert_eq!(seen.len(), 1);
     assert_eq!((seen[0].provider.as_str(), seen[0].model.as_str(), seen[0].effort.as_deref()), ("acp-antigravity", "gemini-3-flash", Some("high")));
-    assert_eq!((seen[0].query.as_str(), seen[0].site.as_deref(), seen[0].max_results, seen[0].context_size.as_str()), ("rust release", Some("rust-lang.org"), 3, "medium"));
+    assert_eq!(
+        (seen[0].query.as_str(), seen[0].site.as_deref(), seen[0].max_results, seen[0].context_size.as_str()),
+        ("rust release", Some("rust-lang.org"), 3, "medium")
+    );
     drop(seen);
 
     let rows = ledger.0.lock().unwrap();
@@ -555,11 +562,9 @@ async fn mixed_chain_falls_back_on_capacity_and_surfaces_sign_in_refusal_and_not
     assert_eq!(*host.hosted_seen.lock().unwrap(), ["openai/gpt-5.2"]);
 
     // 3. Sign-in, refusal, and not-installed surface immediately without touching the fallback.
-    for error in [
-        AcpSearchError::sign_in("Antigravity is signed out"),
-        AcpSearchError::refusal("account disabled"),
-        AcpSearchError::not_installed("agy not found"),
-    ] {
+    for error in
+        [AcpSearchError::sign_in("Antigravity is signed out"), AcpSearchError::refusal("account disabled"), AcpSearchError::not_installed("agy not found")]
+    {
         let want = error.message.clone();
         let host = Arc::new(MixedHost {
             main: json!({}),

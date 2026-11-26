@@ -47,7 +47,10 @@ test('SSH provider settings display PC availability without account or credentia
     [...document.querySelectorAll('.settings-status')].map((el) => el.textContent),
     ['Connected', 'Connected', 'Not connected']
   );
-  assert.match(document.querySelector('main').textContent, /Manage sign-ins and accounts in the local window/);
+  assert.match(
+    document.querySelector('main').textContent,
+    /Uses providers from your desktop; manage accounts locally\./
+  );
   assert.equal(document.querySelector('button, input[type="password"], form, .provider-accounts-list'), null);
   await show({ ...setup, oauth: [{ ...setup.oauth[0], authenticated: false, status: 'Not connected' }] });
   assert.equal(document.querySelector('.settings-status').textContent, 'Not connected');

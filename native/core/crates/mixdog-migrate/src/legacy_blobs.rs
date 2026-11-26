@@ -34,8 +34,13 @@ pub fn import(data: &Path, fault: &dyn Fn(&str) -> Result<()>) -> Result<()> {
 /// [`import`] with the shards taken on `workers` threads: every blob is its own name, installed no-clobber, so the shards
 /// share nothing until the store is synced and the marker published.
 pub fn import_on(data: &Path, fault: &(dyn Fn(&str) -> Result<()> + Sync), workers: usize) -> Result<()> {
+    import_on_with(data, fault, &|| {}, workers)
+}
+
+/// [`import_on`], calling `on_converting` once before importing legacy blob shards.
+pub fn import_on_with(data: &Path, fault: &(dyn Fn(&str) -> Result<()> + Sync), on_converting: &dyn Fn(), workers: usize) -> Result<()> {
     let link = |from: &Path, to: &Path| std::fs::hard_link(from, to);
-    import_within(data, fault, |legacy, core, shards| {
+    import_within(data, fault, on_converting, |legacy, core, shards| {
         let next = std::sync::atomic::AtomicUsize::new(0);
         crate::framework::on_threads(
             workers,
@@ -47,11 +52,16 @@ pub fn import_on(data: &Path, fault: &(dyn Fn(&str) -> Result<()> + Sync), worke
 
 /// [`import`] with the way a name is linked given, so a test can make a volume that cannot link.
 pub(crate) fn import_with(data: &Path, fault: &dyn Fn(&str) -> Result<()>, link: &dyn Fn(&Path, &Path) -> std::io::Result<()>) -> Result<()> {
-    import_within(data, fault, |legacy, core, shards| shards.iter().try_for_each(|shard| import_shard(legacy, core, shard, fault, link)))
+    import_within(data, fault, &|| {}, |legacy, core, shards| shards.iter().try_for_each(|shard| import_shard(legacy, core, shard, fault, link)))
 }
 
 /// The import around `shards`, which takes in every shard of the legacy store (`legacy`, `core`, the shard names).
-fn import_within(data: &Path, fault: &dyn Fn(&str) -> Result<()>, shards: impl FnOnce(&Path, &Path, &[String]) -> Result<()>) -> Result<()> {
+fn import_within(
+    data: &Path,
+    fault: &dyn Fn(&str) -> Result<()>,
+    on_converting: &dyn Fn(),
+    shards: impl FnOnce(&Path, &Path, &[String]) -> Result<()>,
+) -> Result<()> {
     let marker = data.join(LEGACY_BLOBS_IMPORTED);
     let core = data.join(BLOB_DIR);
     let complete = durable::exists(&marker)?;
@@ -62,6 +72,9 @@ fn import_within(data: &Path, fault: &dyn Fn(&str) -> Result<()>, shards: impl F
     sweep_stages(&core)?;
     let legacy = data.join(LEGACY_BLOB_DIR);
     let names: Vec<String> = durable::list_dir(&legacy)?.into_iter().filter(|(_, is_dir)| *is_dir).map(|(shard, _)| shard).collect();
+    if !names.is_empty() {
+        on_converting();
+    }
     shards(&legacy, &core, &names)?;
     if needs_replacement {
         recover_displacements(&core, false)?;

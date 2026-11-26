@@ -13,6 +13,8 @@ use crate::error::ScmFailure;
 use crate::git::RunOptions;
 use crate::inspect::history;
 use crate::inspect::status::path_text;
+use crate::inspect::status::short_status_lines;
+use crate::inspect::status::worktree_content_changes;
 use crate::repo::on_lane;
 
 fn to_value(value: impl Serialize) -> Result<Value, ScmFailure> {
@@ -105,7 +107,8 @@ impl Scm {
             args.extend(paths.iter().cloned());
             attempt(args).await.split('\0').filter(|p| !p.is_empty()).map(str::to_owned).collect()
         };
-        let status_short = attempt(vec!["status".into(), "--short".into(), "--branch".into()]);
+        let status_short = attempt(vec!["status".into(), "--short".into(), "--branch".into(), "-z".into()]);
+        let changed = async { worktree_content_changes(git, cancel, cwd).await.ok().flatten() };
         let diff_stat = attempt(vec!["diff".into(), "HEAD".into(), "--stat".into()]);
         let subjects = attempt(vec!["log".into(), format!("-{RECENT_SUBJECTS}"), "--format=%s".into()]);
         let branch_commits =
@@ -130,10 +133,10 @@ impl Scm {
                 "truncated": truncated,
             })
         }));
-        let (status_short, diff_stat, files, subjects, branch_commits, branch_diff_stat, pr) =
-            tokio::join!(status_short, diff_stat, file_patches, subjects, branch_commits, branch_diff_stat, self.current_pull_request(cwd, cancel),);
+        let (status_short, changed, diff_stat, files, subjects, branch_commits, branch_diff_stat, pr) =
+            tokio::join!(status_short, changed, diff_stat, file_patches, subjects, branch_commits, branch_diff_stat, self.current_pull_request(cwd, cancel),);
         Ok(json!({
-            "statusShort": clip(status_short, TEXT_LIMIT),
+            "statusShort": clip(short_status_lines(&status_short, changed.as_ref()), TEXT_LIMIT),
             "diffStat": clip(diff_stat, TEXT_LIMIT),
             "files": files,
             "recentSubjects": subjects.lines().filter(|l| !l.is_empty()).collect::<Vec<_>>(),

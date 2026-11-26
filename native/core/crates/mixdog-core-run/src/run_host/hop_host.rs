@@ -266,7 +266,7 @@ fn key_config_of(entry: Option<&Obj>) -> KeyConfig {
 }
 
 enum VertexAdcStatus {
-    ValidFile { path: PathBuf, raw: String, credential: vertex::Credential },
+    ValidFile { path: PathBuf, raw: String, credential: Box<vertex::Credential> },
     InvalidFile,
     NoLogin,
 }
@@ -301,12 +301,12 @@ fn gcloud_dir_from_env(env: &(dyn Fn(&str) -> Option<String> + Send + Sync)) -> 
 fn read_gcloud_project(dir: &Path, named: &str) -> Option<String> {
     let mut name = named.trim().to_owned();
     if name.is_empty() {
-        name = std::fs::read_to_string(dir.join("active_config")).map(|s| s.trim().to_owned()).unwrap_or_default();
+        name = mixdog_fsio::read_to_string(&mixdog_fsio::Unlaned, dir.join("active_config")).map(|s| s.trim().to_owned()).unwrap_or_default();
     }
     if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || "_.-".contains(c)) {
         name = "default".into();
     }
-    let raw = std::fs::read_to_string(dir.join("configurations").join(format!("config_{name}"))).ok()?;
+    let raw = mixdog_fsio::read_to_string(&mixdog_fsio::Unlaned, dir.join("configurations").join(format!("config_{name}"))).ok()?;
     let mut section = String::new();
     for line in raw.lines() {
         let trimmed = line.trim();
@@ -369,9 +369,9 @@ fn vertex_adc_status(env: &(dyn Fn(&str) -> Option<String> + Send + Sync)) -> Ve
         }
     };
     let shown = path.display().to_string();
-    match std::fs::read_to_string(&path) {
+    match mixdog_fsio::read_to_string(&mixdog_fsio::Unlaned, &path) {
         Ok(raw) => match vertex::parse_adc(&raw, &shown) {
-            Ok(credential) => VertexAdcStatus::ValidFile { path, raw, credential },
+            Ok(credential) => VertexAdcStatus::ValidFile { path, raw, credential: Box::new(credential) },
             Err(_) => VertexAdcStatus::InvalidFile,
         },
         Err(err) if matches!(err.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => {
@@ -424,7 +424,7 @@ fn read_custom_key_ids_from_roster(path: &Path, provider: &str) -> Result<Vec<St
         let mut bak = path.as_os_str().to_os_string();
         bak.push(".bak");
         let bak_path = PathBuf::from(bak);
-        match std::fs::read_to_string(&bak_path) {
+        match mixdog_fsio::read_to_string(&mixdog_fsio::Unlaned, &bak_path) {
             Ok(raw) => match parse_validated_roster(&raw) {
                 RosterRead::Valid(roster) => Ok(extract_custom_key_ids(&roster, provider)),
                 RosterRead::Unsupported | RosterRead::Damaged => Ok(Vec::new()),
@@ -432,7 +432,7 @@ fn read_custom_key_ids_from_roster(path: &Path, provider: &str) -> Result<Vec<St
             Err(_) => Ok(Vec::new()),
         }
     };
-    let raw = match std::fs::read_to_string(path) {
+    let raw = match mixdog_fsio::read_to_string(&mixdog_fsio::Unlaned, path) {
         Ok(raw) => raw,
         Err(err) if matches!(err.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => return Ok(Vec::new()),
         Err(_) => return read_backup(),
@@ -669,7 +669,7 @@ pub(crate) async fn oauth_credential_fingerprint(
     let Some(path) = path else {
         return Some("oauth:absent".to_owned());
     };
-    let raw = match std::fs::read_to_string(&path) {
+    let raw = match mixdog_fsio::read_to_string(&mixdog_fsio::Unlaned, &path) {
         Ok(raw) => raw,
         Err(err) if matches!(err.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => {
             return Some("oauth:absent".to_owned());

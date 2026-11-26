@@ -190,20 +190,30 @@ function toolItemStateKey(item: TranscriptItem): string {
   ].join('\0');
 }
 
+/** How many older items `next` holds above the first of `previous`: history read in above the window moves every item
+ *  it held down without changing any of them. */
+function prependedCount(prevItems: readonly TranscriptItem[], nextItems: readonly TranscriptItem[]): number {
+  const first = prevItems[0];
+  if (!first || nextItems[0] === first || first.id === undefined || first.id === null) return 0;
+  const at = nextItems.findIndex((item) => item?.id === first.id);
+  return Math.max(at, 0);
+}
+
 function toolItemsTransitioned(previous: Snapshot['items'], next: Snapshot['items']): boolean {
   if (previous === next) return false;
   const prevItems = Array.isArray(previous) ? previous : [];
   const nextItems = Array.isArray(next) ? next : [];
-  for (let index = prevItems.length; index < nextItems.length; index += 1) {
+  const shift = prependedCount(prevItems, nextItems);
+  for (let index = prevItems.length + shift; index < nextItems.length; index += 1) {
     if (nextItems[index]?.kind === 'tool') return true;
   }
-  for (let index = nextItems.length; index < prevItems.length; index += 1) {
+  for (let index = nextItems.length - shift; index < prevItems.length; index += 1) {
     if (prevItems[index]?.kind === 'tool') return true;
   }
-  const overlap = Math.min(prevItems.length, nextItems.length);
+  const overlap = Math.min(prevItems.length, nextItems.length - shift);
   for (let index = 0; index < overlap; index += 1) {
     const prevItem = prevItems[index];
-    const nextItem = nextItems[index];
+    const nextItem = nextItems[index + shift];
     if (prevItem === nextItem) continue;
     const prevTool = prevItem?.kind === 'tool';
     const nextTool = nextItem?.kind === 'tool';

@@ -20,6 +20,7 @@ const connection = () => ({
   onEvent: () => () => undefined,
   onStoreChange: () => () => undefined,
   client: () => ({ store: {} }),
+  protocolClient: () => null,
   start: async () => undefined,
   onReplaced: () => () => undefined,
   viewPorts: () => [],

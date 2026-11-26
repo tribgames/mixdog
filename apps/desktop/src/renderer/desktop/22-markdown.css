@@ -1019,10 +1019,11 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
   overflow: visible;
   table-layout: auto;
 }
-/* While a reply streams, fix the table column grid from the header row so
-   incoming body chunks do not rebalance already-painted rows; settled replies
-   return to `table-layout: auto` so streamed and remounted tables match. */
-.markdown.streaming .markdown-table table {
+/* While a reply streams, fix the table column grid of its open block from the
+   header row so incoming body chunks do not rebalance already-painted rows;
+   settled blocks keep `table-layout: auto`, so streamed and remounted tables
+   match and a block parked while the reply streams keeps its height. */
+.markdown.streaming > .markdown-unit:last-child .markdown-table table {
   table-layout: fixed;
 }
 .markdown-code > pre,

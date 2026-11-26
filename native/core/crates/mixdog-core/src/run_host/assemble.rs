@@ -1148,13 +1148,7 @@ impl HostRunParts {
 
     /// Whether [`Self::next_request`] can build a request for `thread`, checked without building tools, settings, or
     /// messages.
-    pub async fn has_next_request(
-        &self,
-        thread: &ThreadId,
-        header: &Header,
-        prior: &[(mixdog_core_api::ids::ItemId, Value)],
-        owners: Owners,
-    ) -> bool {
+    pub async fn has_next_request(&self, thread: &ThreadId, header: &Header, prior: &[(mixdog_core_api::ids::ItemId, Value)], owners: Owners) -> bool {
         if !Self::rebuildable_header(header, owners) {
             return false;
         }

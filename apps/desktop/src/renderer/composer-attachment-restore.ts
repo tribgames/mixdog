@@ -1,6 +1,7 @@
 import type { RecordValue } from './desktop-types';
 import type { ComposerAttachment } from './composer-support';
 import { canonicalPromptFileMimeType, PDF_MIME_TYPE } from '../shared/prompt-limits';
+import { withoutIslandGitRequests } from './island-git-request-text';
 import { asRecord } from './text-format';
 
 function createRestoredIdAllocator(reservedIds: Set<number>, sequence: { current: number }): RestoredIdAllocator {
@@ -108,7 +109,7 @@ export function restoreAttachmentsFromRecord(
   ids: { reservedIds: Set<number>; sequence: { current: number } }
 ): { attachments: ComposerAttachment[]; text: string } {
   const uniqueId = createRestoredIdAllocator(ids.reservedIds, ids.sequence);
-  const images = restoreImageAttachments(value, restoredText, uniqueId, ids.sequence);
+  const images = restoreImageAttachments(value, withoutIslandGitRequests(restoredText), uniqueId, ids.sequence);
   const texts = restorePastedTextAttachments(value, images.text, uniqueId);
   const restored = [...images.attachments, ...texts.attachments];
   let textValue = texts.text;

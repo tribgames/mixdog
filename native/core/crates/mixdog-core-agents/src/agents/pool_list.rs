@@ -792,6 +792,7 @@ impl AgentPool {
         Ok(self.lay_live(rows, &settled_before_work))
     }
 
+    #[allow(clippy::type_complexity)]
     fn assemble(
         &self,
         child_rows: &[Value],

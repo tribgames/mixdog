@@ -233,6 +233,10 @@ impl Lifecycle {
         self.apply(|m| m.set_blocked(blocked))
     }
 
+    pub fn set_booting(self: &Arc<Self>) -> Result<(), CommandError> {
+        self.apply(Machine::set_booting)
+    }
+
     pub fn set_migrating(self: &Arc<Self>, migration: Migration) -> Result<(), CommandError> {
         self.apply(|m| m.set_migrating(migration))
     }

@@ -3832,6 +3832,40 @@
     {
       "id": [
         "node",
+        "src/runtime/shared/file-permissions.test.mjs",
+        "idle ACL helper and sync bridge shut down cleanly and restart lazily on next request"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-root"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "src/runtime/shared/file-permissions.test.mjs",
+        "idle ACL helper and sync bridge shut down cleanly and restart lazily on next request"
+      ],
+      "platform": "macos",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-root"]
+      }
+    },
+    {
+      "id": [
+        "node",
         "src/runtime/shared/skill-script-runtime.slow.test.mjs",
         "a Windows launcher whose runtime path is not ASCII still starts it"
       ],

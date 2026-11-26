@@ -765,6 +765,7 @@ impl Run {
     }
 
     #[inline(never)]
+    #[allow(clippy::type_complexity)]
     fn attempt_once_boxed(
         &mut self,
         request: Arc<ModelRequest>,
@@ -778,6 +779,7 @@ impl Run {
     }
 
     #[inline(never)]
+    #[allow(clippy::type_complexity)]
     fn exchange_boxed(
         &mut self,
         request: Arc<ModelRequest>,

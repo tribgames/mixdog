@@ -235,14 +235,14 @@ fn omit_recorded(map: &mut Map<String, Value>) {
     let text = Value::String(OMITTED_IMAGE.to_owned());
     match text_of(map, "type").map(str::to_owned).as_deref() {
         Some("image" | "image_url") => {
-            map.remove("source");
-            map.remove("image_url");
+            map.shift_remove("source");
+            map.shift_remove("image_url");
             map.insert("type".into(), Value::String("text".into()));
             map.insert("text".into(), text);
         }
         Some("input_image") => {
             for key in ["image_url", "file_id", "detail"] {
-                map.remove(key);
+                map.shift_remove(key);
             }
             map.insert("type".into(), Value::String("input_text".into()));
             map.insert("text".into(), text);
@@ -257,7 +257,7 @@ fn omit_recorded(map: &mut Map<String, Value>) {
         }
         _ => {
             for key in GEMINI_INLINE.into_iter().chain(GEMINI_FILE) {
-                map.remove(key);
+                map.shift_remove(key);
             }
             map.insert("text".into(), text);
         }

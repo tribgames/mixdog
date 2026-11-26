@@ -115,6 +115,12 @@ export function createTranscriptWidthSync({
     if (!syncedWidth) syncedWidth = Math.round(instance.scrollRect?.width ?? 0);
     const width = Math.round(element.offsetWidth);
     const spacerWidth = Math.round(spacer.offsetWidth);
+    // A list its virtualizer has not laid out yet lays its rows and the dock's inset out at the widths it has now.
+    if (!syncedWidth) {
+      syncedWidth = width;
+      syncedSpacerWidth = spacerWidth;
+      return;
+    }
     if (width === syncedWidth && spacerWidth === syncedSpacerWidth) {
       if (options?.dockInset && syncDockInset?.()) {
         const following = instance.options.anchorTo === 'end' || instance.options.followOnAppend;

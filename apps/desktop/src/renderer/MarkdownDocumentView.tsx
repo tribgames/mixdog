@@ -99,6 +99,11 @@ const MarkdownDocumentUnit = memo(function MarkdownDocumentUnit({ unit }: { unit
   const { parking } = scope;
   const parkingId = bodyUnit ? bodyUnit.key : null;
   useUnitParking(parking, parkingId, bodyNode, bodyUnit?.held ?? false);
+  // The line breaks a whole parse keeps between blocks are no block: no element of their own, as in a reply read whole,
+  // and no box beside a block that parks.
+  if (bodyUnit && bodyNode && bodyNode.type !== 'element') {
+    return <UnitBody unit={bodyUnit} node={bodyNode} scope={scope} />;
+  }
   const empty = !bodyNode && !shownText.trim();
   const outer = (
     <div

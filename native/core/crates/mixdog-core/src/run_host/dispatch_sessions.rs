@@ -276,7 +276,8 @@ pub async fn admit_stamped_header_with_windows(
         }
     }
 
-    let mut first_exhausted: Option<(usize, Value, Option<Arc<dyn ProviderAdapter>>, Vec<Value>)> = None;
+    type ExhaustedCandidate = (usize, Value, Option<Arc<dyn ProviderAdapter>>, Vec<Value>);
+    let mut first_exhausted: Option<ExhaustedCandidate> = None;
     for (idx, candidate) in fallbacks.iter().enumerate() {
         if !candidate.is_object() || same_route_model(Some(&spec.preset), Some(candidate)) {
             continue;

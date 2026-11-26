@@ -676,11 +676,26 @@ where
     }
 }
 
-fn items_read(id: &ThreadId, items: &[ThreadItem], stored_ids: &[ItemId], p: ThreadItemsReadParams) -> Result<Reply, CoreError> {
+fn is_shown_window_item(item: &ThreadItem) -> bool {
+    let item_meta = meta(item);
+    if item_meta.ext.get("provisional") == Some(&Value::Bool(true)) {
+        return false;
+    }
+    !(matches!(item_meta.status, Some(ItemStatus::InProgress)) && !item_meta.ext.contains_key(HISTORY_POSITION))
+}
+
+fn items_read(
+    id: &ThreadId,
+    items: &[ThreadItem],
+    stored_ids: &[ItemId],
+    live_shown: &[Arc<ThreadItem>],
+    p: ThreadItemsReadParams,
+) -> Result<Reply, CoreError> {
     let mut found = Vec::with_capacity(p.item_ids.len());
     for wanted in &p.item_ids {
         let matches_turn = |item: &ThreadItem| p.turn_id.as_ref().is_none_or(|turn| meta(item).turn_id.as_ref().is_some_and(|t| t.as_str() == turn.as_str()));
         let in_turn = items.iter().filter(|item| matches_turn(item));
+        let live_in_turn = live_shown.iter().map(Arc::as_ref).filter(|item| is_shown_window_item(item) && matches_turn(item));
         let item = position_of_id(in_turn.clone(), wanted.as_str())
             .and_then(|at| in_turn.clone().nth(at))
             .or_else(|| {
@@ -689,6 +704,11 @@ fn items_read(id: &ThreadId, items: &[ThreadItem], stored_ids: &[ItemId], p: Thr
             })
             .or_else(|| {
                 items.iter().zip(stored_ids.iter()).find(|(item, stored_id)| matches_turn(item) && stored_id.as_str() == wanted.as_str()).map(|(item, _)| item)
+            })
+            .or_else(|| position_of_id(live_in_turn.clone(), wanted.as_str()).and_then(|at| live_in_turn.clone().nth(at)))
+            .or_else(|| {
+                let call_id = wanted.as_str().strip_prefix("call:")?;
+                live_in_turn.clone().find(|item| matches!(item, ThreadItem::ToolCall { run, .. } if run.call_id.as_deref() == Some(call_id)))
             })
             .ok_or_else(|| CoreError::ItemNotFound { thread_id: id.clone(), item_id: wanted.clone() })?;
         found.push(item.clone());
@@ -1477,7 +1497,11 @@ impl DirInner {
         let mut items: Vec<ThreadItem> = rows.iter().map(|(item, _)| item.clone()).collect();
         self.open_running(id, items.iter_mut());
         match req.method.as_str() {
-            "thread/items/read" => items_read(id, &items, &stored_ids, params(req, "ThreadItemsReadParams")?),
+            "thread/items/read" => {
+                let shown = self.loaded(id).map(|handle| handle.cell.view.load_full());
+                let live_shown = shown.as_deref().map_or(&[][..], |view| view.items.as_ref());
+                items_read(id, &items, &stored_ids, live_shown, params(req, "ThreadItemsReadParams")?)
+            }
             "thread/attachment/list" => attachment_list(&items, params(req, "ThreadPageParams")?),
             "thread/modelMessages/list" => self.model_messages_list(id, params(req, "ThreadModelMessagesListParams")?).await,
             _ => unreachable!("`serves` admits only these methods"),

@@ -265,7 +265,7 @@ fn left_turn(sink: &PortSink, rows: &StoredRows, input_item: &ItemId, preloaded_
     let base = lock(&sink.base);
     let turn = lock(&sink.turn);
     let mut context: Vec<(ItemId, Value)> = base.rows.iter().map(|(iid, row)| (iid.clone(), Base::body(row))).collect();
-    let input = stored(&*turn[0]);
+    let input = stored(&turn[0]);
     let input_msg_id = turn[0].message_id.as_deref();
     // The input is the turn's first message: a rewrite during the run (a replay strip on an earlier hop, or a
     // compaction) holds it among the rows it left.
@@ -280,7 +280,7 @@ fn left_turn(sink: &PortSink, rows: &StoredRows, input_item: &ItemId, preloaded_
     };
     let produced = turn.len() > 1;
     for (index, message) in turn.iter().enumerate().skip(base.held) {
-        context.push((if index == 0 { input_item.clone() } else { sink.iid_of(message) }, stored(&**message)));
+        context.push((if index == 0 { input_item.clone() } else { sink.iid_of(message) }, stored(message)));
         if index == 0 && produced {
             context.extend(preloaded_after_input.iter().cloned());
         }
@@ -764,7 +764,7 @@ async fn drive(
                                     .collect();
                                 liveness.publish_request_route(thread.as_str(), route);
                             }
-                            outside_run = Box::new(Outside {
+                            *outside_run = Outside {
                                 parts: parts.clone(),
                                 agents,
                                 thread: thread.clone(),
@@ -804,7 +804,7 @@ async fn drive(
                                 skill_selection: skill_selection.clone(),
                                 committed_after_input: state.committed_after_input,
                                 already_carried: true,
-                            });
+                            };
                         } else {
                             flush_buffered_switches(switch_bus.as_ref(), &closing).await;
                             return failed("the selected route requires an outside agent host", Value::Null);

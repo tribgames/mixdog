@@ -183,11 +183,11 @@ impl AgentTool {
             if let Some(content) = block.get_mut("content").and_then(Value::as_object_mut)
                 && content.get("type").and_then(Value::as_str) == Some("image")
             {
-                content.remove("data");
+                content.shift_remove("data");
             } else if let Some(obj) = block.as_object_mut()
                 && obj.get("type").and_then(Value::as_str) == Some("image")
             {
-                obj.remove("data");
+                obj.shift_remove("data");
             }
         }
     }

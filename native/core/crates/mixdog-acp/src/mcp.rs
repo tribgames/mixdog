@@ -99,7 +99,7 @@ fn canonicalize_json(value: &Value) -> Value {
     match value {
         Value::Object(map) => {
             let mut entries: Vec<(&String, &Value)> = map.iter().collect();
-            entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+            entries.sort_by_key(|(a, _)| *a);
             let mut out = serde_json::Map::with_capacity(entries.len());
             for (key, val) in entries {
                 out.insert(key.clone(), canonicalize_json(val));

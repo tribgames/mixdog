@@ -64,7 +64,18 @@ pub fn migrate(roots: MigrationRoots, projector: Arc<dyn IndexProjector>, office
 /// [`super::Back`], which converts the sessions behind the serving core. `options.verified` and a `projector` that names
 /// its serving index are that core's way to take each session in.
 pub fn front(roots: MigrationRoots, projector: Arc<dyn IndexProjector>, office: OfficeExtractor, options: MigrateOptions) -> Result<super::Front, Blocked> {
-    Migrator::new(roots, product_drivers(projector, office), options).front()
+    front_with(roots, projector, office, options, &|| {})
+}
+
+/// [`front`], calling `on_converting` once before earlier-version data is actually converted.
+pub fn front_with(
+    roots: MigrationRoots,
+    projector: Arc<dyn IndexProjector>,
+    office: OfficeExtractor,
+    options: MigrateOptions,
+    on_converting: &dyn Fn(),
+) -> Result<super::Front, Blocked> {
+    Migrator::new(roots, product_drivers(projector, office), options).front_with(on_converting)
 }
 
 /// The roots of `mixdogd migrate`: `args` over the process environment; when there are none,

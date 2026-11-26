@@ -102,7 +102,9 @@ test('renderTranscriptRow keeps a stable identity across unrelated Conversation 
     turnKey: 'turn:u1',
     failures: [{ turnKey: 'turn:u1', item: { kind: 'error', errorKind: { kind: 'auth' }, text: '401 Unauthorized' } }],
   };
-  const errorNode = seenRenderers[1](errorRow, 0, [errorRow]);
+  // The row is its notice with the turn's cards seated after it.
+  const errorRowNode = seenRenderers[1](errorRow, 0, [errorRow]);
+  const errorNode = React.Children.toArray(errorRowNode.props.children).find((child) => child?.props?.action);
   assert.ok(errorNode?.props?.action?.props?.onClick);
   errorNode.props.action.props.onClick();
   assert.deepEqual(openedSettings, [['second', 'providers']]);

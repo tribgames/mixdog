@@ -1457,12 +1457,11 @@ impl AgentRegistry {
         // `KeptMemory::forget` sees the removed row gone and prunes its `changed`/`changed_at` entry; until the
         // Lead index is read, the Lead tombstone also stays until the removal is written.
         let removed_kept = had_kept && forgot && self.lock().map(&id).is_none();
-        if (unwritten || removed_kept) && self.store.settled().await.is_ok() {
-            if unwritten {
-                let mut st = self.lock();
-                if st.lead_rows.get(&id).is_some_and(Option::is_none) {
-                    st.lead_rows.remove(&id);
-                }
+        let settled = (unwritten || removed_kept) && self.store.settled().await.is_ok();
+        if settled && unwritten {
+            let mut st = self.lock();
+            if st.lead_rows.get(&id).is_some_and(Option::is_none) {
+                st.lead_rows.remove(&id);
             }
         }
         self.store.forget_session(&id);

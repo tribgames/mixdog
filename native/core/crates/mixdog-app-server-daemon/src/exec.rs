@@ -126,7 +126,9 @@ pub struct ExecEvents {
 
 pub type ForgetThread = Arc<dyn Fn(&str) + Send + Sync>;
 
-static FORGET_BY_RUNTIME: OnceLock<Mutex<Vec<(Weak<ExecRuntime>, Weak<dyn Fn(&str) + Send + Sync>)>>> = OnceLock::new();
+type ForgetEntry = (Weak<ExecRuntime>, Weak<dyn Fn(&str) + Send + Sync>);
+
+static FORGET_BY_RUNTIME: OnceLock<Mutex<Vec<ForgetEntry>>> = OnceLock::new();
 
 fn register_forget_thread(runtime: &Arc<ExecRuntime>, forget_thread: &ForgetThread) {
     let entries = FORGET_BY_RUNTIME.get_or_init(|| Mutex::new(Vec::new()));
@@ -433,8 +435,7 @@ mod forget_tests {
         let (threads, thread_strips) = watch::channel(HashMap::new());
         let (host, _host_strip) = watch::channel(HostShellJobs::default());
         let publisher = Arc::new(StripPublisher { threads, host, registry: OnceLock::new(), armed: Mutex::new(None) });
-        let mut non_empty = ShellJobsState::default();
-        non_empty.count = 1;
+        let non_empty = ShellJobsState { count: 1, ..Default::default() };
         publisher.thread_updated("t-drop", &non_empty);
         assert!(thread_strips.borrow().contains_key("t-drop"));
 

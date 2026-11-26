@@ -546,11 +546,7 @@ impl NativeWebSearch for HostedWebSearch {
             }
         }
         if errors.is_empty() {
-            return Err(NativeSearchError::Unavailable(if unavailable.len() == 1 {
-                unavailable.remove(0)
-            } else {
-                unavailable.join(" | ")
-            }));
+            return Err(NativeSearchError::Unavailable(if unavailable.len() == 1 { unavailable.remove(0) } else { unavailable.join(" | ") }));
         }
         Err(NativeSearchError::Failed(format!("native web search failed: {}", errors.join(" | "))))
     }

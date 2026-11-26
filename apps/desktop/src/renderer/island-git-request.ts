@@ -3,15 +3,14 @@ import type { DesktopGitRequestContext, DesktopGitStatus, DesktopGithubCliStatus
 import type { DesktopPromptContent, DesktopSubmitOptions } from '../shared/contract';
 import { nextComposerSubmissionId } from './composer-draft';
 import { t } from './i18n';
+import { ISLAND_GIT_INSTRUCTIONS_HEAD, islandGitRequestDisplayText } from './island-git-request-text';
 import type { SessionDiffRow } from './session-diff-model';
 import { sessionChangesSourceLabel, useSessionChanges, type SessionChangesSource } from './session-changes-store';
 
+export { parseIslandGitRequestText } from './island-git-request-text';
+
 export type IslandGitAction = 'pr' | 'commit-push' | 'commit';
 
-/** Leads the transcript text of a request: the user bubble is drawn as a card
- *  and the invisible marks keep the plain text readable on other surfaces. */
-const MARK = '\u2063';
-const REQUEST_PATTERN = new RegExp(`^${MARK}git-request:(pr|commit-push|commit)${MARK}([^\\n]*)(?:\\n([^\\n]*))?`);
 const MAX_LISTED_FILES = 200;
 
 function islandGitActionLabel(action: IslandGitAction): string {
@@ -124,19 +123,11 @@ function contextBlocks(input: IslandGitRequestInput): string[] {
 export interface IslandGitRequest {
   label: string;
   meta: string;
-  /** What the transcript shows: marks + label, then meta. */
+  /** What the queue shows: marks + label, then meta. */
   displayText: string;
-  /** What the model receives: context and instructions. */
+  /** What the model receives: the display text, then context and instructions. The core draws a prompt's
+   *  row from its content, so the row opens with the card lines too. */
   content: string;
-}
-
-/** The card's label and meta from a user message's transcript text. */
-export function parseIslandGitRequestText(
-  text: string
-): { action: IslandGitAction; label: string; meta: string } | null {
-  const match = REQUEST_PATTERN.exec(String(text || ''));
-  if (!match) return null;
-  return { action: match[1] as IslandGitAction, label: match[2].trim(), meta: (match[3] || '').trim() };
 }
 
 function ghLine(gh: IslandGitRequestInput['gh']): string {
@@ -183,8 +174,11 @@ export function buildIslandGitRequest(input: IslandGitRequestInput): IslandGitRe
   });
   if (input.rows.length > listed.length) listed.push(`- …and ${input.rows.length - listed.length} more`);
   const { status } = input;
+  const displayText = islandGitRequestDisplayText(input.action, label, meta);
   const content = [
-    `Island Git request: ${input.action}. The user pressed "${label}"; carry it out end to end.`,
+    displayText,
+    '',
+    `${ISLAND_GIT_INSTRUCTIONS_HEAD}${input.action}. The user pressed "${label}"; carry it out end to end.`,
     '',
     'Context (already gathered; do not rediscover it):',
     `- Changes source: ${input.source}`,
@@ -215,7 +209,7 @@ export function buildIslandGitRequest(input: IslandGitRequestInput): IslandGitRe
       : []),
     ...instructionsFor(input.action, input).map((line) => `- ${line}`),
   ].join('\n');
-  return { label, meta, displayText: `${MARK}git-request:${input.action}${MARK}${label}\n${meta}`, content };
+  return { label, meta, displayText, content };
 }
 
 export interface IslandGitRequestDeps {

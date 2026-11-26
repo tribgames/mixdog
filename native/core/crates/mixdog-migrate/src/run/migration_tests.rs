@@ -1681,6 +1681,78 @@ fn a_blob_is_copied_where_no_link_can_be_made() {
     assert!(roots.data.join(mixdog_store::schema::blob::LEGACY_BLOBS_IMPORTED).is_file());
 }
 
+#[test]
+fn front_with_announces_conversion_only_when_earlier_data_is_converted() {
+    let run_front = |roots: &MigrationRoots| -> (usize, Front) {
+        let count = AtomicUsize::new(0);
+        let front = migrator(roots, None)
+            .front_with(&|| {
+                count.fetch_add(1, Ordering::SeqCst);
+            })
+            .unwrap();
+        (count.load(Ordering::SeqCst), front)
+    };
+
+    let fresh_dir = tempfile::tempdir().unwrap();
+    let fresh = MigrationRoots { data: fresh_dir.path().join("data"), home: fresh_dir.path().join("home"), profile: None };
+    std::fs::create_dir_all(&fresh.data).unwrap();
+    let (count, front) = run_front(&fresh);
+    assert_eq!(count, 0, "a fresh start converts nothing");
+    if let Front::Pending(back) = front {
+        back.run().unwrap();
+    }
+    let (count, front) = run_front(&fresh);
+    assert_eq!(count, 0, "an ordinary restart after completion converts nothing");
+    assert!(matches!(front, Front::Complete(_)));
+
+    let dir = tempfile::tempdir().unwrap();
+    let roots = fixture(dir.path());
+    let (count, front) = run_front(&roots);
+    assert_eq!(count, 1, "first start over 1.4.5 data announces conversion once");
+    assert!(matches!(front, Front::Pending(_)));
+
+    let (count, front) = run_front(&roots);
+    assert_eq!(count, 0, "resuming front with all pre-serving waves settled converts nothing");
+    let Front::Pending(back) = front else { panic!("sessions are still left") };
+    back.run().unwrap();
+
+    let (count, front) = run_front(&roots);
+    assert_eq!(count, 0, "ordinary restart converts nothing");
+    assert!(matches!(front, Front::Complete(_)));
+
+    std::fs::create_dir_all(roots.data.join("userdata")).unwrap();
+    std::fs::write(roots.data.join("userdata/ssh-hosts.json"), b"[]").unwrap();
+    let (count, _) = run_front(&roots);
+    assert_eq!(count, 0, "current userdata connection stores without desktop/ sources convert nothing");
+
+    std::fs::create_dir_all(roots.data.join("desktop")).unwrap();
+    std::fs::write(roots.data.join("desktop/port-forwards.json"), b"[]").unwrap();
+    let (count, _) = run_front(&roots);
+    assert_eq!(count, 1, "adopting earlier-version desktop connection files announces conversion");
+    let (count, _) = run_front(&roots);
+    assert_eq!(count, 0, "subsequent restart after adoption converts nothing");
+
+    let marker = roots.data.join(mixdog_store::schema::blob::LEGACY_BLOBS_IMPORTED);
+    std::fs::remove_file(&marker).unwrap();
+    let (count, _) = run_front(&roots);
+    assert_eq!(count, 1, "importing legacy blob shards announces conversion");
+    let (count, _) = run_front(&roots);
+    assert_eq!(count, 0, "subsequent restart after blob import converts nothing");
+
+    let profile = dir.path().join("desktop-profile");
+    std::fs::create_dir_all(profile.join("User")).unwrap();
+    std::fs::write(profile.join("User/settings.json"), b"{}").unwrap();
+    let with_profile = MigrationRoots { profile: Some(profile), ..roots.clone() };
+    let (count, front) = run_front(&with_profile);
+    assert_eq!(count, 1, "supplemental profile move announces conversion");
+    if let Front::Pending(back) = front {
+        back.run().unwrap();
+    }
+    let (count, front) = run_front(&with_profile);
+    assert_eq!(count, 0, "subsequent restart with migrated profile converts nothing");
+    assert!(matches!(front, Front::Complete(_)));
+}
+
 pub(crate) fn corpus() -> PathBuf {
     std::env::var_os("MIXDOG_MIGRATION_CORPUS").map(PathBuf::from).expect("MIXDOG_MIGRATION_CORPUS names the migration corpus")
 }

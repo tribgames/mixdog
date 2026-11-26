@@ -544,8 +544,10 @@ html:is([data-mixdog-skin], [data-mixdog-user-theme]) .welcome-logo {
 }
 /* Turn rhythm: the LAST paragraph's bottom margin stacked on the thread's
    16px row gap and read as a two-line hole between turns — collapse
-   it so turn-to-turn spacing is the single 16px gap. */
-.message-body p:last-child {
+   it so turn-to-turn spacing is the single 16px gap. A reply's paragraph is
+   alone in its `.markdown-unit`, so only the reply's last one is reset
+   (22-markdown.css). */
+.message-body p:last-child:not(.markdown-unit > p) {
   margin-bottom: 0;
 }
 .message {

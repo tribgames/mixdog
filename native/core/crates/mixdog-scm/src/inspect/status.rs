@@ -5,6 +5,7 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every blocking std::fs call in this module is the body of a lane job")]
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -529,6 +530,65 @@ async fn read_numstat(git: &Git, cancel: &CancellationToken, cwd: &Path, args: &
 
 const STAGED_NUMSTAT: [&str; 5] = ["--no-optional-locks", "diff", "--cached", "--numstat", "-z"];
 const UNSTAGED_NUMSTAT: [&str; 4] = ["--no-optional-locks", "diff", "--numstat", "-z"];
+const WORKTREE_DIFF_NAMES: [&str; 4] = ["--no-optional-locks", "diff", "--name-only", "-z"];
+
+/// The tracked paths whose work-tree copy differs in content from the index (`git diff --name-only`); `None` when the
+/// read failed (only a deadline is an error), so nothing is taken as unchanged on it.
+pub(crate) async fn worktree_content_changes(git: &Git, cancel: &CancellationToken, cwd: &Path) -> Result<Option<HashSet<String>>, ScmFailure> {
+    match git.text(cancel, cwd, &WORKTREE_DIFF_NAMES, &RunOptions::read()).await {
+        Ok(text) => Ok(Some(text.split('\0').filter(|path| !path.is_empty()).map(str::to_owned).collect())),
+        Err(failure @ ScmFailure::TimedOut { .. }) => Err(failure),
+        Err(_) => Ok(None),
+    }
+}
+
+/// Git's status reports a tracked file's work tree as modified on its stat check alone, as when the attributes normalize
+/// its line endings away: `git diff` then finds no content difference in it.
+fn stat_only_change(worktree: &str, path: &str, changed: &HashSet<String>) -> bool {
+    worktree == "M" && !changed.contains(path)
+}
+
+/// The files with a content difference: a stat-only work-tree change reads as unmodified, and a file with nothing staged
+/// either leaves the list, as it holds nothing to commit.
+fn without_stat_only_changes(files: &mut Vec<GitFileEntry>, changed: &HashSet<String>) {
+    files.retain_mut(|file| {
+        if file.untracked || file.conflicted || !stat_only_change(&file.worktree, &file.path, changed) {
+            return true;
+        }
+        file.worktree = " ".to_owned();
+        file.index != " "
+    });
+}
+
+/// `status --short --branch -z` records as plain lines, by the same rule as the status list, so a request's status
+/// agrees with its scope; `changed` is `None` when its read failed.
+pub(crate) fn short_status_lines(records: &str, changed: Option<&HashSet<String>>) -> String {
+    let mut lines = Vec::new();
+    let mut records = records.split('\0').filter(|record| !record.is_empty());
+    while let Some(record) = records.next() {
+        if record.starts_with("## ") {
+            lines.push(record.to_owned());
+            continue;
+        }
+        let (Some(index), Some(worktree), Some(path)) = (record.get(..1), record.get(1..2), record.get(3..)) else {
+            continue;
+        };
+        // A rename or copy names its origin in the record after it.
+        let from = if index == "R" || index == "C" { records.next() } else { None };
+        let mut worktree = worktree;
+        if changed.is_some_and(|changed| stat_only_change(worktree, path, changed)) {
+            if index == " " {
+                continue;
+            }
+            worktree = " ";
+        }
+        lines.push(match from {
+            Some(from) => format!("{index}{worktree} {from} -> {path}"),
+            None => format!("{index}{worktree} {path}"),
+        });
+    }
+    lines.join("\n")
+}
 
 #[cfg(test)]
 mod tests {
@@ -549,6 +609,25 @@ u UU N... 100644 100644 100644 100644 aaa bbb ccc conflict.txt\0\
         assert_eq!(parsed.files[1].old_path.as_deref(), Some("old name.txt"));
         assert!(parsed.files[2].conflicted);
         assert!(parsed.files[3].untracked);
+    }
+
+    /// A file `git status` lists as modified only on its stat check (`git diff` finds no content difference, as for line
+    /// endings the attributes normalize away) holds nothing to commit: it leaves the list and the request's status text.
+    #[test]
+    fn a_stat_only_work_tree_change_is_not_a_change() {
+        let text = "# branch.head main\0\
+1 .M N... 100644 100644 100644 aaa aaa eol.rs\0\
+1 .M N... 100644 100644 100644 bbb bbb edited.rs\0\
+1 MM N... 100644 100644 100644 ccc ddd staged.rs\0";
+        let changed: HashSet<String> = ["edited.rs".to_owned()].into();
+        let mut parsed = parse_porcelain(text);
+        without_stat_only_changes(&mut parsed.files, &changed);
+        let kept: Vec<_> = parsed.files.iter().map(|f| (f.path.as_str(), f.index.as_str(), f.worktree.as_str())).collect();
+        assert_eq!(kept, [("edited.rs", " ", "M"), ("staged.rs", "M", " ")]);
+        let short = "## main...origin/main\0 M eol.rs\0 M edited.rs\0MM staged.rs\0R  new.rs\0old.rs\0?? new.txt\0";
+        assert_eq!(short_status_lines(short, Some(&changed)), "## main...origin/main\n M edited.rs\nM  staged.rs\nR  old.rs -> new.rs\n?? new.txt");
+        // A failed diff read takes nothing away.
+        assert_eq!(short_status_lines(" M eol.rs\0", None), " M eol.rs");
     }
 
     #[test]
@@ -756,7 +835,7 @@ pub async fn node_status(
     let eager = collect && !reuse_line_stats;
     git.prepare(cancel).await?;
     // Every read starts at once, in this order, and a failed one leaves the others running (Promise.all semantics of the pane).
-    let (porcelain, staged, unstaged, remotes, root, operation) = tokio::join!(biased;
+    let (porcelain, staged, unstaged, remotes, root, operation, changed) = tokio::join!(biased;
         git.text(
             cancel,
             cwd,
@@ -784,6 +863,7 @@ pub async fn node_status(
                 Err(_) => Ok(None),
             }
         },
+        worktree_content_changes(git, cancel, cwd),
     );
     let porcelain = match porcelain {
         Ok(text) => text,
@@ -797,6 +877,9 @@ pub async fn node_status(
         return Ok(not_a_repository());
     }
     let mut parsed = parse_porcelain(&porcelain);
+    if let Some(changed) = changed? {
+        without_stat_only_changes(&mut parsed.files, &changed);
+    }
     if collect {
         let key = cache_key(cwd);
         let signature = parsed

@@ -16,6 +16,8 @@ use std::future::Future;
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 
 use mixdog_rt::CancellationToken;
@@ -55,11 +57,13 @@ pub struct Lanes {
 }
 
 /// Where startup shows its progress (LR §3 steps 3 and 5).
-pub trait Publish {
+pub trait Publish: Send + Sync {
     /// The verdict blocks: publish it on discovery and answer it on the control listener.
-    fn blocked(&mut self, blocked: &Blocked);
-    /// The barrier stands; the migration starts (`state:"migrating"`).
-    fn migrating(&mut self);
+    fn blocked(&self, blocked: &Blocked);
+    /// The prior owner is gone and the barrier stands; clear a published `blocked` state back to `booting`.
+    fn unblocked(&self);
+    /// Earlier-version data is being converted (`state:"migrating"`).
+    fn migrating(&self);
 }
 
 /// Startup finished: the lock is held, the barrier is installed and pinned, the migration is
@@ -100,13 +104,15 @@ pub enum StartupError {
 
 /// Runs the startup sequence. With `L` held, preserve legacy discovery before
 /// `init` publishes `booting`. The verdict runs after the control listener is
-/// up so it can be answered. The migration runs only after the barrier.
+/// up so it can be answered. The migration runs only after the barrier, and
+/// publishes `migrating` only when it invokes the callback before converting
+/// earlier-version data.
 pub async fn start(
     startup: Startup,
     lanes: Lanes,
-    publish: &mut dyn Publish,
+    publish: Arc<dyn Publish>,
     init: impl Future<Output = Result<(), String>>,
-    migrate: impl FnOnce() -> Result<(), String> + Send + 'static,
+    migrate: impl FnOnce(Arc<dyn Fn() + Send + Sync>) -> Result<(), String> + Send + 'static,
 ) -> Result<Started, StartupError> {
     let cancel = CancellationToken::new();
     let ownership = {
@@ -137,6 +143,7 @@ pub async fn start(
     };
     init.await.map_err(StartupError::Init)?;
     let mut decided = Vec::new();
+    let mut was_blocked = false;
     loop {
         let (returned, step) = lanes
             .durability
@@ -157,6 +164,7 @@ pub async fn start(
             GateStep::Clear => break,
             GateStep::Blocked(blocked) => blocked,
         };
+        was_blocked = true;
         publish.blocked(&blocked);
         let waiting = interrupt.clone();
         let wake = lanes
@@ -173,10 +181,18 @@ pub async fn start(
             }
         }
     }
-    publish.migrating();
+    if was_blocked {
+        publish.unblocked();
+    }
+    let announced = AtomicBool::new(false);
+    let on_migrating: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+        if !announced.swap(true, Ordering::SeqCst) {
+            publish.migrating();
+        }
+    });
     lanes
         .maintenance
-        .submit(&cancel, move |_| migrate())
+        .submit(&cancel, move |_| migrate(on_migrating))
         .map_err(|_| StartupError::Lane)?
         .await
         .map_err(|_| StartupError::Lane)?
@@ -202,7 +218,6 @@ pub fn require_migration_barrier(lane: &mixdog_rt::InLane<DurabilityIo>, ownersh
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
-    use std::sync::atomic::AtomicBool;
     use std::sync::atomic::Ordering::SeqCst;
 
     use super::*;
@@ -214,21 +229,31 @@ mod tests {
 
     #[derive(Default)]
     struct Log {
-        events: Vec<String>,
+        events: Mutex<Vec<String>>,
+    }
+
+    impl Log {
+        fn events(&self) -> Vec<String> {
+            self.events.lock().unwrap().clone()
+        }
     }
 
     impl Publish for Log {
-        fn blocked(&mut self, blocked: &Blocked) {
+        fn blocked(&self, blocked: &Blocked) {
             let kind = match blocked.kind {
                 BlockedKind::WaitExit => "waitExit",
                 BlockedKind::WaitClaim => "waitClaim",
                 BlockedKind::Undecidable => "undecidable",
             };
-            self.events.push(format!("blocked:{kind}"));
+            self.events.lock().unwrap().push(format!("blocked:{kind}"));
         }
 
-        fn migrating(&mut self) {
-            self.events.push("migrating".into());
+        fn unblocked(&self) {
+            self.events.lock().unwrap().push("unblocked".into());
+        }
+
+        fn migrating(&self) {
+            self.events.lock().unwrap().push("migrating".into());
         }
     }
 
@@ -261,25 +286,26 @@ mod tests {
         let (config, _release) = startup(&temp);
         let order = Arc::new(Mutex::new(Vec::<&'static str>::new()));
         let (seen, migrating) = (order.clone(), order.clone());
-        let mut log = Log::default();
+        let log = Arc::new(Log::default());
         let init = async move {
             assert!(matches!(ownership::acquire(&data), Err(AcquireError::AlreadyOwned)), "init ran before L");
             seen.lock().unwrap().push("init");
             Ok(())
         };
-        start(config, lanes(), &mut log, init, move || {
+        start(config, lanes(), log.clone(), init, move |_| {
             migrating.lock().unwrap().push("migrate");
             Ok(())
         })
         .await
         .expect("start");
         assert_eq!(*order.lock().unwrap(), ["init", "migrate"]);
+        assert!(log.events().is_empty(), "a no-op migration does not publish migrating");
 
         let temp = TempData::new();
         let (config, _release) = startup(&temp);
         let ran = Arc::new(AtomicBool::new(false));
         let flag = ran.clone();
-        let outcome = start(config, lanes(), &mut Log::default(), async { Err("listener".into()) }, move || {
+        let outcome = start(config, lanes(), Arc::new(Log::default()), async { Err("listener".into()) }, move |_| {
             flag.store(true, SeqCst);
             Ok(())
         })
@@ -295,7 +321,11 @@ mod tests {
     async fn a_start_that_fails_mid_migration_is_followed_by_one_that_succeeds() {
         let temp = TempData::new();
         let (config, _release) = startup(&temp);
-        let outcome = start(config, lanes(), &mut Log::default(), ok_init(), || Err("journal".into())).await;
+        let outcome = start(config, lanes(), Arc::new(Log::default()), ok_init(), |on_migrating| {
+            on_migrating();
+            Err("journal".into())
+        })
+        .await;
         assert!(matches!(outcome, Err(StartupError::Migration(ref why)) if why == "journal"));
         let barrier = temp.file(CLAIM_LOCK_FILE).expect("B stands after the failed start");
         assert!(String::from_utf8_lossy(&barrier).contains(BARRIER_TOKEN_PREFIX));
@@ -303,16 +333,29 @@ mod tests {
         let (config, _release) = startup(&temp);
         let migrated = Arc::new(AtomicBool::new(false));
         let flag = migrated.clone();
-        let mut log = Log::default();
-        let started = start(config, lanes(), &mut log, ok_init(), move || {
+        let log = Arc::new(Log::default());
+        let started = start(config, lanes(), log.clone(), ok_init(), move |on_migrating| {
+            on_migrating();
+            on_migrating();
             flag.store(true, SeqCst);
             Ok(())
         })
         .await
         .expect("the second start");
-        assert_eq!(log.events, ["migrating"]);
+        assert_eq!(log.events(), ["migrating"]);
         assert!(migrated.load(SeqCst));
         assert!(matches!(ownership::acquire(&temp.data()), Err(AcquireError::AlreadyOwned)), "L is held for the core's life");
+        drop(started);
+    }
+
+    /// Ordinary starts with nothing to convert never publish `migrating`.
+    #[tokio::test]
+    async fn a_start_with_nothing_to_convert_does_not_publish_migrating() {
+        let temp = TempData::new();
+        let (config, _release) = startup(&temp);
+        let log = Arc::new(Log::default());
+        let started = start(config, lanes(), log.clone(), ok_init(), |_on_migrating| Ok(())).await.expect("start");
+        assert!(log.events().is_empty());
         drop(started);
     }
 }

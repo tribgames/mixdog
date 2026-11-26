@@ -15,7 +15,7 @@ fn steer_row_body(input: &SteerInput, stage: DrainStage, now_ms: i64) -> Option<
         message_id: input.message_id.clone(),
         originals_missing: input.originals_missing,
         transcript_meta: input.transcript_meta.clone(),
-        mode: input.mode.clone(),
+        mode: input.mode,
         execution: input.execution.clone(),
     };
     let merged = mixdog_agent::steer::normalize(&entry)?;
@@ -537,7 +537,7 @@ impl SessionActor {
         now_ms: i64,
         cancel: CancellationToken,
         gate: Arc<super::super::run::SteerConsumeGate>,
-        reply: oneshot::Sender<Result<(Vec<SteerInput>, Option<oneshot::Receiver<Result<(), RunError>>>), RunError>>,
+        reply: super::super::run::SteerConsumeReply,
     ) {
         if !self.active(&turn) || qids.is_empty() {
             let _ = reply.send(Ok((Vec::new(), None)));
@@ -610,7 +610,7 @@ impl SessionActor {
         cancel: CancellationToken,
         gate: Arc<super::super::run::SteerConsumeGate>,
         prepared: Result<Vec<(Vec<QueuedId>, Value, RowFacts)>, CoreError>,
-        reply: oneshot::Sender<Result<(Vec<SteerInput>, Option<oneshot::Receiver<Result<(), RunError>>>), RunError>>,
+        reply: super::super::run::SteerConsumeReply,
     ) {
         if !self.active(&turn) || qids.is_empty() {
             let _ = reply.send(Ok((Vec::new(), None)));

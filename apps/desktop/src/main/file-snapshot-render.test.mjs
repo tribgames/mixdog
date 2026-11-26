@@ -9,6 +9,7 @@ const sessionFake = {
   protocol: { handle() {} },
   async clearData() {},
   setPermissionRequestHandler() {},
+  setPermissionCheckHandler() {},
   webRequest: {
     onBeforeRequest: (_filter, listener) => {
       beforeRequestListener = listener;

@@ -179,6 +179,11 @@ pub fn run(data: &Path) -> Result<()> {
 
 /// Same fault seam as the profile supplement: tests cut a durable step, then resume the recorded plan.
 pub fn run_with(data: &Path, fault: &dyn Fn(&str) -> Result<()>) -> Result<()> {
+    run_with_progress(data, fault, &|| {})
+}
+
+/// [`run_with`], calling `on_converting` once before adopting earlier-version desktop connection files.
+pub fn run_with_progress(data: &Path, fault: &dyn Fn(&str) -> Result<()>, on_converting: &dyn Fn()) -> Result<()> {
     let mut journal = match durable::read_optional(&data.join(MARKER))? {
         Some(bytes) => serde_json::from_slice::<Journal>(&bytes).map_err(|error| Blocked::journal(format!("connections-adoption: {error}")))?,
         None => {
@@ -195,6 +200,9 @@ pub fn run_with(data: &Path, fault: &dyn Fn(&str) -> Result<()>) -> Result<()> {
     validate(&journal)?;
     if journal.complete && !reopen_for_new_evidence(data, &mut journal, fault)? {
         return Ok(());
+    }
+    if journal.families.iter().any(|family| !family.settled && family.copies.iter().any(|copy| copy.root == Root::Desktop)) {
+        on_converting();
     }
     archive_every_source(data, &mut journal, fault)?;
     publish_unsettled_families(data, &mut journal, fault)?;

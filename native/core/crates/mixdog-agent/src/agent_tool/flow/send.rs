@@ -100,10 +100,10 @@ fn effective_target_window(target: &Value, config: &Obj) -> Option<f64> {
         return Some(window);
     }
     let obj = target.as_object()?;
-    if target.get("contextWindow").is_some() || target.get("maxContextWindow").is_some() {
-        if let Some(window) = resolve_route_context_state(obj, Some(target)).selected_context_window {
-            return Some(window);
-        }
+    if (target.get("contextWindow").is_some() || target.get("maxContextWindow").is_some())
+        && let Some(window) = resolve_route_context_state(obj, Some(target)).selected_context_window
+    {
+        return Some(window);
     }
     let raw_provider = clean(target.get("provider"));
     let canonical = mixdog_ai::service::routes::canonical_route_provider(&raw_provider);

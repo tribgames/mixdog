@@ -965,6 +965,16 @@ test('completing a long-running shell tool more than 16 items back notifies urge
   store.clear();
 });
 
+test('older history read in above the window waits for the frame; a tool landing under it does not', () => {
+  const tool = (id) => ({ id, kind: 'tool', name: 'read', count: 1, completedCount: 1, result: 'ok' });
+  const text = (id) => ({ id, kind: 'assistant', text: id });
+  const window = { sessionId: 'older', busy: false, items: [text('a1'), tool('t1'), text('a2')] };
+  const older = { ...window, items: [text('a0'), tool('t0'), ...window.items] };
+  assert.equal(laneUpdateIsUrgent(window, older), false, 'a page above shifts the items, changing none');
+  const landed = { ...older, items: [...older.items, tool('t2')] };
+  assert.equal(laneUpdateIsUrgent(window, landed), true, 'a tool under the window is urgent');
+});
+
 test('closing and unsubscribing a deleted lane still rejects late previews', () => {
   const store = createSessionLaneStore({ decorator });
   store.setShownSessionIds(['gone-1']);

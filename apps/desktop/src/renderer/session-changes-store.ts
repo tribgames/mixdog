@@ -242,11 +242,21 @@ function pruneEvictedTurnPatches(): void {
   }
 }
 
-function measureChangesEntry(entry: ChangesEntry, key: string): number {
-  let chars = key.length + entry.root.length + entry.base.length + 256;
-  for (const row of entry.rows) {
-    chars += row.path.length + row.oldPath.length + inlineBytes(row) + 96;
+const rowListChars = new WeakMap<readonly SessionDiffRow[], number>();
+/** A row list's size, measured once per list: an entry republished with the same rows (a loading flag) is not a pass
+ *  over them. */
+function measureRowList(rows: readonly SessionDiffRow[]): number {
+  let chars = rowListChars.get(rows);
+  if (chars === undefined) {
+    chars = 0;
+    for (const row of rows) chars += row.path.length + row.oldPath.length + inlineBytes(row) + 96;
+    rowListChars.set(rows, chars);
   }
+  return chars;
+}
+
+function measureChangesEntry(entry: ChangesEntry, key: string): number {
+  const chars = key.length + entry.root.length + entry.base.length + 256 + measureRowList(entry.rows);
   return Math.min(ENTRIES_CACHE_MAX_CHARS, chars);
 }
 

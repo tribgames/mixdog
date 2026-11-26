@@ -575,7 +575,7 @@ async fn begin(
         return Err((TurnEnd::Failed { message: why, code: None, reported: false }, true));
     }
     // Reject prompts with no sendable candidate parts before compaction, opening a new session, or running handover.
-    let known_images = agents.running(&thread).filter(|running| running.preset.id == preset.id).map_or(true, |running| running.images);
+    let known_images = agents.running(&thread).filter(|running| running.preset.id == preset.id).is_none_or(|running| running.images);
     if !has_candidate_parts(&input, known_images) {
         let (_, left_out, _) = prompt_blocks(&input, (known_images, false), attachments.as_ref()).await;
         left_out.notify(surface.as_ref(), &preset.label, known_images).await;

@@ -8,6 +8,7 @@ import {
   type ComposerAttachment,
   type ComposerHistoryEntry,
 } from './composer-support';
+import { withoutIslandGitRequests } from './island-git-request-text';
 import { asRecord } from './text-format';
 
 export function useComposerHistory({
@@ -29,11 +30,11 @@ export function useComposerHistory({
   }, [historyScope]);
   const entries = useMemo<ComposerHistoryEntry[]>(() => {
     const engineHistory: ComposerHistoryEntry[] = (Array.isArray(promptHistoryList) ? promptHistoryList : [])
-      .map((entry) =>
-        typeof entry === 'string'
-          ? { text: entry }
-          : { text: String(asRecord(entry)?.text || asRecord(entry)?.displayText || '') }
-      )
+      .map((entry) => ({
+        text: withoutIslandGitRequests(
+          typeof entry === 'string' ? entry : String(asRecord(entry)?.text || asRecord(entry)?.displayText || '')
+        ),
+      }))
       .filter((entry) => entry.text.trim());
     const seen = new Set<string>();
     return [...persistedHistory, ...engineHistory]

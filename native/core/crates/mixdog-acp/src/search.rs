@@ -149,6 +149,7 @@ impl SearchSandbox {
         Self { path, files, state: Arc::new(std::sync::Mutex::new(SandboxState::Ready)) }
     }
 
+    #[allow(clippy::result_large_err)]
     async fn create(path: AbsPath, files: Arc<dyn TextFiles>) -> Result<Self, AcpSearchError> {
         let state = Arc::new(std::sync::Mutex::new(SandboxState::Creating { remove_after: false }));
         let sandbox = Self { path: path.clone(), files: files.clone(), state: state.clone() };
@@ -277,6 +278,7 @@ struct RegisteredSearchSession {
 }
 
 impl RegisteredSearchSession {
+    #[allow(clippy::result_large_err)]
     fn register(
         agents: Arc<Agents>,
         thread_id: ThreadId,
@@ -332,12 +334,14 @@ impl AgentWebSearch {
         Arc::new(Self { agents })
     }
 
+    #[allow(clippy::result_large_err)]
     async fn create_sandbox(&self) -> Result<SearchSandbox, AcpSearchError> {
         let dir = self.agents.parts.data_dir.join(SEARCH_SANDBOX_DIR).join(format!("pid-{}-{}", std::process::id(), uuid::Uuid::new_v4().simple()));
         let path = AbsPath::new(dir).ok_or_else(|| AcpSearchError::failed("could not create an isolated sandbox directory for ACP web search"))?;
         SearchSandbox::create(path, self.agents.parts.files.clone()).await
     }
 
+    #[allow(clippy::result_large_err)]
     async fn open_search_session(
         &self,
         preset: &AgentPreset,
@@ -595,6 +599,7 @@ impl AcpSearchBackend for AgentWebSearch {
 ///
 /// `OwnToolsOff::AgentFile` presets cannot disable non-search built-ins without Mixdog tool
 /// handover (`handed: None`), so they are excluded from search-only sessions fail-closed.
+#[allow(clippy::result_large_err)]
 pub(crate) fn search_only_preset(preset: &AgentPreset) -> Result<AgentPreset, AcpSearchError> {
     if matches!(preset.own_tools_off, Some(OwnToolsOff::AgentFile(_))) {
         return Err(AcpSearchError::unavailable(format!(
@@ -1729,7 +1734,7 @@ fn extract_sources_from_text(text: &str) -> Vec<NativeSource> {
         let start = search_from + offset;
         let rest = &text[start..];
         let end = scan_bare_url_end(rest);
-        let candidate = rest[..end].trim_end_matches(|ch: char| matches!(ch, '.' | ',' | ';' | ':' | '!' | '?'));
+        let candidate = rest[..end].trim_end_matches(['.', ',', ';', ':', '!', '?']);
         if let Some(url) = normalize_http_url(candidate)
             && seen_urls.insert(url.clone())
         {
@@ -1780,6 +1785,7 @@ fn classify_reported_failure(quirks: &Quirks, message: String, data: Option<Stri
     TurnEnd::Failed { message: full, code, reported: true }
 }
 
+#[allow(clippy::result_large_err)]
 pub(crate) fn map_turn_outcome(
     end: TurnEnd,
     provider: &str,

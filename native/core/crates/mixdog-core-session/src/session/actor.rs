@@ -4039,9 +4039,9 @@ impl SessionActor {
             let _ = self.feed.publish_deferred(&frames);
         } else {
             let view = Arc::new(self.view());
+            self.cell.view.store(view.clone());
             // The actor is the feed's only producer and assigns contiguous seqs.
-            let _ = self.feed.publish(&frames, Some(view.clone()));
-            self.cell.view.store(view);
+            let _ = self.feed.publish(&frames, Some(view));
             self.deferred_frames = 0;
             self.view_built_ms = now;
             // The history change is out: no frame of the new lineage is delivered by a grant of the old one.

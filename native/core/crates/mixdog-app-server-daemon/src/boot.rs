@@ -4,7 +4,7 @@
 //! 2. the control listener and the `booting` discovery (`serving::begin`, run as `startup::start`'s `init`);
 //! 3. the prior-owner verdict, a blocked one published on the lifecycle (discovery and the control listener answer it);
 //! 4. barrier `B`;
-//! 5. the migration's front (`mixdog_migrate::run::cli::front`, the roots of `mixdogd migrate`), the lifecycle `migrating` while it runs: the plan and everything but the
+//! 5. the migration's front (`mixdog_migrate::run::cli::front_with`, the roots of `mixdogd migrate`), publishing lifecycle `migrating` only when earlier-version data is actually converted: the plan and everything but the
 //!    sessions. The sessions convert behind the serving core ([`Behind`]), so a first start after the update does not wait for them.
 //!
 //! Step 6 (composition, then the RPC listener and `serving`) is `serve`'s.
@@ -79,13 +79,19 @@ impl LifecyclePublish {
 }
 
 impl Publish for LifecyclePublish {
-    fn blocked(&mut self, blocked: &Blocked) {
+    fn blocked(&self, blocked: &Blocked) {
         if let Err(error) = self.lifecycle().set_blocked(lifecycle_blocked(blocked)) {
             tracing::error!(%error, "the blocked verdict could not be published");
         }
     }
 
-    fn migrating(&mut self) {
+    fn unblocked(&self) {
+        if let Err(error) = self.lifecycle().set_booting() {
+            tracing::error!(%error, "the cleared verdict could not be published");
+        }
+    }
+
+    fn migrating(&self) {
         // The migration reports no progress while it runs (`Migrator::run` returns `Complete`), so the counts are not known.
         if let Err(error) = self.lifecycle().set_migrating(Migration { kind: "migration".to_owned(), done: 0, total: 0 }) {
             tracing::error!(%error, "the migration could not be published");
@@ -469,7 +475,13 @@ impl Behind {
 }
 /// The migration's front on its own thread: its office extractor drives the extension host with the runtime's handle (`block_on`), which a lane job running on a worker may not do.
 /// The host it uses is its own, closed when the migration ends; the core's starts later. `None`: the migration is complete.
-fn migrate_data(data_dir: &Path, host: ExtHostConfig, tokens: LaneTokens, runtime: &tokio::runtime::Handle) -> Result<Option<Behind>, String> {
+fn migrate_data(
+    data_dir: &Path,
+    host: ExtHostConfig,
+    tokens: LaneTokens,
+    runtime: &tokio::runtime::Handle,
+    on_migrating: Arc<dyn Fn() + Send + Sync>,
+) -> Result<Option<Behind>, String> {
     std::thread::scope(|scope| {
         scope
             .spawn(|| {
@@ -502,7 +514,7 @@ fn migrate_data(data_dir: &Path, host: ExtHostConfig, tokens: LaneTokens, runtim
                         })
                     }),
                 };
-                match mixdog_migrate::run::cli::front(roots, projector.clone(), office, options) {
+                match mixdog_migrate::run::cli::front_with(roots, projector.clone(), office, options, &|| on_migrating()) {
                     Ok(Front::Pending(back)) => {
                         let homes = back.home_evidence(mixdog_core_session::session::agent_evidence::HomeEvidence::from_history);
                         let legacy_homes = match homes {
@@ -556,8 +568,8 @@ pub async fn boot(tokens: &LaneTokens, data_dir: &Path, host: ExtHostConfig, giv
     let migrate = {
         let (data_dir, runtime, behind) = (data_dir.to_path_buf(), tokio::runtime::Handle::current(), behind.clone());
         let tokens = *tokens;
-        move || {
-            let left = migrate_data(&data_dir, host, tokens, &runtime)?;
+        move |on_migrating| {
+            let left = migrate_data(&data_dir, host, tokens, &runtime, on_migrating)?;
             *behind.lock().unwrap_or_else(PoisonError::into_inner) = left;
             Ok(())
         }
@@ -576,7 +588,7 @@ pub async fn boot(tokens: &LaneTokens, data_dir: &Path, host: ExtHostConfig, giv
     let started = crate::startup::start(
         Startup { data_dir: data_dir.to_path_buf(), discovery_path, record, interrupt: interrupt.clone(), releases },
         Lanes { durability: tokens.durability_io, maintenance: tokens.maintenance_io },
-        &mut LifecyclePublish(lifecycle.clone()),
+        Arc::new(LifecyclePublish(lifecycle.clone())),
         init,
         migrate,
     )

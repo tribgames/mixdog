@@ -802,6 +802,7 @@ impl Discovery {
     }
 
     /// Atomically validates `view_id` and snapshots its retained `(Candidate, Option<Meta>)` entries.
+    #[allow(clippy::type_complexity)]
     fn require_view_entries(&self, view_id: &str) -> Result<(View, Vec<(Candidate, Option<Meta>)>), ImportError> {
         let mut state = self.state.lock().unwrap();
         Self::prune_expired_views(&mut state);

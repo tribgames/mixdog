@@ -464,6 +464,18 @@ test('a table in view always shows its content', async (t) => {
     assert.deepEqual(errors, []);
   });
 
+  await t.test('paragraphs of the reply keep the block gap between them', async (t) => {
+    const { page, errors } = await openReply(t, browser, assets, { session: 'block-gap' });
+    await page.evaluate('window.scrollToRatio(0)');
+    const gap = await page.evaluate(`(() => {
+      const [first, second] = document.querySelectorAll('.markdown > .markdown-unit > p');
+      return second.getBoundingClientRect().top - first.getBoundingClientRect().bottom;
+    })()`);
+    // `.message-body p` (12-transcript.css): one 14px block-gap unit.
+    assert.equal(gap, 14);
+    assert.deepEqual(errors, []);
+  });
+
   await t.test('the turn ends with the table on screen', async (t) => {
     // Once the table streamed in, the reader holds it in view to the end.
     const holdFrom = Math.ceil(REPLY.indexOf(AFTER_TABLE) / 60) + 2;

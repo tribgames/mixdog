@@ -465,7 +465,7 @@ mod tests {
             if strips.borrow().is_empty() {
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
         }
         assert!(strips.borrow().is_empty(), "empty strip entry is pruned once published");
 

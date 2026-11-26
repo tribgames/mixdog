@@ -673,7 +673,7 @@ impl ProviderAdapter for CursorAdapter {
         catalog
             .iter()
             .find(|m| m.id == selection.model_id || m.aliases.contains(&selection.model_id) || base.is_some_and(|id| m.id == id))
-            .map_or(true, |m| !m.vision_known || m.supports_vision)
+            .is_none_or(|m| !m.vision_known || m.supports_vision)
     }
 
     fn codec(&self) -> &dyn WireCodec {

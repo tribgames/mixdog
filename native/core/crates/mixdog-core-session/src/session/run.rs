@@ -589,6 +589,8 @@ mod cancel_tests {
     }
 }
 
+pub(super) type SteerConsumeReply = oneshot::Sender<Result<(Vec<SteerInput>, Option<oneshot::Receiver<Result<(), RunError>>>), RunError>>;
+
 pub(crate) enum ProducerMsg {
     Section(Section),
     ItemStarted {
@@ -641,7 +643,7 @@ pub(crate) enum ProducerMsg {
         now_ms: i64,
         cancel: CancellationToken,
         gate: Arc<SteerConsumeGate>,
-        reply: oneshot::Sender<Result<(Vec<SteerInput>, Option<oneshot::Receiver<Result<(), RunError>>>), RunError>>,
+        reply: SteerConsumeReply,
     },
     FinishConsumeSteers {
         turn: TurnId,
@@ -651,7 +653,7 @@ pub(crate) enum ProducerMsg {
         cancel: CancellationToken,
         gate: Arc<SteerConsumeGate>,
         prepared: Result<Vec<(Vec<QueuedId>, Value, mixdog_protocol::message_class::RowFacts)>, CoreError>,
-        reply: oneshot::Sender<Result<(Vec<SteerInput>, Option<oneshot::Receiver<Result<(), RunError>>>), RunError>>,
+        reply: SteerConsumeReply,
     },
     /// The skills the turn's own prompt loaded (`recordAppliedSkills`): stamped on its input row.
     AppliedSkills {

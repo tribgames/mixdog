@@ -152,6 +152,11 @@ pub fn run(roots: &MigrationRoots) -> Result<SupplementOutcome> {
 
 /// [`run`] with a fault seam: `fault(point)` is called before each step that changes the disk, and an error from it stops the pass there.
 pub fn run_with(roots: &MigrationRoots, fault: &dyn Fn(&str) -> Result<()>) -> Result<SupplementOutcome> {
+    run_with_progress(roots, fault, &|| {})
+}
+
+/// [`run_with`], calling `on_converting` once before any profile file is moved.
+pub fn run_with_progress(roots: &MigrationRoots, fault: &dyn Fn(&str) -> Result<()>, on_converting: &dyn Fn()) -> Result<SupplementOutcome> {
     let data = &roots.data;
     let marker_path = data.join(PROFILE_GEN_PATH);
     let mut marker = match read_marker(&marker_path)? {
@@ -179,6 +184,9 @@ pub fn run_with(roots: &MigrationRoots, fault: &dyn Fn(&str) -> Result<()>) -> R
         marker.items.extend(additions);
         fault("supplement:extend:before")?;
         save(&marker_path, &marker)?;
+    }
+    if marker.items.iter().any(|item| !item.state.done()) {
+        on_converting();
     }
     for index in 0..marker.items.len() {
         while !marker.items[index].state.done() {

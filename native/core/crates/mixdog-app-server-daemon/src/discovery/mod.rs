@@ -547,8 +547,9 @@ impl OwnedDiscovery {
     }
 
     /// Publish once in every phase, but keep automatic publication only while
-    /// ownership has been established. startup::start publishes migrating after
-    /// GateStep::Clear; a blocked verdict has not reached that point.
+    /// ownership has been established. `migrating` is published only after
+    /// `GateStep::Clear` when migration converts earlier-version data; a
+    /// blocked verdict has not reached that point.
     pub fn publish(&self, document: &Discovery) -> io::Result<()> {
         let mut held = self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // Disarm before a fallible stopping/blocked publication as well.

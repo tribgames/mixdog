@@ -208,15 +208,10 @@ async fn follows_main_resolves_antigravity_acp_routes_and_skips_own_orchestratio
     }
 
     // Own-orchestration model on Main is rejected and falls back to the next route in the chain.
-    let cells = HashMap::from([(
-        thread_of(2),
-        json!({ "provider": ANTIGRAVITY, "model": "gemini-pro-orchestrator" }).as_object().unwrap().clone(),
-    )]);
-    let (_dir, host) = host(
-        json!({ "webSearchRoute": { "provider": "default", "model": "default", "fallbacks": [{ "provider": "openai", "model": "gpt-5.2" }] } }),
-        cells,
-    )
-    .await;
+    let cells = HashMap::from([(thread_of(2), json!({ "provider": ANTIGRAVITY, "model": "gemini-pro-orchestrator" }).as_object().unwrap().clone())]);
+    let (_dir, host) =
+        host(json!({ "webSearchRoute": { "provider": "default", "model": "default", "fallbacks": [{ "provider": "openai", "model": "gpt-5.2" }] } }), cells)
+            .await;
     let routes = ConfiguredSearchRoutes::new(host);
     let candidates = routes.candidates(&thread_of(2)).await.unwrap();
     assert_eq!(candidates.len(), 1);

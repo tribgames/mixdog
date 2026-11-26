@@ -362,6 +362,22 @@ fn boot_progress_is_visible_and_a_stop_during_migration_is_refused() {
 }
 
 #[test]
+fn clearing_a_blocked_verdict_returns_to_booting_without_migrating() {
+    let fx = fixture();
+    fx.lifecycle.set_blocked(Blocked::WaitExit { pid: 77 }).unwrap();
+    assert_eq!(fx.lifecycle.status().state, StateName::Blocked);
+    assert!(fx.recorder.published().last().unwrap().blocked.is_some());
+    fx.lifecycle.set_booting().unwrap();
+    assert_eq!(fx.lifecycle.status().state, StateName::Booting);
+    assert!(fx.lifecycle.status().blocked.is_none());
+    let published = fx.recorder.published();
+    assert_eq!(published.last().unwrap().phase, DiscoveryPhase::Booting);
+    assert!(published.last().unwrap().blocked.is_none());
+    fx.lifecycle.set_serving().unwrap();
+    assert!(fx.lifecycle.set_booting().is_err());
+}
+
+#[test]
 fn a_fence_leaves_at_once_with_its_reason() {
     let fx = fixture();
     fx.lifecycle.set_serving().unwrap();

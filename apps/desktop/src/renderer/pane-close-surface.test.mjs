@@ -1,7 +1,24 @@
 import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
 import test from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
+
+// xterm does not load under node: the terminal tab's body is an empty pane, the portal around it the real one. Its
+// import failing whenever it lands would fail whichever test is running then.
+const TERMINAL_PANE_STUB =
+  'export default function TerminalPane() { return null; }' +
+  'export async function disposeTerminalPane() {}' +
+  'export async function prewarmTerminal() { return false; }' +
+  'export function terminalPaintsAtOnce() { return false; }';
+registerHooks({
+  resolve(specifier, context, next) {
+    if (specifier === './TerminalPane' && context.parentURL?.endsWith('/lazy-widgets.ts')) {
+      return { url: `data:text/javascript,${encodeURIComponent(TERMINAL_PANE_STUB)}`, shortCircuit: true };
+    }
+    return next(specifier, context);
+  },
+});
 
 const script = { kind: 'file', project: '/project', rel: 'script.ts' };
 const otherScript = { kind: 'file', project: '/project', rel: 'other.ts' };

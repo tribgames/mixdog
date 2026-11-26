@@ -21,7 +21,7 @@ const call = (id, name, input, output, live = false) => ({
   meta: { status: output === undefined ? 'inProgress' : 'completed', at: 3 },
 });
 const read = (id, path = 'f') => call(id, 'read', { path }, 'out');
-/** A skill load: hidden until its result lands, and for good when the result names a built-in skill. */
+/** A skill load: shown from its start, and hidden for good when its result names a built-in skill. */
 const skill = (id, output, live = false) => call(id, 'skill', { name: 'notes' }, output, live);
 const agent = (id, status = 'completed') => ({
   type: 'subAgentActivity',
@@ -154,26 +154,26 @@ test('a reply streaming after a reconnect to a shorter window keeps the rows, th
   }
 });
 
-test('two hidden skill loads settling in one frame, one joining the load after it and one showing before the agent: the rows of a whole read', () => {
+test('two skill loads settling as built-in in one frame, one leaving its card to the load after it and one leaving the place before the agent: the rows of a whole read', () => {
   const lane = lanes('whole-read-settled-among-shown');
   try {
     lane.follow([user('P')]);
-    // Parallel calls of the turn running, each on a card from its start. An unfinished skill load is hidden: the pane
-    // shows the others.
+    // Parallel calls of the turn running, each on a card from its start: `S` and `T` are one card under `S`, and `U`
+    // shows before `G`.
     lane.start(skill('S', undefined, true));
     lane.complete(skill('T', 'Loaded skill: notes', true));
     lane.complete(call('R', 'read', { path: 'f' }, 'out', true));
     lane.start(skill('U', undefined, true));
     lane.complete(agent('G'));
     lane.publish();
-    assert.deepEqual(lane.whole(), ['P', 'T', 'R', 'G']);
-    assert.deepEqual(lane.carried(), lane.whole());
-    // Both loads finish before the next frame: `S` and `T` are one card under `S`, and `U` shows before `G`. Only `P`
-    // stayed in place, and the rows after it no longer match the rows shown.
-    lane.complete(skill('S', 'Loaded skill: notes', true));
-    lane.complete(skill('U', 'Loaded skill: notes', true));
-    lane.publish();
     assert.deepEqual(lane.whole(), ['P', 'S', 'R', 'U', 'G']);
+    assert.deepEqual(lane.carried(), lane.whole());
+    // Both loads turn out built-in before the next frame and hide: the card is `T`'s, and `U` goes. Only `P` stayed in
+    // place, and the rows after it no longer match the rows shown.
+    lane.complete(skill('S', 'Loaded built-in skill: notes', true));
+    lane.complete(skill('U', 'Loaded built-in skill: notes', true));
+    lane.publish();
+    assert.deepEqual(lane.whole(), ['P', 'T', 'R', 'G']);
     assert.deepEqual(lane.carried(), lane.whole());
     lane.land(reply('done', 'ok'));
     assert.deepEqual(lane.carried(), lane.whole());
@@ -182,18 +182,19 @@ test('two hidden skill loads settling in one frame, one joining the load after i
   }
 });
 
-test('a hidden skill load settling inside a window shown under a head kept above it: the head goes, as in a whole read', () => {
+test('a skill load settling as built-in inside a window shown under a head kept above it: the head goes, as in a whole read', () => {
   const lane = lanes('whole-read-settled-under-head');
   try {
     lane.follow([user('H'), user('P'), skill('S'), read('R')]);
-    assert.deepEqual(lane.whole(), ['H', 'P', 'R']);
+    assert.deepEqual(lane.whole(), ['H', 'P', 'S', 'R']);
     // The window from `P` on, under the ids shown: `H` is kept above it.
     lane.follow([user('P'), skill('S'), read('R')], true);
-    assert.deepEqual(lane.whole(), ['H', 'P', 'R']);
+    assert.deepEqual(lane.whole(), ['H', 'P', 'S', 'R']);
     assert.deepEqual(lane.carried(), lane.whole());
-    // The load finishes: the window is `P`, `S`, `R`, with only `P` in place, and no longer matches the rows shown.
-    lane.land(skill('S', 'Loaded skill: notes'));
-    assert.deepEqual(lane.whole(), ['P', 'S', 'R']);
+    // The load turns out built-in and hides: the window is `P`, `R`, with only `P` in place, and no longer matches the
+    // rows shown.
+    lane.land(skill('S', 'Loaded built-in skill: notes'));
+    assert.deepEqual(lane.whole(), ['P', 'R']);
     assert.deepEqual(lane.carried(), lane.whole());
     lane.land(reply('done', 'ok'));
     assert.deepEqual(lane.carried(), lane.whole());

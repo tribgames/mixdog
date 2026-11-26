@@ -403,7 +403,12 @@ test("each ready preset's card shows its own account's usage, not the other pres
   publishUsageDashboard({
     rows: [reading('acp-antigravity', 'Pro', 40), reading('acp-antigravity-cli', 'Flash', 10)],
   });
-  t.after(() => publishUsageDashboard({ rows: [] }));
+  // An empty dashboard is not published, so the readings are replaced by unmeasured ones.
+  t.after(() =>
+    publishUsageDashboard({
+      rows: ['acp-antigravity', 'acp-antigravity-cli'].map((id) => ({ ...reading(id, '', 0), windows: [] })),
+    })
+  );
   await mount(t, acpAgents(true, official('ready', { version: '1.5.2' }), cli('ready', { version: '1.5.16' })));
   assert.deepEqual(card(memberRow('antigravity')).usage, [['PRO', '40%']]);
   assert.deepEqual(card(memberRow('antigravity-cli')).usage, [['FLASH', '10%']]);
@@ -643,7 +648,14 @@ test('Back on a phone closes a sign-in of steps, the step under way included', a
   await act(async () => pushLogin('fs1', { flowId: 'fs1', state: 'complete' }));
   await act(async () => undefined);
   assert.deepEqual(signInStep(), ['Step 2 of 2', 'Google sign-in for Claude models']);
-  await act(async () => window.dispatchEvent(new window.Event('popstate')));
+  // Back leaves the sign-in's history entry; a popstate that stays on it is not a Back.
+  await act(async () => {
+    const popped = new Promise((resolve) =>
+      window.addEventListener('popstate', () => setTimeout(resolve, 0), { once: true })
+    );
+    history.back();
+    await popped;
+  });
   assert.equal(signInDialog(), null);
   assert.deepEqual(core.calls.slice(-1), [['cancelOAuthProviderLogin', ['fs2']]]);
   assert.equal(core.begun().length, 2);

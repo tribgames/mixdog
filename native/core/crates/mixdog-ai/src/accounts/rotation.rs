@@ -472,6 +472,7 @@ impl AccountRotation {
     /// delay, else the policy's or an inferred five minutes. A 429 that names
     /// no quota counts only on the account's own meters: its advised delay
     /// alone says nothing about the quota.
+    #[allow(clippy::too_many_arguments)]
     async fn judge(
         &self,
         provider: &str,

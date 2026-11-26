@@ -517,7 +517,9 @@ function usePositionedTranscriptWindow<T extends { readonly id?: unknown }>(
       : '';
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-trigger when the session goes live or the window advances.
   useEffect(() => {
-    if (!initialBackfillId) return;
+    // A place opened in this commit's layout (a search hit's jump) is read around instead: a read of the tail sent
+    // first would hold its read back.
+    if (!initialBackfillId || pendingReaderPlace(pane, sessionId)) return;
     move({ kind: 'read', first: initialBackfillId, last: initialBackfillId, end: true });
   }, [initialBackfillId, live, move, sessionId, facts?.version]);
   // The window around a record the pane is to open at and has no rows of.
