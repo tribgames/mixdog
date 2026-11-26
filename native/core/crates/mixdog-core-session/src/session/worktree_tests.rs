@@ -767,7 +767,7 @@ fn the_spawn_admission_is_the_workspace_gate() {
 }
 
 #[cfg(test)]
-mod raw_git_worktree_guards {
+mod raw_git_worktree_guard_tests {
     use std::collections::HashSet;
 
     use mixdog_core_api::domain::common::AbsPath;

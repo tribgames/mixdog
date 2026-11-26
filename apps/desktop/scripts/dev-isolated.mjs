@@ -172,10 +172,20 @@ export function isPidAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
-    return true;
   } catch (error) {
-    return error.code === 'EPERM';
+    if (error.code !== 'EPERM') return false;
   }
+  if (process.platform === 'linux') {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+      const rparen = stat.lastIndexOf(')');
+      const state = rparen >= 0 ? stat.slice(rparen + 1).trim()[0] : null;
+      if (state === 'Z' || state === 'X' || state === 'x') return false;
+    } catch (error) {
+      if (error?.code === 'ENOENT' || error?.code === 'ESRCH') return false;
+    }
+  }
+  return true;
 }
 
 async function readJson(path) {
@@ -2087,11 +2097,17 @@ function waitForLockReleaseOrHolderExit(
   file,
   holder,
   remainingMs,
-  { watchExit = watchProcessExit } = {}
+  {
+    alive = isPidAlive,
+    getCreated = getProcessCreationTimeMs,
+    watchExit = watchProcessExit,
+    platform = process.platform,
+  } = {}
 ) {
   return new Promise((resolveWait, rejectWait) => {
     let settled = false;
     let timer = null;
+    let exitPollTimer = null;
     let procWatcher = { cancel() {} };
     let fsWatcher = null;
     let checking = false;
@@ -2100,6 +2116,7 @@ function waitForLockReleaseOrHolderExit(
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      if (exitPollTimer) clearInterval(exitPollTimer);
       procWatcher.cancel();
       try {
         fsWatcher?.close();
@@ -2144,9 +2161,23 @@ function waitForLockReleaseOrHolderExit(
       try {
         procWatcher = watchExit(holder.pid, (why) => finish(resolveWait, `holder-${why}`));
       } catch (error) {
-        if (!fsWatcher) {
-          finish(rejectWait, error);
-          return;
+        if (platform === 'win32') {
+          if (!fsWatcher) {
+            finish(rejectWait, error);
+            return;
+          }
+        } else {
+          // No exit event exists for another process's pid off Windows: the holder is looked at on an interval.
+          const checkHolder = () => {
+            if (!isSameProcess(holder.pid, holder.created, { alive, getCreated })) {
+              finish(resolveWait, 'holder-exited');
+            }
+          };
+          checkHolder();
+          if (!settled) {
+            exitPollTimer = setInterval(checkHolder, 50);
+            exitPollTimer.unref?.();
+          }
         }
       }
     }
@@ -2201,7 +2232,7 @@ function waitOnLockEndpoint(port, token, remainingMs) {
   });
 }
 
-/** Coordinates concurrent `ensureInstance` calls for the same session/name with zero polling and no spin:
+/** Coordinates concurrent `ensureInstance` calls for the same session/name with no spin (on Windows no polling either):
  *  records `{ pid, created, port, token }` in an exclusive lockfile; stale locks whose holder exited or whose
  *  PID was reused are reclaimed safely; live holders are awaited via `GET /wait`, lock-release fs event, or
  *  holder process exit. Waits have no artificial deadline unless a caller supplies a finite `timeoutMs`. */
@@ -2214,6 +2245,7 @@ export async function withEnsureLock(
     alive = isPidAlive,
     getCreated = getProcessCreationTimeMs,
     watchExit = watchProcessExit,
+    platform = process.platform,
   } = {}
 ) {
   await mkdir(locksDir(root), { recursive: true });
@@ -2325,7 +2357,12 @@ export async function withEnsureLock(
     // Wait for either the lock file to be released/changed (holder keeps running) or the holder process to exit.
     let outcome;
     try {
-      outcome = await waitForLockReleaseOrHolderExit(file, holder, remainingAfterWait, { watchExit });
+      outcome = await waitForLockReleaseOrHolderExit(file, holder, remainingAfterWait, {
+        alive,
+        getCreated,
+        watchExit,
+        platform,
+      });
     } catch (error) {
       throw new Error(
         `Ensure lock ${file} is held by live PID ${holder.pid} whose /wait server failed (${waitError}); ${error.message}`
@@ -2473,7 +2510,6 @@ export async function startInstance({
   }
   if (relay !== 'off' && !LOOPBACK_RELAY.test(relay))
     throw new Error('--relay must be a ws://127.0.0.1:<port> or ws://localhost:<port> URL.');
-  assertSupportedUnitPlatform();
   await sweep(root, { devProfileDir });
   const lease = await acquireLease(root, name, { ttlMs, devProfileDir });
   let current = lease;
@@ -2542,6 +2578,7 @@ export async function startInstance({
     if (coreStaleWarning) console.error(`Warning: ${coreStaleWarning.message}`);
     if (resolvedCore) env.MIXDOGD_BIN = resolvedCore;
     const sourceCoreBinary = assertCoreBinary(env);
+    assertSupportedUnitPlatform();
     const { stagedExe: coreBinary, sourceStamp: coreSourceStamp } = await stageInstanceCore({
       sourceExe: sourceCoreBinary,
       instanceDir,

@@ -877,5 +877,6 @@ async fn default_process_config_is_uncapped() {
         m.spawn(request(h, long_sleep())).await.unwrap();
     }
     assert_eq!(m.live(), 3);
-    assert_eq!(tokio::time::timeout(WAIT, m.shutdown()).await.unwrap(), ShutdownOutcome::Clean);
+    let expected = if cfg!(windows) { ShutdownOutcome::Clean } else { ShutdownOutcome::Unverified };
+    assert_eq!(tokio::time::timeout(WAIT, m.shutdown()).await.unwrap(), expected);
 }

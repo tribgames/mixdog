@@ -372,6 +372,53 @@ test('non-Windows refuses explicitly rather than half-working', () => {
   assert.throws(() => watchProcessExit(1234, () => {}, { platform: 'darwin' }), /not supported/i);
 });
 
+test('Linux /proc creation time parses comm with parens, rejects zombies, and withEnsureLock reclaims holder exit without Win32 watchExit', async (t) => {
+  const procFiles = {
+    '/proc/stat': 'cpu  1 2 3 4\nbtime 1700000000\nprocesses 42\n',
+    // Field 22 (starttime) = 12345 ticks (123450 ms after btime); comm intentionally contains spaces and parens.
+    '/proc/4321/stat':
+      '4321 (node (worker 1)) S 100 4321 100 0 -1 4194304 1 0 0 0 10 5 0 0 20 0 1 0 12345 999999 0\n',
+    '/proc/9999/stat':
+      '9999 (defunct) Z 100 9999 100 0 -1 4194304 1 0 0 0 10 5 0 0 20 0 1 0 12345 999999 0\n',
+  };
+  const readText = (path) => {
+    if (!(path in procFiles)) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    return procFiles[path];
+  };
+  const created = getProcessCreationTimeMs(4321, { platform: 'linux', readText });
+  assert.equal(created, 1_700_000_000_000 + 123_450);
+  assert.equal(getProcessCreationTimeMs(9999, { platform: 'linux', readText }), null, 'zombie process is not live');
+  assert.equal(getProcessCreationTimeMs(8888, { platform: 'linux', readText }), null, 'missing process returns null');
+
+  const root = await tempRoot(t);
+  const lockFile = join(root, 'locks', 'linux-fallback.lock');
+  await mkdir(join(root, 'locks'), { recursive: true });
+  let holderAlive = true;
+  await writeFile(
+    lockFile,
+    JSON.stringify({
+      pid: 4321,
+      created,
+      port: 1,
+      token: 'dead-wait',
+      startedAt: new Date().toISOString(),
+    })
+  );
+  setTimeout(() => {
+    holderAlive = false;
+  }, 80);
+  const result = await withEnsureLock(root, 'linux-fallback', async () => 'acquired-on-linux-fallback', {
+    timeoutMs: 2_000,
+    platform: 'linux',
+    alive: (pid) => (pid === process.pid ? true : pid === 4321 ? holderAlive : false),
+    getCreated: (pid) => (pid === process.pid ? 1 : pid === 4321 && holderAlive ? created : null),
+    watchExit: () => {
+      throw new Error('not supported');
+    },
+  });
+  assert.equal(result, 'acquired-on-linux-fallback');
+});
+
 test('findCargoGateScript reads cargo config, resolveDevCoreBinary checks staleness, and stageInstanceCore copies binary', async (t) => {
   const root = await tempRoot(t);
   const toolsDir = join(root, 'tools');
@@ -395,7 +442,7 @@ test('findCargoGateScript reads cargo config, resolveDevCoreBinary checks stalen
   const srcFile = join(repo, 'native', 'core', 'crates', 'mixdog-cli', 'src', 'main.rs');
   await writeFile(srcFile, 'fn main() {}\n');
   const debugBin = join(targetDir, 'debug', exe);
-  await writeFile(debugBin, 'fake-binary');
+  await writeFile(debugBin, 'fake-binary', { mode: 0o755 });
   const past = new Date(Date.now() - 60_000);
   const now = new Date();
   await utimes(debugBin, past, past);
@@ -406,7 +453,10 @@ test('findCargoGateScript reads cargo config, resolveDevCoreBinary checks stalen
   assert.equal(warned.binary, debugBin);
   assert.ok(warned.staleWarning, 'stale binary produces a structured warning by default');
   assert.equal(warned.staleWarning.newerCount, 1);
-  assert.match(warned.staleWarning.buildCommand, /cargo-gate\.ps1 build/i);
+  assert.match(
+    warned.staleWarning.buildCommand,
+    process.platform === 'win32' ? /cargo-gate\.ps1 build/i : /cargo build /i
+  );
   assert.match(warned.staleWarning.message, /older than 1.*Rebuild with:/i);
 
   // Explicit --require-fresh-core refuses with the build command.
@@ -416,7 +466,7 @@ test('findCargoGateScript reads cargo config, resolveDevCoreBinary checks stalen
     'refuses binary older than its Rust sources when requireFreshCore is true'
   );
   assert.throws(
-    () => assertFreshCoreBinary(debugBin, { repo, gatePath: gateFile }),
+    () => assertFreshCoreBinary(debugBin, { repo, gatePath: gateFile, platform: 'win32' }),
     /cargo-gate\.ps1 build/i
   );
 
@@ -636,7 +686,7 @@ test('ensureInstance enforces session isolation, checks build-input freshness, a
         pid: 5000,
         ppid: 1,
         created: Date.parse(startedAt) + 1000,
-        cmd: `electron.exe ${rB.instanceDir}\\app\\desktop`,
+        cmd: `electron.exe ${join(rB.instanceDir, 'app', 'desktop')}`,
         rssBytes: 150 * 1024 * 1024,
       },
     ],

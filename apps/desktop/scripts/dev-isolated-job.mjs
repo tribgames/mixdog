@@ -1,6 +1,7 @@
 // OS-level process unit containment and event-driven owner-exit watching.
 // Windows: Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE + WaitForSingleObject.async via koffi.
 // Non-Windows: refuses explicitly rather than half-working without an OS process unit or handle wait.
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 
@@ -45,11 +46,46 @@ function loadWin32() {
 }
 
 const FILETIME_UNIX_EPOCH_TICKS = 116444736000000000n;
+const LINUX_USER_HZ = 100;
+let cachedLinuxBootTimeMs = null;
 
-/** Returns the exact process creation time in Unix epoch milliseconds via Win32 GetProcessTimes (no shell spawn),
- *  or null when the PID does not exist or cannot be queried. */
-export function getProcessCreationTimeMs(pid, { platform = process.platform } = {}) {
-  if (platform !== 'win32' || !Number.isInteger(pid) || pid <= 0) return null;
+function readLinuxBootTimeMs(readText) {
+  if (!readText && cachedLinuxBootTimeMs !== null) return cachedLinuxBootTimeMs;
+  const read = readText ?? ((path) => readFileSync(path, 'utf8'));
+  const text = read('/proc/stat');
+  const match = /^btime\s+(\d+)$/m.exec(text);
+  if (!match) return null;
+  const ms = Number(match[1]) * 1000;
+  if (!Number.isFinite(ms)) return null;
+  if (!readText) cachedLinuxBootTimeMs = ms;
+  return ms;
+}
+
+function getLinuxProcessCreationTimeMs(pid, readText) {
+  try {
+    const bootTimeMs = readLinuxBootTimeMs(readText);
+    if (bootTimeMs === null) return null;
+    const read = readText ?? ((path) => readFileSync(path, 'utf8'));
+    const stat = read(`/proc/${pid}/stat`);
+    const rparen = stat.lastIndexOf(')');
+    if (rparen === -1) return null;
+    const fields = stat.slice(rparen + 1).trim().split(/\s+/);
+    if (fields.length <= 19) return null;
+    if (fields[0] === 'Z' || fields[0] === 'X' || fields[0] === 'x') return null;
+    const startTicks = Number(fields[19]);
+    if (!Number.isFinite(startTicks) || startTicks < 0) return null;
+    return bootTimeMs + Math.trunc((startTicks * 1000) / LINUX_USER_HZ);
+  } catch {
+    return null;
+  }
+}
+
+/** Returns the exact process creation time in Unix epoch milliseconds (Win32 GetProcessTimes or Linux /proc/<pid>/stat,
+ *  no shell spawn), or null when the PID does not exist or cannot be queried. */
+export function getProcessCreationTimeMs(pid, { platform = process.platform, readText } = {}) {
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  if (platform === 'linux') return getLinuxProcessCreationTimeMs(pid, readText);
+  if (platform !== 'win32') return null;
   const api = loadWin32();
   const hProc = api.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
   if (!hProc) return null;
