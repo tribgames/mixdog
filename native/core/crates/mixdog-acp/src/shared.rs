@@ -148,6 +148,8 @@ struct State {
     /// What it sent of a session it does not serve while an open is under way, in order: the session being opened
     /// may be that one, which the server tells of before its open is answered.
     parked: Vec<Incoming>,
+    /// The messages it has sent: one that goes on sending is at work, not wedged.
+    heard: u64,
 }
 
 pub(crate) struct SharedServer {
@@ -369,6 +371,11 @@ impl SharedServer {
         }
     }
 
+    /// How many messages the server has sent so far.
+    pub(crate) fn heard(&self) -> u64 {
+        lock(&self.state).heard
+    }
+
     /// Whether `session_id` was detached from this server while a prompt or cancel of it was still open.
     pub(crate) fn is_unclosed(&self, session_id: &str) -> bool {
         lock(&self.state).unclosed.contains(session_id)
@@ -585,6 +592,7 @@ impl SharedServer {
     /// Hands `message` to the session it is of. What names a session that is not open is kept while an open is under
     /// way, for the session being opened may be that one; else it is [`Self::unclaimed`].
     async fn deliver(self: &Arc<Self>, message: Incoming) {
+        lock(&self.state).heard += 1;
         let is_response = matches!(message, Incoming::Response { .. });
         let named = match &message {
             Incoming::Request { id, method, .. } if method != "fs/read_text_file" && method != "session/request_permission" => {

@@ -907,11 +907,25 @@ impl AgentSession {
         };
         let (session_id, answer, remote_guard, restarted, opened_fresh) = match rpc_timeout {
             Some(limit) if limit.is_zero() => return Err(OpenSharedError::TimedOut),
-            Some(limit) => match mixdog_rt::time::timeout(limit, remote_open).await {
-                Ok(Ok(opened)) => opened,
-                Ok(Err(fault)) => return Err(OpenSharedError::Fault(fault)),
-                Err(_) => return Err(OpenSharedError::TimedOut),
-            },
+            // The limit is on a server that says nothing: one that serves its other sessions meanwhile is slow, and
+            // retiring it would end their turns.
+            Some(limit) => {
+                tokio::pin!(remote_open);
+                let mut heard = shared_host.as_ref().map(|shared| shared.heard());
+                loop {
+                    match mixdog_rt::time::timeout(limit, &mut remote_open).await {
+                        Ok(Ok(opened)) => break opened,
+                        Ok(Err(fault)) => return Err(OpenSharedError::Fault(fault)),
+                        Err(_) => {
+                            let now = shared_host.as_ref().map(|shared| shared.heard());
+                            if now == heard {
+                                return Err(OpenSharedError::TimedOut);
+                            }
+                            heard = now;
+                        }
+                    }
+                }
+            }
             None => remote_open.await.map_err(OpenSharedError::Fault)?,
         };
         // A session that does not hold the prompt yet, in an agent whose system prompt takes none: its next prompt carries it.

@@ -3535,6 +3535,84 @@ also (https://en.wikipedia.org/wiki/Actor_model_(computing)).";
         drop(event_tx);
     }
 
+    /// A shared server that goes on serving a sibling while `session/new` takes longer than the open limit is slow,
+    /// not wedged: the open waits for its answer instead of timing out, which would retire the server under the sibling.
+    #[tokio::test]
+    async fn open_on_shared_outlasts_its_limit_while_the_server_serves_a_sibling() {
+        let _ = mixdog_rt::testing::tokens();
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let (written_tx, mut written_rx) = mpsc::unbounded_channel();
+        let killed = Arc::new(AtomicBool::new(false));
+        let manager =
+            Arc::new(ScriptedAgent { events: Mutex::new(Some(event_rx)), written_tx, written_buf: Mutex::new(String::new()), killed: killed.clone() });
+        let agents = test_agents_for_search(Arc::new(TrackingFiles::new()), manager);
+        let official = crate::preset::builtin().into_iter().find(|p| p.id == "antigravity").expect("official preset");
+        let search_preset = search_only_preset(&official).expect("search preset");
+        let program = crate::session::Program::at("fake-agent");
+        let limit = Duration::from_millis(100);
+
+        let driver_tx = event_tx.clone();
+        let driver = tokio::spawn(async move {
+            let mut seq = 0u64;
+            let init = written_rx.recv().await.expect("initialize");
+            emit_json(
+                &driver_tx,
+                &mut seq,
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": init["id"],
+                    "result": {
+                        "protocolVersion": 1,
+                        "agentInfo": { "name": "fake", "version": "1.5.2" },
+                        "agentCapabilities": { "sessionCapabilities": { "close": {} } }
+                    }
+                }),
+            );
+            let new_sess = written_rx.recv().await.expect("session/new");
+            // The sibling's turn goes on for several limits before the open is answered.
+            let began = std::time::Instant::now();
+            while began.elapsed() < limit * 5 {
+                emit_json(
+                    &driver_tx,
+                    &mut seq,
+                    json!({
+                        "jsonrpc": "2.0",
+                        "method": "session/update",
+                        "params": { "sessionId": "sess-sibling", "update": { "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": "." } } }
+                    }),
+                );
+                tokio::task::yield_now().await;
+            }
+            emit_json(&driver_tx, &mut seq, json!({ "jsonrpc": "2.0", "id": new_sess["id"], "result": { "sessionId": "sess-slow-open" } }));
+        });
+
+        let (warm_lease, _) = agents.shared_server_bounded(&official, &program, None).await.expect("shared server");
+        let server = warm_lease.server().clone();
+        let sibling = AgentSession::test_shared_session_for(server.clone(), "sess-sibling");
+        server.register(&sibling);
+        drop(warm_lease);
+
+        let (lease, _) = agents.shared_server_bounded(&official, &program, None).await.expect("shared server");
+        let open = Open {
+            preset: &search_preset,
+            program: &program,
+            cwd: AbsPath::new(std::env::current_dir().unwrap()).unwrap(),
+            definitions: &agents.parts.definitions,
+            stored: None,
+            rules: Some(SEARCH_ONLY_RULES.to_owned()),
+            held: None,
+            grants: Arc::default(),
+            handed: None,
+            temp: None,
+        };
+        let opened = AgentSession::open_on_shared_owned(lease, open, Arc::new(|| {}), Box::new(|| {}), Some(limit)).await;
+        assert!(opened.is_ok(), "a server that serves a sibling meanwhile is not timed out");
+        assert!(!killed.load(Ordering::SeqCst));
+        assert!(!sibling.gone().is_cancelled());
+        driver.await.unwrap();
+        drop(event_tx);
+    }
+
     #[tokio::test]
     async fn dropping_open_on_shared_during_tool_digest_sends_no_remote_open_rpc() {
         struct HangingDigestTools {
