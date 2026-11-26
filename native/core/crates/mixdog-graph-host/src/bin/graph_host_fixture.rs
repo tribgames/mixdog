@@ -8,8 +8,8 @@
 //! A query's `args.do`: `echo` (the default) answers its pid and every write notice seen so far; `block` waits at the
 //! barrier (`query`) first; `wait-change` waits for a notice of `release`; `crash` exits; `eof` closes its output and
 //! hangs; `malformed` writes a frame that is not a message and hangs; `refuse`, `fail` and `panic` answer so; `big`
-//! answers `args.bytes` bytes. `args.roots` is the answer's dependency roots (`null` for none), `args.complete` its
-//! completeness.
+//! answers `args.bytes` bytes; `log` first logs a warning and writes a line of its own to its standard error.
+//! `args.roots` is the answer's dependency roots (`null` for none), `args.complete` its completeness.
 
 use std::io;
 use std::io::PipeWriter;
@@ -149,6 +149,11 @@ impl Handler for Fixture {
                 let bytes = query.args.get("bytes").and_then(Value::as_u64).unwrap_or(0) as usize;
                 Ok(Answer { text: "x".repeat(bytes), ..self.echo(&query) })
             }
+            "log" => {
+                tracing::warn!(target: "code_graph", "a record of the helper");
+                writeln!(io::stderr(), "a line of the helper's own").expect("the helper's standard error takes a line");
+                Ok(self.echo(&query))
+            }
             _ => Ok(self.echo(&query)),
         }
     }
@@ -185,6 +190,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let flag = |name: &str| args.iter().any(|arg| arg == name);
     let barrier = args.iter().position(|arg| arg == "--barrier").and_then(|at| args.get(at + 1)).cloned();
+    worker::log_to_stderr();
     if worker::hold_to_parent().is_err() {
         std::process::exit(worker::EXIT_UNCONTAINED);
     }

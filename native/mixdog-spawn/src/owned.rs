@@ -61,10 +61,12 @@ impl OwnedCommand {
     }
 }
 
-/// The owner's ends of the child's standard input and output. Its standard error is the null device.
+/// The owner's ends of the child's standard streams.
 pub struct OwnedPipes {
     pub input: PipeWriter,
     pub output: PipeReader,
+    /// Its standard error: read it to its end, or the child blocks once the pipe is full.
+    pub errors: PipeReader,
 }
 
 /// How the child ended, once its reaper has reaped it.
@@ -161,7 +163,6 @@ pub fn hold_to_parent() -> io::Result<()> {
 #[cfg(unix)]
 mod sys {
     use std::io;
-    use std::process::Stdio;
     use std::sync::Mutex;
     use std::sync::PoisonError;
 
@@ -182,13 +183,14 @@ mod sys {
         use std::os::unix::process::CommandExt;
         let (child_input, input) = std::io::pipe()?;
         let (output, child_output) = std::io::pipe()?;
+        let (errors, child_errors) = std::io::pipe()?;
         let mut cmd = std::process::Command::new(&command.program);
         cmd.args(&command.args)
             .envs(command.env.iter().cloned())
             .env(PARENT_ENV, std::process::id().to_string())
             .stdin(child_input)
             .stdout(child_output)
-            .stderr(Stdio::null());
+            .stderr(child_errors);
         if let Some(dir) = &command.cwd {
             cmd.current_dir(dir);
         }
@@ -217,7 +219,7 @@ mod sys {
         // The child's pipe ends `cmd` holds close here.
         drop(cmd);
         let pid = child.id();
-        Ok((Process(child), Owner { pid, reaped: Mutex::new(false) }, OwnedPipes { input, output }))
+        Ok((Process(child), Owner { pid, reaped: Mutex::new(false) }, OwnedPipes { input, output, errors }))
     }
 
     impl Owner {
@@ -343,6 +345,7 @@ mod sys {
         }
         let (child_input, input) = std::io::pipe()?;
         let (output, child_output) = std::io::pipe()?;
+        let (errors, child_errors) = std::io::pipe()?;
         let containment = Containment::create(false)?;
         let process = winspawn::spawn(
             containment.job(),
@@ -351,12 +354,16 @@ mod sys {
                 command_line: &line,
                 cwd: command.cwd.as_deref(),
                 env: Some(&env),
-                stdio: winspawn::Stdio::Handles { stdin: Some(child_input.as_handle()), stdout: Some(child_output.as_handle()), stderr: None },
+                stdio: winspawn::Stdio::Handles {
+                    stdin: Some(child_input.as_handle()),
+                    stdout: Some(child_output.as_handle()),
+                    stderr: Some(child_errors.as_handle()),
+                },
             },
         )?;
-        drop((child_input, child_output));
+        drop((child_input, child_output, child_errors));
         let pid = process.id();
-        Ok((Process(process), Owner { pid, containment }, OwnedPipes { input, output }))
+        Ok((Process(process), Owner { pid, containment }, OwnedPipes { input, output, errors }))
     }
 
     impl Owner {

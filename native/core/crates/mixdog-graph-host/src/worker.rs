@@ -3,7 +3,8 @@
 //! Three threads serve: the caller's reads the input and applies write notices itself, so each is applied, in order,
 //! before any request read after it, whatever a build is doing; the build thread runs queries and prewarms one at a time
 //! in arrival order; the maintenance thread runs root removals. Each reply is written whole under one lock. Nothing else
-//! may write to the output: a byte outside a frame ends the helper's generation.
+//! may write to the output: a byte outside a frame ends the helper's generation. The helper's log goes to its standard
+//! error ([`log_to_stderr`]), which the core carries into its own.
 
 use std::io;
 use std::io::Read;
@@ -73,12 +74,28 @@ pub const EXIT_MALFORMED: i32 = 2;
 /// The helper could not hold to its owner ([`hold_to_parent`]), so it never served.
 pub const EXIT_UNCONTAINED: i32 = 3;
 
-/// The helper process: holds to its owner, then serves over the standard pipes. Answers the process's exit code.
+/// The helper process: logs to its standard error, holds to its owner, then serves over the standard pipes. Answers the
+/// process's exit code.
 pub fn serve_stdio<H: Handler>(handler: H) -> i32 {
+    log_to_stderr();
     if hold_to_parent().is_err() {
         return EXIT_UNCONTAINED;
     }
     serve(Arc::new(handler), io::stdin().lock(), io::stdout())
+}
+
+/// The helper's log: its records, filtered as the core filters its own (`RUST_LOG`), one line each on its standard
+/// error, the level first, for the core to log again at that level. A process that already has a subscriber keeps it.
+pub fn log_to_stderr() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_writer(io::stderr)
+        .with_ansi(false)
+        .without_time()
+        .with_target(false)
+        // Its standard error is the only place a failed write could be reported.
+        .log_internal_errors(false)
+        .try_init();
 }
 
 /// Announces [`Ready`] on `output`, then answers the requests read from `input` until a drain or the input's end.

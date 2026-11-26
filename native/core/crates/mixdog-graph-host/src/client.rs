@@ -1,10 +1,13 @@
 //! The core's end of one helper generation's pipes: a writer thread takes encoded requests in order, a reader thread
 //! turns the helper's frames into events. Both report under the generation's number, so the supervisor can fence them.
+//! A third carries the helper's standard error into this process's log.
 //! The raw pipes are blocking (a Windows anonymous pipe has no asynchronous I/O), so each end has a thread of its own and
 //! a build in the helper never holds up a write notice or the observation of its exit.
 
 use std::io;
+use std::io::BufRead;
 use std::io::BufReader;
+use std::io::PipeReader;
 use std::io::Write;
 use std::sync::mpsc;
 
@@ -32,8 +35,8 @@ pub(crate) struct Client {
 
 impl Client {
     /// An error means no reader thread runs: the reader is started last.
-    pub(crate) fn open(generation: u64, pipes: OwnedPipes, events: &Events) -> io::Result<Self> {
-        let OwnedPipes { mut input, output } = pipes;
+    pub(crate) fn open(generation: u64, pid: u32, pipes: OwnedPipes, events: &Events) -> io::Result<Self> {
+        let OwnedPipes { mut input, output, errors } = pipes;
         let (outbound, requests) = mpsc::channel::<Vec<u8>>();
         let writer_events = events.clone();
         std::thread::Builder::new().name("graph-host-write".to_owned()).spawn(move || {
@@ -44,6 +47,7 @@ impl Client {
                 }
             }
         })?;
+        std::thread::Builder::new().name("graph-host-log".to_owned()).spawn(move || relay_log(pid, errors))?;
         let reader_events = events.clone();
         std::thread::Builder::new().name("graph-host-read".to_owned()).spawn(move || {
             let mut reader = FrameReader::new(BufReader::with_capacity(64 * 1024, output));
@@ -69,5 +73,36 @@ impl Client {
     /// Queues `bytes` for the helper's input; false once the writer has ended.
     pub(crate) fn send(&self, bytes: Vec<u8>) -> bool {
         self.outbound.send(bytes).is_ok()
+    }
+}
+
+/// Carries each line of the helper's standard error into this process's log until the helper's end closes it.
+fn relay_log(pid: u32, errors: PipeReader) {
+    let mut errors = BufReader::new(errors);
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        match errors.read_until(b'\n', &mut line) {
+            Ok(0) => return,
+            Ok(_) => relay(pid, String::from_utf8_lossy(&line).trim_end()),
+            Err(error) => {
+                tracing::warn!(target: "code_graph", helper_pid = pid, %error, "the code graph helper's standard error could not be read");
+                return;
+            }
+        }
+    }
+}
+
+/// One line of the helper's standard error, logged at the level its subscriber wrote first ([`crate::worker::log_to_stderr`]).
+/// Any other line is the runtime's report of a panic or an abort: an error.
+fn relay(pid: u32, line: &str) {
+    match line.trim_start().split_once(' ') {
+        Some(("TRACE", text)) => tracing::trace!(target: "code_graph", helper_pid = pid, "{text}"),
+        Some(("DEBUG", text)) => tracing::debug!(target: "code_graph", helper_pid = pid, "{text}"),
+        Some(("INFO", text)) => tracing::info!(target: "code_graph", helper_pid = pid, "{text}"),
+        Some(("WARN", text)) => tracing::warn!(target: "code_graph", helper_pid = pid, "{text}"),
+        Some(("ERROR", text)) => tracing::error!(target: "code_graph", helper_pid = pid, "{text}"),
+        _ if line.trim().is_empty() => {}
+        _ => tracing::error!(target: "code_graph", helper_pid = pid, "{line}"),
     }
 }

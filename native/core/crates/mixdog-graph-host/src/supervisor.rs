@@ -18,10 +18,11 @@
 //! - Idle: one deadline, [`HostConfig::idle`] after the last completed demand, armed only while nothing is queued or
 //!   dispatched. At expiry the generation takes no more requests, drains and exits; a call arriving meanwhile waits for the
 //!   old process to be reaped, so two helpers never write the cache at once. Write notices and status reads do not move it.
+//! - Close: a stop never waits on a build. A generation with a query or prewarm dispatched is killed at once; only an idle
+//!   one is asked to drain.
 //! - Every frame is fenced by its generation and request id.
 
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::future::Future;
 use std::io;
@@ -200,6 +201,9 @@ pub enum CloseOutcome {
     NoChild,
     /// The helper drained and exited by itself.
     Drained,
+    /// The helper was running a query or prewarm: it was killed at once, and what it had staged and not yet written is lost
+    /// (the cache is rebuilt from the projects).
+    Interrupted,
     /// The helper was killed: it did not drain within the budget, or could not drain.
     Killed,
 }
@@ -227,7 +231,8 @@ pub enum KillReason {
     Transport,
     /// An idle helper did not drain within [`HostConfig::drain_limit`].
     DrainLimit,
-    /// The host is closing: the helper had not started serving, or did not drain within the budget.
+    /// The host is closing: the helper had not started serving, was running a query or prewarm, or did not drain within
+    /// the budget.
     Close,
 }
 
@@ -323,8 +328,9 @@ impl GraphHost {
         self.settled(ticket, answer, &CancellationToken::new()).await
     }
 
-    /// Stops admissions, answers every waiting and dispatched call with [`HostError::Closed`], asks a running helper to
-    /// drain, and waits for its end; at `budget` it is killed and reaped. Root removals already accepted are finished
+    /// Stops admissions, answers every waiting and dispatched call with [`HostError::Closed`], and waits for the helper's
+    /// end. A helper running a query or prewarm is killed at once, never waited for ([`CloseOutcome::Interrupted`]); an
+    /// idle one is asked to drain, and killed at `budget` if it has not ended. Root removals already accepted are finished
     /// within the budget (by the draining helper, or on the disk once it has ended); past it they answer `Closed`. Later
     /// calls answer the same outcome.
     pub async fn close(&self, budget: Duration) -> CloseOutcome {
@@ -506,8 +512,6 @@ struct Generation {
     next_request: RequestId,
     /// Root removals sent and not answered; whatever is left at the generation's end is finished on the disk.
     live: HashMap<RequestId, Removal>,
-    /// Requests whose callers were answered without the helper: their replies are accepted and dropped.
-    orphans: HashSet<RequestId>,
     /// The process has been reaped, with its exit code if it has one.
     exit_code: Option<Option<i32>>,
     /// The reader has read the helper's output to its end (or there is no reader).
@@ -551,6 +555,8 @@ struct Closing {
     outcome: CloseOutcome,
     /// The budget has passed: no more removals are started.
     spent: bool,
+    /// The close killed a helper running a query or prewarm.
+    interrupted: bool,
 }
 
 enum Wake {
@@ -814,19 +820,19 @@ impl Actor {
             self.arm_deadline(at);
             return;
         }
-        self.closing = Some(Closing { waiters: vec![reply], outcome: CloseOutcome::NoChild, spent: false });
+        // A dispatched call is the build the helper runs; nothing is dispatched to any other phase.
+        let building = self.active.is_some();
+        self.closing = Some(Closing { waiters: vec![reply], outcome: CloseOutcome::NoChild, spent: false, interrupted: building });
         self.idle = None;
         self.fail_queue(&HostError::Closed, Outcome::Closed);
         if let Some(active) = self.active.take() {
-            if let Some(generation) = self.generation_mut() {
-                generation.orphans.insert(active.request);
-            }
             self.settle_event(active.ticket, Outcome::Closed);
             active.waiter.fail(HostError::Closed);
         }
         match self.phase {
-            Phase::Running(_) => self.drain(at),
-            Phase::Starting(_) => self.kill(KillReason::Close),
+            // A drain would join the build first.
+            Phase::Running(_) if !building => self.drain(at),
+            Phase::Running(_) | Phase::Starting(_) => self.kill(KillReason::Close),
             _ => {}
         }
         // The budget, not an idle drain's limit, bounds the drain, the wait for the end and the removals still to finish.
@@ -951,9 +957,6 @@ impl Actor {
         }
         let draining = matches!(self.phase, Phase::Retiring { drain: Some(drain), .. } if drain == id);
         let Some(generation) = self.generation_mut() else { return };
-        if generation.orphans.remove(&id) {
-            return;
-        }
         if let Some(removal) = generation.live.remove(&id) {
             let (answer, outcome) = match reply {
                 Reply::Maintenance { result: MaintenanceResult::Forgot { forgot } } => (Ok(forgot), Outcome::Maintenance),
@@ -999,7 +1002,7 @@ impl Actor {
         self.emit(HostEvent::Spawned { generation: number, pid });
         let reaped = child.reaped();
         self.exit = Some(Box::pin(async move { (number, reaped.wait().await) }));
-        let client = Client::open(number, pipes, &self.events_tx);
+        let client = Client::open(number, pid, pipes, &self.events_tx);
         let opened = client.as_ref().map(|_| ()).map_err(|error| error.to_string());
         self.phase = Phase::Starting(Generation {
             number,
@@ -1009,7 +1012,6 @@ impl Actor {
             client: client.ok(),
             next_request: 1,
             live: HashMap::new(),
-            orphans: HashSet::new(),
             exit_code: None,
         });
         match opened {
@@ -1055,7 +1057,13 @@ impl Actor {
         self.idle = None;
         self.reference = None;
         match &mut self.closing {
-            Some(closing) => closing.outcome = if killed { CloseOutcome::Killed } else { CloseOutcome::Drained },
+            Some(closing) => {
+                closing.outcome = match (killed, closing.interrupted) {
+                    (false, _) => CloseOutcome::Drained,
+                    (true, true) => CloseOutcome::Interrupted,
+                    (true, false) => CloseOutcome::Killed,
+                };
+            }
             None => self.deadline = None,
         }
     }

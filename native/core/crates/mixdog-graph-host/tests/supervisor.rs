@@ -39,6 +39,7 @@ use mixdog_graph_host::wire::WorkerFailure;
 use serde_json::Value;
 use serde_json::json;
 use tokio::io::AsyncBufReadExt;
+use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::io::BufReader;
 use tokio::net::TcpListener;
@@ -47,6 +48,8 @@ use tokio::sync::Notify;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+use tracing::Level;
+use tracing_subscriber::layer::SubscriberExt;
 
 const DRAIN: Duration = Duration::from_secs(30);
 /// How long an awaited event may take before the test fails instead of hanging.
@@ -193,8 +196,13 @@ struct Harness {
 }
 
 async fn harness(flags: &[&str], queue_capacity: usize) -> Harness {
+    harness_with(flags, queue_capacity, |command| command).await
+}
+
+/// A harness whose helper is started with `command` applied to its command.
+async fn harness_with(flags: &[&str], queue_capacity: usize, command: impl FnOnce(OwnedCommand) -> OwnedCommand) -> Harness {
     let barrier = Barrier::bind().await;
-    let command = OwnedCommand::new(env!("CARGO_BIN_EXE_graph_host_fixture")).arg("--barrier").arg(&barrier.address).args(flags.iter().copied());
+    let command = command(OwnedCommand::new(env!("CARGO_BIN_EXE_graph_host_fixture")).arg("--barrier").arg(&barrier.address).args(flags.iter().copied()));
     let clock = Arc::new(ManualClock::new());
     let events = Arc::new(Recorder::default());
     let config = HostConfig { command, queue_capacity, idle: IDLE, drain_limit: DRAIN, clock: clock.clone(), observer: Some(events.observer()) };
@@ -436,29 +444,127 @@ async fn a_call_in_the_same_turn_as_the_idle_deadline_keeps_the_helper() {
     assert_eq!(h.host.status().state, HostState::Running);
 }
 
+fn closed(event: &HostEvent) -> bool {
+    matches!(event, HostEvent::Closed { .. })
+}
+
 #[tokio::test]
-async fn close_answers_the_waiting_calls_and_drains_the_helper() {
+async fn close_with_a_build_in_flight_ends_the_helper_without_waiting_for_the_build() {
     let h = harness(&[], 4).await;
     let first = spawn_query(&h, json!({ "do": "block" }), CancellationToken::new());
-    let held = within(h.barrier.entered()).await;
+    let mut held = within(h.barrier.entered()).await;
     let second = spawn_query(&h, json!({}), CancellationToken::new());
     within(h.host.wait_status(|status| status.queued == 1)).await;
+    // The build stays at the barrier and the clock never moves: the close waits for neither.
+    assert_eq!(within(h.host.close(Duration::from_secs(600))).await, CloseOutcome::Interrupted);
+    assert_eq!(within(first).await.unwrap(), Err(HostError::Closed));
+    assert_eq!(within(second).await.unwrap(), Err(HostError::Closed));
+    // The helper is gone: its end of the barrier closed with it.
+    let ended = within(held.stream.read(&mut [0; 1])).await;
+    assert!(matches!(ended, Ok(0) | Err(_)), "{ended:?}");
+    assert_eq!(h.events.count(|event| matches!(event, HostEvent::Killed { generation: 1, why: KillReason::Close, .. })), 1);
+    assert_eq!(h.events.count(draining(1)), 0);
+    assert!(h.events.position(reaped(1)) < h.events.position(closed));
+    assert_eq!(h.host.status().state, HostState::Closed);
+    assert_eq!(ask(&h, json!({})).await, Err(HostError::Closed));
+    assert_eq!(within(h.host.close(Duration::ZERO)).await, CloseOutcome::Interrupted);
+    h.events.assert_settled_once();
+}
+
+#[tokio::test]
+async fn close_with_an_idle_helper_drains_it() {
+    let h = harness(&["--hold-drain"], 4).await;
+    let pid = pid_of(&ask(&h, json!({})).await.unwrap());
     let closing = {
         let host = h.host.clone();
         tokio::spawn(async move { host.close(Duration::from_secs(600)).await })
     };
-    assert_eq!(within(first).await.unwrap(), Err(HostError::Closed));
-    assert_eq!(within(second).await.unwrap(), Err(HostError::Closed));
-    within(h.events.until(1, |event| matches!(event, HostEvent::Draining { generation: 1, .. }))).await;
-    // The helper finishes the call it was running, then drains.
-    held.release().await;
+    let drain = within(h.barrier.entered()).await;
+    assert_eq!((drain.point.as_str(), drain.pid), ("drain", pid));
+    assert!(!closing.is_finished(), "the close waits for the drain");
+    drain.release().await;
     assert_eq!(within(closing).await.unwrap(), CloseOutcome::Drained);
+    assert_eq!(h.events.count(draining(1)), 1);
+    assert_eq!(h.events.count(killed), 0);
+    assert!(h.events.position(reaped(1)) < h.events.position(closed));
     assert_eq!(h.host.status().state, HostState::Closed);
     assert_eq!(ask(&h, json!({})).await, Err(HostError::Closed));
     assert_eq!(within(h.host.close(Duration::ZERO)).await, CloseOutcome::Drained);
-    assert_eq!(h.events.count(killed), 0);
-    assert!(h.events.position(reaped(1)) < h.events.position(|event| matches!(event, HostEvent::Closed { .. })));
     h.events.assert_settled_once();
+}
+
+/// The core's log as the test's subscriber sees it: the records carried from a helper, as level, message and pid.
+#[derive(Default)]
+struct Relayed {
+    records: Mutex<Vec<(Level, String, u64)>>,
+    added: Notify,
+}
+
+impl Relayed {
+    /// The process's subscriber: the relay logs on a thread of its own.
+    fn install() -> Arc<Self> {
+        let relayed = Arc::new(Self::default());
+        tracing::subscriber::set_global_default(tracing_subscriber::registry().with(RelayedLayer(relayed.clone())))
+            .expect("no other subscriber in this test's process");
+        relayed
+    }
+
+    async fn until(&self, n: usize) -> Vec<(Level, String, u64)> {
+        loop {
+            let added = self.added.notified();
+            tokio::pin!(added);
+            added.as_mut().enable();
+            let records = self.records.lock().unwrap().clone();
+            if records.len() >= n {
+                return records;
+            }
+            added.await;
+        }
+    }
+}
+
+struct RelayedLayer(Arc<Relayed>);
+
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for RelayedLayer {
+    fn on_event(&self, event: &tracing::Event<'_>, _: tracing_subscriber::layer::Context<'_, S>) {
+        let mut fields = RelayedFields::default();
+        event.record(&mut fields);
+        if let Some(pid) = fields.helper_pid {
+            self.0.records.lock().unwrap().push((*event.metadata().level(), fields.message, pid));
+            self.0.added.notify_waiters();
+        }
+    }
+}
+
+#[derive(Default)]
+struct RelayedFields {
+    message: String,
+    helper_pid: Option<u64>,
+}
+
+impl tracing::field::Visit for RelayedFields {
+    fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
+        if field.name() == "helper_pid" {
+            self.helper_pid = Some(value);
+        }
+    }
+
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            self.message = format!("{value:?}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn the_helpers_log_and_its_other_standard_error_lines_reach_the_core_log() {
+    let relayed = Relayed::install();
+    let h = harness_with(&[], 4, |command| command.env("RUST_LOG", "warn")).await;
+    let pid = u64::from(pid_of(&ask(&h, json!({ "do": "log" })).await.unwrap()));
+    assert_eq!(
+        within(relayed.until(2)).await,
+        [(Level::WARN, "a record of the helper".to_owned(), pid), (Level::ERROR, "a line of the helper's own".to_owned(), pid)]
+    );
 }
 
 #[tokio::test]
