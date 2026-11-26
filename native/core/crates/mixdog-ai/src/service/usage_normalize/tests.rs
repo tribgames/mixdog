@@ -131,9 +131,7 @@ fn usage_reading_cases() -> [(&'static str, &'static str, &'static str, Option<&
             "anth-extra-only",
             "anthropic",
             r#"{"extra_usage":{"is_enabled":false,"monthly_limit":100,"used_credits":10}}"#,
-            Some(
-                r#"{"provider":"anthropic-oauth","source":"anthropic-oauth","quotaWindows":[],"balance":{"source":"anthropic-oauth-extra","period":"monthly","budgetUsd":1,"spentUsd":0.1,"remainingUsd":0.9,"currency":"USD"},"rawKeys":["extra_usage"]}"#,
-            ),
+            Some(r#"{"provider":"anthropic-oauth","source":"anthropic-oauth","quotaWindows":[],"balance":null,"rawKeys":["extra_usage"]}"#),
         ),
         ("anth-empty", "anthropic", r#"{"foo":1}"#, None),
     ]
@@ -159,4 +157,57 @@ fn the_wham_readings_normalise_to_their_documented_windows_and_balances() {
 #[test]
 fn the_anthropic_readings_normalise_to_their_documented_windows_and_balances() {
     assert_readings_normalise("anthropic");
+}
+
+#[test]
+fn codex_credit_normalization_distinguishes_omitted_has_credits_from_explicit_denials() {
+    use crate::service::quota_usable::balance_credit_state;
+
+    // (a) Omitted has_credits with a positive numeric balance must NOT emit hasCredits: false.
+    let positive_without_flag = serde_json::json!({
+        "rate_limit": { "primary_window": { "used_percent": 100, "reset_at": 1_900_000_000 } },
+        "credits": { "balance": "15.5" }
+    });
+    let snap_pos = normalize_openai_wham_usage(&positive_without_flag, NOW).unwrap();
+    assert_ne!(snap_pos["balance"]["hasCredits"], Value::Bool(false));
+    assert_eq!(snap_pos["balance"]["remainingCredits"].as_f64(), Some(15.5));
+    assert_eq!(balance_credit_state(snap_pos.get("balance")), Some(true));
+
+    // (b1) Explicit has_credits: false without a numeric balance emits an explicit denial.
+    let explicit_false = serde_json::json!({
+        "rate_limit": { "primary_window": { "used_percent": 100, "reset_at": 1_900_000_000 } },
+        "credits": { "has_credits": false }
+    });
+    let snap_false = normalize_openai_wham_usage(&explicit_false, NOW).unwrap();
+    assert_eq!(snap_false["balance"]["hasCredits"], Value::Bool(false));
+    assert_eq!(balance_credit_state(snap_false.get("balance")), Some(false));
+
+    // (b2) Top-level spend_control.reached: true without a credits object emits an explicit denial.
+    let spend_only = serde_json::json!({
+        "rate_limit": { "primary_window": { "used_percent": 100, "reset_at": 1_900_000_000 } },
+        "spend_control": { "reached": true }
+    });
+    let snap_spend = normalize_openai_wham_usage(&spend_only, NOW).unwrap();
+    assert_eq!(snap_spend["balance"]["spendControlReached"], Value::Bool(true));
+    assert_eq!(snap_spend["balance"]["hasCredits"], Value::Bool(false));
+    assert_eq!(balance_credit_state(snap_spend.get("balance")), Some(false));
+
+    // (b3) Top-level workspace limit reached without a credits object emits an explicit denial.
+    let workspace_only = serde_json::json!({
+        "primary": { "used_percent": 100, "reset_at": 1_900_000_000 },
+        "rate_limit_reached_type": "workspace_owner_credits_depleted"
+    });
+    let snap_ws = normalize_codex_rate_limits(Some(&workspace_only), "codex-local", NOW).unwrap();
+    assert_eq!(snap_ws["balance"]["workspaceLimitReached"], Value::Bool(true));
+    assert_eq!(snap_ws["balance"]["hasCredits"], Value::Bool(false));
+    assert_eq!(balance_credit_state(snap_ws.get("balance")), Some(false));
+
+    // Empty credits with no spend/workspace flags stays null (unknown).
+    let empty_credits = serde_json::json!({
+        "rate_limit": { "primary_window": { "used_percent": 50, "reset_at": 1_900_000_000 } },
+        "credits": {}
+    });
+    let snap_empty = normalize_openai_wham_usage(&empty_credits, NOW).unwrap();
+    assert!(snap_empty["balance"].is_null());
+    assert_eq!(balance_credit_state(snap_empty.get("balance")), None);
 }

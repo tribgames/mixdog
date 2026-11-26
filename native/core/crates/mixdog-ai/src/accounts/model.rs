@@ -58,7 +58,9 @@ pub struct Usage {
 }
 
 /// One refusal window. `blocked_source` is `retry-after` when the server
-/// scheduled it; `blocked_quota` marks quota evidence.
+/// scheduled it; `blocked_quota` marks quota evidence; `blocked_with_credits`
+/// records that the refusal happened while credit use was on and the reading
+/// already showed usable credits.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Block {
@@ -72,6 +74,8 @@ pub struct Block {
     pub blocked_source: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocked_quota: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked_with_credits: Option<bool>,
 }
 
 /// One account row. The latest block's fields sit on the row; earlier blocks
@@ -84,6 +88,8 @@ pub struct Account {
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub has_credits: Option<bool>,
     #[serde(default, deserialize_with = "opt_ms", skip_serializing_if = "Option::is_none")]
     pub blocked_until: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -94,6 +100,8 @@ pub struct Account {
     pub blocked_source: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocked_quota: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked_with_credits: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocked_buckets: Option<Vec<Block>>,
     #[serde(flatten)]
@@ -115,6 +123,7 @@ impl Account {
                 blocked_limit: self.blocked_limit.clone(),
                 blocked_source: self.blocked_source.clone(),
                 blocked_quota: self.blocked_quota,
+                blocked_with_credits: self.blocked_with_credits,
             });
         }
         blocks
@@ -126,6 +135,7 @@ impl Account {
         self.blocked_limit = None;
         self.blocked_source = None;
         self.blocked_quota = None;
+        self.blocked_with_credits = None;
         self.blocked_buckets = None;
     }
 
@@ -137,6 +147,7 @@ impl Account {
         self.blocked_limit = latest.blocked_limit;
         self.blocked_source = latest.blocked_source;
         self.blocked_quota = latest.blocked_quota;
+        self.blocked_with_credits = latest.blocked_with_credits;
         if !blocks.is_empty() {
             self.blocked_buckets = Some(blocks);
         }

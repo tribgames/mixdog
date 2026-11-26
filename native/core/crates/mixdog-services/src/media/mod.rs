@@ -6,6 +6,8 @@
 pub mod accounts;
 pub mod adapter_http;
 pub mod antigravity_image;
+#[cfg(test)]
+mod antigravity_image_tests;
 pub mod catalog;
 pub mod catalog_fetch;
 pub mod catalog_http;

@@ -85,13 +85,85 @@ impl SseFramer {
 
 // Turn state
 
+fn extra_fields(block: &Value, known: &[&str]) -> Map<String, Value> {
+    block.as_object().map(|m| m.iter().filter(|(k, _)| !known.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default()
+}
+
 enum Block {
-    Text { text: String, citations: Vec<Value> },
-    Thinking { thinking: String, signature: String },
-    Redacted { data: String },
-    ToolUse { id: String, name: String, opening_input: Option<Value>, json: String, done: Option<Value> },
+    Text { text: String, citations: Vec<Value>, has_text: bool, has_citations: bool, extras: Map<String, Value> },
+    Thinking { thinking: String, signature: String, has_thinking: bool, has_signature: bool, extras: Map<String, Value> },
+    Redacted { data: String, has_data: bool, extras: Map<String, Value> },
+    ToolUse { id: String, name: String, opening_input: Option<Value>, json: String, done: Option<Value>, has_input: bool, extras: Map<String, Value> },
     NativeCall { block: Value, json: String, done: bool },
     NativeResult(Value),
+    Other(Value),
+}
+
+impl Block {
+    fn to_receipt_value(&self) -> Value {
+        match self {
+            Self::Text { text, citations, has_text, has_citations, extras } => {
+                let mut map = extras.clone();
+                map.insert("type".into(), Value::String("text".into()));
+                if *has_text {
+                    map.insert("text".into(), Value::String(text.clone()));
+                }
+                if *has_citations || !citations.is_empty() {
+                    map.insert("citations".into(), Value::Array(citations.clone()));
+                }
+                Value::Object(map)
+            }
+            Self::Thinking { thinking, signature, has_thinking, has_signature, extras } => {
+                let mut map = extras.clone();
+                map.insert("type".into(), Value::String("thinking".into()));
+                if *has_thinking {
+                    map.insert("thinking".into(), Value::String(thinking.clone()));
+                }
+                if *has_signature {
+                    map.insert("signature".into(), Value::String(signature.clone()));
+                }
+                Value::Object(map)
+            }
+            Self::Redacted { data, has_data, extras } => {
+                let mut map = extras.clone();
+                map.insert("type".into(), Value::String("redacted_thinking".into()));
+                if *has_data {
+                    map.insert("data".into(), Value::String(data.clone()));
+                }
+                Value::Object(map)
+            }
+            Self::ToolUse { id, name, opening_input, done, has_input, extras, .. } => {
+                let mut map = extras.clone();
+                map.insert("type".into(), Value::String("tool_use".into()));
+                map.insert("id".into(), Value::String(id.clone()));
+                map.insert("name".into(), Value::String(name.clone()));
+                if *has_input {
+                    let input = done.as_ref().or(opening_input.as_ref()).cloned().unwrap_or_else(|| Value::Object(Map::new()));
+                    map.insert("input".into(), input);
+                }
+                Value::Object(map)
+            }
+            Self::NativeCall { block, .. } | Self::NativeResult(block) | Self::Other(block) => block.clone(),
+        }
+    }
+}
+
+#[derive(Default)]
+struct ReceiptMeta {
+    id: String,
+    stopped_at: u64,
+    opaque: bool,
+    fallback_iteration: bool,
+    open: HashSet<u64>,
+}
+
+pub(super) struct ReceiptSnapshot {
+    pub(super) id: String,
+    pub(super) stopped_at: u64,
+    pub(super) stop: Option<String>,
+    pub(super) opaque: bool,
+    pub(super) fallback_iteration: bool,
+    pub(super) blocks: Vec<Value>,
 }
 
 #[derive(Default)]
@@ -234,6 +306,8 @@ pub(crate) struct AnthropicDecoder {
     text_relayed: bool,
     /// The last thing relayed was a progress update.
     update_shown_last: bool,
+    /// Metadata for message-thread confirmation over the single copy of `blocks`.
+    receipt: ReceiptMeta,
 }
 
 /// What a turn's decoder shares with its stream: the stream decodes through it and, when the turn is cut, asks it for
@@ -270,6 +344,18 @@ impl Shared {
         let replay =
             (decoder.leaked_dispatched == 0 && !blocks.is_empty()).then(|| ProviderReplay { owner: decoder.owner.clone(), items: Value::Array(blocks) });
         Cut { thinking, replay }
+    }
+
+    pub(super) fn feed_receipt(&self, unit: &[u8]) {
+        self.decoder().feed_receipt(unit);
+    }
+
+    pub(super) fn receipt_stopped(&self) -> bool {
+        self.decoder().receipt.stopped_at != 0
+    }
+
+    pub(super) fn receipt_snapshot(&self) -> ReceiptSnapshot {
+        self.decoder().receipt_snapshot()
     }
 }
 
@@ -354,6 +440,7 @@ impl AnthropicDecoder {
             progress_index: None,
             text_relayed: false,
             update_shown_last: false,
+            receipt: ReceiptMeta::default(),
         }
     }
 
@@ -436,7 +523,7 @@ impl AnthropicDecoder {
                 continue;
             }
             let value = match block {
-                Block::Text { text, citations } => {
+                Block::Text { text, citations, .. } => {
                     let mut value = json!({ "type": "text", "text": text });
                     if !citations.is_empty() {
                         value["citations"] = Value::Array(citations.clone());
@@ -444,10 +531,10 @@ impl AnthropicDecoder {
                     value
                 }
                 Block::Thinking { signature, .. } if at_cut && signature.is_empty() => continue,
-                Block::Thinking { thinking, signature } => {
+                Block::Thinking { thinking, signature, .. } => {
                     json!({ "type": "thinking", "thinking": thinking, "signature": signature })
                 }
-                Block::Redacted { data } => json!({ "type": "redacted_thinking", "data": data }),
+                Block::Redacted { data, .. } => json!({ "type": "redacted_thinking", "data": data }),
                 Block::ToolUse { id, name, done: Some(input), .. } => {
                     json!({ "type": "tool_use", "id": id, "name": name, "input": input })
                 }
@@ -516,6 +603,9 @@ impl AnthropicDecoder {
                 let Some(message) = event.get("message").filter(|m| m.is_object()) else {
                     return Ok(());
                 };
+                if let Some(id) = message.get("id").and_then(Value::as_str) {
+                    self.receipt.id = id.to_owned();
+                }
                 self.saw_message_start = true;
                 // The semantic message boundary (anthropic-sse.mjs:149-151).
                 out.push(StreamEvent::Progress(ProgressKind::Semantic));
@@ -533,6 +623,12 @@ impl AnthropicDecoder {
             "message_delta" => self.message_delta(event, out)?,
             "ping" => out.push(StreamEvent::ProviderKeepalive),
             "message_stop" => {
+                if self.receipt.stopped_at == 0 {
+                    self.receipt.stopped_at = super::oauth::now_ms().max(1);
+                }
+                if !self.receipt.open.is_empty() {
+                    self.receipt.opaque = true;
+                }
                 if self.tool_input_in_flight() {
                     self.exposure.tool_input_cut = true;
                     return Err(self.truncated());
@@ -562,11 +658,14 @@ impl AnthropicDecoder {
 
     fn block_start(&mut self, index: u64, block: Option<&Value>, out: &mut Vec<StreamEvent>) {
         let Some(block) = block.filter(|b| b.is_object()) else {
+            self.receipt.opaque = true;
             return;
         };
+        self.receipt.open.insert(index);
         // A server-side fallback hands the turn to the fallback model (`parseAnthropicFallbackBlock`,
         // anthropic-server-fallback.mjs:26-40, and content-block-start.mjs:52-58): the block carries no content.
         if block.get("type").and_then(Value::as_str) == Some("fallback") {
+            self.blocks.insert(index, Block::Other(block.clone()));
             if let Some((record, to)) = fallback_record(block) {
                 self.fallbacks.push(record);
                 self.note_block_type("fallback");
@@ -588,7 +687,10 @@ impl AnthropicDecoder {
             "text" => {
                 out.push(StreamEvent::ItemStart { kind: ItemKind::Text, phase: None });
                 let citations = block.get("citations").and_then(Value::as_array).cloned().unwrap_or_default();
-                self.blocks.insert(index, Block::Text { text: String::new(), citations });
+                let has_text = block.get("text").is_some();
+                let has_citations = block.get("citations").is_some();
+                let extras = extra_fields(block, &["type", "text", "citations"]);
+                self.blocks.insert(index, Block::Text { text: String::new(), citations, has_text, has_citations, extras });
                 let initial = text_of("text");
                 if !initial.is_empty() {
                     self.append_text(index, &initial, out);
@@ -598,20 +700,28 @@ impl AnthropicDecoder {
                 out.push(StreamEvent::ItemStart { kind: ItemKind::Reasoning, phase: None });
                 // Omitted-thinking displays stream no thinking_delta until the signature: the opening is the only sign.
                 out.push(StreamEvent::Progress(ProgressKind::Reasoning));
-                self.blocks.insert(index, Block::Thinking { thinking: text_of("thinking"), signature: text_of("signature") });
+                let has_thinking = block.get("thinking").is_some();
+                let has_signature = block.get("signature").is_some();
+                let extras = extra_fields(block, &["type", "thinking", "signature"]);
+                self.blocks
+                    .insert(index, Block::Thinking { thinking: text_of("thinking"), signature: text_of("signature"), has_thinking, has_signature, extras });
             }
             "redacted_thinking" => {
                 self.has_thinking = true;
                 out.push(StreamEvent::ItemStart { kind: ItemKind::Reasoning, phase: None });
                 out.push(StreamEvent::Progress(ProgressKind::Reasoning));
-                self.blocks.insert(index, Block::Redacted { data: text_of("data") });
+                let has_data = block.get("data").is_some();
+                let extras = extra_fields(block, &["type", "data"]);
+                self.blocks.insert(index, Block::Redacted { data: text_of("data"), has_data, extras });
             }
             "tool_use" => {
                 let (id, name) = (text_of("id"), text_of("name"));
                 out.push(StreamEvent::ItemStart { kind: ItemKind::Tool, phase: None });
                 out.push(StreamEvent::ToolCallStart { id: id.clone(), name: name.clone() });
                 let opening_input = block.get("input").filter(|input| input.is_object()).cloned();
-                self.blocks.insert(index, Block::ToolUse { id, name, opening_input, json: String::new(), done: None });
+                let has_input = block.get("input").is_some();
+                let extras = extra_fields(block, &["type", "id", "name", "input"]);
+                self.blocks.insert(index, Block::ToolUse { id, name, opening_input, json: String::new(), done: None, has_input, extras });
             }
             kind if NATIVE_CALL_TYPES.contains(&kind) => {
                 out.push(StreamEvent::Progress(ProgressKind::Tool));
@@ -621,15 +731,24 @@ impl AnthropicDecoder {
                 out.push(StreamEvent::Progress(ProgressKind::Tool));
                 self.blocks.insert(index, Block::NativeResult(block.clone()));
             }
-            _ => {}
+            _ => {
+                self.blocks.insert(index, Block::Other(block.clone()));
+            }
         }
     }
 
     fn append_text(&mut self, index: u64, delta: &str, out: &mut Vec<StreamEvent>) {
         // A text delta for an index that never opened still counts: its slot is created (`appendText`).
-        let Block::Text { text, .. } = self.blocks.entry(index).or_insert_with(|| Block::Text { text: String::new(), citations: Vec::new() }) else {
+        let Block::Text { text, has_text, .. } = self.blocks.entry(index).or_insert_with(|| Block::Text {
+            text: String::new(),
+            citations: Vec::new(),
+            has_text: true,
+            has_citations: false,
+            extras: Map::new(),
+        }) else {
             return;
         };
+        *has_text = true;
         text.push_str(delta);
         if self.leak.enabled() {
             let scanned = self.leak.push(delta, false);
@@ -658,7 +777,13 @@ impl AnthropicDecoder {
     }
 
     fn block_delta(&mut self, index: u64, delta: Option<&Value>, out: &mut Vec<StreamEvent>) {
-        let Some(delta) = delta else { return };
+        let Some(delta) = delta else {
+            self.receipt.opaque = true;
+            return;
+        };
+        if !self.receipt.open.contains(&index) {
+            self.receipt.opaque = true;
+        }
         let str_of = |field: &str| delta.get(field).and_then(Value::as_str).unwrap_or("");
         // content-block-delta.mjs:96: every delta's (non-empty) type.
         if let Some(kind) = delta.get("type").and_then(Value::as_str).filter(|k| !k.is_empty()) {
@@ -670,15 +795,23 @@ impl AnthropicDecoder {
         match delta.get("type").and_then(Value::as_str).unwrap_or("") {
             "text_delta" => {
                 let text = str_of("text").to_owned();
+                if matches!(self.blocks.get(&index), Some(Block::Other(_))) {
+                    self.receipt.opaque = true;
+                }
                 self.append_text(index, &text, out);
             }
             "thinking_delta" => {
                 let piece = str_of("thinking");
-                if let Some(Block::Thinking { thinking, .. }) = self.blocks.get_mut(&index) {
+                if let Some(Block::Thinking { thinking, has_thinking, .. }) = self.blocks.get_mut(&index) {
                     thinking.push_str(piece);
+                    *has_thinking = true;
                 } else {
+                    self.receipt.opaque = true;
                     // A signature may arrive before any thinking text seeded the slot.
-                    self.blocks.insert(index, Block::Thinking { thinking: piece.to_owned(), signature: String::new() });
+                    self.blocks.insert(
+                        index,
+                        Block::Thinking { thinking: piece.to_owned(), signature: String::new(), has_thinking: true, has_signature: false, extras: Map::new() },
+                    );
                 }
                 if !piece.is_empty() {
                     // Emitted thinking is an exposure boundary like text: the
@@ -698,10 +831,15 @@ impl AnthropicDecoder {
             }
             "signature_delta" => {
                 let piece = str_of("signature");
-                if let Some(Block::Thinking { signature, .. }) = self.blocks.get_mut(&index) {
+                if let Some(Block::Thinking { signature, has_signature, .. }) = self.blocks.get_mut(&index) {
                     signature.push_str(piece);
+                    *has_signature = true;
                 } else {
-                    self.blocks.insert(index, Block::Thinking { thinking: String::new(), signature: piece.to_owned() });
+                    self.receipt.opaque = true;
+                    self.blocks.insert(
+                        index,
+                        Block::Thinking { thinking: String::new(), signature: piece.to_owned(), has_thinking: false, has_signature: true, extras: Map::new() },
+                    );
                 }
                 if !piece.is_empty() {
                     out.push(StreamEvent::Progress(ProgressKind::Reasoning));
@@ -710,12 +848,15 @@ impl AnthropicDecoder {
             "input_json_delta" => {
                 let piece = str_of("partial_json");
                 match self.blocks.get_mut(&index) {
-                    Some(Block::ToolUse { id, json, .. }) => {
+                    Some(Block::ToolUse { id, json, has_input, .. }) => {
                         json.push_str(piece);
+                        if !piece.is_empty() {
+                            *has_input = true;
+                        }
                         out.push(StreamEvent::ToolCallArgsDelta { id: id.clone(), delta: piece.to_owned() });
                     }
                     Some(Block::NativeCall { json, .. }) => json.push_str(piece),
-                    _ => {}
+                    _ => self.receipt.opaque = true,
                 }
                 // Only content advances the response: an empty fragment is not progress.
                 if !piece.is_empty() {
@@ -726,27 +867,43 @@ impl AnthropicDecoder {
             // Anthropic result has no citation list of its own.
             "citations_delta" => {
                 let Some(citation) = delta.get("citation").filter(|c| c.is_object()) else {
+                    self.receipt.opaque = true;
                     return;
                 };
-                if let Some(Block::Text { citations, .. }) = self.blocks.get_mut(&index) {
+                if let Some(Block::Text { citations, has_citations, .. }) = self.blocks.get_mut(&index) {
                     citations.push(citation.clone());
+                    *has_citations = true;
+                } else {
+                    self.receipt.opaque = true;
                 }
             }
-            _ => {}
+            _ => {
+                self.receipt.opaque = true;
+            }
         }
     }
 
     fn block_stop(&mut self, index: u64, out: &mut Vec<StreamEvent>) {
+        if !self.receipt.open.remove(&index) {
+            self.receipt.opaque = true;
+        }
         match self.blocks.get_mut(&index) {
-            Some(Block::ToolUse { id, name, opening_input, json, done }) if done.is_none() => {
+            Some(Block::ToolUse { id, name, opening_input, json, done, has_input, .. }) if done.is_none() => {
                 // A malformed input stays a call carrying the parse failure, so
                 // the model can re-issue it; a non-object input is `{}`.
                 let arguments = if json.is_empty() {
                     opening_input.take().unwrap_or_else(|| Value::Object(Map::new()))
                 } else {
+                    *has_input = true;
+                    if serde_json::from_str::<Value>(json).is_err() {
+                        self.receipt.opaque = true;
+                    }
                     match mixdog_js::json_parse(json) {
                         Ok(value) if value.is_object() => value,
-                        Ok(_) => Value::Object(Map::new()),
+                        Ok(_) => {
+                            self.receipt.opaque = true;
+                            Value::Object(Map::new())
+                        }
                         Err(error) => json!({
                             "__invalidToolArgs": true,
                             "__rawArguments": json,
@@ -754,6 +911,8 @@ impl AnthropicDecoder {
                         }),
                     }
                 };
+                json.clear();
+                json.shrink_to_fit();
                 *done = Some(arguments.clone());
                 // A text-leaked call of the same name and arguments already ran: this one is skipped whole.
                 if self.dedupe.should_dispatch(name, &arguments, id) {
@@ -769,8 +928,16 @@ impl AnthropicDecoder {
                 let input = if json.is_empty() {
                     current.unwrap_or_else(|| Value::Object(Map::new()))
                 } else {
-                    serde_json::from_str::<Value>(json).ok().filter(Value::is_object).unwrap_or_else(|| Value::Object(Map::new()))
+                    match serde_json::from_str::<Value>(json) {
+                        Ok(val) if val.is_object() => val,
+                        Ok(_) | Err(_) => {
+                            self.receipt.opaque = true;
+                            Value::Object(Map::new())
+                        }
+                    }
                 };
+                json.clear();
+                json.shrink_to_fit();
                 block["input"] = input;
                 *done = true;
                 out.push(StreamEvent::ServerToolBlock(block.clone()));
@@ -787,6 +954,9 @@ impl AnthropicDecoder {
         if let Some(stop) = stop {
             self.stop = Some(stop.to_owned());
         }
+        if event["usage"]["iterations"].as_array().is_some_and(|all| all.iter().any(|it| it["type"] == "fallback_message")) {
+            self.receipt.fallback_iteration = true;
+        }
         if let Some(usage) = event.get("usage") {
             self.report_usage(usage, out);
         }
@@ -802,6 +972,57 @@ impl AnthropicDecoder {
         }
         Ok(())
     }
+
+    fn note_post_terminal(&mut self, event: &Value) {
+        match event.get("type").and_then(Value::as_str) {
+            Some("message_delta") => {
+                if let Some(stop) = event["delta"]["stop_reason"].as_str().filter(|s| !s.is_empty()) {
+                    self.stop = Some(stop.to_owned());
+                }
+                if event["usage"]["iterations"].as_array().is_some_and(|all| all.iter().any(|it| it["type"] == "fallback_message")) {
+                    self.receipt.fallback_iteration = true;
+                }
+            }
+            Some("message_stop") => {
+                if self.receipt.stopped_at == 0 {
+                    self.receipt.stopped_at = super::oauth::now_ms().max(1);
+                }
+                if !self.receipt.open.is_empty() {
+                    self.receipt.opaque = true;
+                }
+            }
+            Some("content_block_start" | "content_block_delta" | "content_block_stop") => {
+                self.receipt.opaque = true;
+            }
+            _ => {}
+        }
+    }
+
+    fn feed_receipt(&mut self, unit: &[u8]) {
+        let mut ignored = Vec::new();
+        for (name, frame) in self.framer.push(unit) {
+            let Ok(event) = serde_json::from_str::<Value>(&frame.data) else {
+                continue;
+            };
+            if self.terminal {
+                self.note_post_terminal(&event);
+            } else {
+                let _ = self.on_event(&event, &name, &mut ignored);
+                ignored.clear();
+            }
+        }
+    }
+
+    fn receipt_snapshot(&self) -> ReceiptSnapshot {
+        ReceiptSnapshot {
+            id: self.receipt.id.clone(),
+            stopped_at: self.receipt.stopped_at,
+            stop: self.stop.clone(),
+            opaque: self.receipt.opaque,
+            fallback_iteration: self.receipt.fallback_iteration,
+            blocks: self.blocks.values().map(Block::to_receipt_value).collect(),
+        }
+    }
 }
 
 impl WireDecoder for AnthropicDecoder {
@@ -813,17 +1034,19 @@ impl WireDecoder for AnthropicDecoder {
             return Err(err);
         }
         if self.terminal {
+            self.feed_receipt(unit);
             return Ok(Vec::new());
         }
         let mut out = Vec::new();
         for (name, frame) in self.framer.push(unit) {
-            if self.terminal {
-                break;
-            }
             // A malformed record is skipped; the well-formed ones beside it run.
             let Ok(event) = serde_json::from_str::<Value>(&frame.data) else {
                 continue;
             };
+            if self.terminal {
+                self.note_post_terminal(&event);
+                continue;
+            }
             if let Err(err) = self.on_event(&event, &name, &mut out) {
                 if out.is_empty() {
                     return Err(err);

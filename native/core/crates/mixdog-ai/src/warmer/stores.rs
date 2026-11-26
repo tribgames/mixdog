@@ -481,3 +481,34 @@ fn truthy(value: &Value) -> bool {
         _ => true,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn warm_use_survives_touch_expiry_until_forgotten() {
+        let dir = tempfile::tempdir().unwrap();
+        let clock = Arc::new(AtomicU64::new(10_000));
+        let now: Now = {
+            let clock = Arc::clone(&clock);
+            Arc::new(move || clock.load(Ordering::SeqCst) as f64)
+        };
+        let io = mixdog_rt::testing::tokens().durability_io;
+        let store = TouchStore::open(dir.path().join("touches.json"), io, Arc::new(|_| {}), now).await.unwrap();
+        let warm = WarmUse { at: 10_000, provider: "anthropic-oauth".into(), model: "claude-opus-4-7".into(), account_id: "acct".into() };
+        // Short 5-minute prompt-cache touch expires long before a 30m-24h idle auto-clear window.
+        store.record("s1", Touch { touch_at: 10_000.0, ttl_ms: 5.0 * 60_000.0, prompt_tokens: 1000.0, account_id: None });
+        store.record_warm_use("s1", warm.clone());
+
+        clock.store(10_000 + 60 * 60_000, Ordering::SeqCst);
+        store.flush().await;
+        assert!(store.get("s1").is_none(), "short prompt-cache touch expires");
+        assert_eq!(store.warm_use("s1"), Some(warm), "last_use must survive touch expiry for idle auto-clear");
+
+        store.forget_warm_use("s1");
+        assert!(store.warm_use("s1").is_none(), "explicit removal drops warm use");
+    }
+}

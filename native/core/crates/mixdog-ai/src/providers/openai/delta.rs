@@ -61,12 +61,24 @@ fn normalize_part(part: &Value) -> Value {
     Value::Object(map.clone())
 }
 
-fn parts_equal(a: Option<&Value>, b: Option<&Value>) -> bool {
-    let normalized = |side: Option<&Value>| match side {
+fn normalized_parts_string(side: Option<&Value>) -> String {
+    let normalized = match side {
         Some(Value::Array(parts)) => Value::Array(parts.iter().map(normalize_part).collect()),
         _ => Value::Array(Vec::new()),
     };
-    stable_stringify(&normalized(a)) == stable_stringify(&normalized(b))
+    stable_stringify(&normalized)
+}
+
+fn parts_equal(a: Option<&Value>, b: Option<&Value>) -> bool {
+    normalized_parts_string(a) == normalized_parts_string(b)
+}
+
+fn stripped_object_string(item: &Value) -> String {
+    let rest: Map<String, Value> = item
+        .as_object()
+        .map(|m| m.iter().filter(|(k, _)| !matches!(k.as_str(), "id" | "status")).map(|(k, v)| (k.clone(), v.clone())).collect())
+        .unwrap_or_default();
+    stable_stringify(&Value::Object(rest))
 }
 
 fn input_type(item: &Value) -> &str {
@@ -138,14 +150,7 @@ pub fn logical_item_match(input: &Value, response: &Value) -> bool {
             if in_type != out_type {
                 return false;
             }
-            let stripped = |item: &Value| {
-                let rest: Map<String, Value> = item
-                    .as_object()
-                    .map(|m| m.iter().filter(|(k, _)| !matches!(k.as_str(), "id" | "status")).map(|(k, v)| (k.clone(), v.clone())).collect())
-                    .unwrap_or_default();
-                stable_stringify(&Value::Object(rest))
-            };
-            stripped(input) == stripped(response)
+            stripped_object_string(input) == stripped_object_string(response)
         }
     }
 }
@@ -176,6 +181,131 @@ impl Sent {
     }
 }
 
+/// Compact matcher for one item the previous response produced: hashes and identifying keys, never raw content.
+#[derive(Clone, Debug)]
+struct ResponseItem {
+    kind: String,
+    shape: String,
+    matcher: ResponseMatcher,
+}
+
+#[derive(Clone, Debug)]
+enum ResponseMatcher {
+    NonObject,
+    FunctionCall { call_id: String, name: String, args_hash: [u8; 32] },
+    ToolSearchCall { call_id: String, args_hash: [u8; 32] },
+    CustomToolCall { call_id: String, name: String, input_hash: [u8; 32] },
+    Message { role: String, content_hash: [u8; 32] },
+    Reasoning { id: String, encrypted_content_hash: Option<[u8; 32]> },
+    WebSearchCall { id: String, action_hash: [u8; 32] },
+    Other { out_type: String, stripped_hash: [u8; 32] },
+}
+
+impl ResponseItem {
+    fn of(response: &Value) -> Self {
+        let kind = Some(text(response, "type")).filter(|t| !t.is_empty()).unwrap_or("unknown").to_owned();
+        let shape = diagnostic_hash(Some(response));
+        let matcher = if !response.is_object() {
+            ResponseMatcher::NonObject
+        } else {
+            let out_type = text(response, "type");
+            match out_type {
+                "function_call" => ResponseMatcher::FunctionCall {
+                    call_id: text(response, "call_id").to_owned(),
+                    name: text(response, "name").to_owned(),
+                    args_hash: digest(&normalize_arguments(response.get("arguments"))),
+                },
+                "tool_search_call" => ResponseMatcher::ToolSearchCall {
+                    call_id: text(response, "call_id").to_owned(),
+                    args_hash: digest(&normalize_arguments(response.get("arguments"))),
+                },
+                "custom_tool_call" => ResponseMatcher::CustomToolCall {
+                    call_id: text(response, "call_id").to_owned(),
+                    name: text(response, "name").to_owned(),
+                    input_hash: digest(text(response, "input")),
+                },
+                "message" => {
+                    let role = match text(response, "role") {
+                        "" => "assistant",
+                        r => r,
+                    };
+                    ResponseMatcher::Message { role: role.to_owned(), content_hash: digest(&normalized_parts_string(response.get("content"))) }
+                }
+                "reasoning" => {
+                    let enc = text(response, "encrypted_content");
+                    ResponseMatcher::Reasoning { id: text(response, "id").to_owned(), encrypted_content_hash: (!enc.is_empty()).then(|| digest(enc)) }
+                }
+                "web_search_call" => ResponseMatcher::WebSearchCall {
+                    id: text(response, "id").to_owned(),
+                    action_hash: digest(&stable_stringify(response.get("action").unwrap_or(&Value::Null))),
+                },
+                other => ResponseMatcher::Other { out_type: other.to_owned(), stripped_hash: digest(&stripped_object_string(response)) },
+            }
+        };
+        Self { kind, shape, matcher }
+    }
+
+    fn matches(&self, input: &Value) -> bool {
+        if !input.is_object() {
+            return false;
+        }
+        let in_type = input_type(input);
+        match &self.matcher {
+            ResponseMatcher::NonObject => false,
+            ResponseMatcher::FunctionCall { call_id, name, args_hash } => {
+                if in_type != "function_call" {
+                    return false;
+                }
+                let in_call = text(input, "call_id");
+                let in_name = text(input, "name");
+                if !in_call.is_empty() && !call_id.is_empty() {
+                    return in_call == call_id && in_name == name;
+                }
+                in_name == name && digest(&normalize_arguments(input.get("arguments"))) == *args_hash
+            }
+            ResponseMatcher::ToolSearchCall { call_id, args_hash } => {
+                if in_type != "tool_search_call" {
+                    return false;
+                }
+                let in_call = text(input, "call_id");
+                if !in_call.is_empty() && !call_id.is_empty() {
+                    return in_call == call_id;
+                }
+                digest(&normalize_arguments(input.get("arguments"))) == *args_hash
+            }
+            ResponseMatcher::CustomToolCall { call_id, name, input_hash } => {
+                if in_type != "custom_tool_call" {
+                    return false;
+                }
+                let in_call = text(input, "call_id");
+                let in_name = text(input, "name");
+                if !in_call.is_empty() && !call_id.is_empty() {
+                    return in_call == call_id && in_name == name;
+                }
+                in_name == name && digest(text(input, "input")) == *input_hash
+            }
+            ResponseMatcher::Message { role, content_hash } => {
+                let in_role = match text(input, "role") {
+                    "" if in_type == "message" => "assistant",
+                    r => r,
+                };
+                in_type == "message" && in_role == role && digest(&normalized_parts_string(input.get("content"))) == *content_hash
+            }
+            ResponseMatcher::Reasoning { id, encrypted_content_hash } => {
+                in_type == "reasoning"
+                    && (id.is_empty() || text(input, "id") == id)
+                    && encrypted_content_hash.is_none_or(|hash| digest(text(input, "encrypted_content")) == hash)
+            }
+            ResponseMatcher::WebSearchCall { id, action_hash } => {
+                in_type == "web_search_call"
+                    && (id.is_empty() || text(input, "id") == id)
+                    && digest(&stable_stringify(input.get("action").unwrap_or(&Value::Null))) == *action_hash
+            }
+            ResponseMatcher::Other { out_type, stripped_hash } => in_type == out_type && digest(&stripped_object_string(input)) == *stripped_hash,
+        }
+    }
+}
+
 /// What the socket last exchanged: the anchor of the next request.
 #[derive(Default, Clone, Debug)]
 pub struct Chain {
@@ -183,7 +313,7 @@ pub struct Chain {
     /// SHA-256 of the canonical text of the request without its input.
     sans_input: Option<[u8; 32]>,
     input: Option<Vec<Sent>>,
-    response_items: Option<Vec<Value>>,
+    response_items: Option<Vec<ResponseItem>>,
 }
 
 impl Chain {
@@ -205,7 +335,7 @@ impl Chain {
             response_id,
             sans_input: sans_input.filter(|text| !text.is_empty()).map(|text| digest(&text)),
             input: input.map(|items| items.iter().map(Sent::of).collect()),
-            response_items,
+            response_items: response_items.map(|items| items.iter().map(ResponseItem::of).collect()),
         }
     }
 
@@ -215,7 +345,7 @@ impl Chain {
         self.response_id = Some(response_id.to_owned());
         self.sans_input = Some(digest(&stable_stringify(&Value::Object(sans_input(request)))));
         self.input = Some(request.get("input").and_then(Value::as_array).map(|items| items.iter().map(Sent::of).collect()).unwrap_or_default());
-        self.response_items = Some(response_items.to_vec());
+        self.response_items = Some(response_items.iter().map(ResponseItem::of).collect());
     }
 }
 
@@ -437,28 +567,27 @@ fn strip_request_prefix<'a>(current: &'a [Value], previous: &[Sent]) -> Option<&
 /// items, which must all lead it in order; `Err` carries the mismatch reason
 /// and its diagnostics.
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-fn strip_response_items<'a>(tail: &'a [Value], outputs: &[Value]) -> Result<&'a [Value], (String, OutputMismatch)> {
+fn strip_response_items<'a>(tail: &'a [Value], outputs: &[ResponseItem]) -> Result<&'a [Value], (String, OutputMismatch)> {
     let mut cursor = 0;
     for output in outputs {
-        if cursor < tail.len() && logical_item_match(&tail[cursor], output) {
+        if cursor < tail.len() && output.matches(&tail[cursor]) {
             cursor += 1;
             continue;
         }
-        let kind = Some(text(output, "type")).filter(|t| !t.is_empty()).unwrap_or("unknown");
         let actual = tail.get(cursor);
         let actual_type = match actual.map(input_type) {
             Some(t) if !t.is_empty() => t.to_owned(),
             _ => "unknown".to_owned(),
         };
         let mismatch = OutputMismatch {
-            expected_type: kind.to_owned(),
-            expected_hash: diagnostic_hash(Some(output)),
+            expected_type: output.kind.clone(),
+            expected_hash: output.shape.clone(),
             expected_response_item_count: outputs.len(),
             actual_type,
             actual_hash: diagnostic_hash(actual),
             actual_replayed_input_item_count: tail.len(),
         };
-        return Err((format!("response_output_mismatch:{kind}"), mismatch));
+        return Err((format!("response_output_mismatch:{}", output.kind), mismatch));
     }
     Ok(&tail[cursor..])
 }
@@ -511,5 +640,57 @@ pub fn compute_with(delta: bool, instructions_with_previous_response: bool, chai
             input_mismatch: None,
             output_mismatch: None,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn chain_anchors_response_items_without_retaining_raw_payloads() {
+        let large_text = "x".repeat(64 * 1024);
+        let req1 = json!({
+            "model": "gpt-5",
+            "input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "hi"}]}]
+        });
+        let resp_items = vec![
+            json!({"type": "reasoning", "id": "rs_1", "encrypted_content": large_text}),
+            json!({"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": large_text}]}),
+            json!({"type": "function_call", "call_id": "call_1", "name": "read", "arguments": format!("{{\"body\":\"{large_text}\"}}")}),
+        ];
+        let mut chain = Chain::default();
+        chain.anchor("resp_1", req1.as_object().unwrap(), &resp_items);
+        let debug = format!("{chain:?}");
+        assert!(!debug.contains(&"x".repeat(256)), "Chain retained raw response item content");
+
+        let req2 = json!({
+            "model": "gpt-5",
+            "input": [
+                {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "hi"}]},
+                {"type": "reasoning", "id": "rs_1", "encrypted_content": large_text},
+                {"type": "message", "role": "assistant", "content": [{"type": "input_text", "text": large_text}]},
+                {"type": "function_call", "call_id": "call_1", "name": "read", "arguments": "{}"},
+                {"type": "function_call_output", "call_id": "call_1", "output": "ok"}
+            ]
+        });
+        let framed = compute(true, &chain, req2.as_object().unwrap());
+        assert_eq!(framed.mode, Mode::Delta);
+        assert_eq!(framed.stripped, 3);
+
+        let mismatch_req = json!({
+            "model": "gpt-5",
+            "input": [
+                {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "hi"}]},
+                {"type": "reasoning", "id": "rs_1", "encrypted_content": "wrong"}
+            ]
+        });
+        let mismatch = compute(true, &chain, mismatch_req.as_object().unwrap());
+        assert_eq!(mismatch.mode, Mode::Full);
+        assert_eq!(mismatch.reason.as_deref(), Some("response_output_mismatch:reasoning"));
+        let diag = mismatch.output_mismatch.expect("mismatch diagnostics");
+        assert_eq!(diag.expected_hash, diagnostic_hash(Some(&resp_items[0])));
     }
 }

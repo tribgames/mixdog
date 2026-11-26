@@ -309,9 +309,15 @@ impl PageCtx {
         let ctx = ReplyContext { redact: &redact, files: &*self.inner.ports.files };
         let mut state = self.state_lock();
         let SlotState { reply, .. } = &mut *state;
-        let mut reports = locked(&self.inner.download_reports);
-        let mut page = ReplyPage { facts: &facts, state: reply, downloads, download_reports: &mut reports, now_ms: wall_clock_ms() };
-        self.with_ledgers(|ledgers| page_report_text(&ctx, &mut page, ledgers))
+        let mut all_reports = locked(&self.inner.download_reports);
+        let reports = all_reports.entry(self.session().to_owned()).or_default();
+        let mut page = ReplyPage { facts: &facts, state: reply, downloads, download_reports: reports, now_ms: wall_clock_ms() };
+        let text = self.with_ledgers(|ledgers| page_report_text(&ctx, &mut page, ledgers));
+        let empty = page.download_reports.is_empty();
+        if empty {
+            all_reports.remove(self.session());
+        }
+        text
     }
 
     /// The handles one command acts on its page's elements with.
@@ -448,9 +454,15 @@ impl PageCtx {
         let mut reply = {
             let mut state = self.state_lock();
             let SlotState { reply, .. } = &mut *state;
-            let mut reports = locked(&self.inner.download_reports);
-            let mut page = ReplyPage { facts: &facts, state: reply, downloads: &downloads, download_reports: &mut reports, now_ms: wall_clock_ms() };
-            self.with_ledgers(|ledgers| finish_now(build_reply(&ctx, &request, &mut page, ledgers, Some(capture), None)))?
+            let mut all_reports = locked(&self.inner.download_reports);
+            let reports = all_reports.entry(self.session().to_owned()).or_default();
+            let mut page = ReplyPage { facts: &facts, state: reply, downloads: &downloads, download_reports: reports, now_ms: wall_clock_ms() };
+            let built = self.with_ledgers(|ledgers| finish_now(build_reply(&ctx, &request, &mut page, ledgers, Some(capture), None)));
+            let empty = page.download_reports.is_empty();
+            if empty {
+                all_reports.remove(self.session());
+            }
+            built?
         };
         if command.get("includeScreenshot") == Some(&Value::Bool(true)) {
             self.attach_shot(command, &mut reply).await?;

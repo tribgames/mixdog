@@ -13,6 +13,7 @@ use mixdog_js::{js_trim, slice_utf16, to_number, value_to_string};
 use regex::Regex;
 use serde_json::Value;
 
+use super::download::AdapterError;
 use super::lanes::LaneError;
 
 pub const MAX_GENERATED_MEDIA_BYTES: usize = 256 * 1024 * 1024;
@@ -36,11 +37,19 @@ fn truthy(value: Option<&Value>) -> bool {
     }
 }
 
+fn unwrap_json_root(parsed: &Value) -> &Value {
+    match parsed {
+        Value::Array(items) => items.first().unwrap_or(parsed),
+        _ => parsed,
+    }
+}
+
 /// `reason(text)`: the provider's own sentence, when its body is JSON that has one.
 fn reason(text: &str) -> String {
     let Ok(parsed) = serde_json::from_str::<Value>(text) else { return String::new() };
-    let nested = parsed.get("error").and_then(|e| e.get("message"));
-    let chosen = [nested, parsed.get("error"), parsed.get("message")].into_iter().find(|v| truthy(*v)).flatten();
+    let root = unwrap_json_root(&parsed);
+    let nested = root.get("error").and_then(|e| e.get("message"));
+    let chosen = [nested, root.get("error"), root.get("message")].into_iter().find(|v| truthy(*v)).flatten();
     chosen.and_then(Value::as_str).unwrap_or_default().to_owned()
 }
 
@@ -50,28 +59,305 @@ fn raw_detail(text: &str) -> String {
     if raw.is_empty() || raw.starts_with('<') { String::new() } else { slice_utf16(raw, 300) }
 }
 
-/// `upstreamError(label, status, text)`: the error a lane throws for a non-OK upstream response.
-pub fn upstream_error(label: &str, status: u16, text: &str) -> LaneError {
-    static CREDIT_HINTS: LazyLock<Regex> = LazyLock::new(|| rx(r"(?i)credit|spending limit|billing|quota|insufficient|payment"));
+#[derive(Default)]
+pub(super) struct GoogleErrorMeta {
+    pub(super) capacity_exhausted: bool,
+    pub(super) is_resource_exhausted: bool,
+    pub(super) is_unavailable: bool,
+    pub(super) has_structured_quota: bool,
+    pub(super) has_retry_info: bool,
+    pub(super) billing_disabled: bool,
+    pub(super) quota_hint: bool,
+    pub(super) delay: Option<String>,
+    pub(super) reset_at_ts: Option<i64>,
+    pub(super) reset_at_iso: Option<String>,
+}
+
+impl GoogleErrorMeta {
+    pub(super) fn is_google_quota_or_retry(&self) -> bool {
+        !self.billing_disabled
+            && (self.has_structured_quota || self.has_retry_info || self.is_resource_exhausted || self.delay.is_some() || self.reset_at_ts.is_some())
+    }
+}
+
+fn format_delay_ms(ms: u64) -> Option<String> {
+    if ms == 0 {
+        return None;
+    }
+    if ms < 1_000 {
+        return Some(format!("{ms}ms"));
+    }
+    let total_secs = ms.div_ceil(1_000);
+    let hours = total_secs / 3_600;
+    let mins = (total_secs % 3_600) / 60;
+    let secs = total_secs % 60;
+    let mut out = String::new();
+    if hours > 0 {
+        out.push_str(&format!("{hours}h"));
+    }
+    if mins > 0 {
+        out.push_str(&format!("{mins}m"));
+    }
+    if secs > 0 || out.is_empty() {
+        out.push_str(&format!("{secs}s"));
+    }
+    Some(out)
+}
+
+fn delay_label(value: &Value) -> Option<String> {
+    static DURATION: LazyLock<Regex> = LazyLock::new(|| rx(r"(?i)^(?:\d+(?:\.\d+)?(?:ms|h|m|s))+$"));
+    static DURATION_PART: LazyLock<Regex> = LazyLock::new(|| rx(r"(?i)(\d+(?:\.\d+)?)(ms|h|m|s)"));
+    static BARE_SECONDS: LazyLock<Regex> = LazyLock::new(|| rx(r"^\d+(?:\.\d+)?$"));
+    match value {
+        Value::String(text) => {
+            let trimmed = js_trim(text);
+            if BARE_SECONDS.is_match(trimmed) {
+                let secs = mixdog_js::string_to_number(trimmed);
+                return (secs.is_finite() && secs > 0.0).then(|| format_delay_ms((secs * 1000.0).ceil() as u64)).flatten();
+            }
+            if !DURATION.is_match(trimmed) {
+                return None;
+            }
+            let positive = DURATION_PART.captures_iter(trimmed).any(|cap| cap.get(1).is_some_and(|n| mixdog_js::string_to_number(n.as_str()) > 0.0));
+            positive.then(|| trimmed.to_ascii_lowercase())
+        }
+        Value::Object(map) => {
+            let num = |key: &str| map.get(key).filter(|v| truthy(Some(v))).map_or(0.0, to_number);
+            let ms = num("seconds") * 1000.0 + num("nanos") / 1_000_000.0;
+            (ms.is_finite() && ms > 0.0).then(|| format_delay_ms(ms.ceil() as u64)).flatten()
+        }
+        _ => None,
+    }
+}
+
+fn parse_http_date(raw: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    let trimmed = js_trim(raw);
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc2822(trimmed) {
+        return Some(dt.with_timezone(&chrono::Utc));
+    }
+    if let Ok(ndt) = chrono::NaiveDateTime::parse_from_str(trimmed, "%A, %d-%b-%y %H:%M:%S GMT") {
+        return Some(ndt.and_utc());
+    }
+    chrono::NaiveDateTime::parse_from_str(trimmed, "%a %b %e %H:%M:%S %Y").ok().map(|ndt| ndt.and_utc())
+}
+
+fn header_retry_after_at(headers: &Headers<'_>, now: chrono::DateTime<chrono::Utc>) -> (Option<String>, Option<chrono::DateTime<chrono::Utc>>) {
+    let ms_raw = headers.get("retry-after-ms");
+    if !ms_raw.is_empty() {
+        let ms = mixdog_js::string_to_number(&ms_raw);
+        if ms.is_finite() && ms > 0.0 {
+            return (format_delay_ms(ms.ceil() as u64), None);
+        }
+    }
+    let secs_raw = headers.get("retry-after");
+    if !secs_raw.is_empty() {
+        let secs = mixdog_js::string_to_number(&secs_raw);
+        if secs.is_finite() && secs > 0.0 {
+            return (format_delay_ms((secs * 1000.0).ceil() as u64), None);
+        }
+        if let Some(target) = parse_http_date(&secs_raw) {
+            let delta_ms = target.signed_duration_since(now).num_milliseconds();
+            if delta_ms > 0 {
+                return (format_delay_ms(delta_ms as u64), Some(target));
+            }
+        }
+    }
+    (None, None)
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn header_delay_label(headers: &Headers<'_>) -> Option<String> {
+    header_retry_after_at(headers, chrono::Utc::now()).0
+}
+
+fn parse_google_error_meta(text: &str, detail: &str, headers: &Headers<'_>) -> GoogleErrorMeta {
+    static CAPACITY_TEXT: LazyLock<Regex> = LazyLock::new(|| rx(r"(?i)model_capacity_exhausted|model_capacity_exceeded"));
+    static G1_CREDITS_TEXT: LazyLock<Regex> = LazyLock::new(|| rx(r"(?i)insufficient_g1_credits_balance"));
+    static QUOTA_TEXT: LazyLock<Regex> = LazyLock::new(|| rx(r"(?i)\bquota\b"));
+    static MESSAGE_DELAY: LazyLock<Regex> = LazyLock::new(|| rx(r"(?i)(?:please retry in|reset after)\s+((?:\d+(?:\.\d+)?(?:ms|h|m|s))+)\b"));
+
+    let g1_credits = G1_CREDITS_TEXT.is_match(detail) || G1_CREDITS_TEXT.is_match(text);
+    let mut meta = GoogleErrorMeta {
+        capacity_exhausted: CAPACITY_TEXT.is_match(detail) || CAPACITY_TEXT.is_match(text),
+        has_structured_quota: g1_credits,
+        quota_hint: g1_credits || QUOTA_TEXT.is_match(detail),
+        ..GoogleErrorMeta::default()
+    };
+
+    if let Ok(parsed) = serde_json::from_str::<Value>(text) {
+        let root = unwrap_json_root(&parsed);
+        let err_obj = root.get("error").filter(|e| e.is_object()).unwrap_or(root);
+        if let Some(grpc_status) = err_obj.get("status").and_then(Value::as_str).map(js_trim) {
+            if grpc_status.eq_ignore_ascii_case("RESOURCE_EXHAUSTED") {
+                meta.is_resource_exhausted = true;
+            } else if grpc_status.eq_ignore_ascii_case("UNAVAILABLE") {
+                meta.is_unavailable = true;
+            }
+        }
+        let details = err_obj.get("details").or_else(|| err_obj.get("errorDetails")).and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+        for entry in details {
+            let kind = entry.get("@type").and_then(Value::as_str).unwrap_or("");
+            if kind.ends_with(".RetryInfo") || entry.get("retryDelay").is_some() {
+                meta.has_retry_info = true;
+                if meta.delay.is_none() {
+                    meta.delay = entry.get("retryDelay").and_then(delay_label);
+                }
+            }
+            if kind.ends_with(".QuotaFailure") || entry.get("violations").is_some_and(Value::is_array) {
+                meta.quota_hint = true;
+                meta.has_structured_quota = true;
+            }
+            let typed_reason = entry.get("reason").and_then(Value::as_str).map(js_trim).unwrap_or("");
+            if typed_reason.eq_ignore_ascii_case("MODEL_CAPACITY_EXHAUSTED") || typed_reason.eq_ignore_ascii_case("MODEL_CAPACITY_EXCEEDED") {
+                meta.capacity_exhausted = true;
+            }
+            if typed_reason.eq_ignore_ascii_case("QUOTA_EXHAUSTED")
+                || typed_reason.eq_ignore_ascii_case("RATE_LIMIT_EXCEEDED")
+                || typed_reason.eq_ignore_ascii_case("INSUFFICIENT_G1_CREDITS_BALANCE")
+            {
+                meta.quota_hint = true;
+                meta.has_structured_quota = true;
+            }
+            if typed_reason.eq_ignore_ascii_case("BILLING_DISABLED")
+                || typed_reason.eq_ignore_ascii_case("BILLING_NOT_ACTIVE")
+                || typed_reason.eq_ignore_ascii_case("ACCOUNT_SUSPENDED")
+            {
+                meta.billing_disabled = true;
+            }
+            if let Some(metadata) = entry.get("metadata").and_then(Value::as_object) {
+                if let Some(delay_val) = metadata.get("quotaResetDelay") {
+                    meta.quota_hint = true;
+                    meta.has_structured_quota = true;
+                    if meta.delay.is_none() {
+                        meta.delay = delay_label(delay_val);
+                    }
+                }
+                if let Some(stamp_str) = metadata.get("quotaResetTimeStamp").and_then(Value::as_str) {
+                    meta.quota_hint = true;
+                    meta.has_structured_quota = true;
+                    if meta.reset_at_ts.is_none()
+                        && let Ok(dt) = chrono::DateTime::parse_from_rfc3339(js_trim(stamp_str))
+                    {
+                        meta.reset_at_ts = Some(dt.timestamp());
+                        meta.reset_at_iso = Some(dt.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+                    }
+                }
+            }
+        }
+    }
+
+    if meta.delay.is_none()
+        && let Some(cap) = MESSAGE_DELAY.captures(detail).or_else(|| MESSAGE_DELAY.captures(text))
+        && let Some(raw) = cap.get(1)
+    {
+        meta.delay = delay_label(&Value::String(raw.as_str().to_owned()));
+    }
+    if meta.delay.is_none() || meta.reset_at_ts.is_none() {
+        let (hdr_delay, hdr_reset) = header_retry_after_at(headers, chrono::Utc::now());
+        if meta.delay.is_none() {
+            meta.delay = hdr_delay;
+        }
+        if meta.reset_at_ts.is_none()
+            && let Some(dt) = hdr_reset
+        {
+            meta.reset_at_ts = Some(dt.timestamp());
+            meta.reset_at_iso = Some(dt.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+        }
+    }
+    meta
+}
+
+pub(super) fn google_error_meta(text: &str) -> GoogleErrorMeta {
     let mut detail = reason(text);
     if detail.is_empty() {
         detail = raw_detail(text);
     }
+    parse_google_error_meta(text, &detail, &Headers(&[]))
+}
+
+fn upstream_error_inner(label: &str, status: u16, headers: &Headers<'_>, text: &str) -> (LaneError, Option<String>) {
+    static CREDIT_HINTS: LazyLock<Regex> = LazyLock::new(|| rx(r"(?i)credit|spending limit|billing|quota|insufficient|payment|account suspended"));
+    static BILLING_429_HINTS: LazyLock<Regex> =
+        LazyLock::new(|| rx(r"(?i)credit|spending limit|billing|insufficient_quota|payment|usable balance|account suspended"));
+    static OVERLOAD_TEXT: LazyLock<Regex> =
+        LazyLock::new(|| rx(r"(?i)overload|no capacity|capacity|high demand|temporarily unavailable|service unavailable|unavailable"));
+    let mut detail = reason(text);
+    if detail.is_empty() {
+        detail = raw_detail(text);
+    }
+    let meta = parse_google_error_meta(text, &detail, headers);
     let credit = CREDIT_HINTS.is_match(&detail);
     if status == 401 || status == 403 {
-        if credit {
-            return media_error(format!("{label}: account has no usable balance — {detail}"), "MEDIA_BILLING_BLOCKED", status);
+        if !meta.is_google_quota_or_retry() && (meta.billing_disabled || credit) {
+            return (media_error(format!("{label}: account has no usable balance — {detail}"), "MEDIA_BILLING_BLOCKED", status), None);
         }
-        return media_error(format!("{label}: authentication rejected — sign in again in Settings → Providers"), "MEDIA_AUTH_REJECTED", status);
+        return (media_error(format!("{label}: authentication rejected — sign in again in Settings → Providers"), "MEDIA_AUTH_REJECTED", status), None);
     }
-    if status == 402 || credit {
-        return media_error(format!("{label}: account has no usable balance — {detail}"), "MEDIA_BILLING_BLOCKED", if status == 0 { 402 } else { status });
+    let capacity_overload = (matches!(status, 429 | 503 | 529) && meta.capacity_exhausted)
+        || status == 529
+        || (status == 503 && (meta.is_unavailable || OVERLOAD_TEXT.is_match(&detail) || OVERLOAD_TEXT.is_match(text) || detail.is_empty()));
+    if capacity_overload {
+        let when = match (meta.delay.as_deref(), meta.reset_at_ts) {
+            (Some(delay), Some(ts)) => format!("retry in {delay} ({})", format_reset_at(ts)),
+            (None, Some(ts)) => format!("retry after {}", format_reset_at(ts)),
+            (Some(delay), None) => format!("retry in {delay}"),
+            (None, None) => "try again in a moment".to_owned(),
+        };
+        let subject = if meta.capacity_exhausted || label.starts_with("Antigravity") || label.starts_with("Gemini") || label.starts_with("Google") {
+            "Google model capacity exhausted"
+        } else {
+            "model capacity exhausted"
+        };
+        return (media_error(format!("{label}: {subject} — {when}"), "MEDIA_CAPACITY_EXHAUSTED", status), meta.reset_at_iso);
     }
     if status == 429 {
-        return media_error(format!("{label}: rate limited — retry in a moment"), "MEDIA_RATE_LIMITED", 429);
+        if !meta.is_google_quota_or_retry() && (meta.billing_disabled || BILLING_429_HINTS.is_match(&detail) || BILLING_429_HINTS.is_match(text)) {
+            return (media_error(format!("{label}: account has no usable balance — {detail}"), "MEDIA_BILLING_BLOCKED", 429), None);
+        }
+        let reset = match (meta.delay.as_deref(), meta.reset_at_ts) {
+            (Some(delay), Some(ts)) => Some(format!("resets in {delay} ({})", format_reset_at(ts))),
+            (None, Some(ts)) => Some(format!("resets {}", format_reset_at(ts))),
+            (Some(delay), None) => Some(if meta.quota_hint { format!("resets in {delay}") } else { format!("retry in {delay}") }),
+            (None, None) => None,
+        };
+        let message = if meta.quota_hint {
+            match reset {
+                Some(when) => format!("{label}: quota limit reached — {when}"),
+                None if !detail.is_empty() => format!("{label}: quota limit reached — {detail}"),
+                None => format!("{label}: quota limit reached — try again later"),
+            }
+        } else {
+            match reset {
+                Some(when) => format!("{label}: rate limited — {when}"),
+                None => format!("{label}: rate limited — retry in a moment"),
+            }
+        };
+        return (media_error(message, "MEDIA_RATE_LIMITED", 429), meta.reset_at_iso);
+    }
+    if status == 402 || (!meta.is_google_quota_or_retry() && (meta.billing_disabled || credit)) {
+        return (
+            media_error(format!("{label}: account has no usable balance — {detail}"), "MEDIA_BILLING_BLOCKED", if status == 0 { 402 } else { status }),
+            None,
+        );
     }
     let tail = if detail.is_empty() { String::new() } else { format!(": {detail}") };
-    media_error(format!("{label} failed ({status}){tail}"), "MEDIA_UPSTREAM_FAILED", status)
+    (media_error(format!("{label} failed ({status}){tail}"), "MEDIA_UPSTREAM_FAILED", status), None)
+}
+
+/// `upstreamError(label, status, text)`: the error a lane throws for a non-OK upstream response.
+pub fn upstream_error(label: &str, status: u16, text: &str) -> LaneError {
+    upstream_error_inner(label, status, &Headers(&[]), text).0
+}
+
+/// Header-aware upstream error, preserving any parsed `resets_at` timestamp on [`AdapterError`].
+pub fn upstream_error_with_headers(label: &str, status: u16, headers: &Headers<'_>, text: &str) -> AdapterError {
+    let (lane, resets_at) = upstream_error_inner(label, status, headers, text);
+    let mut error: AdapterError = lane.into();
+    error.resets_at = resets_at;
+    error
 }
 
 /// Response headers, looked up without regard to case.
@@ -230,4 +516,78 @@ pub fn gemini_media_download_url(input: &Value) -> Result<String, LaneError> {
     }
     url.query_pairs_mut().clear().extend_pairs(pairs);
     Ok(url.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::TimeZone as _;
+    use serde_json::json;
+
+    use super::{Headers, delay_label, header_delay_label, header_retry_after_at, parse_google_error_meta, reason};
+
+    #[test]
+    fn delay_label_handles_case_insensitive_durations_and_message_word_boundaries() {
+        assert_eq!(delay_label(&json!("1H2M3S")).as_deref(), Some("1h2m3s"));
+        assert_eq!(delay_label(&json!("250MS")).as_deref(), Some("250ms"));
+        assert_eq!(delay_label(&json!("0s")), None);
+
+        let upper = parse_google_error_meta("", "Your quota will reset after 1H2M3S.", &Headers(&[]));
+        assert_eq!(upper.delay.as_deref(), Some("1h2m3s"));
+
+        let no_false_match = parse_google_error_meta("", "Your quota will reset after 3models", &Headers(&[]));
+        assert_eq!(no_false_match.delay, None);
+    }
+
+    #[test]
+    fn header_retry_after_parses_rfc7231_http_dates() {
+        let now = chrono::Utc.with_ymd_and_hms(2026, 11, 26, 5, 0, 0).unwrap();
+
+        let imf = [("Retry-After".to_owned(), "Thu, 26 Nov 2026 05:02:30 GMT".to_owned())];
+        let (delay, target) = header_retry_after_at(&Headers(&imf), now);
+        assert_eq!(delay.as_deref(), Some("2m30s"));
+        assert_eq!(target.map(|dt| dt.to_rfc3339()), Some("2026-11-26T05:02:30+00:00".to_owned()));
+
+        let rfc850 = [("Retry-After".to_owned(), "Thursday, 26-Nov-26 05:01:00 GMT".to_owned())];
+        assert_eq!(header_retry_after_at(&Headers(&rfc850), now).0.as_deref(), Some("1m"));
+
+        let asctime = [("Retry-After".to_owned(), "Thu Nov 26 05:00:45 2026".to_owned())];
+        assert_eq!(header_retry_after_at(&Headers(&asctime), now).0.as_deref(), Some("45s"));
+
+        let past = [("Retry-After".to_owned(), "Wed, 21 Oct 2015 07:28:00 GMT".to_owned())];
+        assert_eq!(header_retry_after_at(&Headers(&past), now), (None, None));
+        assert_eq!(header_delay_label(&Headers(&past)), None);
+
+        let future = (chrono::Utc::now() + chrono::Duration::seconds(120)).format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+        let live = [("Retry-After".to_owned(), future)];
+        assert!(header_delay_label(&Headers(&live)).is_some());
+    }
+
+    #[test]
+    fn array_wrapped_google_errors_unwrap_reason_and_metadata() {
+        let body = json!([{
+            "error": {
+                "code": 429,
+                "status": "RESOURCE_EXHAUSTED",
+                "message": "Quota exceeded; check your plan and billing details.",
+                "details": [
+                    {
+                        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                        "reason": "QUOTA_EXHAUSTED",
+                        "metadata": {
+                            "quotaResetDelay": "12m",
+                            "quotaResetTimeStamp": "2026-11-26T06:00:00Z"
+                        }
+                    }
+                ]
+            }
+        }])
+        .to_string();
+        let detail = reason(&body);
+        assert_eq!(detail, "Quota exceeded; check your plan and billing details.");
+        let meta = parse_google_error_meta(&body, &detail, &Headers(&[]));
+        assert!(meta.is_resource_exhausted);
+        assert!(meta.has_structured_quota);
+        assert_eq!(meta.delay.as_deref(), Some("12m"));
+        assert_eq!(meta.reset_at_iso.as_deref(), Some("2026-11-26T06:00:00.000Z"));
+    }
 }

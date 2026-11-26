@@ -399,6 +399,10 @@ impl p::WireCodec for NoCodec {
         TransportKind::Http1
     }
 
+    fn image_branch(&self, _: &p::ModelRequest) -> mixdog_image_egress::route::WireBranch {
+        mixdog_image_egress::route::WireBranch::CompatChat
+    }
+
     fn encode(&self, _: &p::ModelRequest) -> Result<p::WireRequest, p::ProviderError> {
         Err(transient(BUILT_ON_THE_PC, p::DeliveryState::NotSent))
     }

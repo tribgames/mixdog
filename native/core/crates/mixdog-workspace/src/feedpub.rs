@@ -61,6 +61,14 @@ impl Publisher {
         Self { feed, model, lock: Mutex::new(()) }
     }
 
+    /// [`Self::create`] with a callback invoked once its last attached subscriber detaches.
+    pub fn create_watching_detach(feeds: &dyn ScopedFeeds, id: &str, initial_state: Value, on_last_detach: Arc<dyn Fn() + Send + Sync>) -> Self {
+        let id = FeedId::from(id);
+        let model = Arc::new(Model { id: id.clone(), state: Mutex::new(initial_state) });
+        let feed = feeds.create_watching_detach(id, model.clone(), on_last_detach);
+        Self { feed, model, lock: Mutex::new(()) }
+    }
+
     /// [`Self::create`] for a feed of the ordered class: `fs:<watchId>` (Node's `folderChanged`,
     /// `remote-relay-push-lanes.ts:169-170`) and `lsp:<root>` (`:171-174`) are never dropped.
     pub fn create_ordered(feeds: &dyn ScopedFeeds, id: &str, initial_state: Value) -> Self {
@@ -106,5 +114,46 @@ impl Publisher {
     /// Ends the feed with its scope (unwatch, stop, connection close).
     pub fn close(&self) {
         self.feed.close();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use mixdog_core_api::feed::subscribe;
+    use mixdog_core_api::ids::ConnectionId;
+    use mixdog_core_api::ids::SubscriptionId;
+    use mixdog_core_api::mock::MockConnection;
+    use mixdog_core_api::mock::MockLimits;
+    use mixdog_core_api::mock::MockScopedFeeds;
+
+    use super::*;
+
+    #[test]
+    fn create_watching_detach_fires_when_feed_subscribe_replacement_detaches() {
+        let feeds = MockScopedFeeds::new(MockLimits::default());
+        let detached = Arc::new(AtomicUsize::new(0));
+        let publisher = Publisher::create_watching_detach(&feeds, "search:s-replace", json!({ "query": "", "files": [] }), {
+            let detached = Arc::clone(&detached);
+            Arc::new(move || {
+                detached.fetch_add(1, Ordering::SeqCst);
+            })
+        });
+
+        let initial = publisher.source();
+        let replacement: Arc<dyn FeedSource> = feeds.find(&FeedId::from("search:s-replace")).expect("registered in ScopedFeeds");
+        let conn = MockConnection::new(ConnectionId(1), MockLimits::default());
+        let sub1 = SubscriptionId::from("sub-initial");
+        let sub2 = SubscriptionId::from("sub-replacement");
+        let _a1 = subscribe(&initial, sub1.clone(), Window::Fixed, None, &conn).unwrap();
+        let _a2 = subscribe(&replacement, sub2.clone(), Window::Fixed, None, &conn).unwrap();
+
+        initial.detach(sub1);
+        assert_eq!(detached.load(Ordering::SeqCst), 0);
+
+        replacement.detach(sub2);
+        assert_eq!(detached.load(Ordering::SeqCst), 1);
     }
 }

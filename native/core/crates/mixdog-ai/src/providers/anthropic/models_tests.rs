@@ -192,7 +192,7 @@ fn a_record_states_the_picker_facts_of_a_dated_effort_row() {
     assert_eq!(record.picker.tier.as_deref(), Some("dated"));
     assert_eq!(record.picker.reasoning_options.len(), 1);
     assert_eq!(record.picker.reasoning_options[0].values, record.reasoning_levels);
-    assert_eq!(record.raw.as_ref(), Some(&model.raw));
+    assert!(record.raw.is_none(), "normalized Anthropic records do not retain raw provider JSON");
     let plain = rows_of(Flavor::OAuth, json!([{ "id": "claude-x" }]), &empty_catalog()).remove(0).to_record();
     assert!(plain.picker.reasoning_options.is_empty(), "a model with no effort has no picker option");
     assert!(plain.efforts_stated);

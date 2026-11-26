@@ -308,10 +308,10 @@ async fn vertex_express_adds_discovered_gemini_models_to_the_table() {
     let argon = records.iter().find(|r| r.id == "gemini-4-argon").unwrap();
     assert_eq!((argon.name.as_deref(), argon.context_window), (Some("Gemini 4 Argon"), Some(1_048_576)));
     assert_eq!(argon.picker.reasoning_options[0].values, ["low", "medium", "high"]);
-    assert!(argon.raw.as_ref().unwrap().get("versionId").is_none());
+    assert!(argon.raw.is_none());
     let neon = records.iter().find(|r| r.id == "gemini-9-neon").unwrap();
     assert!(neon.picker.model_parameter_options.is_empty() && neon.picker.reasoning_options.is_empty());
-    assert_eq!(neon.raw.as_ref().unwrap()["launchStage"], "GA");
+    assert!(neon.raw.is_none());
     // Express: one publisher, paged by token.
     let sent = http.sent();
     assert_eq!(sent.len(), 2);
@@ -334,7 +334,8 @@ async fn vertex_project_lists_anthropic_too_and_a_failed_listing_leaves_the_tabl
     let records = adapter.models().unwrap().list_models().await.unwrap();
     let added = records.last().unwrap();
     assert_eq!(added.id, "claude-opus-9");
-    assert_eq!(added.raw.as_ref().unwrap()["family"], "opus");
+    assert_eq!(added.family.as_deref(), Some("opus"));
+    assert!(added.raw.is_none());
     assert!(http.sent()[1].url.contains("/publishers/anthropic/models"));
 
     // A refusal is an answer: the roster is the table, whole, and nothing asks again before the roster is next due.
@@ -405,4 +406,55 @@ async fn a_slow_publisher_listing_answers_the_table_inside_the_catalog_budget() 
     let listed = adapter.models().unwrap().list_roster().await.unwrap();
     assert_eq!((listed.rows.len(), listed.provenance), (52, Provenance::Seed));
     assert!(began.elapsed() < crate::catalog::LIST_DEADLINE, "answered after {:?}", began.elapsed());
+}
+
+#[tokio::test]
+async fn normalized_google_records_drop_raw_json_while_keeping_family_and_roster_cache() {
+    let gemini = gemini_records(&[json!({
+        "name": "models/gemini-2.5-pro",
+        "displayName": "Gemini 2.5 Pro",
+        "inputTokenLimit": 1_048_576,
+        "outputTokenLimit": 65_536,
+        "supportedGenerationMethods": ["generateContent"]
+    })]);
+    assert_eq!(gemini.len(), 1);
+    assert!(gemini[0].raw.is_none());
+    assert_eq!(gemini[0].family.as_deref(), Some("gemini-pro"));
+
+    let body = json!({
+        "models": {
+            "gemini-3-pro-low": {
+                "displayName": "Gemini 3 Pro (Low)",
+                "maxTokens": 1_048_576,
+                "maxOutputTokens": 65_536,
+                "supportsImages": true,
+                "supportsThinking": true
+            },
+            "gemini-3-pro-high": {
+                "displayName": "Gemini 3 Pro (High)",
+                "maxTokens": 1_048_576,
+                "maxOutputTokens": 65_536,
+                "supportsImages": true,
+                "supportsThinking": true
+            }
+        }
+    });
+    let records = antigravity_records(&serde_json::to_vec(&body).unwrap(), traits().as_ref()).unwrap();
+    assert_eq!(records.len(), 1);
+    assert!(records[0].raw.is_none());
+    assert_eq!(antigravity_family(&records, &records[0].id).as_deref(), Some("gemini-pro"));
+    assert_eq!(antigravity_family(&records, "gemini-3-pro-high").as_deref(), Some("gemini-pro"));
+
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let cache = super::super::roster_cache::RosterCache::new(
+        dir.path().to_path_buf(),
+        crate::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
+    );
+    cache.save(&records).await;
+    let reloaded = cache.load(true).await.expect("reloaded roster");
+    assert_eq!(reloaded.len(), 1);
+    assert!(reloaded[0].raw.is_none());
+    assert_eq!(antigravity_family(&reloaded, &reloaded[0].id).as_deref(), Some("gemini-pro"));
+    assert_eq!(reloaded[0].wire, records[0].wire);
 }

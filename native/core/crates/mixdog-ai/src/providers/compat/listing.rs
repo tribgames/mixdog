@@ -262,7 +262,6 @@ impl CompatAdapter {
                 }
                 row.reasoning_content_field = Some("reasoning_content".to_owned());
                 restate_row(row, "reasoningContentField", Some(json!("reasoning_content")));
-                row.raw = Some(json!({ "reasoningContentField": "reasoning_content" }));
             }
         }
         Ok((rows, seeded, key))

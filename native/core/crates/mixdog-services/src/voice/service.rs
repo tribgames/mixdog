@@ -200,11 +200,19 @@ impl VoiceService {
         let target = path.clone();
         io_on_lane(lane, move || write_recording(&target, &bytes)).await.map_err(|e| voice_error(e.to_string()))?;
         let attachment = format!("dictation-{}", uuid::Uuid::new_v4());
+        struct ForgetOnDrop<'a>(&'a VoicePipeline, &'a str);
+        impl Drop for ForgetOnDrop<'_> {
+            fn drop(&mut self) {
+                self.0.forget_attachment(self.1);
+            }
+        }
+        let _forget = ForgetOnDrop(&self.pipeline, &attachment);
         let result = match self.require_dictation_enabled(generation) {
             Ok(()) => self.pipeline.transcribe(&path, Some(&attachment), cancel).await.map_err(|e| voice_error(e.0)),
             Err(error) => Err(error),
         };
         let _ = on_lane(lane, move || remove_recording(&path)).await;
+        drop(_forget);
         let text = result?;
         self.require_dictation_enabled(generation)?;
         Ok(Value::String(text.unwrap_or_default()))

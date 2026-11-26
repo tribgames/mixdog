@@ -295,8 +295,12 @@ impl ImportJobs {
             job
         };
         let snapshot = job.lock().unwrap().snapshot();
+        let pin = self.discovery.pin_candidates(&ids);
         let runner = self.clone();
-        tokio::spawn(async move { runner.run_job(job, ids).await });
+        tokio::spawn(async move {
+            let _pin = pin;
+            runner.run_job(job, ids).await;
+        });
         snapshot
     }
 

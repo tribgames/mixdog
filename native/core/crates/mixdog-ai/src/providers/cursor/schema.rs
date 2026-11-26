@@ -490,10 +490,32 @@ pub struct InteractionUpdate {
     pub turn_ended: bool,
     pub step_completed: bool,
     pub heartbeat: bool,
+    /// `ToolCallStartedUpdate.call_id` (empty when absent).
+    pub tool_call_started: Option<String>,
+    /// `ToolCallCompletedUpdate.call_id` (empty when absent).
+    pub tool_call_completed: Option<String>,
+    /// `PartialToolCallUpdate` or `ToolCallDeltaUpdate` was present.
+    pub tool_call_partial: bool,
     /// The tool requests the step makes, when this update lists them.
     pub listed: Option<u64>,
     /// What the turn used, when this update ends it and says so.
     pub usage: Option<TurnUsage>,
+}
+
+impl InteractionUpdate {
+    /// True when this update carries only a server keepalive heartbeat.
+    pub fn is_heartbeat_only(&self) -> bool {
+        self.heartbeat
+            && self.text_delta.is_none()
+            && self.thinking_delta.is_none()
+            && self.token_delta == 0
+            && !self.turn_ended
+            && !self.step_completed
+            && self.tool_call_started.is_none()
+            && self.tool_call_completed.is_none()
+            && !self.tool_call_partial
+            && self.listed.is_none()
+    }
 }
 
 /// The token counts of a turn, as the update that ends it reports them.
@@ -622,10 +644,53 @@ pub struct ServerMessage {
     pub exec: Option<ExecServer>,
     pub checkpoint: Option<Vec<u8>>,
     pub kv: Option<KvServer>,
-    pub exec_abort: bool,
+    /// `ExecServerControlMessage.abort.id`.
+    pub exec_abort: Option<u64>,
     pub query: Option<InteractionQuery>,
     /// Field numbers outside the described set.
     pub unknown: Vec<u32>,
+}
+
+/// Decoded `aiserver.v1.CustomErrorDetails`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CustomErrorDetails {
+    pub title: String,
+    pub detail: String,
+    pub is_retryable: Option<bool>,
+}
+
+/// Decoded `aiserver.v1.ErrorDetails`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ErrorDetails {
+    pub error: u32,
+    pub details: Option<CustomErrorDetails>,
+    pub is_expected: Option<bool>,
+}
+
+pub fn decode_error_details(bytes: &[u8]) -> Result<ErrorDetails, PbError> {
+    let mut out = ErrorDetails::default();
+    let mut r = Reader::new(bytes);
+    while let Some((n, v)) = r.next_field()? {
+        match n {
+            1 => out.error = v.as_u64() as u32,
+            2 => {
+                let mut custom = CustomErrorDetails::default();
+                let mut inner = Reader::new(v.bytes());
+                while let Some((m, w)) = inner.next_field()? {
+                    match m {
+                        1 => custom.title = w.text(),
+                        2 => custom.detail = w.text(),
+                        4 => custom.is_retryable = Some(w.as_bool()),
+                        _ => {}
+                    }
+                }
+                out.details = Some(custom);
+            }
+            3 => out.is_expected = Some(v.as_bool()),
+            _ => {}
+        }
+    }
+    Ok(out)
 }
 
 fn decode_interaction(bytes: &[u8]) -> Result<InteractionUpdate, PbError> {
@@ -644,7 +709,10 @@ fn decode_interaction(bytes: &[u8]) -> Result<InteractionUpdate, PbError> {
         };
         match n {
             1 => out.text_delta = Some(first_text(v.bytes())?),
+            2 => out.tool_call_started = Some(first_text(v.bytes())?),
+            3 => out.tool_call_completed = Some(first_text(v.bytes())?),
             4 => out.thinking_delta = Some(first_text(v.bytes())?),
+            7 | 15 => out.tool_call_partial = true,
             8 => {
                 let mut inner = Reader::new(v.bytes());
                 while let Some((m, w)) = inner.next_field()? {
@@ -927,9 +995,16 @@ impl ServerMessage {
                 4 => out.kv = Some(decode_kv(v.bytes())?),
                 5 => {
                     let mut f = Reader::new(v.bytes());
-                    while let Some((m, _)) = f.next_field()? {
+                    while let Some((m, w)) = f.next_field()? {
                         if m == 1 {
-                            out.exec_abort = true;
+                            let mut abort = Reader::new(w.bytes());
+                            let mut id = 0;
+                            while let Some((k, kv)) = abort.next_field()? {
+                                if k == 1 {
+                                    id = kv.as_u64();
+                                }
+                            }
+                            out.exec_abort = Some(id);
                         }
                     }
                 }

@@ -11,8 +11,10 @@
 //! 2. resolves the route the request actually takes ([`ProviderAdapter::image_route`]) to one pinned plan;
 //! 3. reads the recorded verdict and the stored bytes of each image from the attachment store ([`ImageSupply`]; a send decodes
 //!    nothing of its own) and lets the destination matrix choose the original, a stored rendition, or a refusal;
-//! 4. seals the request against that plan: either every occurrence is accounted for, or the whole request is [`NotSent`] with
-//!    every blocker named, and the adapter is never called.
+//! 4. sends a route that reads no image the omission text in each image's place, telling the person once per send how many
+//!    images of their new message were not sent;
+//! 5. seals the request against that plan: either every other occurrence is accounted for, or the whole request is [`NotSent`]
+//!    with every blocker named, and the adapter is never called.
 //!
 //! The adapter then encodes a request whose images are exactly the sealed ones. A refused request is no send the ledger writes a
 //! row for: the guard is outside the accounting wrapper.
@@ -47,6 +49,7 @@ use mixdog_core_api::domain::provider::WireCodec;
 use mixdog_core_api::domain::provider::WireRouting;
 use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_image_egress::NotSent;
+use mixdog_image_egress::Reason;
 use mixdog_image_egress::route::RouteFacts;
 use mixdog_protocol::JsonValue;
 use mixdog_protocol::ProviderId;
@@ -60,8 +63,9 @@ fn unavailable(why: &str) -> ProviderError {
 }
 
 /// `request` with every image occurrence prepared for the route it takes: the same request where it holds none, else the sealed
-/// request with the prepared images in their places (content and recorded form alike); any image the destination cannot take
-/// ends the call with every blocker named, and nothing is sent.
+/// request with the prepared images in their places (content and recorded form alike). An image the route cannot take only
+/// because it reads no image goes as the omission text; any other ends the call with every such blocker named, and nothing is
+/// sent.
 pub(crate) async fn prepare(adapter: &dyn ProviderAdapter, request: Arc<ModelRequest>) -> Result<Arc<ModelRequest>, ProviderError> {
     let session = request.options.session_id.clone().unwrap_or_default();
     let draft = DraftRequest::new(request, &session, "");
@@ -69,13 +73,30 @@ pub(crate) async fn prepare(adapter: &dyn ProviderAdapter, request: Arc<ModelReq
         return Ok(draft.into_request());
     }
     let plan = mixdog_image_egress::route::resolve(&adapter.image_route(draft.request()).await);
-    let supply: Arc<dyn ImageSupply> = mixdog_core_api::domain::image_supply::installed().unwrap_or_else(|| Arc::new(NoSupply));
+    let (draft, outcomes, new_prompt_images) = if !plan.policy().vision {
+        let omitted: Vec<_> = draft.intents().iter().map(|intent| intent.origin.clone()).collect();
+        let new_prompt_images = draft.new_prompt_images(&omitted);
+        (draft.omitting(&omitted), Vec::new(), new_prompt_images)
+    } else {
+        let supply: Arc<dyn ImageSupply> = mixdog_core_api::domain::image_supply::installed().unwrap_or_else(|| Arc::new(NoSupply));
+        let mut outcomes = Vec::with_capacity(draft.intents().len());
+        let mut omitted = Vec::new();
+        for intent in draft.intents() {
+            match prepare_intent(&plan, intent, supply.as_ref()).await {
+                Ok(image) => outcomes.push(Ok(image)),
+                Err(PrepareFailure::Refused(refusal)) if refusal.reason == Reason::NoVision => omitted.push(intent.origin.clone()),
+                Err(PrepareFailure::Refused(refusal)) => outcomes.push(Err(refusal)),
+                Err(PrepareFailure::Unavailable(why)) => return Err(unavailable(&why)),
+            }
+        }
+        let new_prompt_images = draft.new_prompt_images(&omitted);
+        (draft.omitting(&omitted), outcomes, new_prompt_images)
+    };
     let mut batch = plan.batch(draft.intents().iter().map(|intent| intent.origin.clone()).collect());
-    for intent in draft.intents() {
-        match prepare_intent(&plan, intent, supply.as_ref()).await {
+    for outcome in outcomes {
+        match outcome {
             Ok(image) => batch.accept(image),
-            Err(PrepareFailure::Refused(refusal)) => batch.refuse(refusal),
-            Err(PrepareFailure::Unavailable(why)) => return Err(unavailable(&why)),
+            Err(refusal) => batch.refuse(refusal),
         }
     }
     let refused = |mut not_sent: NotSent, draft: &DraftRequest| {
@@ -84,6 +105,12 @@ pub(crate) async fn prepare(adapter: &dyn ProviderAdapter, request: Arc<ModelReq
     };
     let sealed = batch.seal().map_err(|not_sent| refused(not_sent, &draft))?;
     let prepared = PreparedRequest::seal(draft.clone(), plan, sealed).map_err(|not_sent| refused(not_sent, &draft))?;
+    if new_prompt_images > 0 {
+        let request = draft.request();
+        let model = &request.model;
+        let notice = format!("{new_prompt_images} image(s) of this message were not sent to {model}: {model} takes no images.");
+        request.options.send_identity.raise_notice_once(notice, true);
+    }
     Ok(Arc::new(prepared.wire_request()))
 }
 

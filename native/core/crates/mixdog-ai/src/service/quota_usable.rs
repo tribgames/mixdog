@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use crate::accounts::policy::{choose_account, quota_window_applies_to_model};
+use crate::accounts::policy::{choose_account, quota_window_applies_to_model, window_without_credits};
 use crate::accounts::{Pool, Window};
 use serde_json::Value;
 
@@ -11,18 +11,81 @@ fn positive(value: Option<&Value>) -> bool {
     value.and_then(Value::as_f64).is_some_and(|n| n.is_finite() && n > 0.0)
 }
 
+/// Tri-state credit verdict from a reading's `balance`:
+/// - `Some(true)`: measured evidence that credit overage can serve requests now.
+/// - `Some(false)`: measured evidence that credit overage is disabled, capped, or depleted.
+/// - `None`: no credit verdict in this balance.
+pub fn balance_credit_state(balance: Option<&Value>) -> Option<bool> {
+    let balance = balance.filter(|b| !b.is_null())?;
+    if balance.get("overageLimitReached") == Some(&Value::Bool(true))
+        || balance.get("spendControlReached") == Some(&Value::Bool(true))
+        || balance.get("workspaceLimitReached") == Some(&Value::Bool(true))
+    {
+        return Some(false);
+    }
+    if balance.get("unlimited") == Some(&Value::Bool(true)) {
+        return Some(true);
+    }
+    match balance.get("hasCredits") {
+        Some(Value::Bool(false)) => return Some(false),
+        Some(Value::Bool(true)) => {
+            return Some(balance.get("remainingCredits").is_none_or(Value::is_null) || positive(balance.get("remainingCredits")));
+        }
+        _ => {}
+    }
+    // Cursor's `cursor-dashboard` balance reports the included plan pool (`remainingUsd`),
+    // not overage credit; require an explicit `hasCredits` or `unlimited` verdict for it.
+    if balance.get("source").and_then(Value::as_str) == Some("cursor-dashboard") {
+        return None;
+    }
+    let rem_credits = balance.get("remainingCredits").and_then(Value::as_f64).filter(|n| n.is_finite());
+    let rem_usd = balance.get("remainingUsd").and_then(Value::as_f64).filter(|n| n.is_finite());
+    if rem_credits.is_some() || rem_usd.is_some() {
+        return Some(rem_credits.is_some_and(|n| n > 0.0) || rem_usd.is_some_and(|n| n > 0.0));
+    }
+    None
+}
+
+/// Measured evidence in a reading's `balance` that credit overage can serve requests now.
+pub fn balance_has_credits(balance: Option<&Value>) -> bool {
+    balance_credit_state(balance) == Some(true)
+}
+
+/// Tri-state overage credit verdict from a usage snapshot for `provider`.
+pub fn snapshot_credit_state(provider: &str, snapshot: &Value) -> Option<bool> {
+    let balance = snapshot.get("balance").filter(|b| !b.is_null())?;
+    if matches!(provider, "cursor-oauth" | "cursor-api")
+        || snapshot.get("source").and_then(Value::as_str) == Some("cursor-dashboard")
+        || balance.get("source").and_then(Value::as_str) == Some("cursor-dashboard")
+    {
+        if balance.get("overageLimitReached") == Some(&Value::Bool(true))
+            || balance.get("spendControlReached") == Some(&Value::Bool(true))
+            || balance.get("workspaceLimitReached") == Some(&Value::Bool(true))
+        {
+            return Some(false);
+        }
+        if balance.get("unlimited") == Some(&Value::Bool(true)) {
+            return Some(true);
+        }
+        return match balance.get("hasCredits") {
+            Some(Value::Bool(v)) => Some(*v),
+            _ => None,
+        };
+    }
+    balance_credit_state(Some(balance))
+}
+
+/// Measured evidence in a usage snapshot that usable overage credits exist for `provider`.
+pub fn snapshot_has_credits(provider: &str, snapshot: &Value) -> bool {
+    snapshot_credit_state(provider, snapshot) == Some(true)
+}
+
 /// `readingServesModel`: measured evidence in this one reading that `model` can be served: an
 /// applicable window with a numeric meter and none of them spent, or, when the account pays with
 /// credits, a positive measured balance. A failed, unknown or balance-only reading is no evidence.
 pub fn reading_serves_model(reading: Option<&Value>, model: &str, use_credits: bool) -> bool {
     let Some(reading) = reading.filter(|r| !r.is_null()) else { return false };
-    if use_credits
-        && let Some(balance) = reading.get("balance").filter(|b| !b.is_null())
-        && (balance.get("unlimited") == Some(&Value::Bool(true)) || positive(balance.get("remainingCredits")) || positive(balance.get("remainingUsd")))
-    {
-        return true;
-    }
-    let used: Vec<f64> = reading
+    let applicable: Vec<(Window, f64)> = reading
         .get("quotaWindows")
         .and_then(Value::as_array)
         .map(|windows| {
@@ -33,12 +96,19 @@ pub fn reading_serves_model(reading: Option<&Value>, model: &str, use_credits: b
                     let window: Window = serde_json::from_value(raw.clone()).unwrap_or_default();
                     // A full counter that refuses nothing is neither proof of service nor of refusal.
                     let counter_only = window.binding == Some(false) && used >= 100.0;
-                    (quota_window_applies_to_model(&window, model) && !counter_only).then_some(used)
+                    (quota_window_applies_to_model(&window, model) && !counter_only).then_some((window, used))
                 })
                 .collect()
         })
         .unwrap_or_default();
-    !used.is_empty() && used.iter().all(|u| *u < 100.0)
+    if applicable.iter().any(|(window, used)| *used >= 100.0 && window_without_credits(window)) {
+        return false;
+    }
+    let provider = reading.get("provider").and_then(Value::as_str).unwrap_or("");
+    if use_credits && snapshot_has_credits(provider, reading) {
+        return true;
+    }
+    !applicable.is_empty() && applicable.iter().all(|(_, u)| *u < 100.0)
 }
 
 /// One roster account and its forced reading.

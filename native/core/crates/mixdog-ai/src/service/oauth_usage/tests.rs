@@ -685,6 +685,15 @@ fn an_api_key_has_no_credential_stamp_and_an_identity_outlasts_its_token() {
     assert_ne!(first, credential_stamp("anthropic-oauth", &doc(serde_json::json!({"access_token": "t1", "account_id": "b"}))));
     let nested = credential_stamp("anthropic-oauth", &doc(serde_json::json!({"claudeAiOauth": {"accessToken": "t1", "accountId": "a"}})));
     assert_eq!(first, nested);
+    let jwt = |sub: &str, nonce: &str| {
+        use base64::Engine as _;
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(serde_json::json!({"sub": sub, "jti": nonce}).to_string());
+        format!("eyJhbGciOiJIUzI1NiJ9.{payload}.sig")
+    };
+    let cursor_a = credential_stamp("cursor-oauth", &doc(serde_json::json!({"access_token": jwt("auth0|u1", "1")})));
+    let cursor_b = credential_stamp("cursor-oauth", &doc(serde_json::json!({"access_token": jwt("auth0|u1", "2")})));
+    let cursor_other = credential_stamp("cursor-oauth", &doc(serde_json::json!({"access_token": jwt("auth0|u2", "1")})));
+    assert!(cursor_a.is_some() && cursor_a == cursor_b && cursor_a != cursor_other);
 }
 
 /// The observed percent is kept as it is; the credit the provider states is left beside it as separate evidence.
@@ -1193,4 +1202,651 @@ async fn a_reading_whose_roster_write_was_refused_is_not_taken_as_recorded() {
     assert_eq!(snap["quotaWindows"][0]["usedPct"], 41);
     let pool = r.store.pool("anthropic-oauth").await.unwrap();
     assert_eq!(pool.account(ID).unwrap().usage.as_ref().unwrap().windows[0].used_pct, Some(41.0));
+}
+
+#[tokio::test]
+async fn a_codex_credit_reading_lifts_a_stale_quota_block_when_credits_are_enabled() {
+    use crate::accounts::{AccountChange, BlockOptions, policy};
+
+    const WHAM_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
+    let r = rig().await;
+    r.store.register("openai-oauth", "default", "Default", false).await.unwrap();
+    r.store
+        .credential_file("openai-oauth", "default")
+        .unwrap()
+        .save(&serde_json::json!({ "access_token": "tok", "refresh_token": "ref", "account_id": "acct" }))
+        .await
+        .unwrap();
+    r.store.change("openai-oauth", AccountChange { use_credits: Some(true), ..AccountChange::default() }).await.unwrap();
+
+    let now = r.store.now_ms();
+    let reset_at = now + 18_000_000;
+    let block_quota = || async {
+        r.store
+            .block(
+                "openai-oauth",
+                "default",
+                reset_at,
+                "gpt-6.2-astra",
+                BlockOptions { server_scheduled: true, quota: true, reset: true, ..BlockOptions::default() },
+            )
+            .await
+            .unwrap();
+    };
+    let wham = |overage_reached: bool, spend_reached: bool| {
+        serde_json::json!({
+            "plan_type": "pro",
+            "rate_limit": {
+                "allowed": false,
+                "limit_reached": true,
+                "primary_window": { "used_percent": 100, "limit_window_seconds": 604800, "reset_at": reset_at / 1000 }
+            },
+            "credits": {
+                "has_credits": true,
+                "unlimited": false,
+                "overage_limit_reached": overage_reached,
+                "balance": "570.8442500000"
+            },
+            "spend_control": { "reached": spend_reached, "individual_limit": null }
+        })
+        .to_string()
+    };
+    let codex_route = RouteInfo { provider: "openai-oauth".into(), model: "gpt-6.2-astra".into(), account_id: "default".into() };
+
+    // Overage limit or spend control reached: credits cannot serve, so the quota block stays.
+    block_quota().await;
+    r.http.queue(WHAM_URL, Ok((200, wham(true, false))));
+    r.usage.fetch_snapshot(&codex_route, true).await.unwrap();
+    let row = r.store.pool("openai-oauth").await.unwrap().account("default").unwrap().clone();
+    assert!(policy::account_exhausted(&row, now, "gpt-6.2-astra", true));
+
+    r.http.queue(WHAM_URL, Ok((200, wham(false, true))));
+    r.usage.fetch_snapshot(&codex_route, true).await.unwrap();
+    let row = r.store.pool("openai-oauth").await.unwrap().account("default").unwrap().clone();
+    assert!(policy::account_exhausted(&row, now, "gpt-6.2-astra", true));
+
+    // Credit use off: available credits do not lift the quota block.
+    r.store.change("openai-oauth", AccountChange { use_credits: Some(false), ..AccountChange::default() }).await.unwrap();
+    r.http.queue(WHAM_URL, Ok((200, wham(false, false))));
+    r.usage.fetch_snapshot(&codex_route, true).await.unwrap();
+    let row = r.store.pool("openai-oauth").await.unwrap().account("default").unwrap().clone();
+    assert!(policy::account_exhausted(&row, now, "gpt-6.2-astra", true));
+
+    // Re-enabling credit use clears the stale quota block immediately.
+    r.store.change("openai-oauth", AccountChange { use_credits: Some(true), ..AccountChange::default() }).await.unwrap();
+    let row = r.store.pool("openai-oauth").await.unwrap().account("default").unwrap().clone();
+    assert!(!policy::account_exhausted(&row, now, "gpt-6.2-astra", true));
+
+    // With credit use already on, a fresh credit reading lifts a stale quota block recorded before credits were usable.
+    r.store.clear_quota_state("openai-oauth", "default").await.unwrap();
+    block_quota().await;
+    r.http.queue(WHAM_URL, Ok((200, wham(false, false))));
+    r.usage.fetch_snapshot(&codex_route, true).await.unwrap();
+    let row = r.store.pool("openai-oauth").await.unwrap().account("default").unwrap().clone();
+    assert!(row.blocks().is_empty());
+    assert!(!policy::account_exhausted(&row, now, "gpt-6.2-astra", true));
+
+    // Alongside a non-quota cooldown, only the quota block lifts; the cooldown stays until its own deadline.
+    r.store.clear_quota_state("openai-oauth", "default").await.unwrap();
+    block_quota().await;
+    r.store
+        .block("openai-oauth", "default", now + 60_000, "other-model", BlockOptions { server_scheduled: true, quota: false, ..BlockOptions::default() })
+        .await
+        .unwrap();
+    r.http.queue(WHAM_URL, Ok((200, wham(false, false))));
+    r.usage.fetch_snapshot(&codex_route, true).await.unwrap();
+    let row = r.store.pool("openai-oauth").await.unwrap().account("default").unwrap().clone();
+    assert_eq!(row.blocks().len(), 1);
+    assert_eq!(row.blocks()[0].blocked_quota, None);
+    assert_eq!(row.blocks()[0].blocked_until, now + 60_000);
+    assert!(policy::account_exhausted(&row, now, "other-model", true));
+    assert!(!policy::account_exhausted(&row, now + 60_000, "gpt-6.2-astra", true));
+}
+
+#[tokio::test]
+async fn credits_cover_only_the_primary_codex_limit_and_leave_additional_model_buckets_blocked() {
+    use crate::accounts::{AccountChange, BlockOptions, policy};
+    use crate::service::quota_usable::reading_serves_model;
+
+    const WHAM_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
+    let r = rig().await;
+    r.store.register("openai-oauth", "default", "Default", false).await.unwrap();
+    r.store
+        .credential_file("openai-oauth", "default")
+        .unwrap()
+        .save(&serde_json::json!({ "access_token": "tok", "refresh_token": "ref", "account_id": "acct" }))
+        .await
+        .unwrap();
+
+    let now = r.store.now_ms();
+    let reset_at = now + 18_000_000;
+    let wham = serde_json::json!({
+        "plan_type": "pro",
+        "rate_limit": {
+            "allowed": false,
+            "limit_reached": true,
+            "primary_window": { "used_percent": 100, "limit_window_seconds": 604800, "reset_at": reset_at / 1000 }
+        },
+        "additional_rate_limits": [{
+            "limit_name": "gpt-5-codex-spark",
+            "metered_feature": "codex_spark",
+            "rate_limit": {
+                "allowed": false,
+                "limit_reached": true,
+                "primary_window": { "used_percent": 100, "limit_window_seconds": 18000, "reset_at": reset_at / 1000 }
+            }
+        }],
+        "credits": { "has_credits": true, "unlimited": false, "balance": "570.84425" }
+    })
+    .to_string();
+    let codex_route = RouteInfo { provider: "openai-oauth".into(), model: "gpt-6.2-astra".into(), account_id: "default".into() };
+
+    r.store
+        .block(
+            "openai-oauth",
+            "default",
+            reset_at,
+            "gpt-6.2-astra",
+            BlockOptions { server_scheduled: true, quota: true, limit: "codex".into(), reset: true, ..BlockOptions::default() },
+        )
+        .await
+        .unwrap();
+    r.store
+        .block(
+            "openai-oauth",
+            "default",
+            reset_at,
+            "gpt-5-codex-spark",
+            BlockOptions { server_scheduled: true, quota: true, limit: "codex_spark".into(), reset: true, ..BlockOptions::default() },
+        )
+        .await
+        .unwrap();
+
+    // First read while credit use is off, then enable credit use and read again.
+    r.http.queue(WHAM_URL, Ok((200, wham.clone())));
+    let snap = r.usage.fetch_snapshot(&codex_route, true).await.unwrap();
+    assert!(!reading_serves_model(Some(&snap), "gpt-5-codex-spark", true));
+    assert!(reading_serves_model(Some(&snap), "gpt-6.2-astra", true));
+
+    r.store.change("openai-oauth", AccountChange { use_credits: Some(true), ..AccountChange::default() }).await.unwrap();
+    let row = r.store.pool("openai-oauth").await.unwrap().account("default").unwrap().clone();
+    assert!(!policy::account_exhausted(&row, now, "gpt-6.2-astra", true));
+    assert!(policy::account_exhausted(&row, now, "gpt-5-codex-spark", true));
+    assert_eq!(row.blocks().len(), 1);
+    assert_eq!(row.blocks()[0].blocked_model.as_deref(), Some("gpt-5-codex-spark"));
+
+    // Even an unnamed block recorded without credit use stays blocked on the full additional-bucket model
+    // across enabling credit use and fresh credit readings.
+    r.store.change("openai-oauth", AccountChange { use_credits: Some(false), ..AccountChange::default() }).await.unwrap();
+    r.store
+        .block(
+            "openai-oauth",
+            "default",
+            reset_at,
+            "gpt-5-codex-spark",
+            BlockOptions { server_scheduled: true, quota: true, reset: true, ..BlockOptions::default() },
+        )
+        .await
+        .unwrap();
+    r.store.change("openai-oauth", AccountChange { use_credits: Some(true), ..AccountChange::default() }).await.unwrap();
+    r.http.queue(WHAM_URL, Ok((200, wham)));
+    r.usage.fetch_snapshot(&codex_route, true).await.unwrap();
+    let row = r.store.pool("openai-oauth").await.unwrap().account("default").unwrap().clone();
+    assert!(policy::account_exhausted(&row, now, "gpt-5-codex-spark", true));
+    assert!(!policy::account_exhausted(&row, now, "gpt-6.2-astra", true));
+    assert_eq!(row.blocks().len(), 1);
+    assert_eq!(row.blocks()[0].blocked_model.as_deref(), Some("gpt-5-codex-spark"));
+    assert_eq!(row.blocks()[0].blocked_with_credits, None);
+}
+
+#[tokio::test]
+async fn workspace_rate_limit_reached_types_prevent_credits_from_serving_or_lifting_blocks() {
+    use crate::accounts::{AccountChange, BlockOptions, policy};
+    use crate::service::quota_usable::{balance_has_credits, reading_serves_model};
+
+    const WHAM_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
+    let r = rig().await;
+    r.store.register("openai-oauth", "default", "Default", false).await.unwrap();
+    r.store
+        .credential_file("openai-oauth", "default")
+        .unwrap()
+        .save(&serde_json::json!({ "access_token": "tok", "refresh_token": "ref", "account_id": "acct" }))
+        .await
+        .unwrap();
+    r.store.change("openai-oauth", AccountChange { use_credits: Some(true), ..AccountChange::default() }).await.unwrap();
+
+    let now = r.store.now_ms();
+    let reset_at = now + 18_000_000;
+    let codex_route = RouteInfo { provider: "openai-oauth".into(), model: "gpt-6.2-astra".into(), account_id: "default".into() };
+    let wham = |reached_type: &str| {
+        serde_json::json!({
+            "plan_type": "team",
+            "rate_limit": {
+                "allowed": false,
+                "limit_reached": true,
+                "primary_window": { "used_percent": 100, "limit_window_seconds": 604800, "reset_at": reset_at / 1000 }
+            },
+            "rate_limit_reached_type": { "type": reached_type },
+            "credits": { "has_credits": true, "unlimited": false, "balance": "570.84425" },
+            "spend_control": { "reached": false }
+        })
+        .to_string()
+    };
+
+    r.store
+        .block(
+            "openai-oauth",
+            "default",
+            reset_at,
+            "gpt-6.2-astra",
+            BlockOptions { server_scheduled: true, quota: true, reset: true, ..BlockOptions::default() },
+        )
+        .await
+        .unwrap();
+
+    for reached_type in
+        ["workspace_owner_credits_depleted", "workspace_member_credits_depleted", "workspace_owner_usage_limit_reached", "workspace_member_usage_limit_reached"]
+    {
+        r.http.queue(WHAM_URL, Ok((200, wham(reached_type))));
+        let snap = r.usage.fetch_snapshot(&codex_route, true).await.unwrap();
+        assert_eq!(snap["balance"]["workspaceLimitReached"], true, "{reached_type}");
+        assert!(!balance_has_credits(snap.get("balance")), "{reached_type}");
+        assert!(!reading_serves_model(Some(&snap), "gpt-6.2-astra", true), "{reached_type}");
+        let row = r.store.pool("openai-oauth").await.unwrap().account("default").unwrap().clone();
+        assert!(policy::account_exhausted(&row, now, "gpt-6.2-astra", true), "{reached_type}");
+    }
+
+    // A plain rate_limit_reached does not disable credits.
+    r.http.queue(WHAM_URL, Ok((200, wham("rate_limit_reached"))));
+    let snap = r.usage.fetch_snapshot(&codex_route, true).await.unwrap();
+    assert!(balance_has_credits(snap.get("balance")));
+    assert!(reading_serves_model(Some(&snap), "gpt-6.2-astra", true));
+    let row = r.store.pool("openai-oauth").await.unwrap().account("default").unwrap().clone();
+    assert!(!policy::account_exhausted(&row, now, "gpt-6.2-astra", true));
+}
+
+#[tokio::test]
+async fn anthropic_disabled_extra_usage_does_not_count_as_usable_credits_or_lift_blocks() {
+    use crate::accounts::{AccountChange, BlockOptions, policy};
+    use crate::service::quota_usable::{balance_has_credits, reading_serves_model};
+
+    let r = rig().await;
+    r.store.change("anthropic-oauth", AccountChange { use_credits: Some(true), ..AccountChange::default() }).await.unwrap();
+
+    let now = r.store.now_ms();
+    let reset_at = now + 3_600_000;
+    r.store
+        .block(
+            "anthropic-oauth",
+            ID,
+            reset_at,
+            "claude-sonnet-4-6",
+            BlockOptions { server_scheduled: true, quota: true, limit: "five_hour".into(), reset: true, ..BlockOptions::default() },
+        )
+        .await
+        .unwrap();
+
+    let reading = |enabled: bool| {
+        serde_json::json!({
+            "five_hour": { "utilization": 100.0, "resets_at": "2030-01-02T03:04:05.000Z" },
+            "extra_usage": { "is_enabled": enabled, "monthly_limit": 5000, "used_credits": 100, "currency": "USD" }
+        })
+        .to_string()
+    };
+
+    // Extra Usage off: monthly budget present on wire must not count as usable credit or lift the 5H block.
+    r.http.queue(ANTHROPIC_URL, Ok((200, reading(false))));
+    let snap = r.usage.fetch_snapshot(&route(), true).await.unwrap();
+    assert!(snap["balance"].is_null());
+    assert!(!balance_has_credits(snap.get("balance")));
+    assert!(!reading_serves_model(Some(&snap), "claude-sonnet-4-6", true));
+    let row = r.store.pool("anthropic-oauth").await.unwrap().account(ID).unwrap().clone();
+    assert!(policy::account_exhausted(&row, now, "claude-sonnet-4-6", true));
+
+    // Extra Usage enabled: positive remaining budget counts as usable credit and lifts the stale 5H block.
+    r.http.queue(ANTHROPIC_URL, Ok((200, reading(true))));
+    let snap = r.usage.fetch_snapshot(&route(), true).await.unwrap();
+    assert!(balance_has_credits(snap.get("balance")));
+    assert!(reading_serves_model(Some(&snap), "claude-sonnet-4-6", true));
+    let row = r.store.pool("anthropic-oauth").await.unwrap().account(ID).unwrap().clone();
+    assert!(!policy::account_exhausted(&row, now, "claude-sonnet-4-6", true));
+}
+
+#[tokio::test]
+async fn unlimited_or_hidden_codex_credit_balances_still_count_as_usable_credits() {
+    use crate::accounts::{AccountChange, BlockOptions, policy};
+    use crate::service::quota_usable::{balance_has_credits, reading_serves_model};
+
+    const WHAM_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
+    let r = rig().await;
+    r.store.register("openai-oauth", "default", "Default", false).await.unwrap();
+    r.store
+        .credential_file("openai-oauth", "default")
+        .unwrap()
+        .save(&serde_json::json!({ "access_token": "tok", "refresh_token": "ref", "account_id": "acct" }))
+        .await
+        .unwrap();
+    r.store.change("openai-oauth", AccountChange { use_credits: Some(true), ..AccountChange::default() }).await.unwrap();
+
+    let now = r.store.now_ms();
+    let reset_at = now + 18_000_000;
+    let codex_route = RouteInfo { provider: "openai-oauth".into(), model: "gpt-6.2-astra".into(), account_id: "default".into() };
+    let wham = |credits: serde_json::Value| {
+        serde_json::json!({
+            "plan_type": "pro",
+            "rate_limit": {
+                "allowed": false,
+                "limit_reached": true,
+                "primary_window": { "used_percent": 100, "limit_window_seconds": 604800, "reset_at": reset_at / 1000 }
+            },
+            "credits": credits
+        })
+        .to_string()
+    };
+
+    for credits in [
+        serde_json::json!({ "has_credits": true, "unlimited": false, "balance": null }),
+        serde_json::json!({ "has_credits": true, "unlimited": false, "balance": "" }),
+        serde_json::json!({ "has_credits": false, "unlimited": true, "balance": null }),
+    ] {
+        r.store.clear_quota_state("openai-oauth", "default").await.unwrap();
+        r.store
+            .block(
+                "openai-oauth",
+                "default",
+                reset_at,
+                "gpt-6.2-astra",
+                BlockOptions { server_scheduled: true, quota: true, reset: true, ..BlockOptions::default() },
+            )
+            .await
+            .unwrap();
+        r.http.queue(WHAM_URL, Ok((200, wham(credits.clone()))));
+        let snap = r.usage.fetch_snapshot(&codex_route, true).await.unwrap();
+        assert!(!snap["balance"].is_null(), "{credits}");
+        assert!(balance_has_credits(snap.get("balance")), "{credits}");
+        assert!(reading_serves_model(Some(&snap), "gpt-6.2-astra", true), "{credits}");
+        let row = r.store.pool("openai-oauth").await.unwrap().account("default").unwrap().clone();
+        assert!(!policy::account_exhausted(&row, now, "gpt-6.2-astra", true), "{credits}");
+    }
+
+    // No credits, not unlimited, null balance: does not count as usable credits.
+    r.store.clear_quota_state("openai-oauth", "default").await.unwrap();
+    r.store
+        .block(
+            "openai-oauth",
+            "default",
+            reset_at,
+            "gpt-6.2-astra",
+            BlockOptions { server_scheduled: true, quota: true, reset: true, ..BlockOptions::default() },
+        )
+        .await
+        .unwrap();
+    r.http.queue(WHAM_URL, Ok((200, wham(serde_json::json!({ "has_credits": false, "unlimited": false, "balance": null })))));
+    let snap = r.usage.fetch_snapshot(&codex_route, true).await.unwrap();
+    assert!(snap["balance"].is_null());
+    assert!(!balance_has_credits(snap.get("balance")));
+    let row = r.store.pool("openai-oauth").await.unwrap().account("default").unwrap().clone();
+    assert!(policy::account_exhausted(&row, now, "gpt-6.2-astra", true));
+}
+
+#[tokio::test]
+async fn cursor_included_plan_balance_does_not_stamp_has_credits_or_lift_exhausted_api_block() {
+    use crate::accounts::{AccountChange, BlockOptions, policy};
+    use crate::service::quota_usable::{balance_has_credits, reading_serves_model, snapshot_has_credits};
+
+    struct CursorSnapshots(Mutex<VecDeque<Value>>);
+
+    #[async_trait]
+    impl UsageSource for CursorSnapshots {
+        async fn ensure_auth(&self, _: &str, _: &str, _: Option<&UsageAuth>) -> Result<Option<UsageAuth>, UsageError> {
+            Ok(None)
+        }
+        async fn provider_snapshot(&self, _: &str, _: &str, sent: &mut Option<UsageAuth>) -> Result<Option<Value>, UsageError> {
+            *sent = Some(UsageAuth::plain(serde_json::json!({ "access_token": "tok", "refresh_token": "ref" })));
+            Ok(self.0.lock().unwrap().pop_front())
+        }
+    }
+
+    let r = rig().await;
+    r.store.register("cursor-oauth", "default", "Default", false).await.unwrap();
+    r.store.credential_file("cursor-oauth", "default").unwrap().save(&serde_json::json!({ "access_token": "tok", "refresh_token": "ref" })).await.unwrap();
+    r.store.change("cursor-oauth", AccountChange { use_credits: Some(true), ..AccountChange::default() }).await.unwrap();
+
+    let now = r.store.now_ms();
+    let reset_at = now + 3_600_000;
+    let route = RouteInfo { provider: "cursor-oauth".into(), model: "claude-sonnet-4-6".into(), account_id: "default".into() };
+
+    let snap_with_balance = |balance: Value| {
+        serde_json::json!({
+            "provider": "cursor-oauth",
+            "source": "cursor-dashboard",
+            "quotaWindows": [
+                { "label": "Basic", "source": "cursor-dashboard", "usedPct": 10.0, "resetAt": reset_at, "models": ["auto", "default", "composer"] },
+                { "label": "API", "source": "cursor-dashboard", "usedPct": 100.0, "resetAt": reset_at, "except": ["auto", "default", "composer"] }
+            ],
+            "balance": balance
+        })
+    };
+
+    let snapshots = Arc::new(CursorSnapshots(Mutex::new(VecDeque::from([
+        // 1. Included plan remainingUsd with hasCredits=false (onDemand disabled / $0 prepaid).
+        snap_with_balance(serde_json::json!({ "source": "cursor-dashboard", "limitUsd": 20.0, "usedUsd": 5.0, "remainingUsd": 15.0, "hasCredits": false })),
+        // 2. Legacy cached/synthetic cursor-dashboard balance with remainingUsd only (no hasCredits field).
+        snap_with_balance(serde_json::json!({ "source": "cursor-dashboard", "limitUsd": 20.0, "usedUsd": 5.0, "remainingUsd": 15.0 })),
+        // 3. Enabled onDemand overage credit (hasCredits=true).
+        snap_with_balance(serde_json::json!({ "source": "cursor-dashboard", "limitUsd": 20.0, "usedUsd": 5.0, "remainingUsd": 15.0, "hasCredits": true })),
+    ]))));
+    let usage = service_over(&r, snapshots, r.dir.path().to_owned());
+
+    // Cases 1 and 2 must NOT stamp has_credits = Some(true) or lift the exhausted API block.
+    // Case 1 explicitly proves hasCredits=false -> Some(false); Case 2 has no credit verdict -> None.
+    for (case, expected_state) in [("explicit hasCredits=false", Some(false)), ("legacy included remainingUsd only", None)] {
+        r.store.clear_quota_state("cursor-oauth", "default").await.unwrap();
+        r.store
+            .block(
+                "cursor-oauth",
+                "default",
+                reset_at,
+                "claude-sonnet-4-6",
+                BlockOptions { server_scheduled: true, quota: true, reset: true, ..BlockOptions::default() },
+            )
+            .await
+            .unwrap();
+        let snap = usage.fetch_snapshot(&route, true).await.unwrap();
+        assert!(!balance_has_credits(snap.get("balance")), "{case}");
+        assert!(!snapshot_has_credits("cursor-oauth", &snap), "{case}");
+        assert!(!reading_serves_model(Some(&snap), "claude-sonnet-4-6", true), "{case}");
+        let row = r.store.pool("cursor-oauth").await.unwrap().account("default").unwrap().clone();
+        assert_eq!(row.has_credits, expected_state, "{case}");
+        assert!(policy::account_exhausted(&row, now, "claude-sonnet-4-6", true), "{case}");
+    }
+
+    // Case 3: proven onDemand overage credits DO stamp has_credits and lift the exhausted API block.
+    let snap = usage.fetch_snapshot(&route, true).await.unwrap();
+    assert!(balance_has_credits(snap.get("balance")));
+    assert!(snapshot_has_credits("cursor-oauth", &snap));
+    assert!(reading_serves_model(Some(&snap), "claude-sonnet-4-6", true));
+    let row = r.store.pool("cursor-oauth").await.unwrap().account("default").unwrap().clone();
+    assert_eq!(row.has_credits, Some(true));
+    assert!(!policy::account_exhausted(&row, now, "claude-sonnet-4-6", true));
+}
+
+#[tokio::test]
+async fn anthropic_unlimited_extra_usage_counts_as_usable_credits_when_windows_are_full() {
+    use crate::accounts::{AccountChange, policy};
+    use crate::service::quota_usable::{balance_has_credits, reading_serves_model, snapshot_credit_state, snapshot_has_credits};
+
+    let r = rig().await;
+    r.store.change("anthropic-oauth", AccountChange { use_credits: Some(true), ..AccountChange::default() }).await.unwrap();
+
+    let payload = serde_json::json!({
+        "five_hour": { "utilization": 100.0, "resets_at": "2030-01-02T03:04:05.000Z" },
+        "seven_day": { "utilization": 100.0, "resets_at": "2030-01-09T00:00:00.000Z" },
+        "extra_usage": { "is_enabled": true, "monthly_limit": null, "used_credits": 1250, "utilization": null, "currency": "USD" }
+    })
+    .to_string();
+
+    r.http.queue(ANTHROPIC_URL, Ok((200, payload)));
+    let snap = r.usage.fetch_snapshot(&route(), true).await.unwrap();
+    assert_eq!(snap["balance"]["unlimited"], true);
+    assert_eq!(snap["balance"]["spentUsd"].as_f64(), Some(12.5));
+    assert!(snap["balance"].get("budgetUsd").is_none());
+    assert!(snap["balance"].get("remainingUsd").is_none());
+    let extra_win = snap["quotaWindows"].as_array().unwrap().iter().find(|w| w["label"] == "EXTRA").unwrap();
+    assert_eq!(extra_win["unlimited"], true);
+    assert_eq!(extra_win["usedUsd"].as_f64(), Some(12.5));
+    assert!(extra_win.get("limitUsd").is_none());
+    assert!(extra_win.get("remainingUsd").is_none());
+
+    assert!(balance_has_credits(snap.get("balance")));
+    assert_eq!(snapshot_credit_state("anthropic-oauth", &snap), Some(true));
+    assert!(snapshot_has_credits("anthropic-oauth", &snap));
+    assert!(reading_serves_model(Some(&snap), "claude-sonnet-4-6", true));
+
+    let row = r.store.pool("anthropic-oauth").await.unwrap().account(ID).unwrap().clone();
+    assert_eq!(row.has_credits, Some(true));
+    assert!(!policy::account_exhausted(&row, r.store.now_ms(), "claude-sonnet-4-6", true));
+}
+
+#[tokio::test]
+async fn recorded_credit_depletion_exhausts_account_without_waiting_for_live_429() {
+    use crate::accounts::{AccountChange, policy};
+
+    const WHAM_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
+    let r = rig().await;
+    r.store.register("openai-oauth", "default", "Default", false).await.unwrap();
+    r.store
+        .credential_file("openai-oauth", "default")
+        .unwrap()
+        .save(&serde_json::json!({ "access_token": "tok", "refresh_token": "ref", "account_id": "acct" }))
+        .await
+        .unwrap();
+    r.store.change("openai-oauth", AccountChange { use_credits: Some(true), ..AccountChange::default() }).await.unwrap();
+
+    let now = r.store.now_ms();
+    let reset_at = (now + 18_000_000) / 1000 * 1000;
+    let codex_route = RouteInfo { provider: "openai-oauth".into(), model: "gpt-6.2-astra".into(), account_id: "default".into() };
+
+    for (case, body) in [
+        (
+            "overage_limit_reached",
+            serde_json::json!({
+                "plan_type": "team",
+                "rate_limit": { "primary_window": { "used_percent": 100, "limit_window_seconds": 604800, "reset_at": reset_at / 1000 } },
+                "credits": { "has_credits": true, "unlimited": false, "balance": "100", "overage_limit_reached": true }
+            }),
+        ),
+        (
+            "spend_control_reached",
+            serde_json::json!({
+                "plan_type": "team",
+                "rate_limit": { "primary_window": { "used_percent": 100, "limit_window_seconds": 604800, "reset_at": reset_at / 1000 } },
+                "credits": { "has_credits": true, "unlimited": false, "balance": "100" },
+                "spend_control": { "reached": true }
+            }),
+        ),
+        (
+            "workspace_limit_reached",
+            serde_json::json!({
+                "plan_type": "team",
+                "rate_limit": { "primary_window": { "used_percent": 100, "limit_window_seconds": 604800, "reset_at": reset_at / 1000 } },
+                "credits": { "has_credits": true, "unlimited": false, "balance": "100" },
+                "rate_limit_reached_type": { "type": "workspace_owner_credits_depleted" }
+            }),
+        ),
+    ] {
+        r.store.clear_quota_state("openai-oauth", "default").await.unwrap();
+        r.http.queue(WHAM_URL, Ok((200, body.to_string())));
+        let _snap = r.usage.fetch_snapshot(&codex_route, true).await.unwrap();
+        let pool = r.store.pool("openai-oauth").await.unwrap();
+        let row = pool.account("default").unwrap();
+        assert_eq!(row.has_credits, Some(false), "{case}");
+        assert!(row.blocks().is_empty(), "{case}: no 429 block exists yet");
+        assert!(policy::account_exhausted(row, now, "gpt-6.2-astra", true), "{case}");
+        assert_eq!(policy::accounts_reset_at(std::slice::from_ref(row), now, "gpt-6.2-astra", true), Some(reset_at), "{case}");
+        assert_eq!(policy::account_limit(row, now, true), Some(policy::Limit::Account), "{case}");
+        assert!(policy::choose_account(&pool, &Default::default(), now, "gpt-6.2-astra", None).is_none(), "{case}");
+    }
+}
+
+#[tokio::test]
+async fn multi_window_snapshot_expires_when_any_window_resets_while_preserving_stale_fallback() {
+    const WHAM_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
+    let r = rig().await;
+    r.store.register("openai-oauth", "default", "Default", false).await.unwrap();
+    r.store
+        .credential_file("openai-oauth", "default")
+        .unwrap()
+        .save(&serde_json::json!({ "access_token": "tok", "refresh_token": "ref", "account_id": "acct" }))
+        .await
+        .unwrap();
+
+    let now = now_ms();
+    let elapsed_5h = (now - 5_000) / 1000 * 1000;
+    let future_5h = (now + 5 * 3_600_000) / 1000 * 1000;
+    let future_7d = (now + 5 * 86_400_000) / 1000 * 1000;
+
+    let two_window = serde_json::json!({
+        "provider": "openai-oauth",
+        "cachedAt": now,
+        "quotaWindows": [
+            { "label": "5H", "usedPct": 100.0, "resetAt": elapsed_5h },
+            { "label": "7D", "usedPct": 35.0, "resetAt": future_7d }
+        ]
+    });
+    assert!(fresh(Some(&two_window), LIVE_CACHE_TTL_MS, now).is_none(), "elapsed 5H invalidates live freshness even while 7D is future");
+    assert!(fresh(Some(&two_window), DISK_CACHE_TTL_MS, now).is_none(), "elapsed 5H invalidates disk freshness even while 7D is future");
+    assert!(
+        fresh_reading(Some(&two_window), STALE_DISK_CACHE_TTL_MS, now, true).is_some(),
+        "stale fallback keeps a multi-window snapshot readable when offline"
+    );
+
+    let all_future = serde_json::json!({
+        "provider": "openai-oauth",
+        "cachedAt": now,
+        "quotaWindows": [
+            { "label": "5H", "usedPct": 0.0, "resetAt": future_5h },
+            { "label": "7D", "usedPct": 35.0, "resetAt": future_7d }
+        ]
+    });
+    assert!(fresh(Some(&all_future), LIVE_CACHE_TTL_MS, now).is_some());
+
+    let codex_route = RouteInfo { provider: "openai-oauth".into(), model: "gpt-6.2-astra".into(), account_id: "default".into() };
+    let expired_body = serde_json::json!({
+        "plan_type": "plus",
+        "rate_limit": {
+            "primary_window": { "used_percent": 100, "limit_window_seconds": 18000, "reset_at": elapsed_5h / 1000 },
+            "secondary_window": { "used_percent": 35, "limit_window_seconds": 604800, "reset_at": future_7d / 1000 }
+        }
+    });
+    let rolled_body = serde_json::json!({
+        "plan_type": "plus",
+        "rate_limit": {
+            "primary_window": { "used_percent": 0, "limit_window_seconds": 18000, "reset_at": future_5h / 1000 },
+            "secondary_window": { "used_percent": 35, "limit_window_seconds": 604800, "reset_at": future_7d / 1000 }
+        }
+    });
+
+    r.http.queue(WHAM_URL, Ok((200, expired_body.to_string())));
+    r.http.queue(WHAM_URL, Ok((200, rolled_body.to_string())));
+
+    let wham_calls = || r.http.urls().into_iter().filter(|u| u == WHAM_URL).count();
+
+    let first = r.usage.fetch_snapshot(&codex_route, false).await.unwrap();
+    assert_eq!(first["quotaWindows"][0]["usedPct"], 100.0);
+    assert_eq!(wham_calls(), 1);
+    assert!(r.usage.read_cached(&codex_route, false).await.is_none(), "non-stale cache lookup rejects elapsed 5H");
+    let stale = r.usage.read_cached(&codex_route, true).await.expect("stale fallback remains available when offline");
+    assert_eq!(stale["quotaWindows"][1]["usedPct"], 35.0);
+
+    // Without force, fetch_snapshot must re-fetch live instead of serving the expired 5H reading for 60s.
+    let second = r.usage.fetch_snapshot(&codex_route, false).await.unwrap();
+    assert_eq!(wham_calls(), 2);
+    assert_eq!(second["quotaWindows"][0]["usedPct"], 0.0);
+    assert_eq!(r.usage.read_cached(&codex_route, false).await.unwrap()["quotaWindows"][0]["usedPct"], 0.0);
+
+    // Once all windows are in the future, the live cache serves the snapshot without another HTTP call.
+    let third = r.usage.fetch_snapshot(&codex_route, false).await.unwrap();
+    assert_eq!(wham_calls(), 2);
+    assert_eq!(third["quotaWindows"][0]["usedPct"], 0.0);
 }

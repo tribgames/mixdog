@@ -21,6 +21,7 @@ mixdog-ai = { workspace = true }
 mixdog-app-protocol = { workspace = true }
 mixdog-core-api = { workspace = true }
 mixdog-exthost = { workspace = true }
+mixdog-image-egress = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-migrate = { workspace = true }
 mixdog-app-server = { workspace = true }

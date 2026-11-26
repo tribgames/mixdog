@@ -209,7 +209,7 @@ async fn the_api_key_list_asks_the_public_endpoint_and_keeps_each_row_named_by_i
         assert_eq!(record.name.as_deref(), row["id"].as_str());
         assert_eq!(record.created, row["created"].as_i64(), "the release stamp is a field of the record");
         assert_eq!(record.context_window, None, "the public list does not say a window");
-        assert_eq!(record.raw.as_ref(), Some(row), "the row verbatim");
+        assert!(record.raw.is_none(), "normalized public API records do not retain raw provider JSON");
     }
 }
 

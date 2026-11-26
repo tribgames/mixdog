@@ -168,6 +168,24 @@ pub fn block_evidence_windows<'a>(usage: &'a Option<Usage>, block: &Block) -> Ve
     out
 }
 
+/// Whether `window` is a separate model-specific bucket that carries no credits
+/// (Codex `additional_rate_limits` have a limit id other than `codex`).
+pub fn window_without_credits(window: &Window) -> bool {
+    window.limit.as_deref().is_some_and(|l| !l.is_empty() && !l.eq_ignore_ascii_case("codex"))
+}
+
+/// Whether credits cover the meters `block` stands for. A block naming or
+/// drawing on a non-credit model bucket is never covered by credits.
+pub fn block_covered_by_credits(usage: &Option<Usage>, block: &Block) -> bool {
+    if let Some(limit) = block.blocked_limit.as_deref().map(js_trim).filter(|l| !l.is_empty())
+        && !limit.eq_ignore_ascii_case("codex")
+        && claim_label(limit).is_none()
+    {
+        return false;
+    }
+    !block_evidence_windows(usage, block).into_iter().any(|w| window_without_credits(w) && w.used_pct.is_none_or(|p| p >= 100.0))
+}
+
 /// A refusal earned by one model must not idle a model drawing on another
 /// meter. With no scoped meter to attribute it to, the block is account-wide.
 fn block_applies_to_model(usage: &Option<Usage>, block: &Block, model: &str) -> bool {
@@ -225,14 +243,18 @@ fn window_full(row: &Account, window: &Window, now: i64) -> bool {
         }
 }
 
+/// Whether credits may cover full windows on `row`: credit use is on and the
+/// latest recorded reading has not proved credits unavailable (`Some(false)`).
+fn credits_cover_windows(row: &Account, use_credits: bool) -> bool {
+    use_credits && row.has_credits != Some(false)
+}
+
 pub fn account_exhausted(row: &Account, now: i64, model: &str, use_credits: bool) -> bool {
     if row.blocks().iter().any(|b| b.blocked_until > now && block_applies_to_model(&row.usage, b, model)) {
         return true;
     }
-    if use_credits {
-        return false;
-    }
-    windows_of(&row.usage).iter().any(|w| quota_window_applies_to_model(w, model) && window_full(row, w, now))
+    let covered = credits_cover_windows(row, use_credits);
+    windows_of(&row.usage).iter().any(|w| quota_window_applies_to_model(w, model) && (!covered || window_without_credits(w)) && window_full(row, w, now))
 }
 
 /// Earliest moment any of the exhausted `rows` can serve `model` again, or
@@ -245,6 +267,7 @@ pub fn accounts_reset_at(rows: &[Account], now: i64, model: &str, use_credits: b
         if !account_exhausted(row, now, model, use_credits) {
             continue;
         }
+        let covered = credits_cover_windows(row, use_credits);
         let mut times = Vec::new();
         let mut unknown = false;
         for block in row.blocks() {
@@ -257,22 +280,21 @@ pub fn accounts_reset_at(rows: &[Account], now: i64, model: &str, use_credits: b
                 unknown = true;
             }
         }
-        if !use_credits {
-            for window in windows_of(&row.usage) {
-                if !window.used_pct.is_some_and(|p| p >= 100.0)
-                    || states_remaining(window)
-                    || window.binding == Some(false)
-                    || !quota_window_applies_to_model(window, model)
-                {
-                    continue;
-                }
-                match window.reset_at.filter(|r| *r != 0) {
-                    Some(reset) if reset > now => times.push(reset),
-                    Some(_) => {}
-                    None => {
-                        if now - row.usage.as_ref().map_or(0, |u| u.checked_at) < FULL_WINDOW_FRESH_MS {
-                            unknown = true;
-                        }
+        for window in windows_of(&row.usage) {
+            if (covered && !window_without_credits(window))
+                || !window.used_pct.is_some_and(|p| p >= 100.0)
+                || states_remaining(window)
+                || window.binding == Some(false)
+                || !quota_window_applies_to_model(window, model)
+            {
+                continue;
+            }
+            match window.reset_at.filter(|r| *r != 0) {
+                Some(reset) if reset > now => times.push(reset),
+                Some(_) => {}
+                None => {
+                    if now - row.usage.as_ref().map_or(0, |u| u.checked_at) < FULL_WINDOW_FRESH_MS {
+                        unknown = true;
                     }
                 }
             }
@@ -313,12 +335,13 @@ pub enum Limit {
 pub fn account_limit(row: &Account, now: i64, use_credits: bool) -> Option<Limit> {
     let windows = windows_of(&row.usage);
     let blocks = row.blocks();
+    let covered = credits_cover_windows(row, use_credits);
     let covering: Vec<(Vec<&Window>, Option<String>)> =
         blocks.iter().filter(|b| b.blocked_until > now).map(|b| (block_windows(&row.usage, b), claim_family(b))).collect();
     if covering.iter().any(|(meters, family)| (meters.is_empty() && family.is_none()) || meters.iter().any(|w| !is_scoped(w))) {
         return Some(Limit::Account);
     }
-    if !use_credits && windows.iter().any(|w| !is_scoped(w) && window_full(row, w, now)) {
+    if !covered && windows.iter().any(|w| !is_scoped(w) && window_full(row, w, now)) {
         return Some(Limit::Account);
     }
     let mut families: Vec<String> = Vec::new();
@@ -337,11 +360,9 @@ pub fn account_limit(row: &Account, now: i64, use_credits: bool) -> Option<Limit
             add(family.clone());
         }
     }
-    if !use_credits {
-        for window in windows {
-            if is_scoped(window) && !display_only(window) && window_full(row, window, now) {
-                add(window_family(window));
-            }
+    for window in windows {
+        if (!covered || window_without_credits(window)) && is_scoped(window) && !display_only(window) && window_full(row, window, now) {
+            add(window_family(window));
         }
     }
     (!families.is_empty()).then_some(Limit::Model(families))
@@ -383,11 +404,7 @@ pub fn choose_account<'a>(pool: &'a Pool, excluded: &HashSet<String>, now: i64, 
     let selected = pool.selected();
     let policy = pool.policy();
     if policy == Policy::Manual {
-        let selected = selected?;
-        if excluded.contains(&selected.id) {
-            return None;
-        }
-        return (credits || usable(selected)).then_some(selected);
+        return selected.filter(|row| usable(row));
     }
     let preferred = if policy == Policy::Headroom { session_account_id.and_then(|id| pool.account(id)) } else { selected };
     if let Some(row) = preferred.filter(|r| usable(r)) {
@@ -523,5 +540,85 @@ mod tests {
         assert!(stale_quota_windows("anthropic-oauth", std::slice::from_ref(&plain)));
         assert!(!stale_quota_windows("grok-oauth", &[plain]));
         assert!(quota_reading_fresh(NOW - 1, NOW) && !quota_reading_fresh(0, NOW));
+    }
+
+    #[test]
+    fn manual_policy_with_credits_honors_credit_blocks_and_non_credit_model_buckets() {
+        let none = HashSet::new();
+        let spark_full = Window {
+            label: "7D Spark".into(),
+            limit: Some("codex_bengalfox".into()),
+            models: Some(vec!["spark".into()]),
+            used_pct: Some(100.0),
+            reset_at: Some(NOW + 60_000),
+            ..Window::default()
+        };
+        let shared_full = Window { label: "7D".into(), limit: Some("codex".into()), used_pct: Some(100.0), reset_at: Some(NOW + 60_000), ..Window::default() };
+        let mut acct = row("a", vec![shared_full, spark_full], NOW);
+        acct.has_credits = Some(true);
+        let mut pool = Pool { accounts: vec![acct], selected_id: Some("a".into()), use_credits: Some(true), ..Pool::default() };
+        pool.set_policy(Policy::Manual);
+
+        assert_eq!(choose_account(&pool, &none, NOW, "gpt-6.2-astra", None).map(|r| r.id.as_str()), Some("a"));
+        assert!(choose_account(&pool, &none, NOW, "gpt-5-codex-spark", None).is_none());
+
+        pool.accounts[0].set_blocks(vec![Block {
+            blocked_until: NOW + 60_000,
+            blocked_model: Some("gpt-6.2-astra".into()),
+            blocked_quota: Some(true),
+            blocked_with_credits: Some(true),
+            ..Block::default()
+        }]);
+        assert!(choose_account(&pool, &none, NOW, "gpt-6.2-astra", None).is_none());
+    }
+
+    #[test]
+    fn tri_state_has_credits_exhausts_when_proven_false_but_not_when_unknown_or_true() {
+        let reset = NOW + 60_000;
+        let full_7d = Window { label: "7D".into(), limit: Some("codex".into()), used_pct: Some(100.0), reset_at: Some(reset), ..Window::default() };
+
+        // Proven no credits (`Some(false)`): treated as exhausted even with `use_credits = true`.
+        let mut depleted = row("a", vec![full_7d.clone()], NOW);
+        depleted.has_credits = Some(false);
+        assert!(account_exhausted(&depleted, NOW, "gpt-6.2-astra", true));
+        assert_eq!(accounts_reset_at(std::slice::from_ref(&depleted), NOW, "gpt-6.2-astra", true), Some(reset));
+        assert_eq!(account_limit(&depleted, NOW, true), Some(Limit::Account));
+
+        // Unknown (`None`) or proven usable (`Some(true)`): `use_credits = true` covers the full window.
+        for state in [None, Some(true)] {
+            let mut acct = row("b", vec![full_7d.clone()], NOW);
+            acct.has_credits = state;
+            assert!(!account_exhausted(&acct, NOW, "gpt-6.2-astra", true), "{state:?}");
+            assert_eq!(accounts_reset_at(std::slice::from_ref(&acct), NOW, "gpt-6.2-astra", true), None, "{state:?}");
+            assert_eq!(account_limit(&acct, NOW, true), None, "{state:?}");
+        }
+
+        // Scoped Cursor API window with `has_credits = Some(false)` exhausts API models only.
+        let basic = Window {
+            label: "Basic".into(),
+            used_pct: Some(10.0),
+            reset_at: Some(reset),
+            models: Some(vec!["auto".into(), "default".into(), "composer".into(), "grok".into()]),
+            ..Window::default()
+        };
+        let api_full = Window {
+            label: "API".into(),
+            used_pct: Some(100.0),
+            reset_at: Some(reset),
+            except: Some(vec!["auto".into(), "default".into(), "composer".into(), "grok".into()]),
+            ..Window::default()
+        };
+        let mut cursor = row("c", vec![basic, api_full], NOW);
+        cursor.has_credits = Some(false);
+        assert!(account_exhausted(&cursor, NOW, "claude-sonnet-4-6", true));
+        assert!(!account_exhausted(&cursor, NOW, "composer-2.5", true));
+        assert_eq!(accounts_reset_at(std::slice::from_ref(&cursor), NOW, "claude-sonnet-4-6", true), Some(reset));
+        assert_eq!(account_limit(&cursor, NOW, true), Some(Limit::Model(vec!["API".into()])));
+
+        // Pool selection skips the proven-depleted account in credit mode and picks the backup.
+        let mut backup = row("backup", vec![full_7d], NOW);
+        backup.has_credits = Some(true);
+        let pool = Pool { accounts: vec![depleted, backup], selected_id: Some("a".into()), use_credits: Some(true), ..Pool::default() };
+        assert_eq!(choose_account(&pool, &HashSet::new(), NOW, "gpt-6.2-astra", None).map(|r| r.id.as_str()), Some("backup"));
     }
 }

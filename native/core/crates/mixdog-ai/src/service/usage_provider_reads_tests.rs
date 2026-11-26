@@ -834,9 +834,10 @@ async fn cursor_reads_the_usage_and_plan_calls_and_reports_a_window_per_lane() {
         for (request, exchange) in seen.iter() {
             assert_eq!(request.method, "POST");
             let header = |name: &str| request.headers.iter().find(|(n, _)| n == name).map(|(_, v)| v.as_str());
+            let expected_ct = if request.url.ends_with(usage_cursor::PLAN_PATH) { "application/json" } else { "application/proto" };
             assert_eq!(
                 (header("content-type"), header("authorization"), header("x-cursor-client-version")),
-                (Some("application/proto"), Some("Bearer cursor-token"), Some("9.9.9"))
+                (Some(expected_ct), Some("Bearer cursor-token"), Some("9.9.9"))
             );
             assert_eq!((exchange.redirect, exchange.liveness.total_deadline()), (Redirect::Manual, Some(Duration::from_secs(5))));
         }
@@ -848,9 +849,9 @@ async fn cursor_reads_the_usage_and_plan_calls_and_reports_a_window_per_lane() {
     let windows = snapshot["quotaWindows"].as_array().unwrap();
     assert_eq!(windows.iter().map(|w| w["label"].as_str().unwrap()).collect::<Vec<_>>(), ["Basic", "API"]);
     assert_eq!((num(&windows[0], "usedPct"), num(&windows[1], "usedPct")), (12.5, 40.0));
-    // Basic meters Auto and Composer; API meters every other model.
-    assert_eq!(windows[0]["models"], json!(["auto", "default", "composer"]));
-    assert_eq!(windows[1]["except"], json!(["auto", "default", "composer"]));
+    // Basic fallback meters Auto, Composer, and Grok when autoBucketModels is omitted; API meters every other model.
+    assert_eq!(windows[0]["models"], json!(["auto", "default", "composer", "grok"]));
+    assert_eq!(windows[1]["except"], json!(["auto", "default", "composer", "grok"]));
     assert_eq!(num(&windows[0], "resetAt"), 1_900_000_000_000.0);
     assert_eq!((num(&snapshot["balance"], "limitUsd"), num(&snapshot["balance"], "usedUsd"), num(&snapshot["balance"], "remainingUsd")), (20.0, 5.0, 15.0));
 }
@@ -910,4 +911,222 @@ fn cursor_usage_based_spend_prefers_the_overall_figures_and_rounds_cents_to_the_
     let lanes = normalized(json!({ "planUsage": { "autoPercentUsed": 123.0, "apiPercentUsed": "n/a" } }), json!({}));
     let windows = lanes["quotaWindows"].as_array().unwrap();
     assert_eq!((windows.len(), num(&windows[0], "usedPct")), (1, 100.0));
+}
+
+#[test]
+fn cursor_proto3_omitted_zero_lane_and_auto_bucket_models_keep_both_basic_and_api_windows() {
+    let usage = json!({
+        "billingCycleEnd": 1_900_000_000_000_u64,
+        "planUsage": { "apiPercentUsed": 100.0 },
+        "autoBucketModels": ["default", "composer-2.5", "composer-2.5-fast", "vega-xhigh", "cursor-grok-4.7-high-fast", "grok-4.6"],
+    });
+    let summary = json!({
+        "membershipType": "ultra",
+        "individualUsage": {
+            "plan": { "enabled": true, "autoPercentUsed": 0.0, "apiPercentUsed": 100.0 },
+            "onDemand": { "enabled": false, "used": 0, "limit": null, "remaining": null },
+        }
+    });
+    let snapshot = usage_cursor::normalize_cursor_usage_with_summary(usage.as_object().unwrap(), &serde_json::Map::new(), summary.as_object(), None);
+    let windows = snapshot["quotaWindows"].as_array().unwrap();
+    assert_eq!(windows.len(), 2);
+    assert_eq!((windows[0]["label"].as_str(), num(&windows[0], "usedPct")), (Some("Basic"), 0.0));
+    assert_eq!((windows[1]["label"].as_str(), num(&windows[1], "usedPct")), (Some("API"), 100.0));
+    assert_eq!(windows[0]["models"], json!(["auto", "default", "composer", "vega", "grok-4.7", "grok-4.6"]));
+    assert_eq!(windows[1]["except"], json!(["auto", "default", "composer", "vega", "grok-4.7", "grok-4.6"]));
+    assert!(windows[1].get("binding").is_none(), "disabled on-demand spend makes 100% API lane binding");
+    assert_eq!(snapshot["balance"]["hasCredits"].as_bool(), Some(false));
+}
+
+#[tokio::test]
+async fn cursor_unified_iso_weekly_reset_no_monthly_fallback_on_demand_remaining_and_has_credits() {
+    use crate::service::quota_usable::{balance_has_credits, reading_serves_model, snapshot_has_credits};
+    use base64::Engine;
+
+    // 1. Live CursorUsage::read with unified_* membership and ISO-8601 includedUsageResetsAt via a SINGLE GetPlanInfo call.
+    struct UnifiedNet {
+        usage_body: Vec<u8>,
+        summary_body: Vec<u8>,
+        plan_json_body: Vec<u8>,
+        plan_calls: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait]
+    impl HttpSend for UnifiedNet {
+        async fn send(&self, request: WireRequest, _exchange: Exchange) -> Result<HttpResponse, ProviderError> {
+            let body = if request.url == usage_cursor::USAGE_SUMMARY_URL {
+                self.summary_body.clone()
+            } else if request.url.ends_with(usage_cursor::USAGE_PATH) {
+                self.usage_body.clone()
+            } else {
+                self.plan_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                self.plan_json_body.clone()
+            };
+            Ok(HttpResponse { status: 200, headers: Vec::new(), body: Box::new(Once(Some(Bytes::from(body)))) })
+        }
+    }
+
+    struct SubToken(String);
+    #[async_trait]
+    impl crate::providers::cursor::AccessToken for SubToken {
+        async fn access_token(&self) -> Result<crate::providers::cursor::Access, ProviderError> {
+            Ok(crate::providers::cursor::Access::plain(self.0.clone()))
+        }
+        async fn after_rejection(&self, _rejected: &crate::providers::cursor::Access) -> Result<crate::providers::cursor::Access, ProviderError> {
+            self.access_token().await
+        }
+        async fn renewed(&self) -> Result<crate::providers::cursor::Access, ProviderError> {
+            self.access_token().await
+        }
+    }
+
+    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"sub":"auth0|user-42","exp":4000000000}"#);
+    let jwt = format!("h.{payload}.s");
+    let iso_reset = "2026-12-07T00:00:00.000Z";
+    let expected_reset_ms = mixdog_js::time::date_parse(iso_reset);
+
+    let summary_with_prepaid = json!({
+        "membershipType": "unified_pro",
+        "individualUsage": {
+            "plan": { "enabled": true, "limit": 2000, "used": 500, "totalPercentUsed": 25.0 },
+            "onDemand": { "enabled": true, "limit": 2000, "used": 0, "remaining": 500 }
+        }
+    });
+    let net = Arc::new(UnifiedNet {
+        usage_body: period(),
+        summary_body: summary_with_prepaid.to_string().into_bytes(),
+        plan_json_body: json!({ "planInfo": { "planName": "Pro", "price": "$20/mo", "includedUsageResetsAt": iso_reset } }).to_string().into_bytes(),
+        plan_calls: std::sync::atomic::AtomicUsize::new(0),
+    });
+    let reading = usage_cursor::CursorUsage::new(usage_cursor::PROVIDER_ID, net.clone(), None, "9.9.9".into(), Arc::new(SubToken(jwt)));
+    let snap = reading.read(&mut None).await.unwrap();
+    assert_eq!(net.plan_calls.load(std::sync::atomic::Ordering::SeqCst), 1, "GetPlanInfo must be called only once");
+    assert_eq!((snap["plan"]["name"].as_str(), snap["plan"]["price"].as_str()), (Some("Pro"), Some("$20/mo")));
+    let windows = snap["quotaWindows"].as_array().unwrap();
+    assert_eq!(windows.len(), 2);
+    assert_eq!((windows[0]["label"].as_str(), num(&windows[0], "resetAt")), (Some("Basic"), expected_reset_ms));
+    // Prepaid onDemand with used=0 and remaining < limit derives used = limit - remaining.
+    assert_eq!(windows[1]["label"].as_str(), Some("API"));
+    assert_eq!(
+        (num(&windows[1], "limitUsd"), num(&windows[1], "usedUsd"), num(&windows[1], "remainingUsd"), num(&windows[1], "usedPct")),
+        (20.0, 15.0, 5.0, 75.0)
+    );
+    assert_eq!(snap["balance"]["hasCredits"], Value::Bool(true));
+    assert!(balance_has_credits(snap.get("balance")));
+    assert!(snapshot_has_credits("cursor-oauth", &snap));
+
+    // 2. unified_* without weekly_reset_at NEVER falls back Basic.resetAt to monthly billingCycleEnd,
+    // and $0 prepaid onDemand yields hasCredits = false even while included plan balance has remainingUsd > 0.
+    let usage = json!({ "billingCycleEnd": 1_900_000_000_000_u64, "planUsage": { "limit": 2000, "totalSpend": 500, "remaining": 1500 } });
+    let zero_prepaid = json!({
+        "membershipType": "unified_pro",
+        "individualUsage": {
+            "plan": { "enabled": true, "limit": 2000, "used": 500, "totalPercentUsed": 25.0 },
+            "onDemand": { "enabled": true, "limit": 0, "used": 0, "remaining": 0 }
+        }
+    });
+    let snap_no_credit = usage_cursor::normalize_cursor_usage_with_summary(usage.as_object().unwrap(), &serde_json::Map::new(), zero_prepaid.as_object(), None);
+    let windows = snap_no_credit["quotaWindows"].as_array().unwrap();
+    assert!(windows[0].get("resetAt").is_none(), "unified weekly Basic must never fall back to monthly billingCycleEnd");
+    assert_eq!(num(&windows[1], "usedPct"), 100.0);
+    assert_eq!(num(&snap_no_credit["balance"], "remainingUsd"), 15.0);
+    assert_eq!(snap_no_credit["balance"]["hasCredits"], Value::Bool(false));
+    assert!(!balance_has_credits(snap_no_credit.get("balance")));
+    assert!(!snapshot_has_credits("cursor-oauth", &snap_no_credit));
+    assert!(!reading_serves_model(Some(&snap_no_credit), "claude-sonnet-4-6", true));
+
+    // 3. Exhausted standard plan API lane with disabled onDemand and positive included balance has hasCredits = false.
+    let exhausted_api = json!({
+        "billingCycleEnd": 1_900_000_000_000_u64,
+        "planUsage": { "limit": 2000, "totalSpend": 500, "remaining": 1500, "autoPercentUsed": 10.0, "apiPercentUsed": 100.0 }
+    });
+    let disabled_od = json!({
+        "membershipType": "pro",
+        "individualUsage": {
+            "plan": { "enabled": true, "autoPercentUsed": 10.0, "apiPercentUsed": 100.0 },
+            "onDemand": { "enabled": false, "used": 0, "limit": null, "remaining": null }
+        }
+    });
+    let snap_disabled =
+        usage_cursor::normalize_cursor_usage_with_summary(exhausted_api.as_object().unwrap(), &serde_json::Map::new(), disabled_od.as_object(), None);
+    assert_eq!(snap_disabled["balance"]["hasCredits"], Value::Bool(false));
+    assert!(!balance_has_credits(snap_disabled.get("balance")));
+    assert!(!reading_serves_model(Some(&snap_disabled), "claude-sonnet-4-6", true));
+
+    // 4. Uncapped unified onDemand (enabled: true, limit: null) emits an applicable API window so
+    // reading_serves_model(..., use_credits = false) accepts the account.
+    let uncapped_summary = json!({
+        "membershipType": "unified_pro",
+        "individualUsage": {
+            "plan": { "enabled": true, "limit": 2000, "used": 500, "totalPercentUsed": 25.0 },
+            "onDemand": { "enabled": true, "limit": null, "used": 350, "remaining": null }
+        }
+    });
+    let snap_uncapped =
+        usage_cursor::normalize_cursor_usage_with_summary(usage.as_object().unwrap(), &serde_json::Map::new(), uncapped_summary.as_object(), None);
+    let windows = snap_uncapped["quotaWindows"].as_array().unwrap();
+    assert_eq!(windows.len(), 2);
+    assert_eq!((windows[1]["label"].as_str(), num(&windows[1], "usedPct"), num(&windows[1], "usedUsd")), (Some("API"), 0.0, 3.5));
+    assert!(windows[1].get("limitUsd").is_none());
+    assert_eq!(snap_uncapped["balance"]["hasCredits"], Value::Bool(true));
+    assert!(reading_serves_model(Some(&snap_uncapped), "claude-sonnet-4-6", false));
+    assert!(reading_serves_model(Some(&snap_uncapped), "claude-sonnet-4-6", true));
+
+    // Uncapped onDemand with positive remaining still reports exhausted / hasCredits=false when
+    // spendLimitUsage itself is exhausted.
+    let exhausted_spend_usage = json!({
+        "planUsage": { "limit": 2000, "totalSpend": 500, "remaining": 1500 },
+        "spendLimitUsage": { "individualLimit": 1000, "individualUsed": 1000, "individualRemaining": 0 }
+    });
+    let uncapped_with_rem = json!({
+        "membershipType": "unified_pro",
+        "individualUsage": {
+            "plan": { "enabled": true, "limit": 2000, "used": 500, "totalPercentUsed": 25.0 },
+            "onDemand": { "enabled": true, "limit": null, "used": 350, "remaining": 500 }
+        }
+    });
+    let snap_uncapped_exhausted = usage_cursor::normalize_cursor_usage_with_summary(
+        exhausted_spend_usage.as_object().unwrap(),
+        &serde_json::Map::new(),
+        uncapped_with_rem.as_object(),
+        None,
+    );
+    let windows = snap_uncapped_exhausted["quotaWindows"].as_array().unwrap();
+    assert_eq!((windows[1]["label"].as_str(), num(&windows[1], "usedPct")), (Some("API"), 100.0));
+    assert_eq!(snap_uncapped_exhausted["balance"]["hasCredits"], Value::Bool(false));
+    assert!(!snapshot_has_credits("cursor-oauth", &snap_uncapped_exhausted));
+
+    // 5. Stale remaining: 0 with limit > 0 and used > 0 derives remaining = (limit - used).max(0).
+    let stale_zero_rem = json!({
+        "membershipType": "unified_pro",
+        "individualUsage": {
+            "plan": { "enabled": true, "limit": 2000, "used": 500, "totalPercentUsed": 25.0 },
+            "onDemand": { "enabled": true, "limit": 2000, "used": 500, "remaining": 0 }
+        }
+    });
+    let snap_stale = usage_cursor::normalize_cursor_usage_with_summary(usage.as_object().unwrap(), &serde_json::Map::new(), stale_zero_rem.as_object(), None);
+    let windows = snap_stale["quotaWindows"].as_array().unwrap();
+    assert_eq!(
+        (num(&windows[1], "limitUsd"), num(&windows[1], "usedUsd"), num(&windows[1], "remainingUsd"), num(&windows[1], "usedPct")),
+        (20.0, 5.0, 15.0, 25.0)
+    );
+    assert_eq!(snap_stale["balance"]["hasCredits"], Value::Bool(true));
+    assert!(snapshot_has_credits("cursor-oauth", &snap_stale));
+
+    // 6. Capped onDemand with both used and remaining absent fabricates no 0% API window or overage credits.
+    let unmeasured_capped = json!({
+        "membershipType": "unified_pro",
+        "individualUsage": {
+            "plan": { "enabled": true, "limit": 2000, "used": 500, "totalPercentUsed": 25.0 },
+            "onDemand": { "enabled": true, "limit": 2000 }
+        }
+    });
+    let snap_unmeasured =
+        usage_cursor::normalize_cursor_usage_with_summary(usage.as_object().unwrap(), &serde_json::Map::new(), unmeasured_capped.as_object(), None);
+    let windows = snap_unmeasured["quotaWindows"].as_array().unwrap();
+    assert_eq!(windows.len(), 1, "unmeasured capped onDemand must not fabricate an API window");
+    assert_eq!(windows[0]["label"].as_str(), Some("Basic"));
+    assert_eq!(snap_unmeasured["balance"]["hasCredits"], Value::Bool(false));
+    assert!(!snapshot_has_credits("cursor-oauth", &snap_unmeasured));
+    assert!(!reading_serves_model(Some(&snap_unmeasured), "claude-sonnet-4-6", false));
 }

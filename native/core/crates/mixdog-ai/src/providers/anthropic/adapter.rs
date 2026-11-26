@@ -523,6 +523,15 @@ impl ModelListing for AnthropicAdapter {
 #[async_trait]
 impl ProviderAdapter for AnthropicAdapter {
     fn release_send(&self, _group: &str) {}
+
+    fn release_session(&self, session_id: &str) {
+        self.codec.config().threads.forget(session_id);
+    }
+
+    fn release_unloaded_session(&self, session_id: &str) {
+        self.codec.config().threads.forget(session_id);
+    }
+
     fn id(&self) -> &ProviderId {
         &self.id
     }
@@ -1087,6 +1096,93 @@ mod idle_tests {
         assert_eq!(began.elapsed(), Duration::from_secs(600), "expires at the declared window, not the fallback's");
         assert!(err.transport.is_some(), "the head expiry reads as the transport's own timeout, as the SDK's headersTimeout did");
     }
+    #[test]
+    fn release_session_and_unload_forget_anthropic_threads() {
+        let mut cfg = config("https://api.anthropic.com");
+        cfg.threads = Arc::new(super::super::threads::Threads::default());
+        let threads = Arc::clone(&cfg.threads);
+        let adapter = AnthropicAdapter::api_key(cfg, ScriptedHttp::new(Vec::new()), Arc::new(FixedKey), cpu_bulk());
+        let body = serde_json::json!({
+            "model": "claude-sonnet-4-5",
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "hello"}]}]
+        });
+        let next_body = serde_json::json!({
+            "model": "claude-sonnet-4-5",
+            "messages": [
+                {"role": "user", "content": [{"type": "text", "text": "hello"}]},
+                {"role": "assistant", "content": [{"type": "text", "text": "world"}]},
+                {"role": "user", "content": [{"type": "text", "text": "again"}]}
+            ]
+        });
+        let commit = |scope: &str| {
+            let mut plan = threads.plan(PlanInput {
+                scope,
+                provider: "anthropic",
+                account: "acct-1",
+                body: &body,
+                betas: &[],
+                cache_ttls: "",
+                now: 1_000,
+                directive: None,
+                send_group: None,
+            });
+            assert_eq!(plan.mode, Mode::Create);
+            let mut decoder = Shared::new(AnthropicDecoder::for_model(ProviderId::from("anthropic"), "claude-sonnet-4-5"));
+            let mut session = plan.take_session().expect("thread session").with_decoder(decoder.clone());
+            let sse = concat!(
+                "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_rel_1\",\"model\":\"claude-sonnet-4-5\"}}\n\n",
+                "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+                "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"world\"}}\n\n",
+                "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+                "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n\n",
+                "data: {\"type\":\"message_stop\"}\n\n"
+            );
+            session.mark_started();
+            decoder.feed(sse.as_bytes()).expect("decoded");
+            session.complete(None);
+        };
+
+        commit("sess-release");
+        commit("sess-unload");
+        assert!(threads.has_scope("sess-release"));
+        assert!(threads.has_scope("sess-unload"));
+
+        let provider: &dyn ProviderAdapter = &adapter;
+        provider.release_session("sess-release");
+        assert!(!threads.has_scope("sess-release"), "release_session must drop the session's Threads entry");
+        assert!(threads.has_scope("sess-unload"), "other sessions remain tracked");
+
+        let after_release = threads.plan(PlanInput {
+            scope: "sess-release",
+            provider: "anthropic",
+            account: "acct-1",
+            body: &next_body,
+            betas: &[],
+            cache_ttls: "",
+            now: 2_000,
+            directive: None,
+            send_group: None,
+        });
+        assert_eq!(after_release.mode, Mode::Create, "released session starts a fresh thread");
+        after_release.unsent();
+        assert!(!threads.has_scope("sess-release"), "unsent fresh plan leaves no empty scope entry");
+
+        provider.release_unloaded_session("sess-unload");
+        assert!(!threads.has_scope("sess-unload"), "release_unloaded_session must drop the session's Threads entry");
+        let after_unload = threads.plan(PlanInput {
+            scope: "sess-unload",
+            provider: "anthropic",
+            account: "acct-1",
+            body: &next_body,
+            betas: &[],
+            cache_ttls: "",
+            now: 2_000,
+            directive: None,
+            send_group: None,
+        });
+        assert_eq!(after_unload.mode, Mode::Create, "unloaded session starts a fresh thread");
+    }
+
     /// `CLAUDE_CODE_MAX_RETRIES` is read on every request, not once at construction (`anthropicMaxAttempts`).
     #[test]
     fn the_retry_budget_follows_the_setting_as_it_changes() {
@@ -1319,7 +1415,7 @@ impl ModelStream for AnthropicStream {
                         attempt.renew_idle();
                     }
                     if let Some(thread) = self.thread.as_mut() {
-                        thread.feed(&chunk);
+                        thread.mark_started();
                     }
                     match self.decoder.feed(&chunk) {
                         Ok(events) => {
@@ -2082,9 +2178,9 @@ impl AnthropicAdapter {
                     }
                 };
                 if (200..300).contains(&response.status) {
-                    let thread = plan.as_mut().and_then(Plan::take_session);
                     // The transport mark is the stream's, raised on each body chunk (`anthropic-sse.mjs:275`): health only.
                     let decoder = self.codec.decoder_with_partial(&request, super::betas::sent_display_updates(&super::codec::beta_names(&wire)));
+                    let thread = plan.as_mut().and_then(Plan::take_session).map(|session| session.with_decoder(decoder.clone()));
                     let stream = Box::new(
                         AnthropicStream::new(response.body, Box::new(decoder.clone()))
                             .with_identity(request.options.send_identity.clone())

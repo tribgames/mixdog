@@ -204,6 +204,8 @@ pub struct BlockOptions {
     pub server_scheduled: bool,
     /// Quota evidence (a typed refusal or an exhausted window).
     pub quota: bool,
+    /// `true` when a live reading taken at the refusal confirmed the account's credit balance.
+    pub credit_measured: bool,
     /// The server's id of the limit the refusal named.
     pub limit: String,
     /// `until` is the quota reset the server named: kept as given.
@@ -586,7 +588,23 @@ impl AccountStore {
                 pool.set_policy(policy);
             }
             if let Some(credits) = change.use_credits {
+                let enabled = !pool.uses_credits() && credits;
                 pool.use_credits = Some(credits);
+                if enabled {
+                    for row in &mut pool.accounts {
+                        let usage = row.usage.clone();
+                        let kept = row
+                            .blocks()
+                            .into_iter()
+                            .filter(|block| {
+                                !(block.blocked_quota == Some(true)
+                                    && block.blocked_with_credits != Some(true)
+                                    && policy::block_covered_by_credits(&usage, block))
+                            })
+                            .collect();
+                        row.set_blocks(kept);
+                    }
+                }
             }
             Ok(())
         })
@@ -644,6 +662,19 @@ impl AccountStore {
     /// releases a prior refusal, but only on the meters the refusal drew on
     /// and only a MEASURED window.
     pub async fn record_usage(&self, provider: &str, id: &str, windows: Vec<QuotaWindowInput>) -> Result<(), AccountError> {
+        self.record_usage_with_credits(provider, id, windows, None).await
+    }
+
+    /// Like [`Self::record_usage`], with tri-state `has_credits` (`Some(true)` proven usable,
+    /// `Some(false)` proven unavailable/depleted, `None` unknown). When credit use is on, proven
+    /// credits lift prior quota refusals even while the plan window stays full.
+    pub async fn record_usage_with_credits(
+        &self,
+        provider: &str,
+        id: &str,
+        windows: Vec<QuotaWindowInput>,
+        has_credits: Option<bool>,
+    ) -> Result<(), AccountError> {
         if self.pool(provider).await?.usage_mut(id).is_none() {
             return Ok(());
         }
@@ -685,15 +716,24 @@ impl AccountStore {
                 }
                 return Ok(());
             }
+            let credits_open = pool.uses_credits() && has_credits == Some(true);
             let Some(row) = pool.accounts.iter_mut().find(|r| r.id == id) else {
                 return Ok(());
             };
             row.usage = Some(usage);
+            row.has_credits = has_credits;
             let usage = row.usage.clone();
             let kept: Vec<Block> = row
                 .blocks()
                 .into_iter()
                 .filter(|block| {
+                    if credits_open
+                        && block.blocked_quota == Some(true)
+                        && block.blocked_with_credits != Some(true)
+                        && policy::block_covered_by_credits(&usage, block)
+                    {
+                        return false;
+                    }
                     let measured: Vec<&Window> = policy::block_evidence_windows(&usage, block).into_iter().filter(|w| w.used_pct.is_some()).collect();
                     // Lifted: some measured window and every one below 100%.
                     measured.is_empty() || !measured.iter().all(|w| w.used_pct.is_some_and(|p| p < 100.0))
@@ -722,6 +762,9 @@ impl AccountStore {
             let ours = usage.as_ref().is_some_and(|u| !u.windows.is_empty() && measured_by(u, Some(stamp.as_str())));
             if ours {
                 *usage = Some(Usage { windows: Vec::new(), checked_at: i64::try_from(clock.now_ms()).unwrap_or(i64::MAX) });
+                if let Some(row) = pool.accounts.iter_mut().find(|r| r.id == id) {
+                    row.has_credits = None;
+                }
                 flag.store(true, std::sync::atomic::Ordering::Release);
             }
             Ok(())
@@ -737,17 +780,20 @@ impl AccountStore {
         let (id, scope) = (id.to_owned(), js_trim(model).to_owned());
         let clock = self.clock.clone();
         self.update(provider, move |pool| {
+            let uses_credits = pool.uses_credits();
             let Some(row) = pool.accounts.iter_mut().find(|r| r.id == id) else {
                 return Ok(());
             };
             let now = i64::try_from(clock.now_ms()).unwrap_or(i64::MAX);
             let limit = js_trim(&options.limit).to_owned();
+            let with_credits = options.quota && options.credit_measured && uses_credits && row.has_credits == Some(true);
             let block = Block {
                 blocked_until: if options.reset { until } else { until.min(now + MAX_BLOCK_MS) },
                 blocked_model: (!scope.is_empty()).then(|| scope.clone()),
                 blocked_limit: (!limit.is_empty()).then_some(limit),
                 blocked_source: options.server_scheduled.then(|| "retry-after".to_owned()),
                 blocked_quota: options.quota.then_some(true),
+                blocked_with_credits: with_credits.then_some(true),
             };
             let mut blocks: Vec<Block> =
                 row.blocks().into_iter().filter(|b| b.blocked_until > now && b.blocked_model.as_deref().unwrap_or("") != scope).collect();
@@ -765,6 +811,7 @@ impl AccountStore {
         self.update(provider, move |pool| {
             if let Some(row) = pool.accounts.iter_mut().find(|r| r.id == id) {
                 row.clear_blocks();
+                row.has_credits = None;
             }
             if let Some(usage) = pool.usage_mut(&id) {
                 *usage = None;

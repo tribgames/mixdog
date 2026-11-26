@@ -91,8 +91,6 @@ pub struct AnthropicModel {
     pub thinking_adaptive: Option<bool>,
     /// `capabilities.thinking.types.enabled`, when the row declares it.
     pub thinking_enabled: Option<bool>,
-    /// The provider's row verbatim.
-    pub raw: Value,
 }
 
 impl AnthropicModel {
@@ -125,7 +123,6 @@ impl AnthropicModel {
         record.max_output_tokens = self.output_tokens;
         record.supports_reasoning = Some(self.supports_reasoning);
         record.reasoning_levels = self.effort_levels.clone();
-        record.raw = Some(self.raw.clone());
         record.family = Some(self.family.clone());
         record
     }
@@ -292,7 +289,6 @@ pub fn normalize(raw: &Value, flavor: Flavor, caps: &CapsLookup) -> Option<Anthr
         thinking_enabled: declared_thinking(capabilities, "enabled"),
         effort_levels: levels,
         family,
-        raw: raw.clone(),
         id,
     })
 }

@@ -41,6 +41,8 @@ pub(super) struct Live {
     /// The access token the run was opened with: a server error that echoes it is redacted.
     pub secret: String,
     pub fingerprint: Fingerprint,
+    pub conversation_id: String,
+    pub original_request_id: String,
 }
 
 /// A waiting run that is still open, with what arrived while it waited.
@@ -83,20 +85,36 @@ impl Drop for Parked {
     }
 }
 
-/// Reads the waiting run: what arrives is held in order and the heartbeat goes on. A run that ends, is cut, or sends
-/// more than the bound while it waits is closed there and then, with everything it held.
+/// Reads the waiting run: KV (`getBlob`/`setBlob`) and server heartbeat frames
+/// are answered immediately while other frames remain queued in order, and the
+/// client heartbeat goes on. A run that ends, is cut, or exceeds the buffer
+/// bound while waiting is closed immediately with everything it held.
 async fn keep(mut live: Live, mut inbox: VecDeque<Bytes>, mut stop: tokio::sync::oneshot::Receiver<()>) -> Option<Kept> {
-    let mut held: usize = inbox.iter().map(Bytes::len).sum();
+    live.decoder.drain_parked_waiting().ok()?;
+    for message in live.decoder.take_outbound() {
+        live.sink.send(frame::encode(&message, 0)).ok()?;
+    }
+    while let Some(bytes) = inbox.pop_front() {
+        if live.decoder.buffered_bytes() + bytes.len() > MAX_CONNECT_FRAME_BYTES {
+            return None;
+        }
+        live.decoder.park_feed(&bytes).ok()?;
+        for message in live.decoder.take_outbound() {
+            live.sink.send(frame::encode(&message, 0)).ok()?;
+        }
+    }
     loop {
         let beat = mixdog_rt::ticker().wait_until(live.heartbeat_at);
         tokio::pin!(beat);
         tokio::select! {
             biased;
-            _ = &mut stop => return Some((live, inbox)),
+            _ = &mut stop => return Some((live, VecDeque::new())),
             chunk = live.body.next() => match chunk {
-                Some(Ok(bytes)) if held + bytes.len() <= MAX_CONNECT_FRAME_BYTES => {
-                    held += bytes.len();
-                    inbox.push_back(bytes);
+                Some(Ok(bytes)) if live.decoder.buffered_bytes() + bytes.len() <= MAX_CONNECT_FRAME_BYTES => {
+                    live.decoder.park_feed(&bytes).ok()?;
+                    for message in live.decoder.take_outbound() {
+                        live.sink.send(frame::encode(&message, 0)).ok()?;
+                    }
                 }
                 _ => return None,
             },

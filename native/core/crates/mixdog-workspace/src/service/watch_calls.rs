@@ -67,8 +67,7 @@ impl WorkspaceService {
             scan_cap: None,
             beyond_budget: None,
         };
-        let publisher = self.search.start(&id, config)?;
-        self.search_owner.lock().expect("search owners").insert(id, Self::owner(req).to_string());
+        let publisher = self.search.start_owned(&id, Some(Self::owner(req).to_string()), config)?;
         Ok(Reply::Subscribe(Subscribe { result: json!({}), feed: publisher.source(), window: Window::Fixed, resume_from: None }))
     }
 
@@ -83,7 +82,6 @@ impl WorkspaceService {
         let params = &req.params;
         let value = |v: Value| Ok(Reply::Value(v));
         let id = s(params, "sessionId")?;
-        self.search_owner.lock().expect("search owners").remove(id);
         self.search.stop(id);
         value(json!({}))
     }

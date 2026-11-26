@@ -1469,6 +1469,7 @@
     "/document": {
      "source": "native/core/crates/mixdog-workspace/src/lsp.rs DocumentInput::from_value",
      "fields": [
+      "/attachmentId",
       "/kind",
       "/languageId",
       "/relPath",
@@ -4319,6 +4320,7 @@
     "request localProvider/startLocalProviderModelMaintenance /modelId",
     "request localProvider/startLocalProviderModelMaintenance /opId",
     "request localProvider/startLocalProviderModelMaintenance /threadId",
+    "request lsp/document /document/attachmentId",
     "request lsp/document /document/languageId",
     "request lsp/request /opId",
     "request lsp/request /request/languageId",

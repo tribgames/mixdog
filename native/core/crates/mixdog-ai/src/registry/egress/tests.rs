@@ -12,6 +12,7 @@ use mixdog_core_api::domain::cache_warm::Deadlines;
 use mixdog_core_api::domain::cache_warm::GateTarget;
 use mixdog_core_api::domain::cache_warm::WarmGate;
 use mixdog_core_api::domain::image_supply::SupplyError;
+use mixdog_core_api::domain::prepared_request::OMITTED_IMAGE;
 use mixdog_core_api::domain::provider::BinarySource;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
@@ -340,20 +341,114 @@ async fn a_non_first_tool_image_a_duplicate_and_the_order_of_images_survive_exac
 }
 
 #[tokio::test]
-async fn a_route_that_cannot_see_or_is_not_known_takes_no_image() {
+async fn a_route_that_cannot_see_or_is_not_known_is_sent_the_omission_text_in_the_images_place() {
     let (recording, provider, _) = registered().await;
     for (branch, vision) in
         [(WireBranch::AnthropicMessages, Vision::No), (WireBranch::Unknown, Vision::Yes), (WireBranch::Local, Vision::No), (WireBranch::CompatChat, Vision::No)]
     {
         *recording.route.lock().unwrap() = (branch, vision);
-        let error = provider.attempt(Arc::new(with_image(&picture(Format::Png), "image/png"))).await.err().expect("refused");
-        assert!(error.message.contains("cannot read images"), "{branch:?}: {}", error.message);
+        let _ = provider.attempt(Arc::new(with_image(&picture(Format::Png), "image/png"))).await;
+        let sent = recording.seen.lock().unwrap().last().cloned().unwrap_or_else(|| panic!("{branch:?}: nothing was sent"));
+        assert_eq!(
+            sent.messages[0].content,
+            Content::Parts(vec![ContentPart::Text("look".into(), None), ContentPart::Text(OMITTED_IMAGE.into(), None)]),
+            "{branch:?}"
+        );
     }
-    assert!(recording.seen.lock().unwrap().is_empty());
+    assert_eq!(recording.seen.lock().unwrap().len(), 4);
     // The same image on a seeing route reaches the adapter.
     *recording.route.lock().unwrap() = (WireBranch::AnthropicMessages, Vision::Yes);
     let _ = provider.attempt(Arc::new(with_image(&picture(Format::Png), "image/png"))).await;
-    assert_eq!(recording.seen.lock().unwrap().len(), 1);
+    assert_eq!(sent_images(recording.seen.lock().unwrap().last().unwrap()).len(), 1);
+}
+
+#[tokio::test]
+async fn a_route_without_vision_never_touches_the_store_even_for_missing_or_refused_images() {
+    let (recording, provider, supply) = registered().await;
+    *recording.route.lock().unwrap() = (WireBranch::CompatChat, Vision::No);
+    *supply.down.lock().unwrap() = true;
+    let missing =
+        ContentPart::File { source: BinarySource::AttachmentRef("0".repeat(64)), mime_type: "image/png".into(), filename: Some("gone.png".into()), text: None };
+    let request = Arc::new(user_with(vec![missing, inline(HEIC, "image/heic"), ContentPart::Text("describe".into(), None)]));
+    let _ = provider.attempt(request.clone()).await;
+    let sent = recording.seen.lock().unwrap().last().cloned().expect("omitted without store access");
+    let omitted = || ContentPart::Text(OMITTED_IMAGE.into(), None);
+    assert_eq!(sent.messages[0].content, Content::Parts(vec![omitted(), omitted(), ContentPart::Text("describe".into(), None)]));
+    assert_eq!(*supply.reads.lock().unwrap(), 0);
+    assert_eq!(
+        notices(&request),
+        vec![("notice", Some(json!({ "tone": "warn", "message": "2 image(s) of this message were not sent to m: m takes no images." })))]
+    );
+}
+
+/// The notices the send of `request` raised and nobody took yet.
+fn notices(request: &ModelRequest) -> Vec<(&'static str, Option<Value>)> {
+    request.options.send_identity.take_stages().into_iter().filter(|(stage, _)| *stage == "notice").collect()
+}
+
+/// The incident: a route fell back to a model that reads no image while a screenshot a tool returned earlier was in the history,
+/// and every later request was refused. The request goes out with the omission text in each image's place, the content's and
+/// the recorded form's alike; the conversation keeps the images, so a route that reads them is sent them again.
+#[tokio::test]
+async fn an_earlier_tool_results_screenshot_goes_to_a_model_that_reads_no_image_as_the_omission_text() {
+    let (recording, provider, _) = registered().await;
+    *recording.route.lock().unwrap() = (WireBranch::CompatChat, Vision::No);
+    let png = picture(Format::Png);
+    let mut request = user_with(vec![ContentPart::Text("check the page".into(), None)]);
+    let mut assistant = Message::new(Role::Assistant, Content::Text("opening it".into()));
+    assistant.tool_calls.push(ToolCall { id: "c1".into(), name: "Read".into(), arguments: Value::Null, native_type: None });
+    assistant.assistant_blocks = Some(json!([
+        { "type": "text", "text": "opening it" },
+        { "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": STANDARD.encode(&png) } },
+    ]));
+    let screenshot = vec![ContentPart::Text("screenshot".into(), None), inline(&png, "image/png")];
+    let mut tool = Message::new(Role::Tool, Content::Parts(screenshot.clone()));
+    tool.tool_call_id = Some("c1".into());
+    request.messages.push(assistant);
+    request.messages.push(tool);
+    let request = Arc::new(request);
+    let _ = provider.attempt(request.clone()).await;
+    let sent = recording.seen.lock().unwrap().last().cloned().expect("the request went out");
+    assert_eq!(sent.messages[2].content, Content::Parts(vec![ContentPart::Text("screenshot".into(), None), ContentPart::Text(OMITTED_IMAGE.into(), None)]));
+    assert_eq!(sent.messages[1].assistant_blocks.as_ref().unwrap()[1], json!({ "type": "text", "text": OMITTED_IMAGE }));
+    assert!(notices(&request).is_empty(), "no image of the person's message was left out");
+    assert_eq!(request.messages[2].content, Content::Parts(screenshot));
+    *recording.route.lock().unwrap() = (WireBranch::CompatChat, Vision::Yes);
+    let _ = provider.attempt(request).await;
+    assert_eq!(sent_images(recording.seen.lock().unwrap().last().unwrap()), vec![("image/png".to_owned(), png)]);
+}
+
+/// The images the person attached to the message being sent go as the omission text too, and the send tells them once how
+/// many were not sent, however many attempts it makes; a later send of the turn, once the model answered, tells nothing.
+#[tokio::test]
+async fn a_new_messages_images_go_as_the_omission_text_with_one_notice_naming_how_many() {
+    let (recording, provider, _) = registered().await;
+    *recording.route.lock().unwrap() = (WireBranch::Local, Vision::No);
+    let omitted = || ContentPart::Text(OMITTED_IMAGE.into(), None);
+    let request = Arc::new(user_with(vec![
+        inline(&picture(Format::Png), "image/png"),
+        ContentPart::Text("what is this".into(), None),
+        inline(&picture(Format::Jpeg), "image/jpeg"),
+    ]));
+    let _ = provider.attempt(request.clone()).await;
+    let sent = recording.seen.lock().unwrap().last().cloned().expect("the request went out");
+    assert_eq!(sent.messages[0].content, Content::Parts(vec![omitted(), ContentPart::Text("what is this".into(), None), omitted()]));
+    assert_eq!(
+        notices(&request),
+        vec![("notice", Some(json!({ "tone": "warn", "message": "2 image(s) of this message were not sent to m: m takes no images." })))]
+    );
+    let _ = provider.attempt(request.clone()).await;
+    let _ = provider.recover_spent(request.clone()).await;
+    assert!(notices(&request).is_empty(), "the send's later attempts raise it no more");
+    assert_eq!(recording.seen.lock().unwrap().len(), 3);
+    let mut answered = (*request).clone();
+    answered.options.send_identity = Default::default();
+    answered.messages.push(Message::new(Role::Assistant, Content::Text("a chart".into())));
+    answered.messages.push(Message::new(Role::User, Content::Text("thanks".into())));
+    let answered = Arc::new(answered);
+    let _ = provider.attempt(answered.clone()).await;
+    assert_eq!(recording.seen.lock().unwrap().last().unwrap().messages[0].content, sent.messages[0].content);
+    assert!(notices(&answered).is_empty(), "an earlier message's images are left out without a notice");
 }
 
 #[tokio::test]

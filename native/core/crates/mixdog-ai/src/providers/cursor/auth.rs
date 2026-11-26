@@ -41,6 +41,8 @@ use crate::transport::link::Surface;
 use crate::transport::link::deadline_error;
 
 pub const EXCHANGE_URL: &str = "https://api2.cursor.sh/auth/exchange_user_api_key";
+pub const OAUTH_REFRESH_URL: &str = "https://api2.cursor.sh/oauth/token";
+pub const OAUTH_CLIENT_ID: &str = "KbZUR41cY7W6zRSdpSUJ7I7mLYBKOCmB";
 /// A token this close to its expiry is refreshed first.
 pub const REFRESH_SKEW: Duration = Duration::from_secs(5 * 60);
 /// A token without a readable expiry is assumed to live an hour.
@@ -128,6 +130,36 @@ pub fn exchange_error(status: u16, headers: &[(String, String)], detail: &str) -
     };
     let permanent = matches!(status, 400 | 401 | 403);
     let mut message = format!("Cursor token exchange failed ({status})");
+    if !detail.is_empty() {
+        message.push_str(&format!(": {detail}"));
+    }
+    if permanent {
+        message.push_str(&format!(". {REAUTH_GUIDANCE}"));
+    }
+    let mut error = provider_error(
+        ConnectFailure { code: code.to_owned(), message, http_status: Some(status), retry_after: advice::from_headers(headers, SystemTime::now()) },
+        DeliveryState::Accepted,
+    );
+    error.reauth_required = permanent;
+    error
+}
+
+/// A failed OAuth refresh on `/oauth/token`: only HTTP 400 and 401 are
+/// permanent credential verdicts; 403, 429, 5xx, and network faults leave the
+/// stored refresh token valid.
+pub fn oauth_refresh_error(status: u16, headers: &[(String, String)], detail: &str) -> ProviderError {
+    let code = match status {
+        400 => "invalid_argument",
+        401 => "unauthenticated",
+        403 => "permission_denied",
+        429 => "resource_exhausted",
+        500 => "internal",
+        502 | 503 => "unavailable",
+        504 => "deadline_exceeded",
+        _ => "",
+    };
+    let permanent = matches!(status, 400 | 401);
+    let mut message = format!("Cursor token refresh failed ({status})");
     if !detail.is_empty() {
         message.push_str(&format!(": {detail}"));
     }
@@ -536,6 +568,101 @@ mod tests {
         assert_transport("cursorRefresh", &transport);
         assert_thrown("cursorRefresh", &error.message);
     }
+
+    struct CaptureHttp {
+        requests: std::sync::Mutex<Vec<WireRequest>>,
+        responses: std::sync::Mutex<std::collections::VecDeque<(u16, String)>>,
+    }
+
+    impl CaptureHttp {
+        fn new(responses: Vec<(u16, String)>) -> std::sync::Arc<Self> {
+            std::sync::Arc::new(Self { requests: std::sync::Mutex::new(Vec::new()), responses: std::sync::Mutex::new(responses.into()) })
+        }
+    }
+
+    #[async_trait]
+    impl HttpSend for CaptureHttp {
+        async fn send(&self, request: WireRequest, _exchange: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+            self.requests.lock().unwrap().push(request);
+            let (status, body) = self.responses.lock().unwrap().pop_front().unwrap_or((500, String::new()));
+            Ok(HttpResponse { status, headers: Vec::new(), body: Box::new(Once(Some(Bytes::from(body)))) })
+        }
+    }
+
+    #[tokio::test]
+    #[allow(clippy::disallowed_methods, reason = "test: writes fixture credential files synchronously")]
+    async fn file_access_uses_oauth_token_endpoint_and_api_key_keeps_exchange_url() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = file_in(&dir);
+        std::fs::write(file.path(), format!(r#"{{"access_token":"{}","refresh_token":"r-orig"}}"#, jwt(1))).unwrap();
+
+        let next_jwt_1 = jwt(4_100_000_000);
+        let next_jwt_2 = jwt(4_200_000_000);
+        let api_jwt = jwt(4_300_000_000);
+        let http = CaptureHttp::new(vec![
+            // OAuth refresh omitting refresh_token preserves r-orig.
+            (200, format!(r#"{{"access_token":"{next_jwt_1}"}}"#)),
+            // OAuth refresh returning rotated refresh_token updates it.
+            (200, format!(r#"{{"access_token":"{next_jwt_2}","refresh_token":"r-new"}}"#)),
+            // ApiKeyAccess continues to use EXCHANGE_URL.
+            (200, format!(r#"{{"accessToken":"{api_jwt}","refreshToken":"api-r"}}"#)),
+        ]);
+
+        let file_access = FileAccess::new(http.clone(), file.clone());
+        let first = file_access.access_token().await.expect("first refresh");
+        assert_eq!(first.token, next_jwt_1);
+        let stored_after_first: StoredTokens = serde_json::from_str(&std::fs::read_to_string(file.path()).unwrap()).unwrap();
+        assert_eq!(stored_after_first.refresh_token.as_deref(), Some("r-orig"));
+
+        let second = file_access.after_rejection(&first).await.expect("second refresh");
+        assert_eq!(second.token, next_jwt_2);
+        let stored_after_second: StoredTokens = serde_json::from_str(&std::fs::read_to_string(file.path()).unwrap()).unwrap();
+        assert_eq!(stored_after_second.refresh_token.as_deref(), Some("r-new"));
+
+        let api_access = ApiKeyAccess::new(http.clone(), "api-key-val".into(), "env CURSOR_API_KEY (oauth-endpoint test)".into());
+        assert_eq!(api_access.access_token().await.expect("api exchange").token, api_jwt);
+
+        let requests = http.requests.lock().unwrap();
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[0].url, OAUTH_REFRESH_URL);
+        let body0: Value = serde_json::from_slice(&requests[0].body).unwrap();
+        assert_eq!(body0["grant_type"], "refresh_token");
+        assert_eq!(body0["client_id"], OAUTH_CLIENT_ID);
+        assert_eq!(body0["refresh_token"], "r-orig");
+        assert_eq!(requests[1].url, OAUTH_REFRESH_URL);
+        assert_eq!(requests[2].url, EXCHANGE_URL);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::disallowed_methods, reason = "test: writes fixture credential files synchronously")]
+    async fn oauth_refresh_reauth_verdicts_for_should_logout_400_401_vs_403_429_5xx() {
+        // Permanent verdicts: shouldLogout=true, 400, 401 -> reauth_required=true and file marked dead.
+        for (status, body) in [(200, r#"{"shouldLogout":true,"access_token":""}"#), (400, r#"{"error":"invalid_grant"}"#), (401, r#"{"error":"unauthorized"}"#)]
+        {
+            let dir = tempfile::tempdir().unwrap();
+            let file = file_in(&dir);
+            std::fs::write(file.path(), format!(r#"{{"access_token":"{}","refresh_token":"r-dead"}}"#, jwt(1))).unwrap();
+            let http = CaptureHttp::new(vec![(status, body.to_owned())]);
+            let access = FileAccess::new(http, file.clone());
+            let err = access.access_token().await.expect_err("permanent refusal");
+            assert!(err.reauth_required, "status={status} body={body}");
+            let stored: StoredTokens = serde_json::from_str(&std::fs::read_to_string(file.path()).unwrap()).unwrap();
+            assert!(stored.reauth_required, "credential marked dead for status={status}");
+        }
+
+        // Transient verdicts: 403, 429, 500, 503 -> reauth_required=false and file stays usable.
+        for status in [403, 429, 500, 503] {
+            let dir = tempfile::tempdir().unwrap();
+            let file = file_in(&dir);
+            std::fs::write(file.path(), format!(r#"{{"access_token":"{}","refresh_token":"r-keep"}}"#, jwt(1))).unwrap();
+            let http = CaptureHttp::new(vec![(status, "temporary error".to_owned())]);
+            let access = FileAccess::new(http, file.clone());
+            let err = access.access_token().await.expect_err("transient failure");
+            assert!(!err.reauth_required, "status={status} must stay transient");
+            let stored: StoredTokens = serde_json::from_str(&std::fs::read_to_string(file.path()).unwrap()).unwrap();
+            assert!(!stored.reauth_required, "status={status} must not mark credential dead");
+        }
+    }
 }
 
 /// One token exchange: `token` (an API key or a refresh token) for a fresh
@@ -571,6 +698,48 @@ pub async fn exchange_token(http: &dyn HttpSend, token: &str) -> Result<StoredTo
         return Err(error);
     };
     let refresh = data.get("refreshToken").and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or(token);
+    Ok(StoredTokens::from_exchange(access.to_owned(), Some(refresh.to_owned()), now_ms()))
+}
+
+/// One OAuth token refresh on `/oauth/token` for `cursor-oauth` refresh tokens.
+pub async fn refresh_oauth_token(http: &dyn HttpSend, refresh_token: &str) -> Result<StoredTokens, ProviderError> {
+    let body = serde_json::to_vec(&serde_json::json!({
+        "grant_type": "refresh_token",
+        "client_id": OAUTH_CLIENT_ID,
+        "refresh_token": refresh_token,
+    }))
+    .map_err(|_| storage("refresh request not serializable"))?;
+    let head = http
+        .send(
+            WireRequest {
+                transport: TransportKind::Http1,
+                method: "POST".to_owned(),
+                url: OAUTH_REFRESH_URL.to_owned(),
+                headers: vec![("Content-Type".to_owned(), "application/json".to_owned())],
+                body,
+            },
+            CURSOR_EXCHANGE,
+        )
+        .await?;
+    let success = head.is_success();
+    let response = head.read_all().await?;
+    if !success {
+        let detail = crate::oauth::scrub::scrub_oauth_secrets(&String::from_utf8_lossy(&response.body), &[refresh_token]).trim().to_owned();
+        return Err(oauth_refresh_error(response.status.unwrap_or(0), &response.headers, &detail));
+    }
+    let data: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
+    if data.get("shouldLogout").and_then(Value::as_bool) == Some(true) {
+        let mut error = reauth("Cursor ended this session.");
+        error.code = Some("invalid_grant".to_owned());
+        error.status = Some(401);
+        return Err(error);
+    }
+    let Some(access) = data.get("access_token").or_else(|| data.get("accessToken")).and_then(Value::as_str).filter(|s| !s.is_empty()) else {
+        let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
+        error.message = "Cursor token refresh returned no access token".to_owned();
+        return Err(error);
+    };
+    let refresh = data.get("refresh_token").or_else(|| data.get("refreshToken")).and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or(refresh_token);
     Ok(StoredTokens::from_exchange(access.to_owned(), Some(refresh.to_owned()), now_ms()))
 }
 #[async_trait]
@@ -724,7 +893,7 @@ async fn exchange_stored(http: &dyn HttpSend, file: &CredentialFile, old: Stored
     let Some(refresh_token) = latest.refresh_token.clone() else {
         return Err(reauth("Cursor OAuth refresh token is unavailable."));
     };
-    let next = match exchange_token(http, &refresh_token).await {
+    let next = match refresh_oauth_token(http, &refresh_token).await {
         Ok(next) => next,
         Err(error) => {
             if error.reauth_required {

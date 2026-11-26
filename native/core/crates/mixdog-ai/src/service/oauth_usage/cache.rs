@@ -27,6 +27,7 @@ use super::NEGATIVE_CACHE_TTL_MS;
 use super::Obj;
 use super::STALE_DISK_CACHE_TTL_MS;
 use super::fresh;
+use super::fresh_reading;
 use super::newest_provider_snapshot;
 use super::now_ms;
 use super::read_json_file;
@@ -163,7 +164,9 @@ impl State {
 
     /// Removes what no lookup can serve any more: `key`'s reading and those of `slot` that are past the longest window.
     fn forget_expired(&mut self, key: &str, slot: &str, now: i64) {
-        self.entries.retain(|route, entry| !(route == key || of_slot(route, slot)) || fresh(Some(&entry.reading), STALE_DISK_CACHE_TTL_MS, now).is_some());
+        self.entries.retain(|route, entry| {
+            !(route == key || of_slot(route, slot)) || fresh_reading(Some(&entry.reading), STALE_DISK_CACHE_TTL_MS, now, true).is_some()
+        });
     }
 
     fn live(&self, key: &str) -> Option<&Value> {
@@ -248,7 +251,7 @@ impl UsageCache {
                 let mut routes = read.ok().flatten().and_then(|file| file.get("routes").and_then(Value::as_object).cloned()).unwrap_or_default();
                 let mut state = self.state();
                 let now = now_ms();
-                routes.retain(|_, reading| fresh(Some(reading), STALE_DISK_CACHE_TTL_MS, now).is_some());
+                routes.retain(|_, reading| fresh_reading(Some(reading), STALE_DISK_CACHE_TTL_MS, now, true).is_some());
                 for edit in std::mem::take(&mut state.early) {
                     edit.apply(&mut routes);
                 }
@@ -289,10 +292,10 @@ impl UsageCache {
         let ttl = if allow_stale { STALE_DISK_CACHE_TTL_MS } else { DISK_CACHE_TTL_MS };
         state
             .measured(key, slot, now)
-            .or_else(|| newest_provider_snapshot(live, slot, LIVE_CACHE_TTL_MS, now))
-            .or_else(|| fresh(any(key), ttl, now))
-            .or_else(|| fresh(any(slot), ttl, now))
-            .or_else(|| newest_provider_snapshot(state.entries.iter().map(|(key, entry)| (key, &entry.reading)), slot, ttl, now))
+            .or_else(|| newest_provider_snapshot(live, slot, LIVE_CACHE_TTL_MS, now, false))
+            .or_else(|| fresh_reading(any(key), ttl, now, allow_stale))
+            .or_else(|| fresh_reading(any(slot), ttl, now, allow_stale))
+            .or_else(|| newest_provider_snapshot(state.entries.iter().map(|(key, entry)| (key, &entry.reading)), slot, ttl, now, allow_stale))
     }
 
     // measurements

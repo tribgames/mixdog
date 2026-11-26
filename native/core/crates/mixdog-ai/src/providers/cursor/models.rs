@@ -79,6 +79,7 @@ pub struct CursorModel {
     pub supports_max_mode: bool,
     pub supports_non_max_mode: bool,
     pub supports_vision: bool,
+    pub vision_known: bool,
     pub supports_reasoning: bool,
     pub definitions: Vec<ParameterDefinition>,
     pub variants: Vec<Variant>,
@@ -256,7 +257,8 @@ fn decode_model(model_bytes: &[u8]) -> Result<Option<CursorModel>, PbError> {
     let (mut display, mut short, mut tagline) = (String::new(), String::new(), String::new());
     let mut tooltip = (String::new(), String::new(), String::new());
     let (mut ctx, mut auto_ctx, mut ctx_max, mut auto_ctx_max) = (0u64, 0u64, 0u64, 0u64);
-    let (mut max_mode, mut non_max, mut images, mut thinking, mut hidden) = (false, false, false, false, false);
+    let (mut max_mode, mut non_max, mut thinking, mut hidden) = (false, false, false, false);
+    let mut images: Option<bool> = None;
     let mut definitions = Vec::new();
     let mut variants = Vec::new();
     let mut aliases = Vec::new();
@@ -276,7 +278,7 @@ fn decode_model(model_bytes: &[u8]) -> Result<Option<CursorModel>, PbError> {
                 }
             }
             9 => thinking = v.as_bool(),
-            10 => images = v.as_bool(),
+            10 => images = Some(v.as_bool()),
             12 => auto_ctx = v.as_u64(),
             13 => auto_ctx_max = v.as_u64(),
             14 => max_mode = v.as_bool(),
@@ -321,7 +323,8 @@ fn decode_model(model_bytes: &[u8]) -> Result<Option<CursorModel>, PbError> {
         max_context_window: [ctx_max, auto_ctx_max].into_iter().find(|n| *n > 0).unwrap_or(0),
         supports_max_mode: max_mode,
         supports_non_max_mode: non_max,
-        supports_vision: images,
+        supports_vision: images.unwrap_or(false),
+        vision_known: images.is_some() && !is_auto_model_id(&raw_id),
         supports_reasoning: thinking || definitions.iter().any(|d| is_effort_parameter_id(&d.id)),
         definitions,
         variants,
@@ -341,6 +344,7 @@ fn plain_model(id: &str, name: &str, context_window: u64, reasoning: bool) -> Cu
         supports_max_mode: false,
         supports_non_max_mode: false,
         supports_vision: false,
+        vision_known: false,
         supports_reasoning: reasoning,
         definitions: Vec::new(),
         variants: Vec::new(),
@@ -587,6 +591,7 @@ mod tests {
             supports_max_mode: false,
             supports_non_max_mode: true,
             supports_vision: false,
+            vision_known: false,
             supports_reasoning: true,
             definitions: vec![def("effort", &["low", "high"]), def("fast", &["true", "false"])],
             variants: vec![
@@ -621,5 +626,43 @@ mod tests {
         let s = resolve_selection(&[], "composer-x", &ParameterAsk::default()).unwrap();
         assert_eq!((s.model_id.as_str(), s.parameters.len()), ("composer-x", 0));
         assert_eq!(resolve_selection(&[], "default", &ParameterAsk::default()).unwrap().model_id, "auto");
+    }
+
+    #[test]
+    fn decode_model_leaves_vision_unknown_when_supports_images_is_omitted() {
+        let encode_model = |id: &str, supports_images: Option<bool>| {
+            let mut m = Writer::new();
+            m.string(1, id);
+            if let Some(flag) = supports_images {
+                m.varint(10, u64::from(flag));
+            }
+            m
+        };
+        let mut resp = Writer::new();
+        resp.varint(11, 1);
+        for (id, flag) in
+            [("grok-4", None), ("composer-2.5", None), ("kimi-k3", None), ("text-only", Some(false)), ("vision-explicit", Some(true)), ("default", Some(false))]
+        {
+            resp.message(2, encode_model(id, flag));
+        }
+
+        let models = decode_available_models(&resp.finish()).unwrap();
+        let by_id = |id: &str| models.iter().find(|m| m.id == id).unwrap();
+
+        for omitted in ["grok-4", "composer-2.5", "kimi-k3"] {
+            let m = by_id(omitted);
+            assert!(!m.supports_vision, "{omitted}");
+            assert!(!m.vision_known, "{omitted}: omitted field 10 must leave vision_known = false");
+        }
+        let text_only = by_id("text-only");
+        assert!(!text_only.supports_vision);
+        assert!(text_only.vision_known);
+
+        let explicit = by_id("vision-explicit");
+        assert!(explicit.supports_vision);
+        assert!(explicit.vision_known);
+
+        let auto = by_id("auto");
+        assert!(!auto.vision_known);
     }
 }

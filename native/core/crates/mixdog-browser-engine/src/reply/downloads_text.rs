@@ -33,6 +33,16 @@ pub struct DownloadReports {
     states: HashMap<String, String>,
 }
 
+impl DownloadReports {
+    pub fn is_empty(&self) -> bool {
+        self.states.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.states.len()
+    }
+}
+
 /// Downloads a reply should mention: new to the page and not yet reported, in their current state, by any page of the session. They
 /// are marked reported, and the page's cursor moves to `now_ms` (`takeDownloads`).
 pub fn take_downloads(downloads: &[DownloadItem], page_reported_at: &mut i64, reports: &mut DownloadReports, now_ms: i64) -> Vec<DownloadItem> {

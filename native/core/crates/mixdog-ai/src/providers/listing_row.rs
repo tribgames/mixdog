@@ -39,8 +39,7 @@ pub fn record(row: Map<String, Value>) -> ModelRecord {
     record.picker = serde_json::from_value(Value::Object(row.clone())).unwrap_or_default();
     // The provider's row is the row it stores and answers (`getCachedModelInfo`): the catalog keeps it as stated, and a
     // later `enrichModels` writes over it (`{ ...row, ...enrichment }`).
-    record.enriched = EnrichedRow(Some(row.clone()));
-    record.raw = Some(Value::Object(row));
+    record.enriched = EnrichedRow(Some(row));
     record
 }
 

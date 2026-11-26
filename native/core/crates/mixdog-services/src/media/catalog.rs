@@ -158,6 +158,11 @@ fn kind_for(lane: &str, row: &Value, id: &str) -> Option<&'static str> {
         // This version requires a start image: Studio also permits prompt-only generation.
         return (VIDEO.is_match(id) && !VIDEO_15.is_match(id)).then_some("video");
     }
+    if lane == "antigravity-oauth"
+        && let Some(flag) = row.get("imageGeneration").and_then(Value::as_bool)
+    {
+        return flag.then_some("image");
+    }
     if google_lane(lane) {
         static GEMINI_IMAGE: LazyLock<Regex> = LazyLock::new(|| re(r"^gemini-.*(?:^|-)image(?:-|$)"));
         if GEMINI_IMAGE.is_match(id) && methods_allow(row, "generateContent") {
@@ -247,6 +252,7 @@ fn model_label(lane: &str, row: &Value, id: &str) -> String {
 struct Candidate {
     model: Model,
     created: f64,
+    advertised_order: Option<u64>,
 }
 
 fn compare(a: &Candidate, b: &Candidate) -> Ordering {
@@ -269,7 +275,7 @@ fn created_of(row: &Value) -> f64 {
 pub fn project_media_models(lane: &str, rows: &[Value]) -> Projected {
     let mut found: [Vec<Candidate>; 2] = [Vec::new(), Vec::new()];
     let mut seen = HashSet::new();
-    for row in rows {
+    for (row_index, row) in rows.iter().enumerate() {
         let raw = ["id", "name"].iter().find_map(|key| row.get(*key).filter(|v| truthy(Some(v)))).map(value_to_string).unwrap_or_default();
         let id = js_trim(strip_models_prefix(&raw)).to_owned();
         if id.is_empty() || !seen.insert(id.clone()) {
@@ -285,16 +291,30 @@ pub fn project_media_models(lane: &str, rows: &[Value]) -> Projected {
         } else {
             json!({})
         };
+        let advertised_order = if lane == "antigravity-oauth" && row.get("imageGeneration") == Some(&Value::Bool(true)) {
+            Some(row.get("imageGenerationOrder").and_then(Value::as_u64).unwrap_or(row_index as u64))
+        } else {
+            None
+        };
         let model = Model { label: model_label(lane, row, &id), id, controls, description: None, request_model: None };
-        found[usize::from(kind == "video")].push(Candidate { model, created: created_of(row) });
+        found[usize::from(kind == "video")].push(Candidate { model, created: created_of(row), advertised_order });
     }
     let [image, video] = found;
     let mut result = Projected::default();
     for (kind, mut candidates) in [("image", image), ("video", video)] {
-        candidates.sort_by(compare);
-        if let Some(at) = candidates.iter().position(|c| is_preferred(lane, kind, &c.model.id)).filter(|at| *at > 0) {
-            let preferred = candidates.remove(at);
-            candidates.insert(0, preferred);
+        if candidates.iter().any(|c| c.advertised_order.is_some()) {
+            candidates.sort_by(|a, b| match (a.advertised_order, b.advertised_order) {
+                (Some(ao), Some(bo)) => ao.cmp(&bo),
+                (Some(_), None) => Ordering::Less,
+                (None, Some(_)) => Ordering::Greater,
+                (None, None) => compare(a, b),
+            });
+        } else {
+            candidates.sort_by(compare);
+            if let Some(at) = candidates.iter().position(|c| is_preferred(lane, kind, &c.model.id)).filter(|at| *at > 0) {
+                let preferred = candidates.remove(at);
+                candidates.insert(0, preferred);
+            }
         }
         let models = candidates.into_iter().map(|c| c.model).collect();
         if kind == "image" { result.image = models } else { result.video = models }
@@ -349,14 +369,23 @@ pub fn catalog_diagnostic(failure: &CatalogFailure) -> (&'static str, &'static s
 
 /// `catalogHttpError(status, text)`'s code.
 pub fn catalog_http_code(status: u16, text: &str) -> &'static str {
-    static BILLING: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)credit|spending limit|billing|insufficient_quota|payment required"));
-    if BILLING.is_match(text) {
+    static BILLING: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)credit|spending limit|billing|insufficient_quota|payment required|account suspended"));
+    let meta = super::upstream::google_error_meta(text);
+    if meta.capacity_exhausted {
+        return if status == 429 { "MEDIA_RATE_LIMITED" } else { "MEDIA_CATALOG_UNAVAILABLE" };
+    }
+    if status == 429 && meta.is_google_quota_or_retry() {
+        return "MEDIA_RATE_LIMITED";
+    }
+    if status == 402 || meta.billing_disabled || BILLING.is_match(text) {
         return "MEDIA_BILLING_BLOCKED";
+    }
+    if status == 429 {
+        return "MEDIA_RATE_LIMITED";
     }
     match status {
         401 => "MEDIA_AUTH_REJECTED",
         403 => "MEDIA_ACCESS_DENIED",
-        429 => "MEDIA_RATE_LIMITED",
         408 | 504 => "MEDIA_CATALOG_TIMEOUT",
         _ => "MEDIA_CATALOG_UNAVAILABLE",
     }

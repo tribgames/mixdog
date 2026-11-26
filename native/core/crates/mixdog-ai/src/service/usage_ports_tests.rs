@@ -448,7 +448,7 @@ fn cursor_bearers(net: &Net) -> Vec<String> {
 /// and nothing is measured again.
 #[tokio::test]
 async fn a_cursor_reading_taken_on_a_token_renewed_for_it_is_served_on_the_next_read() {
-    use crate::providers::cursor::{API_URL, auth::EXCHANGE_URL};
+    use crate::providers::cursor::{API_URL, auth::OAUTH_REFRESH_URL};
 
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
@@ -458,7 +458,7 @@ async fn a_cursor_reading_taken_on_a_token_renewed_for_it_is_served_on_the_next_
     let login = json!({ "access_token": stale, "refresh_token": "fixture-cursor-refresh" });
     store.credential_file("cursor-oauth", "default").unwrap().save(&login).await.unwrap();
     let net = Net::from(&json!([
-        { "url": EXCHANGE_URL, "body": { "accessToken": renewed, "refreshToken": "fixture-cursor-refresh-2" } },
+        { "url": OAUTH_REFRESH_URL, "body": { "access_token": renewed, "refresh_token": "fixture-cursor-refresh-2" } },
         { "url": format!("{API_URL}{}", usage_cursor::USAGE_PATH), "body": CURSOR_ALLOWANCE },
         { "url": format!("{API_URL}{}", usage_cursor::PLAN_PATH), "body": "" }
     ]));

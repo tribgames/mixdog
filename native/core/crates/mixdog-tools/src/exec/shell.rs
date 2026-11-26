@@ -519,16 +519,18 @@ fn foreground_payload(
         let clean_exit = clean_exit_code(exit);
         let check_benign = clean_exit == Some(1);
         let err_edge = err.spilled_piece();
-        let err_raw = (cached.is_none() && (err_edge.is_none() || check_benign || ((rescue || windows) && clean_exit != Some(0)))).then(|| err.capture());
-        let benign_search = check_benign && is_benign_search_exit_one(analysis_command, 1, false, err_raw.as_deref().unwrap_or(""));
+        let benign_search = check_benign && !err.has_non_whitespace() && is_benign_search_exit_one(analysis_command, 1, false, "");
         let may_have_failed = clean_exit != Some(0) && !benign_search;
+        let err_raw = (cached.is_none() && (err_edge.is_none() || (windows && may_have_failed))).then(|| err.capture());
         let err_text = cached.map_or_else(|| ansi_stripped(err_raw.as_deref().unwrap_or("")), |text| text[1].into());
         let hint = if windows && may_have_failed { powershell_bashism_hint(analysis_command, &err_text) } else { String::new() };
-        let check_stdout = rescue && may_have_failed && mixdog_js::js_trim(&err_text).is_empty();
+        let err_empty = if err_edge.is_some() { !err.has_non_whitespace() } else { mixdog_js::js_trim(&err_text).is_empty() };
+        let check_stdout = rescue && may_have_failed && err_empty;
         let out_edge = out.spilled_piece();
-        let out_raw = (cached.is_none() && (out_edge.is_none() || check_stdout)).then(|| out.capture());
+        let out_raw = (cached.is_none() && out_edge.is_none()).then(|| out.capture());
         let out_text = cached.map_or_else(|| ansi_stripped(out_raw.as_deref().unwrap_or("")), |text| text[0].into());
-        let attach_rescue = check_stdout && mixdog_js::js_trim(&out_text).is_empty();
+        let out_empty = if out_edge.is_some() { !out.has_non_whitespace() } else { mixdog_js::js_trim(&out_text).is_empty() };
+        let attach_rescue = check_stdout && out_empty;
         let pieces: [Piece<'_>; 2] = [
             out_edge.unwrap_or_else(|| stripped_shell_piece(out_text, &shown_path(out.log))),
             err_edge.unwrap_or_else(|| stripped_shell_piece(err_text, &shown_path(err.log))),
@@ -645,7 +647,7 @@ async fn completed(
         || job.exit(),
         || {
             // Only read stderr again after the collector has published a clean exit 1.
-            job.foreground_streams(|[_, err]| is_benign_search_exit_one(analysis_command, 1, false, &err.capture()))
+            job.foreground_streams(|[_, err]| !err.has_non_whitespace() && is_benign_search_exit_one(analysis_command, 1, false, ""))
         },
     );
     render_foreground_result(output, command, &warning_block, timeout_ms, &ctx.cancel, tee_tail.as_deref())
@@ -799,6 +801,37 @@ mod tests {
             let result = render_foreground_result(output, command, "", 0, &cancel, None).unwrap();
             assert!(matches!(result.parts.as_slice(), [ToolPart::Text(text)] if text == expected), "{stderr:?}");
         }
+    }
+
+    #[test]
+    fn spilled_stderr_error_followed_by_whitespace_is_not_benign_no_match() {
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let exit_one = Some(ProcessExit { status: ExitStatus::Code(1), killed: None });
+        let pad = vec![b' '; 200 * 1024];
+
+        let mut err_then_ws = b"grep: permission denied\n".to_vec();
+        err_then_ws.extend_from_slice(&pad);
+        let failed_job = Job::test_with_output(b"", &err_then_ws);
+        failed_job.foreground_streams(|[_, err]| {
+            assert!(err.capture().trim().is_empty(), "retained tail must be pure whitespace");
+            assert!(err.has_non_whitespace(), "dropped error must still register as non-whitespace");
+        });
+        let failed = foreground_payload(&failed_job, None, exit_one, "grep x f", false, true);
+        assert!(!failed.benign_search, "error followed by >FINISHED_KEEP whitespace must not be benign no-match");
+        assert!(!failed.attach_rescue, "non-empty spilled stderr must not trigger empty-output rescue");
+        let rendered = render_foreground_result(failed, "grep x f", "", 0, &cancel, None).unwrap();
+        let text = match rendered.parts.as_slice() {
+            [ToolPart::Text(text)] => text.as_str(),
+            other => panic!("unexpected parts: {other:?}"),
+        };
+        assert!(!text.contains("[outcome: no-match]"), "{text}");
+
+        let ws_only_job = Job::test_with_output(b"", &pad);
+        ws_only_job.foreground_streams(|[_, err]| {
+            assert!(!err.has_non_whitespace(), "spilled whitespace-only stderr stays empty");
+        });
+        let benign = foreground_payload(&ws_only_job, None, exit_one, "grep x f", false, false);
+        assert!(benign.benign_search, "spilled whitespace-only stderr still classifies as benign no-match");
     }
 
     /// An integral number is an integer whatever its spelling (`90000.0`, `9e4`): both integer arguments reach the typed

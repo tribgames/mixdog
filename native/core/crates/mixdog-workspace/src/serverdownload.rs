@@ -9,6 +9,7 @@
 
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::fs::File;
 use std::path::Path;
 use std::path::PathBuf;
@@ -506,6 +507,57 @@ mod tests {
         let error = downloads.begin(Arc::new(Fake::of(b"0")), Path::new(""), "/srv", "x").await.err().unwrap();
         assert!(error.message.contains("no download folder"));
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn dispose_clears_finished_and_finished_set_is_bounded() {
+        let dir = tempfile::tempdir().unwrap();
+        let downloads = ServerDownloads::with_limits(1 << 20, SERVER_DOWNLOAD_IDLE, 2, lanes());
+        let a = fetch(&downloads, Fake::of(b"a"), dir.path(), "a.txt").await.unwrap();
+        let b = fetch(&downloads, Fake::of(b"b"), dir.path(), "b.txt").await.unwrap();
+        let c = fetch(&downloads, Fake::of(b"c"), dir.path(), "c.txt").await.unwrap();
+        assert!(!downloads.was_downloaded(&a), "oldest finished path evicted past bound");
+        assert!(downloads.was_downloaded(&b));
+        assert!(downloads.was_downloaded(&c));
+        downloads.dispose().await;
+        assert!(!downloads.was_downloaded(&b), "dispose clears finished paths");
+        assert!(!downloads.was_downloaded(&c));
+    }
+}
+
+/// Cap on finished download paths kept for [`ServerDownloads::was_downloaded`].
+const FINISHED_MAX_ENTRIES: usize = 1024;
+
+struct FinishedDownloads {
+    set: HashSet<PathBuf>,
+    order: VecDeque<PathBuf>,
+    max: usize,
+}
+
+impl FinishedDownloads {
+    fn new(max: usize) -> Self {
+        Self { set: HashSet::new(), order: VecDeque::new(), max }
+    }
+
+    fn insert(&mut self, path: PathBuf) {
+        if !self.set.insert(path.clone()) {
+            return;
+        }
+        self.order.push_back(path);
+        while self.order.len() > self.max {
+            if let Some(oldest) = self.order.pop_front() {
+                self.set.remove(&oldest);
+            }
+        }
+    }
+
+    fn contains(&self, path: &Path) -> bool {
+        self.set.contains(path)
+    }
+
+    fn clear(&mut self) {
+        self.set.clear();
+        self.order.clear();
+    }
 }
 
 pub struct ServerDownloads {
@@ -514,7 +566,7 @@ pub struct ServerDownloads {
     idle: Duration,
     lanes: Lanes,
     downloads: Mutex<HashMap<String, Download>>,
-    finished: Mutex<HashSet<PathBuf>>,
+    finished: Mutex<FinishedDownloads>,
 }
 impl ServerDownloads {
     pub fn new(max_bytes: u64, lanes: Lanes) -> Arc<Self> {
@@ -522,7 +574,18 @@ impl ServerDownloads {
     }
 
     fn with_idle(max_bytes: u64, idle: Duration, lanes: Lanes) -> Arc<Self> {
-        Arc::new_cyclic(|me| Self { me: me.clone(), max_bytes, idle, lanes, downloads: Mutex::default(), finished: Mutex::default() })
+        Self::with_limits(max_bytes, idle, FINISHED_MAX_ENTRIES, lanes)
+    }
+
+    fn with_limits(max_bytes: u64, idle: Duration, max_finished: usize, lanes: Lanes) -> Arc<Self> {
+        Arc::new_cyclic(|me| Self {
+            me: me.clone(),
+            max_bytes,
+            idle,
+            lanes,
+            downloads: Mutex::default(),
+            finished: Mutex::new(FinishedDownloads::new(max_finished)),
+        })
     }
 
     async fn on_lane<R: Send + 'static>(&self, job: impl FnOnce() -> WsResult<R> + Send + 'static) -> WsResult<R> {
@@ -706,6 +769,7 @@ impl ServerDownloads {
         for download in pending {
             self.discard(download).await;
         }
+        self.finished.lock().expect("finished").clear();
     }
 
     /// Only a file this process downloaded may be handed to the OS.

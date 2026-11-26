@@ -147,9 +147,16 @@ pub struct CacheHit {
 struct CacheEntry {
     key: String,
     ts: u64,
+    expires_at: tokio::time::Instant,
     hit: CacheHit,
     paths: Vec<String>,
     bytes: usize,
+}
+
+impl CacheEntry {
+    fn is_expired(&self, now_ms: u64, now_mono: tokio::time::Instant) -> bool {
+        now_mono >= self.expires_at || now_ms.saturating_sub(self.ts) > CACHE_TTL_MS
+    }
 }
 
 struct Scope {
@@ -832,6 +839,8 @@ impl FileVersion {
 struct Inner {
     cache: Vec<CacheEntry>,
     cache_bytes: usize,
+    cache_expiry_armed: bool,
+    cache_expiry_deadline: Option<tokio::time::Instant>,
     scopes: Vec<Scope>,
     hydrated: Vec<String>,
     /// Sessions with a flush timer pending, each with its generation: releasing a session cancels
@@ -868,6 +877,12 @@ struct Shared {
     /// Every change owed to the store (a session's change, a release, a path sweep) numbered as it is made, reported once
     /// the write that carries it ran.
     marks: mixdog_rt::WriteMarks,
+    cache_expiry_wake: Arc<tokio::sync::Notify>,
+}
+impl Drop for Shared {
+    fn drop(&mut self) {
+        self.cache_expiry_wake.notify_one();
+    }
 }
 pub struct ReadState {
     shared: Arc<Shared>,
@@ -1040,6 +1055,65 @@ impl Shared {
             }
         });
     }
+
+    fn arm_cache_expiry(self: &Arc<Self>, inner: &mut Inner) {
+        let Some(earliest) = inner.cache.iter().map(|e| e.expires_at).min() else {
+            return;
+        };
+        if inner.cache_expiry_armed {
+            if inner.cache_expiry_deadline.is_none_or(|armed| earliest < armed) {
+                inner.cache_expiry_deadline = Some(earliest);
+                self.cache_expiry_wake.notify_one();
+            }
+            return;
+        }
+        let handle = if self.persist.is_some() {
+            None
+        } else {
+            let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
+            Some(handle)
+        };
+        inner.cache_expiry_armed = true;
+        inner.cache_expiry_deadline = Some(earliest);
+        let weak = Arc::downgrade(self);
+        let wake = Arc::clone(&self.cache_expiry_wake);
+        let task = async move {
+            loop {
+                let Some(shared) = weak.upgrade() else { return };
+                let now_ms = (shared.clock)();
+                let now_mono = tokio::time::Instant::now();
+                let target = {
+                    let mut inner = shared.lock();
+                    inner.cache.retain(|e| !e.is_expired(now_ms, now_mono));
+                    inner.cache_bytes = inner.cache.iter().map(|e| e.bytes).sum();
+                    if inner.cache.is_empty() {
+                        inner.cache.shrink_to_fit();
+                        inner.cache_expiry_armed = false;
+                        inner.cache_expiry_deadline = None;
+                        None
+                    } else {
+                        let next = inner.cache.iter().map(|e| e.expires_at).min().expect("non-empty cache");
+                        inner.cache_expiry_deadline = Some(next);
+                        Some(next)
+                    }
+                };
+                drop(shared);
+                let Some(target) = target else { return };
+                tokio::select! {
+                    () = mixdog_rt::time::sleep_until(target) => {}
+                    () = wake.notified() => {}
+                }
+            }
+        };
+        match handle {
+            Some(handle) => {
+                handle.spawn(task);
+            }
+            None => {
+                mixdog_rt::spawn("fs.read-cache-expiry", mixdog_rt::TaskClass::Work, task);
+            }
+        }
+    }
 }
 impl ReadState {
     pub fn new(persist: Option<Persistence>) -> Self {
@@ -1063,6 +1137,7 @@ impl ReadState {
                 watchers: Mutex::new(Vec::new()),
                 releases: Mutex::new(Vec::new()),
                 marks,
+                cache_expiry_wake: Arc::new(tokio::sync::Notify::new()),
             }),
         }
     }
@@ -1292,9 +1367,10 @@ impl ReadState {
     /// `cacheGetEntry`: a live entry, expiring those past 30 s.
     pub fn cache_get(&self, key: &str) -> Option<CacheHit> {
         let now = (self.shared.clock)();
+        let now_mono = tokio::time::Instant::now();
         let mut inner = self.shared.lock();
         let at = inner.cache.iter().position(|e| e.key == key)?;
-        if now.saturating_sub(inner.cache[at].ts) > CACHE_TTL_MS {
+        if inner.cache[at].is_expired(now, now_mono) {
             let gone = inner.cache.remove(at);
             inner.cache_bytes = inner.cache_bytes.saturating_sub(gone.bytes);
             return None;
@@ -1309,14 +1385,16 @@ impl ReadState {
             return;
         }
         let now = (self.shared.clock)();
+        let now_mono = tokio::time::Instant::now();
         let mut inner = self.shared.lock();
         // An entry past its TTL is never served again; only a lookup of its own key used to drop it, so up to the byte
         // cap of dead answers stayed resident until evicted by size.
-        inner.cache.retain(|e| e.key != key && now.saturating_sub(e.ts) <= CACHE_TTL_MS);
+        inner.cache.retain(|e| e.key != key && !e.is_expired(now, now_mono));
         inner.cache_bytes = inner.cache.iter().map(|e| e.bytes).sum();
         inner.cache.push(CacheEntry {
             key: key.to_owned(),
             ts: now,
+            expires_at: now_mono + std::time::Duration::from_millis(CACHE_TTL_MS + 1),
             hit: CacheHit { value, meta, prefix_hash },
             paths: paths.iter().map(|p| (*p).to_owned()).collect(),
             bytes,
@@ -1329,5 +1407,70 @@ impl ReadState {
             let gone = inner.cache.remove(0);
             inner.cache_bytes = inner.cache_bytes.saturating_sub(gone.bytes);
         }
+        self.shared.arm_cache_expiry(&mut inner);
+    }
+}
+
+#[cfg(test)]
+mod cache_expiry_tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn expired_read_cache_payloads_leave_memory_on_expiry() {
+        let start = tokio::time::Instant::now();
+        let clock: Clock = Arc::new(move || 1_000 + start.elapsed().as_millis() as u64);
+        let state = ReadState::with_clock(None, clock);
+        state.cache_set("k1", "x".repeat(4096), &["/a"], None, "hash".into());
+        {
+            let inner = state.shared.lock();
+            assert_eq!(inner.cache.len(), 1);
+            assert_eq!(inner.cache_bytes, 4096);
+        }
+        tokio::time::advance(Duration::from_millis(CACHE_TTL_MS + 1)).await;
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+            if state.shared.lock().cache.is_empty() {
+                break;
+            }
+        }
+        let inner = state.shared.lock();
+        assert!(inner.cache.is_empty(), "expired read-cache payload stayed until next read");
+        assert_eq!(inner.cache_bytes, 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn monotonic_read_cache_expiry_survives_frozen_or_backward_wall_clock() {
+        let wall = Arc::new(std::sync::atomic::AtomicU64::new(50_000));
+        let clock_ref = Arc::clone(&wall);
+        let clock: Clock = Arc::new(move || clock_ref.load(std::sync::atomic::Ordering::SeqCst));
+        let state = ReadState::with_clock(None, clock);
+        state.cache_set("k1", "a".repeat(1024), &["/a"], None, "h1".into());
+        tokio::time::advance(Duration::from_millis(200)).await;
+        // Step wall clock backward before inserting second entry.
+        wall.store(40_000, std::sync::atomic::Ordering::SeqCst);
+        state.cache_set("k2", "b".repeat(2048), &["/b"], None, "h2".into());
+
+        tokio::time::advance(Duration::from_millis(CACHE_TTL_MS - 199)).await;
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+            if state.shared.lock().cache.len() == 1 {
+                break;
+            }
+        }
+        assert_eq!(state.shared.lock().cache.len(), 1, "first entry should expire monotonically");
+        assert_eq!(state.shared.lock().cache[0].key, "k2");
+
+        tokio::time::advance(Duration::from_millis(200)).await;
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+            if state.shared.lock().cache.is_empty() {
+                break;
+            }
+        }
+        let inner = state.shared.lock();
+        assert!(inner.cache.is_empty(), "second entry must also expire without premature disarm");
+        assert_eq!(inner.cache_bytes, 0);
     }
 }

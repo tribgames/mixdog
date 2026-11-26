@@ -60,33 +60,88 @@ pub(crate) struct Event {
     pub data: String,
 }
 
+/// Pending byte buffer capacity kept between chunks; larger allocations are returned after the chunk is consumed.
+const BUFFER_RETAIN_BYTES: usize = 64 * 1024;
+
 /// Accumulates a byte stream into events.
 #[derive(Default)]
 pub(crate) struct EventParser {
     pending: Vec<u8>,
     text: String,
+    /// The previous chunk ended with `\r` (already emitted as `\n`), so a leading `\n` in the next
+    /// chunk completes that CRLF pair and must be skipped.
+    pending_cr: bool,
+}
+
+fn append_normalized(dest: &mut String, pending_cr: &mut bool, mut slice: &str) {
+    if slice.is_empty() {
+        return;
+    }
+    if *pending_cr {
+        *pending_cr = false;
+        if let Some(rest) = slice.strip_prefix('\n') {
+            slice = rest;
+        }
+    }
+    if !slice.contains('\r') {
+        dest.push_str(slice);
+        return;
+    }
+    let bytes = slice.as_bytes();
+    let mut start = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\r' {
+            dest.push_str(&slice[start..i]);
+            dest.push('\n');
+            if i + 1 < bytes.len() {
+                i += if bytes[i + 1] == b'\n' { 2 } else { 1 };
+            } else {
+                *pending_cr = true;
+                i += 1;
+            }
+            start = i;
+        } else {
+            i += 1;
+        }
+    }
+    if start < bytes.len() {
+        dest.push_str(&slice[start..]);
+    }
 }
 
 impl EventParser {
     pub(crate) fn push(&mut self, chunk: &[u8]) -> Vec<Event> {
+        let prev_len = self.text.len();
         self.pending.extend_from_slice(chunk);
         match std::str::from_utf8(&self.pending) {
             Ok(text) => {
-                self.text.push_str(text);
+                append_normalized(&mut self.text, &mut self.pending_cr, text);
                 self.pending.clear();
+                if self.pending.capacity() > BUFFER_RETAIN_BYTES {
+                    self.pending = Vec::new();
+                }
             }
             Err(error) => {
                 let valid = error.valid_up_to();
-                self.text.push_str(std::str::from_utf8(&self.pending[..valid]).unwrap_or_default());
-                self.pending.drain(..valid);
+                if valid > 0 {
+                    let text = std::str::from_utf8(&self.pending[..valid]).unwrap_or_default();
+                    append_normalized(&mut self.text, &mut self.pending_cr, text);
+                    self.pending.drain(..valid);
+                }
+                if self.pending.capacity() > BUFFER_RETAIN_BYTES && self.pending.len() <= BUFFER_RETAIN_BYTES {
+                    self.pending.shrink_to(BUFFER_RETAIN_BYTES);
+                }
             }
         }
-        let normalized = self.text.replace("\r\n", "\n").replace('\r', "\n");
-        let mut rest = normalized.as_str();
+        let mut consumed = 0;
+        let mut search = if prev_len > 0 && self.text.as_bytes()[prev_len - 1] == b'\n' { prev_len - 1 } else { prev_len };
         let mut events = Vec::new();
-        while let Some(end) = rest.find("\n\n") {
-            let block = &rest[..end];
-            rest = &rest[end + 2..];
+        while let Some(offset) = self.text[search..].find("\n\n") {
+            let end = search + offset;
+            let block = &self.text[consumed..end];
+            consumed = end + 2;
+            search = consumed;
             let (mut name, mut data) = (String::from("message"), Vec::new());
             for line in block.lines() {
                 if let Some(value) = line.strip_prefix("event:") {
@@ -99,7 +154,19 @@ impl EventParser {
                 events.push(Event { name, data: data.join("\n") });
             }
         }
-        self.text = rest.to_owned();
+        if consumed > 0 {
+            if consumed == self.text.len() {
+                self.text.clear();
+                if self.text.capacity() > BUFFER_RETAIN_BYTES {
+                    self.text = String::new();
+                }
+            } else {
+                self.text.drain(..consumed);
+                if self.text.capacity() > BUFFER_RETAIN_BYTES && self.text.len() <= BUFFER_RETAIN_BYTES {
+                    self.text.shrink_to(BUFFER_RETAIN_BYTES);
+                }
+            }
+        }
         events
     }
 }
@@ -300,5 +367,30 @@ mod tests {
         let first = parser.push(b"\r\n\r\ndata: {\"a\":1}\ndata: 2\n\n");
         assert_eq!(first[0], Event { name: "endpoint".into(), data: "/messages?s=1".into() });
         assert_eq!(first[1], Event { name: "message".into(), data: "{\"a\":1}\n2".into() });
+    }
+
+    #[test]
+    fn event_parser_returns_pending_capacity_after_a_large_event() {
+        let mut parser = EventParser::default();
+        let big = format!("data: {}\n\n", "x".repeat(512 * 1024));
+        let events = parser.push(big.as_bytes());
+        assert_eq!(events.len(), 1);
+        assert!(parser.pending.capacity() <= BUFFER_RETAIN_BYTES, "pending capacity stayed at {}", parser.pending.capacity());
+        assert!(parser.text.capacity() <= BUFFER_RETAIN_BYTES, "text capacity stayed at {}", parser.text.capacity());
+    }
+
+    #[test]
+    fn event_parser_handles_crlf_split_across_chunks_without_spurious_boundaries() {
+        let mut parser = EventParser::default();
+        assert!(parser.push(b"event: endpoint\r").is_empty());
+        assert!(parser.push(b"\ndata: line1\r").is_empty());
+        assert!(parser.push(b"\ndata: line2\r").is_empty());
+        let events = parser.push(b"\n\r");
+        assert_eq!(events, vec![Event { name: "endpoint".into(), data: "line1\nline2".into() }]);
+        // Trailing `\n` completes the `\r\n` terminator and must not leak an empty line into the next event.
+        assert!(parser.push(b"\ndata: next").is_empty());
+        let next = parser.push(b"\r\r");
+        assert_eq!(next, vec![Event { name: "message".into(), data: "next".into() }]);
+        assert!(parser.text.is_empty());
     }
 }

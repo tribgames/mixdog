@@ -182,7 +182,7 @@ fn project(command: &str) -> (tempfile::TempDir, std::path::PathBuf) {
 }
 
 fn open(rel: &str, content: &str, version: i64) -> DocumentInput {
-    DocumentInput { kind: "open".into(), language_id: "scriptlang".into(), rel_path: rel.into(), content: content.into(), version }
+    DocumentInput { kind: "open".into(), language_id: "scriptlang".into(), rel_path: rel.into(), content: content.into(), version, attachment_id: None }
 }
 
 /// Which server a language gets, and what the editor tells the server a document's language is.

@@ -5,6 +5,7 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
@@ -51,11 +52,17 @@ impl BodyStream for Body {
     }
 }
 
-struct Sink(Arc<Mutex<Vec<Vec<u8>>>>);
+struct Sink {
+    written: Arc<Mutex<Vec<Vec<u8>>>>,
+    closed: Arc<AtomicBool>,
+}
 impl FrameSink for Sink {
     fn send(&self, frame: Vec<u8>) -> Result<(), TransportFault> {
-        self.0.lock().unwrap().push(frame);
+        self.written.lock().unwrap().push(frame);
         Ok(())
+    }
+    fn close(&self) {
+        self.closed.store(true, Ordering::SeqCst);
     }
 }
 
@@ -63,14 +70,20 @@ impl FrameSink for Sink {
 /// side of its response.
 struct Run {
     first: Vec<u8>,
+    headers: Vec<(String, String)>,
     written: Arc<Mutex<Vec<Vec<u8>>>>,
-    response: mpsc::UnboundedSender<Chunk>,
+    sink_closed: Arc<AtomicBool>,
+    response: Option<mpsc::UnboundedSender<Chunk>>,
 }
 
 /// The service: each run it opens answers with the next script at once; later frames go out on `send`.
 #[derive(Default)]
 struct Service {
     scripts: Mutex<VecDeque<Vec<Vec<u8>>>>,
+    tail_faults: Mutex<VecDeque<Option<TransportFault>>>,
+    open_faults: Mutex<VecDeque<Option<ProviderError>>>,
+    open_http_errors: Mutex<VecDeque<Option<(u16, Vec<u8>)>>>,
+    open_calls: AtomicUsize,
     runs: Mutex<Vec<Run>>,
     /// The catalog requests it was sent.
     listed: AtomicUsize,
@@ -80,6 +93,32 @@ impl Service {
     fn with(scripts: Vec<Vec<Vec<u8>>>) -> Arc<Self> {
         Arc::new(Self { scripts: Mutex::new(scripts.into()), ..Self::default() })
     }
+    fn with_tail_faults(scripts: Vec<Vec<Vec<u8>>>, faults: Vec<Option<TransportFault>>) -> Arc<Self> {
+        Arc::new(Self { scripts: Mutex::new(scripts.into()), tail_faults: Mutex::new(faults.into()), ..Self::default() })
+    }
+    fn with_open_and_tail_faults(scripts: Vec<Vec<Vec<u8>>>, open_faults: Vec<Option<ProviderError>>, tail_faults: Vec<Option<TransportFault>>) -> Arc<Self> {
+        Arc::new(Self {
+            scripts: Mutex::new(scripts.into()),
+            open_faults: Mutex::new(open_faults.into()),
+            tail_faults: Mutex::new(tail_faults.into()),
+            ..Self::default()
+        })
+    }
+    fn with_http_errors_and_tail_faults(
+        scripts: Vec<Vec<Vec<u8>>>,
+        open_http_errors: Vec<Option<(u16, Vec<u8>)>>,
+        tail_faults: Vec<Option<TransportFault>>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            scripts: Mutex::new(scripts.into()),
+            open_http_errors: Mutex::new(open_http_errors.into()),
+            tail_faults: Mutex::new(tail_faults.into()),
+            ..Self::default()
+        })
+    }
+    fn open_calls(&self) -> usize {
+        self.open_calls.load(Ordering::SeqCst)
+    }
     fn listed(&self) -> usize {
         self.listed.load(Ordering::SeqCst)
     }
@@ -87,11 +126,19 @@ impl Service {
         self.runs.lock().unwrap().len()
     }
     fn send(&self, run: usize, chunk: Chunk) {
-        let _ = self.runs.lock().unwrap()[run].response.send(chunk);
+        if let Some(response) = &self.runs.lock().unwrap()[run].response {
+            let _ = response.send(chunk);
+        }
+    }
+    fn eof(&self, run: usize) {
+        self.runs.lock().unwrap()[run].response.take();
     }
     /// The client let go of the run's response: the exchange is reset.
     fn closed(&self, run: usize) -> bool {
-        self.runs.lock().unwrap()[run].response.is_closed()
+        self.runs.lock().unwrap()[run].response.as_ref().is_none_or(mpsc::UnboundedSender::is_closed)
+    }
+    fn sink_closed(&self, run: usize) -> bool {
+        self.runs.lock().unwrap()[run].sink_closed.load(Ordering::SeqCst)
     }
     fn written(&self, run: usize) -> Vec<Vec<u8>> {
         self.runs.lock().unwrap()[run].written.lock().unwrap().clone()
@@ -99,18 +146,44 @@ impl Service {
     fn first(&self, run: usize) -> Vec<u8> {
         self.runs.lock().unwrap()[run].first.clone()
     }
+    fn header(&self, run: usize, name: &str) -> Option<String> {
+        self.runs.lock().unwrap()[run].headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.clone())
+    }
 }
 
 #[async_trait]
 impl BidiOpen for Service {
-    async fn open(&self, _request: WireRequest, first: Vec<u8>, _exchange: Exchange) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
+    async fn open(&self, request: WireRequest, first: Vec<u8>, _exchange: Exchange) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
+        self.open_calls.fetch_add(1, Ordering::SeqCst);
+        if let Some(Some(err)) = self.open_faults.lock().unwrap().pop_front() {
+            return Err(err);
+        }
+        if let Some(Some((status, err_body))) = self.open_http_errors.lock().unwrap().pop_front() {
+            let (response, body) = mpsc::unbounded_channel();
+            if !err_body.is_empty() {
+                let _ = response.send(Ok(Bytes::from(err_body)));
+            }
+            drop(response);
+            let sink = Arc::new(Sink { written: Arc::default(), closed: Arc::default() });
+            return Ok((HttpResponse { status, headers: Vec::new(), body: Box::new(Body(body)) }, sink));
+        }
         let (response, body) = mpsc::unbounded_channel();
         for frame in self.scripts.lock().unwrap().pop_front().unwrap_or_default() {
             let _ = response.send(Ok(Bytes::from(frame)));
         }
+        if let Some(Some(fault)) = self.tail_faults.lock().unwrap().pop_front() {
+            let _ = response.send(Err(fault));
+        }
         let written = Arc::new(Mutex::new(Vec::new()));
-        self.runs.lock().unwrap().push(Run { first, written: written.clone(), response });
-        Ok((HttpResponse { status: 200, headers: Vec::new(), body: Box::new(Body(body)) }, Arc::new(Sink(written))))
+        let sink_closed = Arc::new(AtomicBool::new(false));
+        self.runs.lock().unwrap().push(Run {
+            first,
+            headers: request.headers,
+            written: written.clone(),
+            sink_closed: sink_closed.clone(),
+            response: Some(response),
+        });
+        Ok((HttpResponse { status: 200, headers: Vec::new(), body: Box::new(Body(body)) }, Arc::new(Sink { written, closed: sink_closed })))
     }
 }
 
@@ -489,6 +562,7 @@ fn parameterized() -> Vec<super::models::CursorModel> {
         supports_max_mode: false,
         supports_non_max_mode: true,
         supports_vision: false,
+        vision_known: false,
         supports_reasoning: true,
         definitions: vec![ParameterDefinition {
             id: "effort".into(),
@@ -744,4 +818,650 @@ async fn a_step_that_leaves_the_waiting_run_reads_its_request_once() {
     assert_eq!(told.load(Ordering::SeqCst) - told_first, 1, "the excluded tool is told once");
     assert_eq!(service.listed() - listed_first, listed_first, "the catalog is read as often as by the first step");
     drop((first, second));
+}
+
+#[tokio::test(start_paused = true)]
+async fn poisoned_conversation_rotates_once_as_transient_503_and_stops_on_fresh_failure() {
+    use base64::Engine;
+    use mixdog_core_api::domain::provider::ErrorKind;
+
+    let conversation = |service: &Service, run: usize| at(&service.first(run)[5..], &[1, 5]).expect("the conversation id");
+    let ended = |body: &str| vec![frame::encode(body.as_bytes(), frame::END_STREAM)];
+    let bare_429 = r#"{"error":{"code":"resource_exhausted","message":"Error"}}"#;
+    let retryable_provider = {
+        let mut custom = Writer::new();
+        custom.string(1, "Provider");
+        custom.string(2, "Bad state");
+        let mut details = Writer::new();
+        details.varint(1, 57);
+        details.message(2, custom);
+        let b64 = base64::engine::general_purpose::STANDARD.encode(details.finish());
+        json!({
+            "error": {
+                "code": "resource_exhausted",
+                "message": "Error",
+                "details": [{ "type": "aiserver.v1.ErrorDetails", "value": b64 }]
+            }
+        })
+        .to_string()
+    };
+
+    // Held conversation fails with bare resource_exhausted -> single transient 503 rotation;
+    // if the fresh conversation also fails, no second rotation and real 429 surfaces;
+    // after the fresh conversation completes a turn, a later retryable PROVIDER_ERROR rotates again as 503.
+    let service = Service::with(vec![answer_frames(), ended(bare_429), ended(bare_429), answer_frames(), ended(&retryable_provider), answer_frames()]);
+    let client = adapter(&service);
+
+    let mut run0 = client.attempt(request(vec![asked()])).await.expect("run 0");
+    drain(&mut run0).await;
+    drop(run0);
+
+    let err1 = client.attempt(request(vec![asked()])).await.err().expect("run 1 rotates");
+    assert_eq!(err1.kind, ErrorKind::Transient);
+    assert_eq!(err1.status, Some(503));
+    assert_eq!(err1.should_retry, None);
+
+    let err2 = client.attempt(request(vec![asked()])).await.err().expect("run 2 real failure");
+    assert_eq!(err2.kind, ErrorKind::RateLimited);
+    assert_eq!(err2.status, Some(429));
+
+    let mut run3 = client.attempt(request(vec![asked()])).await.expect("run 3 succeeds on rotated id");
+    drain(&mut run3).await;
+    drop(run3);
+
+    let err4 = client.attempt(request(vec![asked()])).await.err().expect("run 4 rotates after fresh success");
+    assert_eq!(err4.kind, ErrorKind::Transient);
+    assert_eq!(err4.status, Some(503));
+    assert_eq!(err4.should_retry, None);
+
+    let mut run5 = client.attempt(request(vec![asked()])).await.expect("run 5 succeeds on third id");
+    drain(&mut run5).await;
+    drop(run5);
+
+    assert_eq!(conversation(&service, 0), conversation(&service, 1));
+    assert_ne!(conversation(&service, 1), conversation(&service, 2));
+    assert_eq!(conversation(&service, 2), conversation(&service, 3));
+    assert_eq!(conversation(&service, 3), conversation(&service, 4));
+    assert_ne!(conversation(&service, 4), conversation(&service, 5));
+
+    // Unheld first request does not rotate and surfaces real 429.
+    let fresh_service = Service::with(vec![ended(bare_429), answer_frames()]);
+    let fresh_adapter = adapter(&fresh_service);
+    let err = fresh_adapter.attempt(request(vec![asked()])).await.err().expect("first request fails");
+    assert_eq!(err.kind, ErrorKind::RateLimited);
+    assert_eq!(err.status, Some(429));
+    let mut second = fresh_adapter.attempt(request(vec![asked()])).await.expect("second opens");
+    drain(&mut second).await;
+    assert_eq!(conversation(&fresh_service, 0), conversation(&fresh_service, 1));
+}
+
+#[tokio::test(start_paused = true)]
+async fn non_retryable_provider_error_preserves_error_and_does_not_rotate_conversation() {
+    use base64::Engine;
+    use mixdog_core_api::domain::provider::ErrorKind;
+
+    let conversation = |service: &Service, run: usize| at(&service.first(run)[5..], &[1, 5]).expect("the conversation id");
+    let ended = |body: &str| vec![frame::encode(body.as_bytes(), frame::END_STREAM)];
+    let non_retryable_provider = {
+        let mut custom = Writer::new();
+        custom.string(1, "Provider");
+        custom.string(2, "Rejected by upstream");
+        custom.varint(4, 0);
+        let mut details = Writer::new();
+        details.varint(1, 57);
+        details.message(2, custom);
+        let b64 = base64::engine::general_purpose::STANDARD.encode(details.finish());
+        json!({
+            "error": {
+                "code": "resource_exhausted",
+                "message": "Error",
+                "details": [{ "type": "aiserver.v1.ErrorDetails", "value": b64 }]
+            }
+        })
+        .to_string()
+    };
+
+    let service = Service::with(vec![answer_frames(), ended(&non_retryable_provider), answer_frames()]);
+    let client = adapter(&service);
+
+    let mut run0 = client.attempt(request(vec![asked()])).await.expect("run 0 establishes conversation");
+    drain(&mut run0).await;
+    drop(run0);
+
+    let err = client.attempt(request(vec![asked()])).await.err().expect("run 1 surfaces non-retryable error");
+    assert_eq!(err.kind, ErrorKind::InvalidRequest);
+    assert_eq!(err.status, Some(400));
+    assert_eq!(err.should_retry, Some(false));
+    assert_eq!(err.code.as_deref(), Some("PROVIDER_ERROR"));
+
+    let mut run2 = client.attempt(request(vec![asked()])).await.expect("run 2 reuses conversation");
+    drain(&mut run2).await;
+    drop(run2);
+
+    assert_eq!(conversation(&service, 0), conversation(&service, 1));
+    assert_eq!(conversation(&service, 1), conversation(&service, 2));
+}
+
+#[tokio::test(start_paused = true)]
+async fn clean_end_stream_half_closes_request_sink() {
+    let service = Service::with(vec![answer_frames()]);
+    let client = adapter(&service);
+    let mut stream = client.attempt(request(vec![asked()])).await.expect("opens");
+    let events = drain(&mut stream).await;
+    assert_eq!(stop_of(&events), Some(StopReason::Other("stop".into())));
+    assert!(service.sink_closed(0), "clean END_STREAM half-closes request sink before drop");
+    drop(stream);
+
+    // A parked run waiting on tool results keeps its request sink open.
+    let parked_service = Service::with(vec![vec![listing(1), lookup_call()]]);
+    let parked_adapter = adapter(&parked_service);
+    let mut parked = parked_adapter.attempt(request(vec![asked()])).await.expect("opens");
+    drain(&mut parked).await;
+    assert!(!parked_service.sink_closed(0), "parked run must keep request sink open");
+    drop(parked);
+}
+
+#[tokio::test(start_paused = true)]
+async fn permission_403_does_not_force_token_refresh_while_auth_401_does() {
+    struct CountingTokens {
+        refreshes: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl AccessToken for CountingTokens {
+        async fn access_token(&self) -> Result<Access, ProviderError> {
+            Ok(Access::plain("tok-1".into()))
+        }
+        async fn after_rejection(&self, _rejected: &Access) -> Result<Access, ProviderError> {
+            let n = self.refreshes.fetch_add(1, Ordering::SeqCst) + 2;
+            Ok(Access::plain(format!("tok-{n}")))
+        }
+        async fn renewed(&self) -> Result<Access, ProviderError> {
+            Ok(Access::plain("tok-1".into()))
+        }
+    }
+
+    let ended = |body: &str| vec![frame::encode(body.as_bytes(), frame::END_STREAM)];
+    let denied_403 = r#"{"error":{"code":"permission_denied","message":"plan required"}}"#;
+    let auth_401 = r#"{"error":{"code":"unauthenticated","message":"expired"}}"#;
+
+    // 403 permission_denied must NOT trigger after_rejection token refresh.
+    let service_403 = Service::with(vec![ended(denied_403), answer_frames()]);
+    let tokens_403 = Arc::new(CountingTokens { refreshes: AtomicUsize::new(0) });
+    mixdog_rt::testing::tokens();
+    let adapter_403 = CursorAdapter::new("cursor-oauth", None, Some(CLIENT_VERSION_FLOOR.into()), service_403.clone(), service_403.clone(), tokens_403.clone());
+    let err = adapter_403.attempt(request(vec![asked()])).await.err().expect("403 fails");
+    assert_eq!(err.status, Some(403));
+    assert_eq!(tokens_403.refreshes.load(Ordering::SeqCst), 0, "403 must not force token refresh");
+    assert_eq!(service_403.opened(), 1);
+
+    // 401 unauthenticated MUST trigger one after_rejection token refresh and retry on the new token.
+    let service_401 = Service::with(vec![ended(auth_401), answer_frames()]);
+    let tokens_401 = Arc::new(CountingTokens { refreshes: AtomicUsize::new(0) });
+    let adapter_401 = CursorAdapter::new("cursor-oauth", None, Some(CLIENT_VERSION_FLOOR.into()), service_401.clone(), service_401.clone(), tokens_401.clone());
+    let mut stream = adapter_401.attempt(request(vec![asked()])).await.expect("401 refreshes and succeeds");
+    assert_eq!(stop_of(&drain(&mut stream).await), Some(StopReason::Other("stop".into())));
+    assert_eq!(tokens_401.refreshes.load(Ordering::SeqCst), 1);
+    assert_eq!(service_401.opened(), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn parked_run_answers_kv_and_heartbeat_immediately_and_preserves_other_frames() {
+    let kv_set = |id: u32, key: &[u8], data: &[u8]| {
+        message(|m| {
+            let mut set = Writer::new();
+            set.bytes(1, key);
+            set.bytes(2, data);
+            let mut kv = Writer::new();
+            kv.varint(1, u64::from(id));
+            kv.message(3, set);
+            m.message(4, kv);
+        })
+    };
+    let kv_get = |id: u32, key: &[u8]| {
+        message(|m| {
+            let mut get = Writer::new();
+            get.bytes(1, key);
+            let mut kv = Writer::new();
+            kv.varint(1, u64::from(id));
+            kv.message(2, get);
+            m.message(4, kv);
+        })
+    };
+
+    let service = Service::with(vec![vec![listing(1), lookup_call()]]);
+    let adapter = adapter(&service);
+    let mut first = adapter.attempt(request(vec![asked()])).await.expect("run opens");
+    assert_eq!(calls_of(&drain(&mut first).await).len(), 1);
+    assert_eq!(adapter.runs.waiting(), 1);
+
+    // While parked, server sends setBlob, getBlob, heartbeat, and then the resumed answer.
+    service.send(0, Ok(Bytes::from(kv_set(10, b"blob-k", b"payload-v"))));
+    service.send(0, Ok(Bytes::from(kv_get(11, b"blob-k"))));
+    service.send(0, Ok(Bytes::from(update(13, Writer::new()))));
+    for frame in answer_frames() {
+        service.send(0, Ok(Bytes::from(frame)));
+    }
+    settle().await;
+
+    // KV replies are written immediately while parked, before the next attempt runs.
+    let written_while_parked = service.written(0);
+    assert_eq!(written_while_parked.len(), 2, "both KV requests answered while parked");
+    assert!(at(&written_while_parked[0][5..], &[3, 3]).is_some(), "setBlob reply");
+    assert_eq!(at(&written_while_parked[1][5..], &[3, 2, 1]).as_deref(), Some(b"payload-v".as_slice()), "getBlob returns stored blob");
+
+    let mut second = adapter.attempt(request(transcript_with_result())).await.expect("resumes parked run");
+    let events = drain(&mut second).await;
+    let text: String = events.iter().filter_map(|e| if let StreamEvent::TextDelta(t) = e { Some(t.as_str()) } else { None }).collect();
+    assert_eq!(text, "42 it is");
+    assert_eq!(stop_of(&events), Some(StopReason::Other("stop".into())));
+    assert_eq!(service.opened(), 1);
+    assert!(service.sink_closed(0));
+    drop((first, second));
+}
+
+#[tokio::test(start_paused = true)]
+async fn mid_stream_cut_resumes_from_fresh_checkpoint_without_duplicating_output() {
+    use mixdog_core_api::domain::provider::ItemKind;
+
+    let text_frame = |s: &str| {
+        let mut t = Writer::new();
+        t.string(1, s);
+        update(1, t)
+    };
+    let checkpoint_bytes = {
+        let mut cp = Writer::new();
+        cp.bytes(1, b"turn-blob-1");
+        cp.finish()
+    };
+    let checkpoint_frame = message(|m| m.bytes(3, &checkpoint_bytes));
+
+    for use_reset in [false, true] {
+        let service = Service::with(vec![
+            vec![text_frame("before"), checkpoint_frame.clone()],
+            vec![text_frame(" after"), update(14, Writer::new()), frame::encode(b"{}", frame::END_STREAM)],
+        ]);
+        let adapter = adapter(&service);
+        let mut stream = adapter.attempt(request(vec![asked()])).await.expect("opens");
+        if use_reset {
+            service.send(0, Err(TransportFault::Reset));
+        } else {
+            service.eof(0);
+        }
+        let events = drain(&mut stream).await;
+        let text: String = events.iter().filter_map(|e| if let StreamEvent::TextDelta(t) = e { Some(t.as_str()) } else { None }).collect();
+        let text_starts = events.iter().filter(|e| matches!(e, StreamEvent::ItemStart { kind: ItemKind::Text, .. })).count();
+        assert_eq!(text, "before after", "use_reset={use_reset}");
+        assert_eq!(text_starts, 1, "no duplicate text ItemStart (use_reset={use_reset})");
+        assert_eq!(stop_of(&events), Some(StopReason::Other("stop".into())));
+        assert_eq!(service.opened(), 2);
+
+        let orig_id = service.header(0, "x-request-id").expect("run 0 request id");
+        assert_eq!(service.header(1, "x-original-request-id").as_deref(), Some(orig_id.as_str()));
+        let resume_first = service.first(1);
+        assert_eq!(at(&resume_first[5..], &[1, 1]).as_deref(), Some(checkpoint_bytes.as_slice()), "verbatim checkpoint state");
+        assert!(at(&resume_first[5..], &[1, 2, 1]).is_none() && at(&resume_first[5..], &[1, 2, 2]).is_some(), "uses ResumeAction");
+        assert_eq!(at(&service.first(0)[5..], &[1, 5]), at(&resume_first[5..], &[1, 5]), "preserves conversation_id");
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn stale_checkpoint_and_no_progress_cap_stop_checkpoint_resume() {
+    let text_frame = |s: &str| {
+        let mut t = Writer::new();
+        t.string(1, s);
+        update(1, t)
+    };
+    let checkpoint_frame = |tag: &[u8]| {
+        let mut cp = Writer::new();
+        cp.bytes(1, tag);
+        let bytes = cp.finish();
+        message(|m| m.bytes(3, &bytes))
+    };
+
+    // Stale checkpoint (extra textDelta arrived after checkpoint) does not resume.
+    let service = Service::with(vec![vec![text_frame("a"), checkpoint_frame(b"cp1"), text_frame("b")]]);
+    let adapter_a = adapter(&service);
+    let mut stream = adapter_a.attempt(request(vec![asked()])).await.expect("opens");
+    service.send(0, Err(TransportFault::Reset));
+    let mut saw_err = false;
+    while let Some(item) = stream.next().await {
+        if item.is_err() {
+            saw_err = true;
+            break;
+        }
+    }
+    assert!(saw_err, "stale checkpoint surfaces transport error");
+    assert_eq!(service.opened(), 1);
+
+    // Stale checkpoint after client side-effect reply (unserved exec) does not resume.
+    let unserved = message(|m| {
+        let mut exec = Writer::new();
+        exec.varint(1, 9);
+        exec.message(99, Writer::new());
+        m.message(2, exec);
+    });
+    let service = Service::with_tail_faults(vec![vec![text_frame("a"), checkpoint_frame(b"cp1"), unserved]], vec![Some(TransportFault::Reset)]);
+    let adapter_side = adapter(&service);
+    let mut stream = adapter_side.attempt(request(vec![asked()])).await.expect("opens");
+    let mut saw_err = false;
+    while let Some(item) = stream.next().await {
+        if item.is_err() {
+            saw_err = true;
+            break;
+        }
+    }
+    assert!(saw_err, "checkpoint before exec side effect must not resume");
+    assert_eq!(service.opened(), 1);
+
+    // Repeated cuts without checkpoint progress stop after MAX_NO_PROGRESS_RESUMES (2).
+    let service = Service::with_tail_faults(
+        vec![vec![text_frame("start"), checkpoint_frame(b"same")], Vec::new(), Vec::new(), Vec::new()],
+        vec![Some(TransportFault::Reset); 4],
+    );
+    let adapter_b = adapter(&service);
+    let mut stream = adapter_b.attempt(request(vec![asked()])).await.expect("opens");
+    let mut got_err = false;
+    while let Some(item) = stream.next().await {
+        if item.is_err() {
+            got_err = true;
+            break;
+        }
+    }
+    assert!(got_err, "repeated no-progress cuts must stop");
+    // Initial run + 3 resumes (no_progress = 0, 1, 2); 4th cut exceeds cap 2.
+    assert_eq!(service.opened(), 4);
+}
+
+#[tokio::test(start_paused = true)]
+async fn request_too_large_and_non_retryable_resource_exhausted_do_not_rotate_or_promote_to_503() {
+    use mixdog_core_api::domain::provider::ErrorKind;
+
+    let conversation = |service: &Service, run: usize| at(&service.first(run)[5..], &[1, 5]).expect("the conversation id");
+    let ended = |body: &str| vec![frame::encode(body.as_bytes(), frame::END_STREAM)];
+    let too_large = r#"{"error":{"code":"resource_exhausted","message":"request payload too large"}}"#;
+    let non_retryable = json!({
+        "error": {
+            "code": "resource_exhausted",
+            "message": "Error",
+            "details": [{
+                "type": "aiserver.v1.ErrorDetails",
+                "debug": { "details": { "title": "Rejected", "detail": "Permanent", "isRetryable": false } }
+            }]
+        }
+    })
+    .to_string();
+
+    for (payload, expected_kind, expected_status) in
+        [(too_large, ErrorKind::RequestTooLarge, Some(413)), (non_retryable.as_str(), ErrorKind::InvalidRequest, Some(429))]
+    {
+        let service = Service::with(vec![answer_frames(), ended(payload), answer_frames()]);
+        let client = adapter(&service);
+
+        let mut first = client.attempt(request(vec![asked()])).await.expect("run 0");
+        drain(&mut first).await;
+        drop(first);
+
+        let err = client.attempt(request(vec![asked()])).await.err().expect("run 1 fails");
+        assert_eq!(err.kind, expected_kind, "{payload}");
+        assert_eq!(err.status, expected_status, "{payload}");
+
+        let mut third = client.attempt(request(vec![asked()])).await.expect("run 2 opens");
+        drain(&mut third).await;
+        drop(third);
+        assert_eq!(conversation(&service, 0), conversation(&service, 2), "must not rotate conversation for {payload}");
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn checkpoint_resume_retries_transient_reconnect_failures_and_preserves_exposure() {
+    use mixdog_core_api::domain::provider::DeliveryState;
+
+    let text_frame = |s: &str| {
+        let mut t = Writer::new();
+        t.string(1, s);
+        update(1, t)
+    };
+    let checkpoint_frame = {
+        let mut cp = Writer::new();
+        cp.bytes(1, b"cp-reconnect");
+        let bytes = cp.finish();
+        message(|m| m.bytes(3, &bytes))
+    };
+
+    // Reconnect attempt 1 fails with a transient transport error; attempt 2 succeeds with the retained checkpoint.
+    let service = Service::with_open_and_tail_faults(
+        vec![
+            vec![text_frame("before"), checkpoint_frame.clone()],
+            vec![text_frame(" after"), update(14, Writer::new()), frame::encode(b"{}", frame::END_STREAM)],
+        ],
+        vec![None, Some(ProviderError::transport(TransportFault::Reset, DeliveryState::NotSent)), None],
+        vec![Some(TransportFault::Reset), None],
+    );
+    let client = adapter(&service);
+    let mut stream = client.attempt(request(vec![asked()])).await.expect("opens");
+    let events = drain(&mut stream).await;
+    let text: String = events.iter().filter_map(|e| if let StreamEvent::TextDelta(t) = e { Some(t.as_str()) } else { None }).collect();
+    assert_eq!(text, "before after");
+    assert_eq!(stop_of(&events), Some(StopReason::Other("stop".into())));
+    assert_eq!(service.open_calls(), 3, "initial open + failed reconnect + succeeded reconnect");
+    assert_eq!(service.opened(), 2);
+
+    // When all reconnect attempts fail, the surfaced error preserves exposure.text_emitted.
+    let failing = Service::with_open_and_tail_faults(
+        vec![vec![text_frame("before"), checkpoint_frame]],
+        vec![
+            None,
+            Some(ProviderError::transport(TransportFault::Reset, DeliveryState::NotSent)),
+            Some(ProviderError::transport(TransportFault::Reset, DeliveryState::NotSent)),
+            Some(ProviderError::transport(TransportFault::Reset, DeliveryState::NotSent)),
+        ],
+        vec![Some(TransportFault::Reset)],
+    );
+    let failing_client = adapter(&failing);
+    let mut stream = failing_client.attempt(request(vec![asked()])).await.expect("opens");
+    let mut surfaced = None;
+    while let Some(item) = stream.next().await {
+        if let Err(err) = item {
+            surfaced = Some(err);
+            break;
+        }
+    }
+    let surfaced = surfaced.expect("exhausted reconnects must fail");
+    assert!(surfaced.exposure.text_emitted, "exposure must be preserved across failed reconnects");
+    assert_eq!(failing.open_calls(), 4, "initial open + 3 capped reconnect retries");
+}
+
+#[tokio::test(start_paused = true)]
+async fn transport_fault_completion_requires_turn_ended_and_terminal_checkpoint_while_clean_eof_keeps_step_completed() {
+    let text_frame = |s: &str| {
+        let mut t = Writer::new();
+        t.string(1, s);
+        update(1, t)
+    };
+    let checkpoint_frame = {
+        let mut cp = Writer::new();
+        cp.bytes(1, b"cp-end");
+        let bytes = cp.finish();
+        message(|m| m.bytes(3, &bytes))
+    };
+
+    // 1. turnEnded + terminal checkpoint + transport fault -> finalizes cleanly without ResumeAction.
+    let service =
+        Service::with_tail_faults(vec![vec![text_frame("done"), update(14, Writer::new()), checkpoint_frame.clone()]], vec![Some(TransportFault::Reset)]);
+    let client = adapter(&service);
+    let mut stream = client.attempt(request(vec![asked()])).await.expect("opens");
+    let events = drain(&mut stream).await;
+    let text: String = events.iter().filter_map(|e| if let StreamEvent::TextDelta(t) = e { Some(t.as_str()) } else { None }).collect();
+    assert_eq!(text, "done");
+    assert_eq!(stop_of(&events), Some(StopReason::Other("stop".into())));
+    assert_eq!(service.opened(), 1);
+
+    // 2. turnEnded WITHOUT terminal checkpoint + transport fault -> surfaces transport fault.
+    let no_cp = Service::with_tail_faults(vec![vec![text_frame("done"), update(14, Writer::new())]], vec![Some(TransportFault::Reset)]);
+    let no_cp_client = adapter(&no_cp);
+    let mut stream = no_cp_client.attempt(request(vec![asked()])).await.expect("opens");
+    let mut saw_err = false;
+    while let Some(item) = stream.next().await {
+        if item.is_err() {
+            saw_err = true;
+            break;
+        }
+    }
+    assert!(saw_err, "transport fault without terminal checkpoint must not silently complete");
+    assert_eq!(no_cp.opened(), 1);
+
+    // 3. stepCompleted + fresh checkpoint (no turnEnded) + transport fault -> resumes instead of truncating.
+    let resumed = Service::with_tail_faults(
+        vec![
+            vec![text_frame("part1"), update(17, Writer::new()), checkpoint_frame.clone()],
+            vec![text_frame(" part2"), update(14, Writer::new()), frame::encode(b"{}", frame::END_STREAM)],
+        ],
+        vec![Some(TransportFault::Reset), None],
+    );
+    let resumed_client = adapter(&resumed);
+    let mut stream = resumed_client.attempt(request(vec![asked()])).await.expect("opens");
+    let events = drain(&mut stream).await;
+    let text: String = events.iter().filter_map(|e| if let StreamEvent::TextDelta(t) = e { Some(t.as_str()) } else { None }).collect();
+    assert_eq!(text, "part1 part2");
+    assert_eq!(stop_of(&events), Some(StopReason::Other("stop".into())));
+    assert_eq!(resumed.opened(), 2, "transport fault after stepCompleted must resume via checkpoint");
+
+    // 4. stepCompleted + checkpoint + clean EOF (no transport fault) -> completes cleanly via fallback.
+    let clean_eof = Service::with(vec![vec![text_frame("done"), update(17, Writer::new()), checkpoint_frame]]);
+    let clean_eof_client = adapter(&clean_eof);
+    let mut stream = clean_eof_client.attempt(request(vec![asked()])).await.expect("opens");
+    clean_eof.eof(0);
+    let events = drain(&mut stream).await;
+    let text: String = events.iter().filter_map(|e| if let StreamEvent::TextDelta(t) = e { Some(t.as_str()) } else { None }).collect();
+    assert_eq!(text, "done");
+    assert_eq!(stop_of(&events), Some(StopReason::Other("stop".into())));
+    assert_eq!(clean_eof.opened(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn checkpoint_resume_classifies_non_2xx_connect_error_bodies() {
+    use base64::Engine;
+    use mixdog_core_api::domain::provider::ErrorKind;
+
+    let text_frame = |s: &str| {
+        let mut t = Writer::new();
+        t.string(1, s);
+        update(1, t)
+    };
+    let checkpoint_frame = {
+        let mut cp = Writer::new();
+        cp.bytes(1, b"cp-http-err");
+        let bytes = cp.finish();
+        message(|m| m.bytes(3, &bytes))
+    };
+    let details_b64 = |code: u32, title: &str, detail: &str, retryable: Option<bool>| {
+        let mut custom = Writer::new();
+        custom.string(1, title);
+        custom.string(2, detail);
+        if let Some(flag) = retryable {
+            custom.varint(4, u64::from(flag));
+        }
+        let mut err = Writer::new();
+        err.varint(1, u64::from(code));
+        err.message(2, custom);
+        base64::engine::general_purpose::STANDARD.encode(err.finish())
+    };
+
+    // 1. Non-retryable ErrorDetails on HTTP 500 stops checkpoint resume immediately and preserves detail + exposure.
+    let non_retryable_body = json!({
+        "code": "internal",
+        "message": "Error",
+        "details": [{
+            "type": "aiserver.v1.ErrorDetails",
+            "value": details_b64(57, "Bad checkpoint", "State expired", Some(false))
+        }]
+    })
+    .to_string()
+    .into_bytes();
+    let stop_svc = Service::with_http_errors_and_tail_faults(
+        vec![vec![text_frame("before"), checkpoint_frame.clone()]],
+        vec![None, Some((500, non_retryable_body))],
+        vec![Some(TransportFault::Reset)],
+    );
+    let stop_client = adapter(&stop_svc);
+    let mut stream = stop_client.attempt(request(vec![asked()])).await.expect("opens");
+    let mut surfaced = None;
+    while let Some(item) = stream.next().await {
+        if let Err(err) = item {
+            surfaced = Some(err);
+            break;
+        }
+    }
+    let surfaced = surfaced.expect("must fail without further retries");
+    assert_eq!(surfaced.kind, ErrorKind::InvalidRequest);
+    assert_eq!(surfaced.status, Some(400));
+    assert_eq!(surfaced.should_retry, Some(false));
+    assert!(surfaced.exposure.text_emitted);
+    assert!(surfaced.message.contains("Bad checkpoint: State expired"), "{}", surfaced.message);
+    assert_eq!(stop_svc.open_calls(), 2, "must not retry non-retryable structured HTTP 500");
+
+    // 2. Retryable ErrorDetails on HTTP 400 upgrades to Transient 503 so checkpoint resume retries and succeeds.
+    let retryable_body = json!({
+        "code": "invalid_argument",
+        "message": "Error",
+        "details": [{
+            "type": "aiserver.v1.ErrorDetails",
+            "value": details_b64(57, "Upstream", "Overloaded", Some(true))
+        }]
+    })
+    .to_string()
+    .into_bytes();
+    let retry_svc = Service::with_http_errors_and_tail_faults(
+        vec![vec![text_frame("before"), checkpoint_frame], vec![text_frame(" after"), update(14, Writer::new()), frame::encode(b"{}", frame::END_STREAM)]],
+        vec![None, Some((400, retryable_body)), None],
+        vec![Some(TransportFault::Reset), None],
+    );
+    let retry_client = adapter(&retry_svc);
+    let mut stream = retry_client.attempt(request(vec![asked()])).await.expect("opens");
+    let events = drain(&mut stream).await;
+    let text: String = events.iter().filter_map(|e| if let StreamEvent::TextDelta(t) = e { Some(t.as_str()) } else { None }).collect();
+    assert_eq!(text, "before after");
+    assert_eq!(stop_of(&events), Some(StopReason::Other("stop".into())));
+    assert_eq!(retry_svc.open_calls(), 3, "initial open + retryable HTTP 400 + successful reconnect");
+}
+
+#[tokio::test(start_paused = true)]
+async fn permission_403_errors_omit_reauth_guidance_while_auth_401_includes_it() {
+    use base64::Engine;
+
+    let encode_details = |code: u32, title: &str, detail: &str| {
+        let mut custom = Writer::new();
+        custom.string(1, title);
+        custom.string(2, detail);
+        let mut err = Writer::new();
+        err.varint(1, u64::from(code));
+        err.message(2, custom);
+        let b64 = base64::engine::general_purpose::STANDARD.encode(err.finish());
+        let body = json!({
+            "error": {
+                "code": "permission_denied",
+                "message": "Error",
+                "details": [{ "type": "aiserver.v1.ErrorDetails", "value": b64 }]
+            }
+        })
+        .to_string();
+        vec![frame::encode(body.as_bytes(), frame::END_STREAM)]
+    };
+
+    // PRO_USER_ONLY (23), NOT_HIGH_ENOUGH_PERMISSIONS (4), UNSUPPORTED_REGION (58): no REAUTH_GUIDANCE.
+    for code in [4u32, 23, 58] {
+        let service = Service::with(vec![encode_details(code, "Blocked", "Not available on this plan")]);
+        let client = adapter(&service);
+        let err = client.attempt(request(vec![asked()])).await.err().expect("403 fails");
+        assert_eq!(err.status, Some(403), "code {code}");
+        assert!(!err.message.contains(super::auth::REAUTH_GUIDANCE), "code {code}: {}", err.message);
+    }
+
+    // BAD_API_KEY (1) 401 includes REAUTH_GUIDANCE.
+    let service = Service::with(vec![encode_details(1, "Invalid", "Expired key")]);
+    let client = adapter(&service);
+    let err = client.attempt(request(vec![asked()])).await.err().expect("401 fails");
+    assert_eq!(err.status, Some(401));
+    assert!(err.message.contains(super::auth::REAUTH_GUIDANCE), "{}", err.message);
 }

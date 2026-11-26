@@ -68,9 +68,10 @@ use super::text::strip_ansi;
 use super::wake::WakeHub;
 use crate::policy::CommandPolicy;
 
-/// Bytes kept in memory per stream; older bytes stay only in the spill log, apart from what a read of them needs
-/// (`Stream::keep_dropped`).
-const MEMORY_CAP: usize = 8 * 1024 * 1024;
+/// Bytes kept in memory per stream: only what the tool shows (`FULL_READ_BYTES` plus code-page realignment margin,
+/// `FINISHED_KEEP`). Full output is already spilled to disk by `spill::LogWriter`, and readers beyond this window read
+/// from the spill logs.
+const MEMORY_CAP: usize = FINISHED_KEEP;
 /// Bytes past `MEMORY_CAP` a stream lets its buffer's dead front reach before moving the live bytes down, so a stream at
 /// the cap moves `MEMORY_CAP` once per this much output instead of once per chunk.
 const COMPACT_SLACK: usize = MEMORY_CAP / 4;
@@ -480,11 +481,26 @@ struct Stream {
     /// The offset of the stream's first non-ASCII byte and up to `WINDOW_CAP` bytes from it: the window its encoding is
     /// decided on, which `FileEncodingSniffer` reads from the log whatever memory dropped. Kept only with an OEM page.
     window: Option<(u64, Vec<u8>)>,
+    /// Whether any non-whitespace output has ever arrived on this stream, tracked before truncation.
+    has_non_whitespace: bool,
+    /// Stateful decoder carried across chunks while scanning for the first non-whitespace character.
+    ws_decoder: Option<ShellStreamDecoder>,
 }
 
 impl Stream {
     fn new(oem: Option<Label>) -> Self {
-        Self { oem, buf: Vec::new(), dead: 0, base: 0, cursor: Cursor::new(oem), dropped_lines: 0, first: Vec::new(), window: None }
+        Self {
+            oem,
+            buf: Vec::new(),
+            dead: 0,
+            base: 0,
+            cursor: Cursor::new(oem),
+            dropped_lines: 0,
+            first: Vec::new(),
+            window: None,
+            has_non_whitespace: false,
+            ws_decoder: None,
+        }
     }
 
     /// The bytes memory holds, from `base`.
@@ -497,9 +513,57 @@ impl Stream {
     }
 
     fn push(&mut self, bytes: &[u8]) {
+        self.scan_non_whitespace(bytes);
         self.extend_window(bytes);
         self.buf.extend_from_slice(bytes);
         self.keep_last(MEMORY_CAP, COMPACT_SLACK);
+    }
+
+    /// Incrementally tracks whether any non-whitespace character has arrived, carrying multibyte
+    /// decoder state across chunk boundaries so split UTF-8 or OEM whitespace is not misdecoded
+    /// as U+FFFD.
+    fn scan_non_whitespace(&mut self, bytes: &[u8]) {
+        if self.has_non_whitespace || bytes.is_empty() {
+            return;
+        }
+        let rest = if self.ws_decoder.is_none() {
+            let mut non_ascii = None;
+            for (i, &b) in bytes.iter().enumerate() {
+                if b >= 0x80 {
+                    non_ascii = Some(i);
+                    break;
+                }
+                if !matches!(b, b' ' | b'\t' | b'\n' | b'\r' | 0x0B | 0x0C) {
+                    self.has_non_whitespace = true;
+                    return;
+                }
+            }
+            let Some(at) = non_ascii else {
+                return;
+            };
+            &bytes[at..]
+        } else {
+            bytes
+        };
+        let decoder = self.ws_decoder.get_or_insert_with(|| ShellStreamDecoder::new(self.oem, None));
+        let text = decoder.write(rest);
+        if !mixdog_js::js_trim(&text).is_empty() {
+            self.has_non_whitespace = true;
+            self.ws_decoder = None;
+        }
+    }
+
+    fn finish_ws(&mut self) {
+        if self.has_non_whitespace {
+            self.ws_decoder = None;
+            return;
+        }
+        if let Some(mut decoder) = self.ws_decoder.take() {
+            let tail = decoder.end();
+            if !mixdog_js::js_trim(&tail).is_empty() {
+                self.has_non_whitespace = true;
+            }
+        }
     }
 
     /// Drops all but the last `keep` bytes from memory. The dropped bytes stay as a dead front until it passes `slack`,
@@ -520,11 +584,38 @@ impl Stream {
 
     /// A finished job's stream: only what a later read can need stays in memory (`FINISHED_KEEP`), the allocation shrunk.
     fn trim_finished(&mut self) {
+        self.finish_ws();
         self.keep_last(FINISHED_KEEP, 0);
         self.buf.shrink_to_fit();
         self.first.shrink_to_fit();
     }
+}
 
+fn recover_stream_from_log(lane: &mixdog_rt::InLane<InteractiveIo>, path: &Path, oem: Option<Label>, cancel: &CancellationToken) -> Stream {
+    use std::io::Read;
+
+    let mut stream = Stream::new(oem);
+    let Ok(mut file) = mixdog_fsio::File::open(lane, path) else {
+        return stream;
+    };
+    let mut chunk = [0u8; 64 * 1024];
+    loop {
+        if cancel.is_cancelled() {
+            return Stream::new(oem);
+        }
+        match file.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => stream.push(&chunk[..n]),
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return Stream::new(oem),
+        }
+    }
+    stream.trim_finished();
+    stream.cursor = Cursor::new(oem);
+    stream
+}
+
+impl Stream {
     /// Extends the encoding window with `bytes`, about to be appended.
     fn extend_window(&mut self, bytes: &[u8]) {
         if self.oem.is_none() {
@@ -572,6 +663,7 @@ impl Stream {
         let end = start + EDGE_READ_BYTES as u64;
         match dropped {
             Some(kept) if start < self.base => [kept.head.as_slice(), self.slice(self.base, end)].concat(),
+            None if start == 0 && 0 < self.base => [self.first.as_slice(), self.slice(self.base, end)].concat(),
             _ => self.slice(start, end).to_vec(),
         }
     }
@@ -580,6 +672,7 @@ impl Stream {
     fn newlines(&self, start: u64, end: u64, dropped: Option<&Dropped>) -> usize {
         match dropped {
             Some(kept) if start < self.base => self.dropped_lines.saturating_sub(kept.lines_before) + count_newlines(self.slice(self.base, end)),
+            None if start == 0 && 0 < self.base => self.dropped_lines + count_newlines(self.slice(self.base, end)),
             _ => count_newlines(self.slice(start, end)),
         }
     }
@@ -612,6 +705,12 @@ impl ForegroundStream<'_> {
         }
     }
 
+    /// Whether any non-whitespace output ever arrived on this stream, even if earlier output was
+    /// dropped past `FINISHED_KEEP`.
+    pub fn has_non_whitespace(&self) -> bool {
+        if self.stream.base == 0 { !mixdog_js::js_trim(&self.capture()).is_empty() } else { self.stream.has_non_whitespace }
+    }
+
     pub fn spilled_piece(&self) -> Option<Piece<'static>> {
         let stream = self.stream;
         (stream.base > 0).then(|| {
@@ -631,6 +730,7 @@ struct JobState {
     exit: Option<ProcessExit>,
     finished: bool,
     finished_ms: Option<u64>,
+    finished_at: Option<tokio::time::Instant>,
     /// The tool call returned while the process kept running.
     detached: bool,
     /// The unseen output at completion, returned once by the next read.
@@ -658,6 +758,7 @@ impl JobState {
             exit: None,
             finished: false,
             finished_ms: None,
+            finished_at: None,
             detached: false,
             completion_output: None,
             acknowledged: false,
@@ -668,6 +769,11 @@ impl JobState {
             last_output_ms: None,
             output_capped: false,
         }
+    }
+
+    fn is_retention_elapsed(&self, now_wall: u64, now_mono: tokio::time::Instant) -> bool {
+        self.finished_at.is_some_and(|at| now_mono.saturating_duration_since(at) >= Duration::from_millis(RETENTION_MS))
+            || self.finished_ms.is_some_and(|f| now_wall.saturating_sub(f) >= RETENTION_MS)
     }
 
     /// One chunk of the process's output: kept, and `true` once, when the two logs together pass `cap` and the process
@@ -1014,13 +1120,33 @@ impl KeptJob {
     }
 }
 
+#[derive(Default)]
+struct JobTable {
+    by_id: HashMap<String, Arc<Job>>,
+    expiry_armed: bool,
+    expiry_dirty: bool,
+}
+
+impl std::ops::Deref for JobTable {
+    type Target = HashMap<String, Arc<Job>>;
+    fn deref(&self) -> &Self::Target {
+        &self.by_id
+    }
+}
+
+impl std::ops::DerefMut for JobTable {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.by_id
+    }
+}
+
 /// The jobs of one runtime.
 pub struct ExecRuntime {
     pub(crate) config: ExecConfig,
     pub(crate) snapshots: super::snapshot::Snapshots,
     /// The skill launchers' directory and contents, made once.
     pub(crate) launchers: spill::KeptLaunchers,
-    jobs: Mutex<HashMap<String, Arc<Job>>>,
+    jobs: Mutex<JobTable>,
     /// Owner thread -> the shells a timeout reap stopped, until the owner's handoff reports them
     /// or its next turn starts (`stoppedJobs`, `turn-reap.mjs`).
     reaped: Mutex<HashMap<String, Vec<String>>>,
@@ -1038,6 +1164,14 @@ pub struct ExecRuntime {
     #[cfg(test)]
     cleanups: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     pub(crate) standby: Arc<super::standby::Standby>,
+    weak: std::sync::Weak<Self>,
+    expiry_wake: Arc<tokio::sync::Notify>,
+}
+
+impl Drop for ExecRuntime {
+    fn drop(&mut self) {
+        self.expiry_wake.notify_one();
+    }
 }
 
 impl ExecConfig {
@@ -1086,8 +1220,11 @@ async fn finish_job(job: &Arc<Job>, exit: Option<ProcessExit>, runtime: &Arc<Exe
     let now = runtime.now_ms();
     let detached = {
         let mut state = job.state();
+        state.stdout.finish_ws();
+        state.stderr.finish_ws();
         state.finished = true;
         state.finished_ms = Some(now);
+        state.finished_at = Some(tokio::time::Instant::now());
         state.detached
     };
     // Read once the job is finished, so no detach comes after it: a promotion that landed while the record was written
@@ -1115,6 +1252,7 @@ async fn finish_job(job: &Arc<Job>, exit: Option<ProcessExit>, runtime: &Arc<Exe
             state.stderr.trim_finished();
         }
         job.report_finished(runtime.config.notifier.as_deref(), job.status().as_str(), job.notification(&output)).await;
+        runtime.arm_expiry();
     }
     job.settled.send_replace(true);
 }
@@ -1237,6 +1375,56 @@ mod tests {
     }
 
     #[test]
+    fn foreground_stream_tracks_non_whitespace_before_truncation() {
+        let mut with_error = Stream::new(None);
+        with_error.push(b"fatal: boom\n");
+        with_error.push(&vec![b' '; FINISHED_KEEP + 4096]);
+        with_error.trim_finished();
+        assert!(with_error.base > 0);
+        let log = PathBuf::from("err.log");
+        let fg = ForegroundStream { stream: &with_error, log: &log };
+        assert!(fg.capture().trim().is_empty());
+        assert!(fg.has_non_whitespace());
+
+        let mut spaces_only = Stream::new(None);
+        spaces_only.push(&vec![b' '; FINISHED_KEEP + 4096]);
+        spaces_only.trim_finished();
+        assert!(spaces_only.base > 0);
+        let fg_spaces = ForegroundStream { stream: &spaces_only, log: &log };
+        assert!(!fg_spaces.has_non_whitespace());
+
+        let mut bom_only = Stream::new(None);
+        bom_only.push(&[0xEF, 0xBB, 0xBF, b' ', b'\n']);
+        let fg_bom = ForegroundStream { stream: &bom_only, log: &log };
+        assert!(!fg_bom.has_non_whitespace());
+
+        // Multi-byte UTF-8 whitespace split across chunk boundaries (U+00A0 NBSP: 0xC2 0xA0, U+3000: 0xE3 0x80 0x80).
+        let mut split_nbsp = Stream::new(None);
+        split_nbsp.push(&[0xC2]);
+        split_nbsp.push(&[0xA0, 0xE3]);
+        split_nbsp.push(&[0x80]);
+        split_nbsp.push(&[0x80]);
+        split_nbsp.push(&vec![b' '; FINISHED_KEEP + 4096]);
+        split_nbsp.trim_finished();
+        assert!(split_nbsp.base > 0);
+        assert!(!ForegroundStream { stream: &split_nbsp, log: &log }.has_non_whitespace());
+
+        // Split non-whitespace multi-byte UTF-8 ("한": 0xED 0x95 0x9C) and invalid UTF-8 still report non-whitespace.
+        let mut split_text = Stream::new(None);
+        split_text.push(&[0xED]);
+        split_text.push(&[0x95, 0x9C]);
+        split_text.push(&vec![b' '; FINISHED_KEEP + 4096]);
+        split_text.trim_finished();
+        assert!(ForegroundStream { stream: &split_text, log: &log }.has_non_whitespace());
+
+        let mut dangling_eof = Stream::new(None);
+        dangling_eof.push(&vec![b' '; FINISHED_KEEP + 4096]);
+        dangling_eof.push(&[0xC2]);
+        dangling_eof.trim_finished();
+        assert!(ForegroundStream { stream: &dangling_eof, log: &log }.has_non_whitespace());
+    }
+
+    #[test]
     fn a_cut_escape_sequence_waits_for_the_next_chunk() {
         let mut cursor = Cursor::new(None);
         assert_eq!(decode_visible(&mut cursor, b"ab\x1b[3", false), "ab");
@@ -1245,6 +1433,271 @@ mod tests {
         let bytes = "é".as_bytes();
         assert_eq!(decode_visible(&mut cursor, &bytes[..1], false), "");
         assert_eq!(decode_visible(&mut cursor, &bytes[1..], false), "é");
+    }
+
+    #[test]
+    fn running_stream_keeps_only_what_tool_reads_show() {
+        let mut stream = Stream::new(None);
+        let chunk = [b'x'; 64 * 1024];
+        for _ in 0..16 {
+            stream.push(&chunk);
+        }
+        assert_eq!(stream.end(), 1024 * 1024);
+        assert!(stream.bytes().len() <= FINISHED_KEEP, "running stream kept {} bytes", stream.bytes().len());
+        assert!(stream.buf.len() <= FINISHED_KEEP + COMPACT_SLACK);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn finished_background_job_leaves_memory_when_retention_expires() {
+        struct NoopPublisher;
+        impl mixdog_spawn::tasks::TaskPublisher for NoopPublisher {
+            fn thread_updated(&self, _: &str, _: &mixdog_spawn::tasks::ShellJobsState) {}
+            fn host_updated(&self, _: &mixdog_spawn::tasks::HostShellJobs) {}
+            fn schedule_expiry(&self, _: u64) {}
+        }
+        struct NoopSyntax;
+        #[async_trait::async_trait]
+        impl crate::exec::hoist::ScriptSyntax for NoopSyntax {
+            async fn compiles_as_commonjs(&self, _: &ThreadId, _: &str) -> Result<bool, mixdog_core_api::domain::ext::ExtError> {
+                Ok(false)
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let start = tokio::time::Instant::now();
+        let clock = move || 10_000 + start.elapsed().as_millis() as u64;
+        let tokens = mixdog_rt::testing::tokens();
+        let config = ExecConfig {
+            tasks: Arc::new(SpawnTasks::new(Arc::new(NoopPublisher), clock)),
+            lanes: IoLanes {
+                interactive: tokens.interactive_io,
+                durability: tokens.durability_io,
+                maintenance: tokens.maintenance_io,
+                spawn: tokens.spawn_io,
+                pty: tokens.pty_io,
+            },
+            spill_dir: dir.path().to_path_buf(),
+            data_dir: None,
+            skill_launcher_dir: None,
+            notifier: None,
+            survivors: None,
+            wake: WakeHub::new(),
+            policy: Arc::new(crate::policy::exec::NodeCommandPolicy),
+            elevation: Arc::new(OsPromptElevation),
+            oem: None,
+            skill_runtime: None,
+            shell: Arc::new(FixedShell("/bin/sh".into())),
+            script_syntax: Arc::new(NoopSyntax),
+            windows: false,
+            powershell: false,
+            warm_standby: false,
+            now_ms: Arc::new(clock),
+        };
+        let runtime = ExecRuntime::new(config);
+        let (settled, _) = watch::channel(false);
+        let mut state = JobState::new(None);
+        state.detached = true;
+        state.finished = true;
+        state.finished_ms = Some(runtime.now_ms());
+        state.finished_at = Some(tokio::time::Instant::now());
+        let job = Arc::new(Job {
+            id: "bg-exp".into(),
+            command: "echo hi".into(),
+            cwd: dir.path().to_string_lossy().into_owned(),
+            owner: ThreadId::from("t1"),
+            handle: ProcessHandle("bg-exp".into()),
+            pid: 0,
+            started_ms: 10_000,
+            time_limit_ms: 0,
+            review: None,
+            stdout_log: dir.path().join("bg-exp.stdout.log"),
+            stderr_log: dir.path().join("bg-exp.stderr.log"),
+            logs: None,
+            wait_hits: AtomicU32::new(0),
+            survivors: false,
+            notify: None,
+            recovered: None,
+            state: Mutex::new(state),
+            settled,
+        });
+        let _ = runtime.config.tasks.start(TaskSpec {
+            task_id: job.id.clone(),
+            surface: "shell".into(),
+            op: "shell".into(),
+            command: job.command.clone(),
+            cwd: job.cwd.clone(),
+            owner: Some("t1".into()),
+            foreground: false,
+            process: None,
+            started_at_ms: 10_000,
+        });
+        let _ = runtime.config.tasks.finish(&job.id, TaskOutcome { status: SpawnStatus::Completed, exit_code: Some(0) });
+        lock(&runtime.jobs).insert(job.id.clone(), job);
+        runtime.arm_expiry();
+        tokio::task::yield_now().await;
+        assert_eq!(lock(&runtime.jobs).len(), 1);
+
+        tokio::time::advance(Duration::from_millis(RETENTION_MS + 1)).await;
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+            if lock(&runtime.jobs).is_empty() {
+                break;
+            }
+        }
+        assert!(lock(&runtime.jobs).is_empty(), "finished background job stayed until next purge call");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn monotonic_expiry_survives_frozen_wall_clock_and_strip_held_deadlines() {
+        struct NoopPublisher;
+        impl mixdog_spawn::tasks::TaskPublisher for NoopPublisher {
+            fn thread_updated(&self, _: &str, _: &mixdog_spawn::tasks::ShellJobsState) {}
+            fn host_updated(&self, _: &mixdog_spawn::tasks::HostShellJobs) {}
+            fn schedule_expiry(&self, _: u64) {}
+        }
+        struct NoopSyntax;
+        #[async_trait::async_trait]
+        impl crate::exec::hoist::ScriptSyntax for NoopSyntax {
+            async fn compiles_as_commonjs(&self, _: &ThreadId, _: &str) -> Result<bool, mixdog_core_api::domain::ext::ExtError> {
+                Ok(false)
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let wall = Arc::new(std::sync::atomic::AtomicU64::new(50_000));
+        let wall_for_tasks = Arc::clone(&wall);
+        let wall_for_runtime = Arc::clone(&wall);
+        let tokens = mixdog_rt::testing::tokens();
+        let config = ExecConfig {
+            tasks: Arc::new(SpawnTasks::new(Arc::new(NoopPublisher), move || wall_for_tasks.load(std::sync::atomic::Ordering::SeqCst))),
+            lanes: IoLanes {
+                interactive: tokens.interactive_io,
+                durability: tokens.durability_io,
+                maintenance: tokens.maintenance_io,
+                spawn: tokens.spawn_io,
+                pty: tokens.pty_io,
+            },
+            spill_dir: dir.path().to_path_buf(),
+            data_dir: None,
+            skill_launcher_dir: None,
+            notifier: None,
+            survivors: None,
+            wake: WakeHub::new(),
+            policy: Arc::new(crate::policy::exec::NodeCommandPolicy),
+            elevation: Arc::new(OsPromptElevation),
+            oem: None,
+            skill_runtime: None,
+            shell: Arc::new(FixedShell("/bin/sh".into())),
+            script_syntax: Arc::new(NoopSyntax),
+            windows: false,
+            powershell: false,
+            warm_standby: false,
+            now_ms: Arc::new(move || wall_for_runtime.load(std::sync::atomic::Ordering::SeqCst)),
+        };
+        let runtime = ExecRuntime::new(config);
+        let make_job = |id: &str, finished_ms: u64, finished_at: tokio::time::Instant| {
+            let (settled, _) = watch::channel(false);
+            let mut state = JobState::new(None);
+            state.detached = true;
+            state.finished = true;
+            state.finished_ms = Some(finished_ms);
+            state.finished_at = Some(finished_at);
+            Arc::new(Job {
+                id: id.into(),
+                command: "echo hi".into(),
+                cwd: dir.path().to_string_lossy().into_owned(),
+                owner: ThreadId::from("t1"),
+                handle: ProcessHandle(id.into()),
+                pid: 0,
+                started_ms: 50_000,
+                time_limit_ms: 0,
+                review: None,
+                stdout_log: dir.path().join(format!("{id}.stdout.log")),
+                stderr_log: dir.path().join(format!("{id}.stderr.log")),
+                logs: None,
+                wait_hits: AtomicU32::new(0),
+                survivors: false,
+                notify: None,
+                recovered: None,
+                state: Mutex::new(state),
+                settled,
+            })
+        };
+
+        // Part 1: Wall clock steps backward; monotonic deadline still evicts staggered jobs without disarming.
+        let t0 = tokio::time::Instant::now();
+        let j1 = make_job("mono-1", 50_000, t0);
+        let j2 = make_job("mono-2", 50_000, t0 + Duration::from_millis(500));
+        {
+            let mut table = lock(&runtime.jobs);
+            table.insert(j1.id.clone(), j1);
+            table.insert(j2.id.clone(), j2);
+        }
+        // Step wall clock backward by 20s.
+        wall.store(30_000, std::sync::atomic::Ordering::SeqCst);
+        runtime.arm_expiry();
+        tokio::task::yield_now().await;
+
+        tokio::time::advance(Duration::from_millis(RETENTION_MS)).await;
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+            if lock(&runtime.jobs).len() == 1 {
+                break;
+            }
+        }
+        assert_eq!(lock(&runtime.jobs).len(), 1, "first job should expire monotonically despite backward wall clock");
+        assert!(lock(&runtime.jobs).contains_key("mono-2"));
+
+        tokio::time::advance(Duration::from_millis(500)).await;
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+            if lock(&runtime.jobs).is_empty() {
+                break;
+            }
+        }
+        assert!(lock(&runtime.jobs).is_empty(), "second job must also expire without premature disarm");
+
+        // Part 2: Strip holds a finished job past its job deadline; expiry remains armed until the strip releases it.
+        wall.store(100_000, std::sync::atomic::Ordering::SeqCst);
+        let t1 = tokio::time::Instant::now();
+        let held = make_job("strip-held", 100_000, t1);
+        let _ = runtime.config.tasks.start(TaskSpec {
+            task_id: held.id.clone(),
+            surface: "shell".into(),
+            op: "shell".into(),
+            command: held.command.clone(),
+            cwd: held.cwd.clone(),
+            owner: Some("t1".into()),
+            foreground: false,
+            process: None,
+            started_at_ms: 100_000,
+        });
+        // Strip stamps its finish 5s later than the job's own finish.
+        wall.store(105_000, std::sync::atomic::Ordering::SeqCst);
+        let _ = runtime.config.tasks.finish(&held.id, TaskOutcome { status: SpawnStatus::Completed, exit_code: Some(0) });
+        lock(&runtime.jobs).insert(held.id.clone(), held);
+        runtime.arm_expiry();
+        tokio::task::yield_now().await;
+
+        // Advance to job deadline: strip still lists the job, so it stays and expiry must remain armed.
+        wall.store(100_000 + RETENTION_MS + 1, std::sync::atomic::Ordering::SeqCst);
+        tokio::time::advance(Duration::from_millis(RETENTION_MS + 1)).await;
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(lock(&runtime.jobs).len(), 1, "strip still holds the job");
+        assert!(lock(&runtime.jobs).expiry_armed, "expiry must stay armed while strip still holds the job");
+
+        // Advance past the strip's own deadline: job is evicted without any external call.
+        wall.store(105_000 + RETENTION_MS + 1, std::sync::atomic::Ordering::SeqCst);
+        tokio::time::advance(Duration::from_millis(5_000)).await;
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+            if lock(&runtime.jobs).is_empty() {
+                break;
+            }
+        }
+        assert!(lock(&runtime.jobs).is_empty(), "strip-held job must be evicted once its strip deadline passes");
     }
 
     #[test]
@@ -1258,6 +1711,214 @@ mod tests {
         assert_eq!(most_significant_duration(601_000), "10m");
         assert_eq!(most_significant_duration(7_300_000), "2h");
         assert_eq!(describe_silence(599_000), None);
+    }
+
+    #[tokio::test]
+    async fn recovered_job_preserves_head_and_omitted_lines_for_retained_256k_log() {
+        use mixdog_rt::LaneToken;
+
+        struct NoopPublisher;
+        impl mixdog_spawn::tasks::TaskPublisher for NoopPublisher {
+            fn thread_updated(&self, _: &str, _: &mixdog_spawn::tasks::ShellJobsState) {}
+            fn host_updated(&self, _: &mixdog_spawn::tasks::HostShellJobs) {}
+            fn schedule_expiry(&self, _: u64) {}
+        }
+        struct NoopSyntax;
+        #[async_trait::async_trait]
+        impl crate::exec::hoist::ScriptSyntax for NoopSyntax {
+            async fn compiles_as_commonjs(&self, _: &ThreadId, _: &str) -> Result<bool, mixdog_core_api::domain::ext::ExtError> {
+                Ok(false)
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let config = ExecConfig {
+            tasks: Arc::new(SpawnTasks::new(Arc::new(NoopPublisher), || 20_000)),
+            lanes: IoLanes {
+                interactive: tokens.interactive_io,
+                durability: tokens.durability_io,
+                maintenance: tokens.maintenance_io,
+                spawn: tokens.spawn_io,
+                pty: tokens.pty_io,
+            },
+            spill_dir: dir.path().to_path_buf(),
+            data_dir: None,
+            skill_launcher_dir: None,
+            notifier: None,
+            survivors: None,
+            wake: WakeHub::new(),
+            policy: Arc::new(crate::policy::exec::NodeCommandPolicy),
+            elevation: Arc::new(OsPromptElevation),
+            oem: None,
+            skill_runtime: None,
+            shell: Arc::new(FixedShell("/bin/sh".into())),
+            script_syntax: Arc::new(NoopSyntax),
+            windows: false,
+            powershell: false,
+            warm_standby: false,
+            now_ms: Arc::new(|| 20_000),
+        };
+        let runtime = ExecRuntime::new(config);
+
+        // 4,096 lines × 64 bytes = 262,144 bytes (256 KiB > FINISHED_KEEP = 128 KiB).
+        let mut full_log = Vec::with_capacity(256 * 1024);
+        for i in 0..4096usize {
+            let line = format!("line-{i:05} {}\n", "x".repeat(52));
+            assert_eq!(line.len(), 64);
+            full_log.extend_from_slice(line.as_bytes());
+        }
+        assert_eq!(full_log.len(), 256 * 1024);
+
+        let id = "task-recover256";
+        let [stdout_log, stderr_log] = spill::log_paths(dir.path(), id);
+        let cancel = CancellationToken::new();
+        {
+            let path = stdout_log.clone();
+            let bytes = full_log.clone();
+            tokens.durability_io.submit(&cancel, move |lane| mixdog_fsio::write(lane, &path, &bytes)).unwrap().await.unwrap().unwrap();
+        }
+
+        let mut record = serde_json::Map::new();
+        record.insert("ownerSessionId".into(), "t1".into());
+        record.insert("command".into(), "seq 4096".into());
+        record.insert("cwd".into(), dir.path().to_string_lossy().into_owned().into());
+        record.insert("startedAtMs".into(), 10_000u64.into());
+        record.insert("finishedAtMs".into(), 15_000u64.into());
+        let kept = KeptJob { id: id.into(), record };
+        let end = ExitFacts { status: JobStatus::Completed, exit_code: Some(0), timed_out: false, signal: None, error: None };
+
+        let recovered = runtime.recovered_job(&kept, end, &cancel).await;
+        {
+            let state = recovered.state();
+            assert_eq!(state.stdout.end(), 256 * 1024);
+            assert_eq!(state.stdout.base, (256 * 1024 - FINISHED_KEEP) as u64);
+            assert_eq!(state.stdout.bytes(), &full_log[256 * 1024 - FINISHED_KEEP..]);
+            assert_eq!(state.stdout.first, &full_log[..EDGE_READ_BYTES]);
+            assert_eq!(state.stdout.dropped_lines, 2048);
+        }
+
+        let mut live_state = JobState::new(None);
+        for chunk in full_log.chunks(16 * 1024) {
+            live_state.stdout.push(chunk);
+        }
+        live_state.stdout.trim_finished();
+        live_state.finished = true;
+        let (settled, _) = watch::channel(true);
+        let live = Job {
+            id: id.into(),
+            command: "seq 4096".into(),
+            cwd: dir.path().to_string_lossy().into_owned(),
+            owner: ThreadId::from("t1"),
+            handle: ProcessHandle(id.into()),
+            pid: 0,
+            started_ms: 10_000,
+            time_limit_ms: 0,
+            review: None,
+            stdout_log,
+            stderr_log,
+            logs: None,
+            wait_hits: AtomicU32::new(0),
+            survivors: false,
+            notify: None,
+            recovered: None,
+            state: Mutex::new(live_state),
+            settled,
+        };
+
+        let recovered_read = recovered.read_output(ReadOptions { terminal: true, ..ReadOptions::default() });
+        let live_read = live.read_output(ReadOptions { terminal: true, ..ReadOptions::default() });
+        assert!(recovered_read.contains("line-00000 "), "head lines must be preserved: {recovered_read}");
+        assert!(recovered_read.contains("line-04095 "), "tail lines must be preserved: {recovered_read}");
+        assert_eq!(recovered_read, live_read, "recovered task read must match live ring output and omitted-line count");
+
+        let recovered_tail = recovered.read_output(ReadOptions { tail: true, terminal: true, ..ReadOptions::default() });
+        let live_tail = live.read_output(ReadOptions { tail: true, terminal: true, ..ReadOptions::default() });
+        assert_eq!(recovered_tail, live_tail, "recovered tail replay must match live omitted-line count");
+    }
+
+    #[tokio::test]
+    async fn recovered_job_preserves_whitespace_only_across_64k_multibyte_boundary() {
+        use mixdog_rt::LaneToken;
+
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let cancel = CancellationToken::new();
+
+        // 131,073-byte CP932 whitespace-only log with ideographic space (0x81 0x40) split across the 64 KiB chunk boundary.
+        let mut cp932_ws = vec![b' '; 65_535];
+        cp932_ws.extend_from_slice(&[0x81, 0x40]);
+        cp932_ws.extend(std::iter::repeat_n(b' ', 65_536));
+        assert_eq!(cp932_ws.len(), 131_073);
+
+        let cp932_ws_log = dir.path().join("cp932-ws.log");
+        {
+            let path = cp932_ws_log.clone();
+            let bytes = cp932_ws.clone();
+            tokens.durability_io.submit(&cancel, move |lane| mixdog_fsio::write(lane, &path, &bytes)).unwrap().await.unwrap().unwrap();
+        }
+        let stream = tokens
+            .interactive_io
+            .submit(&cancel, {
+                let path = cp932_ws_log.clone();
+                let cancel = cancel.clone();
+                move |lane| recover_stream_from_log(lane, &path, Some("shift_jis"), &cancel)
+            })
+            .unwrap()
+            .await
+            .unwrap();
+        assert!(stream.base > 0);
+        assert!(!ForegroundStream { stream: &stream, log: &cp932_ws_log }.has_non_whitespace());
+
+        // 131,073-byte UTF-8 whitespace-only log with U+3000 (0xE3 0x80 0x80) split across the 64 KiB chunk boundary.
+        let mut utf8_ws = vec![b' '; 65_535];
+        utf8_ws.extend_from_slice(&[0xE3, 0x80, 0x80]);
+        utf8_ws.extend(std::iter::repeat_n(b' ', 65_535));
+        assert_eq!(utf8_ws.len(), 131_073);
+
+        let utf8_ws_log = dir.path().join("utf8-ws.log");
+        {
+            let path = utf8_ws_log.clone();
+            let bytes = utf8_ws.clone();
+            tokens.durability_io.submit(&cancel, move |lane| mixdog_fsio::write(lane, &path, &bytes)).unwrap().await.unwrap().unwrap();
+        }
+        let stream = tokens
+            .interactive_io
+            .submit(&cancel, {
+                let path = utf8_ws_log.clone();
+                let cancel = cancel.clone();
+                move |lane| recover_stream_from_log(lane, &path, None, &cancel)
+            })
+            .unwrap()
+            .await
+            .unwrap();
+        assert!(stream.base > 0);
+        assert!(!ForegroundStream { stream: &stream, log: &utf8_ws_log }.has_non_whitespace());
+
+        // 131,073-byte CP932 log with non-whitespace (0x81 0x41 = '、') split across the 64 KiB chunk boundary.
+        let mut cp932_text = vec![b' '; 65_535];
+        cp932_text.extend_from_slice(&[0x81, 0x41]);
+        cp932_text.extend(std::iter::repeat_n(b' ', 65_536));
+        assert_eq!(cp932_text.len(), 131_073);
+
+        let cp932_text_log = dir.path().join("cp932-text.log");
+        {
+            let path = cp932_text_log.clone();
+            let bytes = cp932_text.clone();
+            tokens.durability_io.submit(&cancel, move |lane| mixdog_fsio::write(lane, &path, &bytes)).unwrap().await.unwrap().unwrap();
+        }
+        let stream = tokens
+            .interactive_io
+            .submit(&cancel, {
+                let path = cp932_text_log.clone();
+                let cancel = cancel.clone();
+                move |lane| recover_stream_from_log(lane, &path, Some("shift_jis"), &cancel)
+            })
+            .unwrap()
+            .await
+            .unwrap();
+        assert!(stream.base > 0);
+        assert!(ForegroundStream { stream: &stream, log: &cp932_text_log }.has_non_whitespace());
     }
 }
 
@@ -1406,6 +2067,41 @@ impl Job {
     pub(super) fn foreground_streams<T>(&self, f: impl FnOnce([ForegroundStream<'_>; 2]) -> T) -> T {
         let state = self.state();
         f([ForegroundStream { stream: &state.stdout, log: &self.stdout_log }, ForegroundStream { stream: &state.stderr, log: &self.stderr_log }])
+    }
+
+    #[cfg(test)]
+    pub(super) fn test_with_output(stdout: &[u8], stderr: &[u8]) -> Self {
+        let mut state = JobState::new(None);
+        if !stdout.is_empty() {
+            state.stdout.push(stdout);
+        }
+        if !stderr.is_empty() {
+            state.stderr.push(stderr);
+        }
+        state.stdout.trim_finished();
+        state.stderr.trim_finished();
+        state.finished = true;
+        let (settled, _) = watch::channel(true);
+        Self {
+            id: "test-job".into(),
+            command: "test".into(),
+            cwd: ".".into(),
+            owner: ThreadId::from("t1"),
+            handle: ProcessHandle("test-job".into()),
+            pid: 0,
+            started_ms: 0,
+            time_limit_ms: 0,
+            review: None,
+            stdout_log: PathBuf::from("test.stdout.log"),
+            stderr_log: PathBuf::from("test.stderr.log"),
+            logs: None,
+            wait_hits: AtomicU32::new(0),
+            survivors: false,
+            notify: None,
+            recovered: None,
+            state: Mutex::new(state),
+            settled,
+        }
     }
 
     /// An owned snapshot for compaction, which can be held across an archive write.
@@ -1655,9 +2351,9 @@ impl Job {
 }
 impl ExecRuntime {
     pub fn new(config: ExecConfig) -> Arc<Self> {
-        Arc::new(Self {
+        Arc::new_cyclic(|weak| Self {
             config,
-            jobs: Mutex::new(HashMap::new()),
+            jobs: Mutex::new(JobTable::default()),
             snapshots: super::snapshot::Snapshots::default(),
             launchers: spill::KeptLaunchers::default(),
             reaped: Mutex::new(HashMap::new()),
@@ -1668,6 +2364,8 @@ impl ExecRuntime {
             #[cfg(test)]
             cleanups: Mutex::new(Vec::new()),
             standby: Arc::default(),
+            weak: weak.clone(),
+            expiry_wake: Arc::new(tokio::sync::Notify::new()),
         })
     }
 
@@ -1833,7 +2531,7 @@ impl ExecRuntime {
             state: Mutex::new(JobState::new(oem)),
             settled,
         });
-        self.purge_expired(started_ms);
+        self.purge_expired(started_ms, tokio::time::Instant::now());
         lock(&self.jobs).insert(task_id.clone(), job.clone());
         let _ = self.config.tasks.start(TaskSpec {
             task_id,
@@ -1886,12 +2584,12 @@ impl ExecRuntime {
         }
     }
 
-    fn purge_expired(&self, now: u64) {
+    fn purge_expired(&self, now_wall: u64, now_mono: tokio::time::Instant) {
         let aged: Vec<String> = lock(&self.jobs)
             .iter()
             .filter(|(_, job)| {
                 let state = job.state();
-                state.finished && state.finished_ms.is_some_and(|f| now.saturating_sub(f) >= RETENTION_MS)
+                state.finished && state.is_retention_elapsed(now_wall, now_mono)
             })
             .map(|(id, _)| id.clone())
             .collect();
@@ -1904,15 +2602,94 @@ impl ExecRuntime {
         }
     }
 
+    fn arm_expiry(&self) {
+        let mut table = lock(&self.jobs);
+        table.expiry_dirty = true;
+        if table.expiry_armed {
+            drop(table);
+            self.expiry_wake.notify_one();
+            return;
+        }
+        table.expiry_armed = true;
+        let weak = self.weak.clone();
+        let wake = Arc::clone(&self.expiry_wake);
+        drop(table);
+        mixdog_rt::spawn("shell-job-expiry", TaskClass::Work, async move {
+            loop {
+                let Some(runtime) = weak.upgrade() else { return };
+                let now_wall = runtime.now_ms();
+                let now_mono = tokio::time::Instant::now();
+                runtime.purge_expired(now_wall, now_mono);
+                let finished: Vec<(String, Option<u64>, Option<tokio::time::Instant>)> = {
+                    let mut table = lock(&runtime.jobs);
+                    table.expiry_dirty = false;
+                    table
+                        .values()
+                        .filter_map(|job| {
+                            let state = job.state();
+                            (state.finished && (state.finished_ms.is_some() || state.finished_at.is_some())).then_some((
+                                job.id.clone(),
+                                state.finished_ms,
+                                state.finished_at,
+                            ))
+                        })
+                        .collect()
+                };
+                let next = finished
+                    .into_iter()
+                    .filter_map(|(id, finished_ms, finished_at)| {
+                        let job_deadline = match finished_at {
+                            Some(at) => at + Duration::from_millis(RETENTION_MS),
+                            None => {
+                                let remaining_ms = finished_ms?.saturating_add(RETENTION_MS).saturating_sub(now_wall);
+                                now_mono + Duration::from_millis(remaining_ms)
+                            }
+                        };
+                        let deadline = match runtime.config.tasks.get(&id) {
+                            Some(row) if row.termination_unconfirmed || row.status == SpawnStatus::Running => return None,
+                            Some(row) => {
+                                let strip_deadline = row.finished_at_ms.map(|at| {
+                                    let strip_ms = at.saturating_add(RETENTION_MS).saturating_add(1);
+                                    now_mono + Duration::from_millis(strip_ms.saturating_sub(now_wall))
+                                });
+                                strip_deadline.map_or(job_deadline, |d| d.max(job_deadline))
+                            }
+                            None => job_deadline,
+                        };
+                        Some(if deadline > now_mono { deadline } else { now_mono + Duration::from_millis(10) })
+                    })
+                    .min();
+                let target = match next {
+                    Some(deadline) => Some(deadline),
+                    None => {
+                        let mut table = lock(&runtime.jobs);
+                        if table.expiry_dirty {
+                            drop(table);
+                            continue;
+                        }
+                        table.expiry_armed = false;
+                        None
+                    }
+                };
+                drop(runtime);
+                let Some(target) = target else { return };
+                tokio::select! {
+                    () = mixdog_rt::time::sleep_until(target) => {}
+                    () = wake.notified() => {}
+                }
+            }
+        });
+    }
+
     pub fn get(&self, owner: &ThreadId, id: &str) -> Option<Arc<Job>> {
         // Expiry is applied on every lookup, not only when a job starts, so an idle runtime drops finished jobs too.
-        self.purge_expired(self.now_ms());
+        self.purge_expired(self.now_ms(), tokio::time::Instant::now());
         lock(&self.jobs).get(id).filter(|j| &j.owner == owner).cloned()
     }
 
     /// Jobs of `owner` in start order.
     pub fn list(&self, owner: &ThreadId) -> Vec<Arc<Job>> {
-        self.purge_expired(self.now_ms());
+        self.purge_expired(self.now_ms(), tokio::time::Instant::now());
         let mut rows: Vec<_> = lock(&self.jobs).values().filter(|j| &j.owner == owner).cloned().collect();
         rows.sort_by(|a, b| (a.started_ms, &a.id).cmp(&(b.started_ms, &b.id)));
         rows
@@ -1986,6 +2763,7 @@ impl ExecRuntime {
         }
         state.finished = true;
         state.finished_ms = Some(self.now_ms());
+        state.finished_at = Some(tokio::time::Instant::now());
         state.cancelled = true;
         let _ = self.config.tasks.finish(&job.id, TaskOutcome { status: SpawnStatus::Cancelled, exit_code: None });
         let _ = self.config.tasks.set_termination_unconfirmed(&job.id, true);
@@ -2006,6 +2784,7 @@ impl ExecRuntime {
             if natural {
                 state.finished = true;
                 state.finished_ms = Some(self.now_ms());
+                state.finished_at = Some(tokio::time::Instant::now());
                 state.survivor_result = true;
             }
             natural
@@ -2020,6 +2799,7 @@ impl ExecRuntime {
         if natural {
             job.report_finished(self.config.notifier.as_deref(), "completed", job.survivors_notification()).await;
         }
+        self.arm_expiry();
         job.settled.send_replace(true);
     }
     /// A cancel of `job` could not confirm its processes gone: the row is held
@@ -2070,18 +2850,30 @@ impl ExecRuntime {
         records.into_iter().map(|(id, record)| KeptJob { id, record }).filter(|kept| !held.contains_key(&kept.id) && kept.answers_for(owner, now)).collect()
     }
 
-    /// The job `kept` names, ended as `end`, as its record and the end of its logs keep it (`registerBackgroundTask` +
+    /// The job `kept` names, ended as `end`, as its record and logs keep it (`registerBackgroundTask` +
     /// `completeBackgroundTask` of a recovered record): finished, with no process behind it.
     pub(crate) async fn recovered_job(&self, kept: &KeptJob, end: ExitFacts, cancel: &CancellationToken) -> Job {
+        use mixdog_rt::LaneToken;
+
         let [stdout_log, stderr_log] = spill::log_paths(&self.config.spill_dir, &kept.id);
-        let tails = spill::read_log_tails(self.config.lanes.interactive, cancel, [stdout_log.clone(), stderr_log.clone()], MEMORY_CAP).await;
-        let mut state = JobState::new(self.config.oem);
-        for (stream, (base, bytes)) in [&mut state.stdout, &mut state.stderr].into_iter().zip(tails) {
-            stream.base = base;
-            stream.push(&bytes);
-        }
+        let oem = self.config.oem;
+        let paths = [stdout_log.clone(), stderr_log.clone()];
+        let cancel_read = cancel.clone();
+        let [stdout, stderr] =
+            match self.config.lanes.interactive.submit(cancel, move |lane| paths.map(|path| recover_stream_from_log(lane, &path, oem, &cancel_read))) {
+                Ok(job) => job.await.unwrap_or_else(|_| [Stream::new(oem), Stream::new(oem)]),
+                Err(_) => [Stream::new(oem), Stream::new(oem)],
+            };
+        let mut state = JobState::new(oem);
+        state.stdout = stdout;
+        state.stderr = stderr;
         state.finished = true;
         state.finished_ms = kept.number("finishedAtMs");
+        let now_wall = self.now_ms();
+        state.finished_at = state.finished_ms.map(|f| {
+            let elapsed_ms = now_wall.saturating_sub(f);
+            tokio::time::Instant::now().checked_sub(Duration::from_millis(elapsed_ms)).unwrap_or_else(tokio::time::Instant::now)
+        });
         let (settled, _) = watch::channel(true);
         Job {
             id: kept.id.clone(),

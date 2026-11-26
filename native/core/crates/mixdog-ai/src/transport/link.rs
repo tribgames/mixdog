@@ -247,6 +247,10 @@ pub trait HttpSend: Send + Sync {
 pub trait FrameSink: Send + Sync {
     /// Queues a frame; the fault says why the exchange is gone.
     fn send(&self, frame: Vec<u8>) -> Result<(), TransportFault>;
+
+    /// Half-closes the request body so the peer observes EOF while the response
+    /// continues. Later sends fail as closed.
+    fn close(&self) {}
 }
 
 #[async_trait]
@@ -550,11 +554,21 @@ impl ReqwestLink {
     }
 }
 
-struct ChannelSink(mpsc::UnboundedSender<Bytes>);
+struct ChannelSink(std::sync::Mutex<Option<mpsc::UnboundedSender<Bytes>>>);
 
 impl FrameSink for ChannelSink {
     fn send(&self, frame: Vec<u8>) -> Result<(), TransportFault> {
-        self.0.send(Bytes::from(frame)).map_err(|_| TransportFault::Closed)
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .ok_or(TransportFault::Closed)?
+            .send(Bytes::from(frame))
+            .map_err(|_| TransportFault::Closed)
+    }
+
+    fn close(&self) {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
     }
 }
 
@@ -869,6 +883,6 @@ impl BidiOpen for Bare<'_, ReqwestLink> {
             Ok(response_of(raw))
         };
         let response = settle(exchange, answer).await?;
-        Ok((response, Arc::new(ChannelSink(tx))))
+        Ok((response, Arc::new(ChannelSink(std::sync::Mutex::new(Some(tx))))))
     }
 }

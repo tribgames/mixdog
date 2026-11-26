@@ -37,8 +37,9 @@ async fn every_installed_row_is_listed_in_the_runtimes_order_with_its_stated_fac
     assert_eq!((records[0].context_window, records[0].supports_reasoning, records[0].supports_images), (Some(32768), Some(true), Some(false)));
     assert_eq!((records[1].context_window, records[1].supports_reasoning, records[1].supports_images), (Some(8192), Some(false), Some(true)));
     assert_eq!(records[1].mode.as_deref(), Some("chat"));
-    // The row is kept as the runtime stated it.
-    assert_eq!(records[0].raw.as_ref(), Some(&rows[0]));
+    // The stated row stays in `enriched`, without keeping a second copy in `raw`.
+    assert!(records[0].raw.is_none());
+    assert_eq!(records[0].enriched.0.as_ref(), rows[0].as_object());
 }
 
 #[tokio::test]

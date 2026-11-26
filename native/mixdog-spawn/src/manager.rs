@@ -590,6 +590,8 @@ struct Inner {
     live: AtomicU32,
     exit_counter: AtomicU64,
     deadlines: OnceLock<Arc<Deadlines>>,
+    #[cfg(test)]
+    force_surviving_descendant: std::sync::atomic::AtomicBool,
 }
 
 impl Inner {
@@ -650,6 +652,8 @@ impl Inner {
 
     fn finished(&self, proc: &Arc<Proc>, reaped: bool) {
         let idle = reaped && proc.containment.shutdown_idle();
+        #[cfg(test)]
+        let idle = idle && !self.force_surviving_descendant.load(Ordering::Acquire);
         let mut table = self.table();
         proc.done.send_replace(Some(reaped));
         if idle {
@@ -699,9 +703,26 @@ impl Drop for Inner {
     }
 }
 
+enum LaunchTarget {
+    Pending,
+    Cancelled,
+    Launched(Arc<Proc>),
+}
+
+fn kill_proc_on_cancel(proc: &Proc) {
+    match proc.kill_automatically(KillReason::Requested) {
+        Ok(()) => {}
+        Err(ProcessError::Revoked) => proc.request_shutdown(),
+        Err(_) => {
+            #[cfg(windows)]
+            proc.containment.kill();
+            proc.feed.release_reader();
+        }
+    }
+}
+
 struct Abandon {
-    inner: Arc<Inner>,
-    handle: ProcessHandle,
+    target: Arc<Mutex<LaunchTarget>>,
     gone: CancellationToken,
     answered: bool,
 }
@@ -710,7 +731,10 @@ impl Drop for Abandon {
     fn drop(&mut self) {
         self.gone.cancel();
         if !self.answered {
-            let _ = self.inner.lookup(&self.handle).and_then(|proc| proc.kill_automatically(KillReason::Requested));
+            let prev = std::mem::replace(&mut *self.target.lock().unwrap_or_else(|e| e.into_inner()), LaunchTarget::Cancelled);
+            if let LaunchTarget::Launched(proc) = prev {
+                kill_proc_on_cancel(&proc);
+            }
         }
     }
 }
@@ -1166,7 +1190,7 @@ fn launch_process(
     request: SpawnRequest,
     options: SpawnOptions,
     subscribe: bool,
-) -> Result<(SpawnedProcess, Arc<Feed>, Option<crate::feed::Subscription>), ProcessError> {
+) -> Result<(SpawnedProcess, Arc<Proc>, Arc<Feed>, Option<crate::feed::Subscription>), ProcessError> {
     let launch = Launch::of(&request.command, &inner.config.default_shell);
     let env = environment(&request.env);
     if !request.cwd.as_path().is_dir() {
@@ -1279,7 +1303,7 @@ fn launch_process(
         commit.launched(&handle);
     }
     drop(commit);
-    Ok((SpawnedProcess { handle, pid }, feed, first))
+    Ok((SpawnedProcess { handle, pid }, proc, feed, first))
 }
 
 fn start_under_scope<'a>(
@@ -1380,6 +1404,8 @@ impl LocalProcessManager {
                 live: AtomicU32::new(0),
                 exit_counter: AtomicU64::new(0),
                 deadlines: OnceLock::new(),
+                #[cfg(test)]
+                force_surviving_descendant: std::sync::atomic::AtomicBool::new(false),
             }),
         }
     }
@@ -1481,32 +1507,98 @@ impl LocalProcessManager {
         options: SpawnOptions,
         subscribe: bool,
     ) -> Result<(SpawnedProcess, Arc<Feed>, Option<crate::feed::Subscription>), ProcessError> {
+        self.launch_with_cancel(request, options, subscribe, None).await
+    }
+
+    fn finalize_cancelled_launch(&self, proc: &Proc, reaped: bool, containment_idle: bool) -> ProcessError {
+        if reaped && containment_idle {
+            let mut table = self.inner.table();
+            table.owned.retain(|owned| !Arc::ptr_eq(&owned.containment, &proc.containment));
+            ProcessError::Revoked
+        } else {
+            ProcessError::CleanupIncomplete
+        }
+    }
+
+    async fn launch_with_cancel(
+        &self,
+        request: SpawnRequest,
+        options: SpawnOptions,
+        subscribe: bool,
+        cancel: Option<CancellationToken>,
+    ) -> Result<(SpawnedProcess, Arc<Feed>, Option<crate::feed::Subscription>), ProcessError> {
+        if cancel.as_ref().is_some_and(CancellationToken::is_cancelled) {
+            return Err(ProcessError::Revoked);
+        }
         let admission = self.inner.admit(&request.handle)?;
         // Dropping this future abandons the wait: a job still queued is dropped unrun, and a child
         // the job commits meanwhile is killed (see `Abandon`), so a cancelled spawn leaves no child
         // that nobody owns.
-        let mut abandon = Abandon { inner: Arc::clone(&self.inner), handle: request.handle.clone(), gone: CancellationToken::new(), answered: false };
-        let (inner, gone) = (Arc::clone(&self.inner), abandon.gone.clone());
+        let target = Arc::new(Mutex::new(LaunchTarget::Pending));
+        let gone = cancel.as_ref().map_or_else(CancellationToken::new, CancellationToken::child_token);
+        let mut abandon = Abandon { target: Arc::clone(&target), gone, answered: false };
+        let (inner, gone, worker_target) = (Arc::clone(&self.inner), abandon.gone.clone(), Arc::clone(&target));
         let job = self
             .inner
             .spawn_io
             .submit(&abandon.gone, move |_lane| {
                 #[cfg(feature = "core-test")]
                 crate::testing::launch_window();
-                let spawned = launch_process(&inner, admission, request, options, subscribe)?;
-                // Checked after the commit: a requester that left before it is found here, one that
-                // leaves after it finds the child in the table (`Abandon::drop`).
-                if gone.is_cancelled() {
-                    let _ = inner.lookup(&spawned.0.handle).and_then(|proc| proc.kill_automatically(KillReason::Requested));
+                let (spawned, proc, feed, first) = launch_process(&inner, admission, request, options, subscribe)?;
+                // Bind abandonment/cancellation to this launched `Proc` incarnation,
+                // never looking up by handle (which a later launch may reuse).
+                let cancelled = {
+                    let mut guard = worker_target.lock().unwrap_or_else(|e| e.into_inner());
+                    if matches!(*guard, LaunchTarget::Cancelled) || gone.is_cancelled() {
+                        *guard = LaunchTarget::Cancelled;
+                        true
+                    } else {
+                        *guard = LaunchTarget::Launched(Arc::clone(&proc));
+                        false
+                    }
+                };
+                if cancelled {
+                    kill_proc_on_cancel(&proc);
                 }
                 #[cfg(feature = "core-test")]
                 crate::testing::answer_window();
-                Ok(spawned)
+                Ok((spawned, proc, feed, first))
             })
             .map_err(|_| ProcessError::Overloaded { queue: ProcessQueue::Spawn })?;
         let answer = job.await;
-        abandon.answered = true;
-        answer.map_err(|_| ProcessError::Io { os_code: None })?
+        match answer {
+            Err(mixdog_rt::JobDropped::Cancelled) => {
+                abandon.answered = true;
+                Err(ProcessError::Revoked)
+            }
+            Err(_) => {
+                abandon.answered = true;
+                if cancel.as_ref().is_some_and(CancellationToken::is_cancelled) { Err(ProcessError::Revoked) } else { Err(ProcessError::Io { os_code: None }) }
+            }
+            Ok(Err(error)) => {
+                abandon.answered = true;
+                if cancel.as_ref().is_some_and(CancellationToken::is_cancelled) { Err(ProcessError::Revoked) } else { Err(error) }
+            }
+            Ok(Ok((spawned, proc, feed, first))) => {
+                if cancel.as_ref().is_some_and(CancellationToken::is_cancelled) {
+                    kill_proc_on_cancel(&proc);
+                    // Drop the holding subscription before awaiting exit so a full ring cannot stall `read_loop`.
+                    drop(first);
+                    let mut done = proc.done.subscribe();
+                    let _ = done.wait_for(Option::is_some).await;
+                    let reaped = *done.borrow() == Some(true);
+                    proc.containment.shutdown_descendants().await;
+                    let idle = proc.containment.shutdown_idle();
+                    #[cfg(test)]
+                    let idle = idle && !self.inner.force_surviving_descendant.load(Ordering::Acquire);
+                    let error = self.finalize_cancelled_launch(&proc, reaped, idle);
+                    abandon.answered = true;
+                    return Err(error);
+                }
+                abandon.answered = true;
+                Ok((spawned, feed, first))
+            }
+        }
     }
 
     /// Pauses or resumes the reader of a PTY (terminal flow control): while paused, its output
@@ -1707,6 +1799,17 @@ impl ProcessManager for LocalProcessManager {
 
     async fn spawn_subscribed(&self, request: SpawnRequest) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
         self.spawn_subscribed_with(request, SpawnOptions::default()).await
+    }
+
+    async fn spawn_subscribed_cancellable(
+        &self,
+        request: SpawnRequest,
+        cancel: CancellationToken,
+    ) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
+        match self.launch_with_cancel(request, SpawnOptions::default(), true, Some(cancel)).await? {
+            (spawned, _, Some(first)) => Ok((spawned, Box::new(first))),
+            (_, _, None) => unreachable!("a subscribed launch returns its subscription"),
+        }
     }
 
     fn subscribe(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
@@ -2144,5 +2247,288 @@ mod leftovers {
         std::fs::remove_file(&fifo).unwrap();
         std::fs::remove_dir(&dir).unwrap();
         assert!(ended, "the server outlived the shutdown: {read:?}");
+    }
+}
+
+#[cfg(all(test, feature = "core-test"))]
+mod spawn_cancellable_tests {
+    use std::sync::mpsc;
+
+    use mixdog_core_api::domain::common::AbsPath;
+    use mixdog_core_api::domain::process::CommandSpec;
+    use mixdog_core_api::domain::process::EnvSpec;
+    use mixdog_rt::Backend;
+    use mixdog_rt::LaneToken;
+
+    use super::*;
+
+    fn long_sleep_command() -> CommandSpec {
+        #[cfg(windows)]
+        {
+            CommandSpec::Shell { script: "ping -n 40 127.0.0.1 >nul".to_owned(), shell: None }
+        }
+        #[cfg(not(windows))]
+        {
+            CommandSpec::Shell { script: "sleep 40".to_owned(), shell: None }
+        }
+    }
+
+    fn spawn_request(handle: &ProcessHandle) -> SpawnRequest {
+        SpawnRequest {
+            handle: handle.clone(),
+            command: long_sleep_command(),
+            cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+            env: EnvSpec { inherit: true, ..EnvSpec::default() },
+            pty: None,
+            stdin_piped: true,
+            output: OutputMode::Separate,
+            owner: ProcessOwner::Internal,
+            time_limit: None,
+        }
+    }
+
+    #[test]
+    fn spawn_subscribed_cancellable_cancels_queued_spawn_promptly() {
+        let mut cfg = mixdog_rt::exec::RtConfig::for_cores(1);
+        cfg.spawn_io.threads = 1;
+        cfg.spawn_io.max_threads = 1;
+        let (executors, tokens) = mixdog_rt::exec::boot(cfg).expect("boot");
+        let rt = executors.handle(mixdog_rt::TaskClass::Work);
+        let (entered_tx, entered_rx) = mpsc::channel::<()>();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let blocker_token = CancellationToken::new();
+        let blocker = tokens
+            .spawn_io
+            .submit(&blocker_token, move |_lane| {
+                let _ = entered_tx.send(());
+                let _ = release_rx.recv();
+            })
+            .expect("submit blocker");
+        entered_rx.recv_timeout(Duration::from_secs(5)).expect("spawn_io worker entered");
+
+        rt.block_on(async {
+            let manager = LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default());
+            let handle = ProcessHandle::from(format!("queued-cancel-{}", std::process::id()));
+            let cancel = CancellationToken::new();
+            let spawn_cancel = cancel.clone();
+            let mut task = tokio::spawn({
+                let manager = manager.clone();
+                let req = spawn_request(&handle);
+                async move { manager.spawn_subscribed_cancellable(req, spawn_cancel).await }
+            });
+
+            // Give the task a moment to enqueue behind the blocked worker.
+            mixdog_rt::time::sleep(Duration::from_millis(50)).await;
+            cancel.cancel();
+
+            let result = tokio::time::timeout(Duration::from_secs(2), &mut task)
+                .await
+                .expect("queued spawn_subscribed_cancellable must cancel promptly")
+                .expect("spawn task joined");
+            assert_eq!(result.err(), Some(ProcessError::Revoked));
+            assert_eq!(manager.live(), 0);
+            assert!(manager.list().is_empty());
+        });
+
+        let _ = release_tx.send(());
+        rt.block_on(async {
+            let _ = blocker.await;
+        });
+        drop(executors);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn spawn_subscribed_cancellable_waits_for_running_launch_kill_and_exit() {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let handle = ProcessHandle::from(format!("inflight-cancel-{}", std::process::id()));
+        let cancel = CancellationToken::new();
+
+        crate::testing::arm_launch_window();
+        let spawn_task = tokio::spawn({
+            let manager = manager.clone();
+            let req = spawn_request(&handle);
+            let cancel = cancel.clone();
+            async move { manager.spawn_subscribed_cancellable(req, cancel).await }
+        });
+
+        tokio::task::spawn_blocking(crate::testing::wait_launch_window_entered).await.unwrap();
+        cancel.cancel();
+
+        // While launch_process is still running on the worker thread, spawn_subscribed_cancellable must NOT return early.
+        mixdog_rt::time::sleep(Duration::from_millis(60)).await;
+        assert!(!spawn_task.is_finished(), "in-flight launch must finish, kill, and wait for exit before returning");
+
+        crate::testing::release_launch_window();
+
+        let result = tokio::time::timeout(Duration::from_secs(10), spawn_task)
+            .await
+            .expect("cancelled running launch must complete after kill and exit")
+            .expect("spawn task joined");
+        assert_eq!(result.err(), Some(ProcessError::Revoked));
+
+        let info = manager.info(&handle).expect("committed child record exists");
+        assert!(info.exit.is_some(), "child must have already exited before spawn_subscribed_cancellable returned");
+        assert_eq!(manager.live(), 0, "no live child may remain after cancelled spawn returns");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn spawn_subscribed_cancellable_cancel_does_not_kill_reused_handle() {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let handle = ProcessHandle::from(format!("reuse-cancel-{}", std::process::id()));
+        let cancel_a = CancellationToken::new();
+
+        let quick_exit = SpawnRequest {
+            handle: handle.clone(),
+            command: CommandSpec::Shell { script: "exit 0".to_owned(), shell: None },
+            cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+            env: EnvSpec { inherit: true, ..EnvSpec::default() },
+            pty: None,
+            stdin_piped: true,
+            output: OutputMode::Separate,
+            owner: ProcessOwner::Internal,
+            time_limit: None,
+        };
+
+        crate::testing::arm_answer_window();
+        let spawn_a = tokio::spawn({
+            let manager = manager.clone();
+            let cancel = cancel_a.clone();
+            async move { manager.spawn_subscribed_cancellable(quick_exit, cancel).await }
+        });
+
+        tokio::task::spawn_blocking(crate::testing::wait_answer_window_entered).await.unwrap();
+
+        // Wait until process A has exited while spawn_a is still parked before answering.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if manager.info(&handle).is_ok_and(|info| info.exit.is_some()) {
+                break;
+            }
+            assert!(tokio::time::Instant::now() < deadline, "process A did not exit in time");
+            mixdog_rt::time::sleep(Duration::from_millis(15)).await;
+        }
+
+        // Launch process B reusing the exact same handle while A's spawn caller is still pending.
+        let spawned_b = manager.spawn(spawn_request(&handle)).await.expect("process B should reuse exited handle");
+        assert!(manager.info(&handle).is_ok_and(|info| info.pid == spawned_b.pid && info.exit.is_none()));
+
+        cancel_a.cancel();
+        crate::testing::release_answer_window();
+
+        let result_a = tokio::time::timeout(Duration::from_secs(10), spawn_a).await.expect("cancelled spawn A must finish").expect("spawn A task joined");
+        assert_eq!(result_a.err(), Some(ProcessError::Revoked));
+
+        let info_b = manager.info(&handle).expect("process B record must still exist");
+        assert_eq!(info_b.pid, spawned_b.pid);
+        assert!(info_b.exit.is_none(), "cancelling A must never kill unrelated process B reusing the same handle");
+        assert_eq!(manager.live(), 1, "process B must remain live");
+
+        let _ = manager.kill(&handle);
+        manager.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn spawn_subscribed_cancellable_kills_descendant_after_root_already_exited() {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let handle = ProcessHandle::from(format!("descendant-cancel-{}", std::process::id()));
+        let cancel = CancellationToken::new();
+
+        let launcher = SpawnRequest {
+            handle: handle.clone(),
+            command: if cfg!(windows) {
+                CommandSpec::Shell {
+                    script: "$p = Start-Process ping -ArgumentList '-n','90','127.0.0.1' -PassThru -WindowStyle Hidden; \
+                             Write-Output \"CHILD=$($p.Id)\""
+                        .to_owned(),
+                    shell: Some("powershell".to_owned()),
+                }
+            } else {
+                CommandSpec::Shell { script: "sleep 90 >/dev/null 2>&1 & echo CHILD=$!".to_owned(), shell: None }
+            },
+            cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+            env: EnvSpec { inherit: true, ..EnvSpec::default() },
+            pty: None,
+            stdin_piped: true,
+            output: OutputMode::Separate,
+            owner: ProcessOwner::Internal,
+            time_limit: None,
+        };
+
+        crate::testing::arm_answer_window();
+        let spawn_task = tokio::spawn({
+            let manager = manager.clone();
+            let cancel = cancel.clone();
+            async move { manager.spawn_subscribed_cancellable(launcher, cancel).await }
+        });
+
+        tokio::task::spawn_blocking(crate::testing::wait_answer_window_entered).await.unwrap();
+
+        // Wait until the launcher root has exited while leaving its background descendant alive.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            if manager.info(&handle).is_ok_and(|info| info.exit.is_some()) {
+                break;
+            }
+            assert!(tokio::time::Instant::now() < deadline, "launcher root did not exit in time");
+            mixdog_rt::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(!manager.inner.table().owned.is_empty(), "background descendant must still be tracked in containment before cancel");
+
+        cancel.cancel();
+        crate::testing::release_answer_window();
+
+        let result = tokio::time::timeout(Duration::from_secs(15), spawn_task)
+            .await
+            .expect("cancelled launch with exited root must terminate descendants and return")
+            .expect("spawn task joined");
+        assert_eq!(result.err(), Some(ProcessError::Revoked));
+        assert!(
+            manager.inner.table().owned.is_empty(),
+            "cancelled spawn must kill surviving descendants and wait for empty containment before returning Revoked"
+        );
+        assert_eq!(manager.live(), 0);
+
+        manager.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn spawn_subscribed_cancellable_returns_cleanup_incomplete_when_descendant_survives() {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        manager.inner.force_surviving_descendant.store(true, Ordering::Release);
+        let handle = ProcessHandle::from(format!("surviving-descendant-cancel-{}", std::process::id()));
+        let cancel = CancellationToken::new();
+
+        crate::testing::arm_launch_window();
+        let spawn_task = tokio::spawn({
+            let manager = manager.clone();
+            let req = spawn_request(&handle);
+            let cancel = cancel.clone();
+            async move { manager.spawn_subscribed_cancellable(req, cancel).await }
+        });
+
+        tokio::task::spawn_blocking(crate::testing::wait_launch_window_entered).await.unwrap();
+        cancel.cancel();
+        crate::testing::release_launch_window();
+
+        let result = tokio::time::timeout(Duration::from_secs(10), spawn_task)
+            .await
+            .expect("cancelled launch must settle after forced-kill waits")
+            .expect("spawn task joined");
+        assert_eq!(
+            result.err(),
+            Some(ProcessError::CleanupIncomplete),
+            "cancellation must not return Revoked when a surviving descendant still occupies containment"
+        );
+        assert!(!manager.inner.table().owned.is_empty(), "ownership record must remain retained while containment is not empty");
+
+        // Verify !reaped also yields CleanupIncomplete and keeps ownership, whereas (true, true) prunes and returns Revoked.
+        let proc = manager.inner.lookup(&handle).expect("committed proc record");
+        assert_eq!(manager.finalize_cancelled_launch(&proc, false, true), ProcessError::CleanupIncomplete);
+        assert!(!manager.inner.table().owned.is_empty());
+        assert_eq!(manager.finalize_cancelled_launch(&proc, true, true), ProcessError::Revoked);
+        assert!(manager.inner.table().owned.is_empty());
+
+        manager.inner.force_surviving_descendant.store(false, Ordering::Release);
+        manager.shutdown().await;
     }
 }

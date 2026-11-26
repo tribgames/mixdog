@@ -1095,6 +1095,53 @@ async fn releasing_a_session_ends_the_persons_hold_on_its_pages() {
     assert!(locked(&engine.inner.directory).sessions.is_empty());
 }
 
+#[tokio::test]
+async fn forgetting_a_session_drops_page_slots_facts_and_download_reports() {
+    let download = |id: &str| {
+        Expect::ok(
+            "host/browser/downloads",
+            json!({"items": [{
+                "id": id,
+                "file": format!("{id}.txt"),
+                "url": "https://a.test/file.txt",
+                "mimeType": "text/plain",
+                "path": format!("/tmp/{id}.txt"),
+                "state": "completed",
+                "total": 1024,
+                "received": 1024,
+                "startedAt": i64::MAX / 2,
+                "completedAt": i64::MAX / 2
+            }]}),
+        )
+    };
+    let s2_resolve = Expect::ok(
+        "host/browser/pages/resolve",
+        json!({"page": {"pageId": "p2", "tabId": "v2", "sessionId": "s2", "background": false, "facts": page_facts("p2", 1)}, "leaseId": "lease-2"}),
+    );
+    let s2_body = payload("p2-s1", vec![element("p2-s1-e1", "button", "Go")], "https://b.test/");
+    let s2_snapshot = Expect::ok(
+        "host/browser/snapshot",
+        json!({"snapshotId": "p2-s1", "documentId": "p2:1", "revision": 1, "payload": serde_json::to_value(s2_body).expect("payload"), "warnings": [], "facts": page_facts("p2", 2)}),
+    );
+    let host = Arc::new(FakeHost::scripted(vec![resolved("p1"), snapshot_answer(), download("d1"), s2_resolve, s2_snapshot, download("d2")]));
+    let engine = engine(&host, None);
+    run(&engine, "snapshot", json!({})).await.expect("s1 snapshot");
+    engine.run(&ThreadId::from("s2"), "snapshot", &Map::new(), &CancellationToken::new()).await.expect("s2 snapshot");
+
+    assert!(locked(&engine.inner.slots).contains_key("p1"));
+    assert!(engine.inner.store.snapshot("p1", "p1-s1").is_some());
+    assert_eq!(locked(&engine.inner.download_reports).get("s1").map(DownloadReports::len), Some(1));
+    assert_eq!(locked(&engine.inner.download_reports).get("s2").map(DownloadReports::len), Some(1));
+
+    engine.forget_session(&thread()).await;
+
+    assert!(!locked(&engine.inner.slots).contains_key("p1"), "page slot dropped");
+    assert!(engine.inner.store.snapshot("p1", "p1-s1").is_none(), "facts snapshot dropped");
+    assert!(!locked(&engine.inner.download_reports).contains_key("s1"), "session download reports dropped");
+    assert!(locked(&engine.inner.slots).contains_key("p2"), "other session page slot retained");
+    assert_eq!(locked(&engine.inner.download_reports).get("s2").map(DownloadReports::len), Some(1), "other session download reports retained");
+}
+
 #[test]
 fn a_selector_match_the_snapshot_did_not_list_joins_the_snapshots_ref_set() {
     let store = FactsStore::default();

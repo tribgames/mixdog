@@ -77,6 +77,7 @@ use self::open_run::Runs;
 use self::request::ModelSelection;
 use self::request::Prepared;
 use self::request::RunBuild;
+use self::request::build_checkpoint_resume;
 use self::request::build_prepared;
 use self::request::build_run;
 use self::request::conversation_id;
@@ -88,6 +89,8 @@ use crate::providers::listing_row;
 use crate::retry::advice;
 use crate::transport::http::BidiOpen;
 use crate::transport::http::HttpSend;
+use sha2::Digest;
+use sha2::Sha256;
 
 pub const API_URL: &str = "https://api2.cursor.sh";
 pub const RUN_PATH: &str = "/agent.v1.AgentService/Run";
@@ -153,6 +156,10 @@ pub struct CursorTarget {
 }
 
 pub(crate) fn rpc_headers(access_token: &str, client_version: &str, unary: bool) -> Vec<(String, String)> {
+    rpc_headers_with_original(access_token, client_version, unary, None)
+}
+
+fn rpc_headers_with_original(access_token: &str, client_version: &str, unary: bool, original_request_id: Option<&str>) -> Vec<(String, String)> {
     let mut headers = vec![
         ("content-type".to_owned(), if unary { "application/proto" } else { "application/connect+proto" }.to_owned()),
         ("te".to_owned(), "trailers".to_owned()),
@@ -162,6 +169,9 @@ pub(crate) fn rpc_headers(access_token: &str, client_version: &str, unary: bool)
         ("x-cursor-client-type".to_owned(), "cli".to_owned()),
         ("x-request-id".to_owned(), random_uuid()),
     ];
+    if let Some(original) = original_request_id {
+        headers.push(("x-original-request-id".to_owned(), original.to_owned()));
+    }
     if !unary {
         headers.push(("connect-protocol-version".to_owned(), "1".to_owned()));
         // The tools of a run are the ones this side offers, which reach the service as MCP tools: its own file and
@@ -216,7 +226,6 @@ pub fn retry_policy() -> RetryPolicy {
     let mut policy = RetryPolicy::codex_default();
     policy.request = row.clone();
     policy.midstream = row;
-    policy.transport.schedule.max_retries = 0;
     policy.recovery = None;
     policy.status.caps.push((429, 1));
     policy
@@ -237,10 +246,10 @@ pub(crate) fn unwrap_unary_body(body: &[u8]) -> &[u8] {
     body
 }
 
-/// Rejected credentials are worth one forced refresh before giving up.
+/// Rejected credentials (401) are worth one forced refresh before giving up.
+/// Permission denials (403) indicate plan or entitlement refusals, not an expired token.
 fn is_auth_failure(error: &ProviderError) -> bool {
-    matches!(error.kind, mixdog_core_api::domain::provider::ErrorKind::Auth | mixdog_core_api::domain::provider::ErrorKind::Permission)
-        || matches!(error.status, Some(401 | 403))
+    matches!(error.kind, ErrorKind::Auth) || error.status == Some(401)
 }
 
 /// The service refused the sign-in itself (401) on a request that carried only its token. A 403 is not: a plan without
@@ -264,14 +273,16 @@ fn is_protocol_drift(error: &ProviderError) -> bool {
 
 /// `withCursorFailureHint`: the guidance a final Cursor failure ends with, once.
 fn with_failure_hint(mut error: ProviderError) -> ProviderError {
-    let hint = if matches!(error.code.as_deref(), Some("unauthenticated" | "permission_denied")) {
+    let hint = if error.kind == ErrorKind::Auth || error.code.as_deref() == Some("unauthenticated") {
         auth::REAUTH_GUIDANCE
     } else if is_protocol_drift(&error) {
         "Cursor may have changed its wire protocol; update Mixdog or set MIXDOG_CURSOR_CLIENT_VERSION if this persists."
     } else {
         return error;
     };
-    error.message = format!("{} {hint}", error.message);
+    if !error.message.contains(hint) {
+        error.message = format!("{} {hint}", error.message);
+    }
     error
 }
 
@@ -461,8 +472,21 @@ impl CursorAdapter {
         Ok(Asked { selection, prepared: request::prepare(request)?, listed, switched })
     }
 
+    fn resume_handle(&self) -> ResumeHandle {
+        ResumeHandle {
+            api_url: self.api_url.clone(),
+            client_version: self.client_version.clone(),
+            bidi: self.bidi.clone(),
+            tokens: self.tokens.clone(),
+            attempts: 0,
+            no_progress_resumes: 0,
+            last_checkpoint_hash: None,
+        }
+    }
+
     async fn open(&self, request: &Arc<ModelRequest>, token: &str, asked: Asked) -> Result<Box<CursorStream>, ProviderError> {
         let scope = Self::scope_of(request).map_or_else(|| format!("cursor-call:{}", random_uuid()), str::to_owned);
+        let conversation_id = self.conversation_of(&scope);
         let codec = CursorCodec::prepared(
             request,
             CursorTarget {
@@ -470,11 +494,12 @@ impl CursorAdapter {
                 access_token: token.to_owned(),
                 client_version: self.client_version.clone(),
                 selection: asked.selection,
-                conversation_id: self.conversation_of(&scope),
+                conversation_id: conversation_id.clone(),
             },
             asked.prepared,
         )?;
         let wire = codec.encode(request)?;
+        let original_request_id = wire.headers.iter().find(|(name, _)| name == "x-request-id").map(|(_, value)| value.clone()).unwrap_or_else(random_uuid);
         let first = wire.body.clone();
         let (head, sink) = self.bidi.open(wire, first, CURSOR_RUN).await?;
         if !head.is_success() {
@@ -488,8 +513,11 @@ impl CursorAdapter {
             heartbeat_at: std::time::Instant::now() + CLIENT_HEARTBEAT,
             secret: token.to_owned(),
             fingerprint: Fingerprint { selection: codec.target.selection.clone(), tools: codec.run.tools.clone(), cloud_rule: codec.run.cloud_rule.clone() },
+            conversation_id,
+            original_request_id,
         };
         let mut stream = CursorStream::new(live, VecDeque::new(), request);
+        stream.resume = Some(self.resume_handle());
         if let Some(scope) = Self::scope_of(request) {
             stream.throttle = Some((self.rotated.clone(), scope.to_owned()));
         }
@@ -519,6 +547,7 @@ impl CursorAdapter {
         }
         live.decoder.resume();
         let mut stream = CursorStream::new(live, replay, request);
+        stream.resume = Some(self.resume_handle());
         stream.throttle = Some((self.rotated.clone(), scope.to_owned()));
         stream.waits = Some((self.runs.clone(), scope.to_owned()));
         Some(Box::new(stream))
@@ -630,6 +659,23 @@ impl ProviderAdapter for CursorAdapter {
         Some(false)
     }
 
+    async fn takes_vision(&self, request: &ModelRequest) -> bool {
+        let catalog = match self.catalog.load_full() {
+            Some(models) => (*models).clone(),
+            None => {
+                let Ok(access) = self.tokens.access_token().await else { return true };
+                let Ok(models) = self.cached_models(&access.token).await else { return true };
+                models
+            }
+        };
+        let Ok(selection) = self.selection(&catalog, request) else { return true };
+        let base = selection.pricing_model.as_deref();
+        catalog
+            .iter()
+            .find(|m| m.id == selection.model_id || m.aliases.contains(&selection.model_id) || base.is_some_and(|id| m.id == id))
+            .map_or(true, |m| !m.vision_known || m.supports_vision)
+    }
+
     fn codec(&self) -> &dyn WireCodec {
         &self.placeholder
     }
@@ -725,11 +771,19 @@ impl ProviderAdapter for CursorAdapter {
             }
             // A throttle that refuses the open is before anything was shown too; one a run ended with was the run's to
             // judge, by what the service said of it.
+            let mut error = error;
             if unopened
                 && error.status == Some(429)
+                && error.kind != ErrorKind::QuotaExhausted
+                && error.kind != ErrorKind::InvalidRequest
+                && error.kind != ErrorKind::RequestTooLarge
+                && error.should_retry != Some(false)
                 && let Some(scope) = Self::scope_of(&request)
+                && self.rotated.refused(scope)
             {
-                self.rotated.refused(scope);
+                error.kind = ErrorKind::Transient;
+                error.status = Some(503);
+                error.should_retry = None;
             }
             return Err(with_failure_hint(error));
         }
@@ -801,10 +855,35 @@ impl WireCodec for CursorCodec {
     }
 
     fn classify(&self, response: &ErrorResponse) -> ProviderError {
-        http_status_error(response.status.unwrap_or(0), &response.headers)
+        decoder::classify_http_error(response, mixdog_core_api::domain::provider::Exposure::default())
     }
 }
 // The open run
+
+const MAX_CHECKPOINT_RESUMES: u32 = 5;
+const MAX_NO_PROGRESS_RESUMES: u32 = 2;
+const CHECKPOINT_RESUME_BASE_DELAY_MS: u64 = 500;
+const CHECKPOINT_RESUME_MAX_DELAY_MS: u64 = 60_000;
+
+struct ResumeHandle {
+    api_url: String,
+    client_version: crate::client_versions::Live,
+    bidi: Arc<dyn BidiOpen>,
+    tokens: Arc<dyn AccessToken>,
+    attempts: u32,
+    no_progress_resumes: u32,
+    last_checkpoint_hash: Option<[u8; 32]>,
+}
+
+enum ResumeOutcome {
+    Resumed,
+    NotEligible,
+    Failed(ProviderError),
+}
+
+fn is_checkpoint_resumable(err: &ProviderError) -> bool {
+    err.should_retry != Some(false) && (err.code.as_deref() == Some("incomplete_stream") || (err.transport.is_some() && err.kind == ErrorKind::Transient))
+}
 
 struct CursorStream {
     /// The run's wire; `None` once the run ended or waits for its results.
@@ -826,6 +905,8 @@ struct CursorStream {
     waits: Option<(Arc<Runs>, String)>,
     /// The run waiting for this batch's results: it lives as long as this stream.
     parked: Option<Arc<Parked>>,
+    /// In-place checkpoint resume state for mid-stream cuts.
+    resume: Option<ResumeHandle>,
     /// The run failed before showing anything because the service does not know the model id it was asked for.
     unknown_model: bool,
 }
@@ -872,12 +953,14 @@ impl Conversations {
         self.lock().entry(scope.to_owned()).or_insert(Conversation { held: true, ..Conversation::default() });
     }
 
-    fn refused(&self, scope: &str) {
+    fn refused(&self, scope: &str) -> bool {
         if let Some(entry) = self.lock().get_mut(scope)
             && std::mem::take(&mut entry.held)
         {
             entry.refused = true;
+            return true;
         }
+        false
     }
 
     /// The scope ended.
@@ -911,6 +994,10 @@ impl WireCodec for CursorCodecStub {
         TransportKind::Http2
     }
 
+    fn image_branch(&self, _: &ModelRequest) -> mixdog_image_egress::route::WireBranch {
+        mixdog_image_egress::route::WireBranch::InlineOnly
+    }
+
     fn encode(&self, _request: &ModelRequest) -> Result<WireRequest, ProviderError> {
         Err(ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Unknown, DeliveryState::NotSent))
     }
@@ -920,7 +1007,7 @@ impl WireCodec for CursorCodecStub {
     }
 
     fn classify(&self, response: &ErrorResponse) -> ProviderError {
-        http_status_error(response.status.unwrap_or(0), &response.headers)
+        decoder::classify_http_error(response, mixdog_core_api::domain::provider::Exposure::default())
     }
 }
 
@@ -941,6 +1028,7 @@ impl CursorStream {
             identity,
             waits: None,
             parked: None,
+            resume: None,
             unknown_model: false,
         }
     }
@@ -958,27 +1046,144 @@ impl CursorStream {
 
     fn fail(&mut self, mut err: ProviderError) {
         self.ended = true;
-        // A run ended before any token by a throttle or by the provider's own failure: the service may have pinned the
-        // refusal to the conversation.
-        // A limit of the account is no other conversation's to pass: it reaches the user as it is.
+        // A run ended before any token by a bare resource_exhausted or provider
+        // error: the service may have pinned the refusal to the conversation.
+        // A limit of the account is no other conversation's to pass: it reaches
+        // the user as it is.
+        let silent = self.live.as_ref().is_some_and(|live| live.decoder.silent());
+        let saw_end = self.live.as_ref().is_some_and(|live| live.decoder.saw_end_stream());
         let said = self.live.as_ref().filter(|live| live.decoder.silent()).map(|live| live.decoder.refusal()).unwrap_or_default();
-        let refused = self.live.as_ref().is_some_and(|live| live.decoder.silent()) && ((err.status == Some(429) && !said.quota) || said.provider);
+        let non_bare = err.kind == ErrorKind::RequestTooLarge
+            || err.status == Some(413)
+            || err.kind == ErrorKind::InvalidRequest
+            || err.kind == ErrorKind::QuotaExhausted
+            || err.should_retry == Some(false);
+        let bare = !non_bare && if saw_end { said.bare_resource_exhausted } else { said.bare_resource_exhausted || (err.status == Some(429) && !said.quota) };
+        let refused = silent && err.should_retry != Some(false) && (said.provider || bare);
         self.unknown_model = said.model;
         let secret = self.live.take().map(|live| live.secret).unwrap_or_default();
         err.message = crate::oauth::scrub::scrub_oauth_secrets(&err.message, &[&secret]);
-        if refused && let Some((conversations, scope)) = &self.throttle {
-            conversations.refused(scope);
+        if refused
+            && let Some((conversations, scope)) = &self.throttle
+            && conversations.refused(scope)
+        {
+            // Surface this single rotation failure as transient 503 so the
+            // broker retries on the fresh conversation_id without poisoning
+            // account rate-limit/quota state.
+            err.kind = ErrorKind::Transient;
+            err.status = Some(503);
+            err.should_retry = None;
         }
         self.queue.push_back(Err(err));
     }
 
-    /// Writes back what the decoder answered the server, and tells the send the server's heartbeat arrived.
+    async fn try_checkpoint_resume(&mut self, err: &ProviderError) -> ResumeOutcome {
+        if !is_checkpoint_resumable(err) {
+            return ResumeOutcome::NotEligible;
+        }
+        let Some(checkpoint) = self.live.as_ref().and_then(|live| live.decoder.fresh_checkpoint()).map(<[u8]>::to_vec) else {
+            return ResumeOutcome::NotEligible;
+        };
+        let Some(resume) = self.resume.as_mut() else {
+            return ResumeOutcome::NotEligible;
+        };
+        if resume.attempts >= MAX_CHECKPOINT_RESUMES {
+            return ResumeOutcome::NotEligible;
+        }
+        let hash: [u8; 32] = Sha256::digest(&checkpoint).into();
+        let initial_no_progress = if resume.last_checkpoint_hash == Some(hash) { resume.no_progress_resumes + 1 } else { 0 };
+        if initial_no_progress > MAX_NO_PROGRESS_RESUMES {
+            return ResumeOutcome::NotEligible;
+        }
+
+        let live = self.live.take().expect("checked above");
+        let Live { body, sink, mut decoder, mut secret, fingerprint, conversation_id, original_request_id, .. } = live;
+        drop((body, sink));
+
+        loop {
+            let next_no_progress = if resume.last_checkpoint_hash == Some(hash) { resume.no_progress_resumes + 1 } else { 0 };
+            let delay_ms = CHECKPOINT_RESUME_BASE_DELAY_MS.saturating_mul(1u64 << resume.attempts.min(6)).min(CHECKPOINT_RESUME_MAX_DELAY_MS);
+            mixdog_rt::time::sleep(Duration::from_millis(delay_ms)).await;
+            resume.attempts += 1;
+            resume.no_progress_resumes = next_no_progress;
+            resume.last_checkpoint_hash = Some(hash);
+
+            let token = match resume.tokens.renewed().await {
+                Ok(access) => access.token,
+                Err(mut token_err) => {
+                    token_err.exposure = decoder.exposure();
+                    token_err.message = crate::oauth::scrub::scrub_oauth_secrets(&token_err.message, &[&secret]);
+                    return ResumeOutcome::Failed(token_err);
+                }
+            };
+            let message = match build_checkpoint_resume(
+                checkpoint.clone(),
+                &fingerprint.tools,
+                fingerprint.cloud_rule.as_deref(),
+                &fingerprint.selection,
+                &conversation_id,
+            ) {
+                Ok(message) => message,
+                Err(mut build_err) => {
+                    build_err.exposure = decoder.exposure();
+                    build_err.message = crate::oauth::scrub::scrub_oauth_secrets(&build_err.message, &[&token, &secret]);
+                    return ResumeOutcome::Failed(build_err);
+                }
+            };
+            let first = frame::encode(&message, 0);
+            let wire = WireRequest {
+                transport: TransportKind::Http2,
+                method: "POST".to_owned(),
+                url: format!("{}{RUN_PATH}", resume.api_url.trim_end_matches('/')),
+                headers: rpc_headers_with_original(&token, &resume.client_version.get(), false, Some(&original_request_id)),
+                body: first.clone(),
+            };
+            let reconnect_err = match resume.bidi.open(wire, first, CURSOR_RUN).await {
+                Ok((head, sink)) if head.is_success() => {
+                    decoder.prepare_checkpoint_resume();
+                    let heartbeat_at = std::time::Instant::now() + CLIENT_HEARTBEAT;
+                    self.live = Some(Live { body: head.body, sink, decoder, heartbeat_at, secret: token, fingerprint, conversation_id, original_request_id });
+                    self.replay.clear();
+                    self.quiet = None;
+                    self.heartbeat = Box::pin(mixdog_rt::ticker().wait_until(heartbeat_at));
+                    return ResumeOutcome::Resumed;
+                }
+                Ok((head, _)) => match head.read_all().await {
+                    Ok(response) => decoder::classify_http_error(&response, decoder.exposure()),
+                    Err(read_err) => read_err,
+                },
+                Err(open_err) => open_err,
+            };
+            let mut reconnect_err = reconnect_err;
+            reconnect_err.exposure = decoder.exposure();
+            reconnect_err.message = crate::oauth::scrub::scrub_oauth_secrets(&reconnect_err.message, &[&token, &secret]);
+            secret = token;
+
+            let retryable = reconnect_err.should_retry != Some(false) && (reconnect_err.kind == ErrorKind::Transient || reconnect_err.transport.is_some());
+            if !retryable || resume.attempts >= MAX_CHECKPOINT_RESUMES || resume.no_progress_resumes >= MAX_NO_PROGRESS_RESUMES {
+                return ResumeOutcome::Failed(reconnect_err);
+            }
+        }
+    }
+
+    async fn handle_error(&mut self, err: ProviderError) {
+        match self.try_checkpoint_resume(&err).await {
+            ResumeOutcome::Resumed => {}
+            ResumeOutcome::NotEligible => self.fail(err),
+            ResumeOutcome::Failed(resume_err) => self.fail(resume_err),
+        }
+    }
+
+    /// Writes back what the decoder answered the server, half-closes on end-stream, and tells the send the server's heartbeat arrived.
     fn flush_outbound(&mut self) {
         let live = self.live();
         let alive = live.decoder.take_liveness();
         for message in live.decoder.take_outbound() {
             // A closed request body surfaces as the response's own fault.
             let _ = live.sink.send(frame::encode(&message, 0));
+        }
+        if live.decoder.saw_end_stream() {
+            live.sink.close();
         }
         if alive {
             self.identity.raise_stage("transport");
@@ -1008,7 +1213,7 @@ impl CursorStream {
                     live.decoder.leave();
                     match &self.waits {
                         // The server waits on the calls just handed over: the run stays open for their results.
-                        Some((runs, scope)) if open && !live.decoder.handed().is_empty() => {
+                        Some((runs, scope)) if open && !live.decoder.saw_end_stream() && !live.decoder.handed().is_empty() => {
                             let parked = Parked::start(live, std::mem::take(&mut self.replay));
                             runs.insert(scope, &parked);
                             self.parked = Some(parked);
@@ -1032,11 +1237,23 @@ impl CursorStream {
     async fn step(&mut self) {
         if self.live().decoder.has_waiting() {
             let result = self.live().decoder.feed(&[]);
-            return self.push(result, true);
+            return match result {
+                Ok(events) => self.push(Ok(events), true),
+                Err(err) => {
+                    self.flush_outbound();
+                    self.handle_error(err).await;
+                }
+            };
         }
         if let Some(bytes) = self.replay.pop_front() {
             let result = self.live().decoder.feed(&bytes);
-            return self.push(result, true);
+            return match result {
+                Ok(events) => self.push(Ok(events), true),
+                Err(err) => {
+                    self.flush_outbound();
+                    self.handle_error(err).await;
+                }
+            };
         }
         self.live().decoder.caught_up();
         enum Woke {
@@ -1072,20 +1289,49 @@ impl CursorStream {
         match chunk {
             Some(Ok(bytes)) => {
                 let result = self.live().decoder.feed(&bytes);
-                self.push(result, true);
+                match result {
+                    Ok(events) => self.push(Ok(events), true),
+                    Err(err) => {
+                        self.flush_outbound();
+                        self.handle_error(err).await;
+                    }
+                }
             }
             Some(Err(fault)) => {
+                if self.live().decoder.can_complete_on_cut() {
+                    let result = self.live().decoder.finish();
+                    match result {
+                        Ok(events) => {
+                            self.push(Ok(events), false);
+                            self.ended = true;
+                            self.live = None;
+                        }
+                        Err(err) => {
+                            self.flush_outbound();
+                            self.handle_error(err).await;
+                        }
+                    }
+                    return;
+                }
                 let live = self.live();
                 let mut err = ProviderError::transport(fault, DeliveryState::Accepted);
                 err.exposure = live.decoder.exposure();
                 err.connection = live.body.connection();
-                self.fail(err);
+                self.handle_error(err).await;
             }
             None => {
                 let result = self.live().decoder.finish();
-                self.push(result, false);
-                self.ended = true;
-                self.live = None;
+                match result {
+                    Ok(events) => {
+                        self.push(Ok(events), false);
+                        self.ended = true;
+                        self.live = None;
+                    }
+                    Err(err) => {
+                        self.flush_outbound();
+                        self.handle_error(err).await;
+                    }
+                }
             }
         }
     }

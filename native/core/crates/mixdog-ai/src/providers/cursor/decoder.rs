@@ -67,6 +67,7 @@ use super::schema::ServerMessage;
 use super::schema::TurnUsage;
 use super::schema::UnavailableKind;
 use super::schema::checkpoint_used_tokens;
+use super::schema::decode_error_details;
 use super::schema::decode_json_value;
 use super::schema::exec_client_message;
 use super::schema::exec_stream_close;
@@ -250,6 +251,22 @@ pub struct CursorDecoder {
     filter: ThinkFilter,
     saw_turn_ended: bool,
     saw_end: bool,
+    /// True when the latest non-heartbeat/non-checkpoint/non-kv frame was `stepCompleted`.
+    step_completed_is_latest: bool,
+    /// True when visible text was the last output emitted (no subsequent tool call or thinking).
+    last_output_was_text: bool,
+    /// Tool call envelopes started via `toolCallStarted` and not yet closed by `toolCallCompleted`.
+    open_tool_calls: HashSet<String>,
+    /// Anonymous `toolCallStarted` updates (empty `call_id`) not yet closed.
+    anonymous_open_tool_calls: usize,
+    /// Monotonic counter advancing on every non-heartbeat/non-kv server frame and every non-kv client reply.
+    progress_version: u64,
+    /// Raw `ConversationStateStructure` bytes from the latest `conversationCheckpointUpdate`.
+    latest_checkpoint: Option<Vec<u8>>,
+    /// `progress_version` at which `latest_checkpoint` arrived.
+    latest_checkpoint_progress_version: Option<u64>,
+    /// Whether `saw_turn_ended` was already true when `latest_checkpoint` arrived.
+    latest_checkpoint_terminal: bool,
     output_tokens: u64,
     context_tokens: Option<u64>,
     pending: Vec<Pending>,
@@ -292,35 +309,283 @@ const READ_TAIL_MAX: u64 = 100_000;
 const READ_TAIL_TOO_LONG: &str =
     "This window starts more than 100000 lines before the file's end, which is not read as one window. Read it by offset and limit from the file's start.";
 
-/// The service's codes in the error detail an end frame carries, each by its readable name and its number: a failure
-/// of the provider behind the service, a model id it does not know, and the limits of the account's plan.
-const PROVIDER_ERROR: &[(&str, u64)] = &[("ERROR_PROVIDER_ERROR", 57)];
-const BAD_MODEL_NAME: &[(&str, u64)] = &[("ERROR_BAD_MODEL_NAME", 5)];
-const PLAN_LIMIT: &[(&str, u64)] = &[("ERROR_FREE_USER_USAGE_LIMIT", 9), ("ERROR_PRO_USER_USAGE_LIMIT", 10), ("ERROR_USAGE_PRICING_REQUIRED", 44)];
-
 /// How the service words a limit of the account, which no other conversation would pass.
 static QUOTA_WORDING: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"(?i)quota|usage\s+limit|spend(?:ing)?\s+limit|billing|upgrade|out\s+of\s+(?:requests|credits)").expect("constant pattern")
 });
 
-/// Whether the end frame `payload` carries one of `codes` in a detail of the service's error type, by the detail's
-/// readable form or by its encoded one.
-fn names_error(payload: &[u8], codes: &[(&str, u64)]) -> bool {
-    use base64::Engine;
-    let Ok(parsed) = serde_json::from_slice::<Value>(payload) else { return false };
-    let encoded = |detail: &Value| {
-        let value = detail.get("value")?.as_str()?;
-        let bytes = base64::engine::general_purpose::STANDARD_NO_PAD.decode(value.trim_end_matches('=')).ok()?;
-        let mut reader = crate::providers::connect::pb::Reader::new(&bytes);
-        std::iter::from_fn(|| reader.next_field().ok().flatten()).find(|(field, _)| *field == 1).map(|(_, code)| code.as_u64())
-    };
-    let of_the_service = |detail: &Value| detail.get("type").and_then(Value::as_str).is_some_and(|kind| kind.rsplit(['.', '/']).next() == Some("ErrorDetails"));
-    parsed.pointer("/error/details").and_then(Value::as_array).is_some_and(|details| {
-        details.iter().filter(|detail| of_the_service(detail)).any(|detail| {
-            let named = detail.pointer("/debug/error").and_then(Value::as_str);
-            codes.iter().any(|(name, code)| named == Some(*name) || encoded(detail) == Some(*code))
-        })
+fn cursor_error_name(code: u32) -> Option<&'static str> {
+    Some(match code {
+        0 => "UNSPECIFIED",
+        1 => "BAD_API_KEY",
+        2 => "NOT_LOGGED_IN",
+        3 => "INVALID_AUTH_ID",
+        4 => "NOT_HIGH_ENOUGH_PERMISSIONS",
+        5 => "BAD_MODEL_NAME",
+        6 => "USER_NOT_FOUND",
+        7 => "FREE_USER_RATE_LIMIT_EXCEEDED",
+        8 => "PRO_USER_RATE_LIMIT_EXCEEDED",
+        9 => "FREE_USER_USAGE_LIMIT",
+        10 => "PRO_USER_USAGE_LIMIT",
+        11 => "AUTH_TOKEN_NOT_FOUND",
+        12 => "AUTH_TOKEN_EXPIRED",
+        13 => "OPENAI",
+        14 => "OPENAI_RATE_LIMIT_EXCEEDED",
+        18 => "AGENT_REQUIRES_LOGIN",
+        20 => "MAX_TOKENS",
+        21 => "USER_ABORTED_REQUEST",
+        22 => "GENERIC_RATE_LIMIT_EXCEEDED",
+        23 => "PRO_USER_ONLY",
+        25 => "TIMEOUT",
+        28 => "GPT_4_VISION_PREVIEW_RATE_LIMIT",
+        29 => "CUSTOM_MESSAGE",
+        30 => "OUTDATED_CLIENT",
+        31 => "CLAUDE_IMAGE_TOO_LARGE",
+        33 => "FILE_NOT_FOUND",
+        34 => "API_KEY_RATE_LIMIT",
+        35 => "DEBOUNCED",
+        36 => "BAD_REQUEST",
+        37 => "REPOSITORY_SERVICE_REPOSITORY_IS_NOT_INITIALIZED",
+        38 => "UNAUTHORIZED",
+        39 => "NOT_FOUND",
+        40 => "DEPRECATED",
+        41 => "RESOURCE_EXHAUSTED",
+        42 => "BAD_USER_API_KEY",
+        43 => "CONVERSATION_TOO_LONG",
+        44 => "USAGE_PRICING_REQUIRED",
+        45 => "USAGE_PRICING_REQUIRED_CHANGEABLE",
+        46 => "GITHUB_NO_USER_CREDENTIALS",
+        47 => "GITHUB_USER_NO_ACCESS",
+        48 => "GITHUB_APP_NO_ACCESS",
+        49 => "GITHUB_MULTIPLE_OWNERS",
+        50 => "RATE_LIMITED",
+        51 => "RATE_LIMITED_CHANGEABLE",
+        52 => "CUSTOM",
+        53 => "HOOKS_BLOCKED",
+        54 => "SUSPICIOUS_USAGE_BLOCKED",
+        55 => "EXTENSION_HOST_TIMEOUT",
+        56 => "NETWORK_ERROR",
+        57 => "PROVIDER_ERROR",
+        58 => "MODEL_BLOCKED",
+        59 => "INTERNAL",
+        60 => "MAX_MODE_REQUIRED",
+        61 => "MODEL_NO_LONGER_SUPPORTED",
+        62 => "PRICING_WARNING",
+        63 => "SLOW_POOL",
+        64 => "UNSUPPORTED_REGION",
+        65 => "ACCOUNT_CLOSED",
+        _ => return None,
     })
+}
+
+fn cursor_error_code_by_name(raw: &str) -> Option<u32> {
+    let trimmed = raw.trim().strip_prefix("ERROR_").unwrap_or(raw.trim());
+    (0..=65).find(|&code| cursor_error_name(code) == Some(trimmed))
+}
+
+fn cursor_error_status(code: u32) -> Option<u16> {
+    Some(match code {
+        1 | 2 | 3 | 11 | 12 | 18 | 38 | 42 | 65 => 401,
+        4 | 23 | 46 | 47 | 48 | 49 | 54 | 58 | 64 => 403,
+        5 | 6 | 33 | 39 | 61 => 404,
+        20 | 43 => 413,
+        7 | 8 | 9 | 10 | 14 | 22 | 28 | 34 | 35 | 41 | 44 | 45 | 50 | 51 => 429,
+        _ => return None,
+    })
+}
+
+fn is_plan_limit_code(code: u32) -> bool {
+    matches!(code, 9 | 10 | 44 | 45)
+}
+
+fn is_retryable_cursor_code(code: u32) -> bool {
+    matches!(code, 13 | 25 | 55 | 56 | 57 | 59 | 63)
+}
+
+#[derive(Debug, Clone, Default)]
+struct StructuredError {
+    code: Option<u32>,
+    title: String,
+    detail: String,
+    is_retryable: Option<bool>,
+}
+
+impl StructuredError {
+    fn readable_body(&self) -> Option<String> {
+        let title = self.title.trim();
+        let detail = self.detail.trim();
+        match (title.is_empty(), detail.is_empty()) {
+            (false, false) => Some(format!("{title}: {detail}")),
+            (false, true) => Some(title.to_owned()),
+            (true, false) => Some(detail.to_owned()),
+            (true, true) => None,
+        }
+    }
+}
+
+fn is_cursor_error_details_type(kind: &str) -> bool {
+    matches!(kind, "aiserver.v1.ErrorDetails" | "type.googleapis.com/aiserver.v1.ErrorDetails")
+}
+
+fn decode_structured_error_from_object(object: &serde_json::Map<String, Value>) -> Option<StructuredError> {
+    use base64::Engine;
+    let details = object.get("details")?.as_array()?;
+    for entry in details {
+        let Some(kind) = entry.get("type").and_then(Value::as_str) else { continue };
+        if !is_cursor_error_details_type(kind) {
+            continue;
+        }
+        if let Some(encoded) = entry.get("value").and_then(Value::as_str).filter(|s| !s.is_empty())
+            && let Ok(bytes) = base64::engine::general_purpose::STANDARD_NO_PAD.decode(encoded.trim_end_matches('='))
+            && let Ok(decoded) = decode_error_details(&bytes)
+        {
+            let (title, detail, is_retryable) = match decoded.details {
+                Some(custom) => (custom.title, custom.detail, custom.is_retryable),
+                None => (String::new(), String::new(), None),
+            };
+            let code = (decoded.error != 0).then_some(decoded.error);
+            if code.is_some() || is_retryable.is_some() || !title.is_empty() || !detail.is_empty() {
+                return Some(StructuredError { code, title, detail, is_retryable });
+            }
+        }
+        if let Some(debug) = entry.get("debug").and_then(Value::as_object) {
+            let code =
+                debug.get("error").and_then(|v| v.as_u64().map(|n| n as u32).or_else(|| v.as_str().and_then(cursor_error_code_by_name))).filter(|&c| c != 0);
+            let inner = debug.get("details").and_then(Value::as_object);
+            let title = inner.and_then(|d| d.get("title")).and_then(Value::as_str).unwrap_or_default().to_owned();
+            let detail = inner.and_then(|d| d.get("detail")).and_then(Value::as_str).unwrap_or_default().to_owned();
+            let is_retryable = inner.and_then(|d| d.get("isRetryable").or_else(|| d.get("is_retryable"))).and_then(Value::as_bool);
+            if code.is_some() || is_retryable.is_some() || !title.is_empty() || !detail.is_empty() {
+                return Some(StructuredError { code, title, detail, is_retryable });
+            }
+        }
+    }
+    None
+}
+
+fn decode_structured_error(parsed: &Value) -> Option<StructuredError> {
+    parsed.get("error").and_then(Value::as_object).and_then(decode_structured_error_from_object)
+}
+
+fn classify_error_object(
+    object: &serde_json::Map<String, Value>,
+    metadata: Option<&Value>,
+    http_status: Option<u16>,
+    headers: &[(String, String)],
+    exposure: Exposure,
+) -> ProviderError {
+    let code = object.get("code").and_then(Value::as_str).filter(|c| !c.is_empty()).unwrap_or("error").to_ascii_lowercase();
+    let detail = object.get("message").and_then(Value::as_str).filter(|m| !m.is_empty()).unwrap_or("request failed");
+    let advice_text = |v: &Value| match v {
+        Value::String(s) => Some(s.clone()),
+        Value::Number(n) => Some(n.to_string()),
+        Value::Array(items) => items.first().and_then(|i| i.as_str().map(str::to_owned)),
+        _ => None,
+    };
+    let retry_after = object
+        .get("retryAfter")
+        .or_else(|| object.get("retry_after"))
+        .or_else(|| metadata.and_then(|m| m.get("retry-after")))
+        .or_else(|| metadata.and_then(|m| m.get("retryAfter")))
+        .and_then(advice_text)
+        .and_then(|text| advice::from_headers(&[("retry-after".to_owned(), text)], std::time::SystemTime::now()))
+        .or_else(|| advice::from_headers(headers, std::time::SystemTime::now()));
+    if let Some(structured) = decode_structured_error_from_object(object) {
+        if let Some(err_code) = structured.code {
+            let name = cursor_error_name(err_code).map(str::to_owned).unwrap_or_else(|| format!("ERROR_{err_code}"));
+            let is_generic = matches!(detail.trim().to_ascii_lowercase().as_str(), "" | "error" | "unknown" | "unknown error" | "request failed");
+            let body = structured.readable_body().unwrap_or_else(|| if is_generic { name.clone() } else { detail.to_owned() });
+            let full_message = format!("Cursor {name}: {body}");
+            let (kind, status, out_code, should_retry) = if err_code == 21 {
+                (ErrorKind::InvalidRequest, 499, "canceled".to_owned(), Some(false))
+            } else if let Some(status) = cursor_error_status(err_code) {
+                let kind = match status {
+                    401 => ErrorKind::Auth,
+                    403 => ErrorKind::Permission,
+                    413 => ErrorKind::RequestTooLarge,
+                    429 if is_plan_limit_code(err_code) => ErrorKind::QuotaExhausted,
+                    429 => ErrorKind::RateLimited,
+                    _ => ErrorKind::InvalidRequest,
+                };
+                (kind, status, name, None)
+            } else if structured.is_retryable == Some(true) || (structured.is_retryable.is_none() && is_retryable_cursor_code(err_code)) {
+                (ErrorKind::Transient, 503, name, None)
+            } else {
+                (ErrorKind::InvalidRequest, 400, name, (structured.is_retryable == Some(false)).then_some(false))
+            };
+            let mut error = ProviderError::new(kind, DeliveryState::Accepted);
+            error.code = Some(out_code);
+            error.status = Some(status);
+            error.retry_after = retry_after;
+            error.should_retry = should_retry;
+            error.message = full_message;
+            error.exposure = exposure;
+            return error;
+        }
+        let readable = structured.readable_body();
+        let message = match readable {
+            Some(body) => format!("Cursor {code}: {body}"),
+            None => format!("Cursor {code}: {detail}"),
+        };
+        let status = crate::providers::connect::connect_code_status(&code).or(http_status);
+        let mut error = provider_error(ConnectFailure { code, message, http_status: status, retry_after }, DeliveryState::Accepted);
+        match structured.is_retryable {
+            Some(true) => {
+                error.kind = ErrorKind::Transient;
+                error.status = Some(503);
+                error.should_retry = None;
+            }
+            Some(false) => {
+                error.kind = ErrorKind::InvalidRequest;
+                error.should_retry = Some(false);
+            }
+            None => {}
+        }
+        error.exposure = exposure;
+        return error;
+    }
+    let too_large = code == "resource_exhausted" && !THROTTLE_CUE.is_match(detail) && REQUEST_TOO_LARGE.is_match(detail);
+    let status = if too_large { Some(413) } else { crate::providers::connect::connect_code_status(&code).or(http_status) };
+    let mut error = provider_error(
+        ConnectFailure {
+            code: if too_large { String::new() } else { code.clone() },
+            message: format!("Cursor {code}: {detail}"),
+            http_status: status,
+            retry_after,
+        },
+        DeliveryState::Accepted,
+    );
+    if too_large {
+        error.code = Some("request_too_large".to_owned());
+    }
+    error.exposure = exposure;
+    error
+}
+
+fn unwrap_error_body(body: &[u8]) -> &[u8] {
+    if body.len() >= 5 && (body[0] == 0 || body[0] == crate::providers::connect::frame::END_STREAM) {
+        let length = u32::from_be_bytes(body[1..5].try_into().expect("4 bytes")) as usize;
+        if body.len() == length + 5 {
+            return &body[5..];
+        }
+    }
+    body
+}
+
+pub(crate) fn classify_http_error(response: &mixdog_core_api::domain::provider::ErrorResponse, exposure: Exposure) -> ProviderError {
+    let payload = unwrap_error_body(&response.body);
+    if let Ok(parsed) = serde_json::from_slice::<Value>(payload) {
+        let error_obj = parsed
+            .get("error")
+            .and_then(Value::as_object)
+            .or_else(|| parsed.as_object().filter(|obj| obj.contains_key("code") || obj.contains_key("message") || obj.contains_key("details")));
+        if let Some(object) = error_obj {
+            return classify_error_object(object, parsed.get("metadata"), response.status, &response.headers, exposure);
+        }
+    }
+    let mut error = super::http_status_error(response.status.unwrap_or(0), &response.headers);
+    error.exposure = exposure;
+    error
 }
 
 /// What the frame that ended a run with a failure says of the failure, beyond its Connect code.
@@ -332,6 +597,8 @@ pub struct Refusal {
     pub model: bool,
     /// A limit of the account's plan.
     pub quota: bool,
+    /// A bare `resource_exhausted` rejection without plan/quota details or a distinct structured error code.
+    pub bare_resource_exhausted: bool,
 }
 
 impl Refusal {
@@ -339,11 +606,21 @@ impl Refusal {
         let parsed: Value = serde_json::from_slice(payload).unwrap_or_default();
         let code = parsed.pointer("/error/code").and_then(Value::as_str).unwrap_or_default().to_ascii_lowercase();
         let detail = parsed.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
-        Self {
-            provider: names_error(payload, PROVIDER_ERROR),
-            model: names_error(payload, BAD_MODEL_NAME) || (code == "not_found" && detail.to_ascii_lowercase().contains("model")),
-            quota: names_error(payload, PLAN_LIMIT) || QUOTA_WORDING.is_match(detail),
-        }
+        let structured = decode_structured_error(&parsed);
+        let structured_code = structured.as_ref().and_then(|s| s.code);
+        let provider = structured_code == Some(57);
+        let model = structured_code == Some(5) || (code == "not_found" && detail.to_ascii_lowercase().contains("model"));
+        let quota = structured_code.is_some_and(is_plan_limit_code)
+            || QUOTA_WORDING.is_match(detail)
+            || structured.as_ref().is_some_and(|s| QUOTA_WORDING.is_match(&s.title) || QUOTA_WORDING.is_match(&s.detail));
+        let too_large = code == "resource_exhausted" && !THROTTLE_CUE.is_match(detail) && REQUEST_TOO_LARGE.is_match(detail);
+        let non_retryable = structured.as_ref().is_some_and(|s| s.is_retryable == Some(false));
+        let bare_resource_exhausted = !quota
+            && !provider
+            && !too_large
+            && !non_retryable
+            && ((code == "resource_exhausted" && structured_code.is_none_or(|c| c == 41)) || structured_code == Some(41));
+        Self { provider, model, quota, bare_resource_exhausted }
     }
 }
 
@@ -374,10 +651,10 @@ impl WireDecoder for CursorDecoder {
                 return Err(error);
             }
             if frame.is_end_stream() {
-                let failure = self.end_stream_error(&frame.payload);
+                let failure = if self.can_complete_on_cut() { None } else { self.end_stream_error(&frame.payload) };
                 // An end frame that fails the run is read at the head of a feed: the events decoded before it reach the
                 // caller first, and the next `feed` of nothing reads it ([`Self::has_waiting`]).
-                if !events.is_empty() && (failure.is_some() || (self.pending.is_empty() && !self.saw_turn_ended)) {
+                if !events.is_empty() && (failure.is_some() || (self.pending.is_empty() && !self.saw_turn_ended && !self.can_finalize_without_turn_ended())) {
                     self.waiting.push_front(frame);
                     return Ok(events);
                 }
@@ -387,7 +664,7 @@ impl WireDecoder for CursorDecoder {
                     error.exposure = self.exposure;
                     return Err(error);
                 }
-                if !self.pending.is_empty() || self.saw_turn_ended {
+                if !self.pending.is_empty() || self.saw_turn_ended || self.can_finalize_without_turn_ended() {
                     events.extend(self.finalize());
                     return Ok(events);
                 }
@@ -415,12 +692,18 @@ impl WireDecoder for CursorDecoder {
         if self.terminal {
             return Ok(Vec::new());
         }
+        // A close after turnEnded or after the final text step lost only
+        // trailing metadata (such as a repeat checkpoint), even if cut
+        // partway through a trailing frame.
+        if self.saw_turn_ended || self.can_finalize_without_turn_ended() {
+            return Ok(self.finalize());
+        }
         if self.frames.buffered() > 0 {
             return Err(self.incomplete("Cursor stream ended with a truncated frame"));
         }
         // Tool calls already announced stay actionable even if the transport
-        // vanished; a close after turnEnded only ends a completed turn.
-        if !self.pending.is_empty() || self.saw_turn_ended {
+        // vanished.
+        if !self.pending.is_empty() {
             return Ok(self.finalize());
         }
         if !self.saw_end {
@@ -754,7 +1037,7 @@ mod tests {
     fn an_end_frame_can_name_the_providers_own_failure() {
         use base64::Engine;
         let mut detail = crate::providers::connect::pb::Writer::new();
-        detail.varint(1, PROVIDER_ERROR[0].1);
+        detail.varint(1, 57);
         let encoded = base64::engine::general_purpose::STANDARD.encode(detail.finish());
         let readable = json!({"error": {"code": "unavailable", "message": "Error", "details": [{"type": "aiserver.v1.ErrorDetails", "debug": {"error": "ERROR_PROVIDER_ERROR"}}]}});
         let bare = json!({"error": {"code": "unavailable", "message": "Error", "details": [{"type": "aiserver.v1.ErrorDetails", "value": encoded}]}});
@@ -1024,6 +1307,343 @@ mod tests {
         let mut f = ThinkFilter::default();
         assert_eq!(f.process("<THINKING >z</Thinking>"), (String::new(), "z".into()));
     }
+
+    fn exec_abort_frame(id: u64) -> Vec<u8> {
+        use crate::providers::connect::pb::Writer;
+        frame_of(|m| {
+            let mut abort = Writer::new();
+            abort.varint(1, id);
+            let mut ctrl = Writer::new();
+            ctrl.message(1, abort);
+            m.message(5, ctrl);
+        })
+    }
+
+    fn encode_error_details_b64(code: u32, title: &str, detail: &str, is_retryable: Option<bool>) -> String {
+        use crate::providers::connect::pb::Writer;
+        use base64::Engine;
+        let mut custom = Writer::new();
+        if !title.is_empty() {
+            custom.string(1, title);
+        }
+        if !detail.is_empty() {
+            custom.string(2, detail);
+        }
+        if let Some(retryable) = is_retryable {
+            custom.varint(4, u64::from(retryable));
+        }
+        let mut err = Writer::new();
+        if code != 0 {
+            err.varint(1, u64::from(code));
+        }
+        if !title.is_empty() || !detail.is_empty() || is_retryable.is_some() {
+            err.message(2, custom);
+        }
+        base64::engine::general_purpose::STANDARD.encode(err.finish())
+    }
+
+    fn end_stream_with_details(outer_code: &str, outer_msg: &str, type_url: &str, value_b64: &str) -> Vec<u8> {
+        let body = json!({
+            "error": {
+                "code": outer_code,
+                "message": outer_msg,
+                "details": [{ "type": type_url, "value": value_b64 }]
+            }
+        });
+        crate::providers::connect::frame::encode(body.to_string().as_bytes(), crate::providers::connect::frame::END_STREAM)
+    }
+
+    #[test]
+    fn exec_abort_drops_matching_pending_exec_without_failing() {
+        // Aborting one of two pending execs drops only the aborted one.
+        let mut decoder = lookup_decoder();
+        assert!(decoder.feed(&[mcp_call(1, "a"), mcp_call(2, "b"), exec_abort_frame(1)].concat()).is_ok());
+        // Aborting an unknown id is a clean no-op.
+        assert!(decoder.feed(&exec_abort_frame(999)).is_ok());
+        let events = decoder.quiet();
+        assert_eq!(calls_of(&events), vec![call("call-2", "b")]);
+
+        // Aborting the only pending exec lets the turn finish with text cleanly.
+        let mut decoder = lookup_decoder();
+        let mut events = decoder
+            .feed(
+                &[
+                    mcp_call(7, "a"),
+                    exec_abort_frame(7),
+                    update(1, |t| t.string(1, "recovered")),
+                    update(14, |_| {}),
+                    crate::providers::connect::frame::encode(b"{}", crate::providers::connect::frame::END_STREAM),
+                ]
+                .concat(),
+            )
+            .expect("abort does not fail the stream");
+        events.extend(decoder.finish().expect("clean finish"));
+        assert!(calls_of(&events).is_empty());
+        let text: String = events.iter().filter_map(|e| if let StreamEvent::TextDelta(t) = e { Some(t.as_str()) } else { None }).collect();
+        assert_eq!(text, "recovered");
+        assert!(events.iter().any(|e| matches!(e, StreamEvent::Completed { stop: Some(StopReason::Other(s)), .. } if s == "stop")));
+    }
+
+    #[test]
+    fn structured_error_details_maps_codes_retryability_and_messages() {
+        let feed_err = |frame: Vec<u8>| {
+            let mut decoder = lookup_decoder();
+            decoder.feed(&frame).expect_err("expected structured error")
+        };
+
+        // USER_ABORTED_REQUEST (21) -> canceled, non-retryable 499.
+        let err = feed_err(end_stream_with_details(
+            "aborted",
+            "Error",
+            "aiserver.v1.ErrorDetails",
+            &encode_error_details_b64(21, "Canceled", "User canceled request", None),
+        ));
+        assert_eq!(err.status, Some(499));
+        assert_eq!(err.code.as_deref(), Some("canceled"));
+        assert_eq!(err.should_retry, Some(false));
+        assert!(err.message.contains("Canceled: User canceled request"), "{}", err.message);
+
+        // Auth (1, 12), Permission (4), NotFound (5), TooLarge (20, 43), Quota (10), RateLimit (50).
+        let cases = [
+            (1, "aiserver.v1.ErrorDetails", 401, ErrorKind::Auth),
+            (12, "type.googleapis.com/aiserver.v1.ErrorDetails", 401, ErrorKind::Auth),
+            (4, "aiserver.v1.ErrorDetails", 403, ErrorKind::Permission),
+            (5, "aiserver.v1.ErrorDetails", 404, ErrorKind::InvalidRequest),
+            (20, "aiserver.v1.ErrorDetails", 413, ErrorKind::RequestTooLarge),
+            (43, "aiserver.v1.ErrorDetails", 413, ErrorKind::RequestTooLarge),
+            (10, "aiserver.v1.ErrorDetails", 429, ErrorKind::QuotaExhausted),
+            (50, "aiserver.v1.ErrorDetails", 429, ErrorKind::RateLimited),
+        ];
+        for (code, type_url, status, kind) in cases {
+            let err = feed_err(end_stream_with_details("resource_exhausted", "Error", type_url, &encode_error_details_b64(code, "Title", "Body", None)));
+            assert_eq!(err.status, Some(status), "code {code}");
+            assert_eq!(err.kind, kind, "code {code}");
+            assert!(err.message.contains("Title: Body"), "code {code}: {}", err.message);
+        }
+
+        // Retryable codes under outer resource_exhausted become transient 503, not 429.
+        for code in [13, 25, 55, 56, 57, 59, 63] {
+            let err = feed_err(end_stream_with_details(
+                "resource_exhausted",
+                "Error",
+                "aiserver.v1.ErrorDetails",
+                &encode_error_details_b64(code, "Transient", "Try again", None),
+            ));
+            assert_eq!(err.status, Some(503), "code {code}");
+            assert_eq!(err.kind, ErrorKind::Transient, "code {code}");
+            assert_eq!(err.should_retry, None, "code {code}");
+        }
+
+        // Explicit is_retryable=false overrides retryable code to non-retryable 400.
+        let err = feed_err(end_stream_with_details(
+            "resource_exhausted",
+            "Error",
+            "aiserver.v1.ErrorDetails",
+            &encode_error_details_b64(57, "Provider", "Permanent failure", Some(false)),
+        ));
+        assert_eq!(err.status, Some(400));
+        assert_eq!(err.kind, ErrorKind::InvalidRequest);
+        assert_eq!(err.should_retry, Some(false));
+
+        // Explicit is_retryable=true upgrades non-retryable code to transient 503.
+        let err = feed_err(end_stream_with_details(
+            "resource_exhausted",
+            "Error",
+            "aiserver.v1.ErrorDetails",
+            &encode_error_details_b64(0, "Busy", "Retry shortly", Some(true)),
+        ));
+        assert_eq!(err.status, Some(503));
+        assert_eq!(err.kind, ErrorKind::Transient);
+
+        // JSON debug isRetryable flag and details title/detail.
+        let debug_body = json!({
+            "error": {
+                "code": "resource_exhausted",
+                "message": "Error",
+                "details": [{
+                    "type": "aiserver.v1.ErrorDetails",
+                    "debug": {
+                        "error": "ERROR_PROVIDER_ERROR",
+                        "details": { "title": "Upstream", "detail": "Overloaded", "isRetryable": true }
+                    }
+                }]
+            }
+        });
+        let err = feed_err(crate::providers::connect::frame::encode(debug_body.to_string().as_bytes(), crate::providers::connect::frame::END_STREAM));
+        assert_eq!(err.status, Some(503));
+        assert_eq!(err.kind, ErrorKind::Transient);
+        assert!(err.message.contains("Upstream: Overloaded"), "{}", err.message);
+    }
+
+    #[test]
+    fn unspecified_structured_error_code_zero_preserves_outer_connect_status_and_refusal() {
+        let feed_err = |frame: Vec<u8>| {
+            let mut decoder = lookup_decoder();
+            let err = decoder.feed(&frame).expect_err("expected structured error");
+            (err, decoder.refusal())
+        };
+
+        // Omitted field 1 (proto3 default 0 = ERROR_UNSPECIFIED) preserves outer Connect status
+        // and retryability while keeping readable_body().
+        let b64 = encode_error_details_b64(0, "Notice", "Server detail", None);
+        for (outer_code, expected_status, expected_kind, expect_bare_429) in [
+            ("unauthenticated", 401, ErrorKind::Auth, false),
+            ("unavailable", 503, ErrorKind::Transient, false),
+            ("resource_exhausted", 429, ErrorKind::RateLimited, true),
+        ] {
+            let (err, refusal) = feed_err(end_stream_with_details(outer_code, "Error", "aiserver.v1.ErrorDetails", &b64));
+            assert_eq!(err.status, Some(expected_status), "outer={outer_code}");
+            assert_eq!(err.kind, expected_kind, "outer={outer_code}");
+            assert_eq!(err.should_retry, None, "outer={outer_code}");
+            assert!(err.message.contains("Notice: Server detail"), "outer={outer_code}: {}", err.message);
+            assert_eq!(refusal.bare_resource_exhausted, expect_bare_429, "outer={outer_code}");
+        }
+
+        // JSON debug with 0 or "ERROR_UNSPECIFIED" likewise preserves outer status and applies
+        // readable_body() and isRetryable.
+        for raw_err in [json!(0), json!("ERROR_UNSPECIFIED")] {
+            let payload = json!({
+                "error": {
+                    "code": "unauthenticated",
+                    "message": "Error",
+                    "details": [{
+                        "type": "aiserver.v1.ErrorDetails",
+                        "debug": {
+                            "error": raw_err,
+                            "details": { "title": "Session", "detail": "Token expired" }
+                        }
+                    }]
+                }
+            });
+            let (err, _) = feed_err(crate::providers::connect::frame::encode(payload.to_string().as_bytes(), crate::providers::connect::frame::END_STREAM));
+            assert_eq!(err.status, Some(401), "raw_err={raw_err}");
+            assert_eq!(err.kind, ErrorKind::Auth, "raw_err={raw_err}");
+            assert_eq!(err.should_retry, None, "raw_err={raw_err}");
+            assert!(err.message.contains("Session: Token expired"), "{}", err.message);
+        }
+
+        // Non-2xx HTTP error with omitted field 1 also preserves outer status and detail.
+        let body = json!({
+            "code": "unavailable",
+            "message": "Error",
+            "details": [{ "type": "aiserver.v1.ErrorDetails", "value": b64 }]
+        });
+        let http_err = classify_http_error(
+            &mixdog_core_api::domain::provider::ErrorResponse { status: Some(503), headers: vec![], body: body.to_string().into_bytes() },
+            Exposure::default(),
+        );
+        assert_eq!(http_err.status, Some(503));
+        assert_eq!(http_err.kind, ErrorKind::Transient);
+        assert!(http_err.message.contains("Notice: Server detail"), "{}", http_err.message);
+    }
+
+    #[test]
+    fn stream_completes_after_final_text_step_and_after_turn_ended_truncation() {
+        let text = |s: &str| update(1, |t| t.string(1, s));
+        let step_completed = update(17, |_| {});
+        let turn_ended = update(14, |_| {});
+        let heartbeat = update(13, |_| {});
+        let checkpoint = frame_of(|m| m.bytes(3, b"cp"));
+        let kv_get = frame_of(|m| {
+            let mut get = crate::providers::connect::pb::Writer::new();
+            get.bytes(1, b"missing");
+            let mut kv = crate::providers::connect::pb::Writer::new();
+            kv.varint(1, 1);
+            kv.message(2, get);
+            m.message(4, kv);
+        });
+        let truncated = &checkpoint[..checkpoint.len() - 1];
+        let clean_end = crate::providers::connect::frame::encode(b"{}", crate::providers::connect::frame::END_STREAM);
+
+        // 1. textDelta + stepCompleted + EOF completes cleanly.
+        let mut decoder = lookup_decoder();
+        let mut events = decoder.feed(&[text("done"), step_completed.clone()].concat()).expect("decodes");
+        events.extend(decoder.finish().expect("final text step completes on EOF"));
+        assert!(events.iter().any(|e| matches!(e, StreamEvent::Completed { stop: Some(StopReason::Other(s)), .. } if s == "stop")));
+
+        // 2. textDelta + stepCompleted + checkpoint + heartbeat + kv + truncated frame + EOF completes cleanly.
+        let mut decoder = lookup_decoder();
+        let mut bytes = [text("done"), step_completed.clone(), checkpoint.clone(), heartbeat, kv_get].concat();
+        bytes.extend_from_slice(truncated);
+        let mut events = decoder.feed(&bytes).expect("decodes");
+        events.extend(decoder.finish().expect("trailing metadata truncation completes"));
+        assert!(events.iter().any(|e| matches!(e, StreamEvent::Completed { .. })));
+
+        // 3. textDelta + stepCompleted + clean END_STREAM without turnEnded completes cleanly.
+        let mut decoder = lookup_decoder();
+        let events = decoder.feed(&[text("done"), step_completed.clone(), clean_end].concat()).expect("completes on END_STREAM");
+        assert!(events.iter().any(|e| matches!(e, StreamEvent::Completed { .. })));
+
+        // 4. textDelta after stepCompleted clears step_completed_is_latest -> EOF is incomplete_stream.
+        let mut decoder = lookup_decoder();
+        decoder.feed(&[text("a"), step_completed.clone(), text("b")].concat()).expect("decodes");
+        let err = decoder.finish().expect_err("not final step");
+        assert_eq!(err.code.as_deref(), Some("incomplete_stream"));
+
+        // 5. toolCallStarted + toolCallCompleted + stepCompleted -> last output was not text -> incomplete_stream.
+        let mut decoder = lookup_decoder();
+        let tc_start = update(2, |tc| tc.string(1, "tc-1"));
+        let tc_done = update(3, |tc| tc.string(1, "tc-1"));
+        let mut bytes = [text("hi"), tc_start.clone(), tc_done, step_completed.clone()].concat();
+        bytes.extend_from_slice(truncated);
+        decoder.feed(&bytes).expect("decodes");
+        let err = decoder.finish().expect_err("tool call step is not final text step");
+        assert_eq!(err.code.as_deref(), Some("incomplete_stream"));
+
+        // 6. Open toolCallStarted + textDelta + stepCompleted -> open tool call blocks early completion.
+        let mut decoder = lookup_decoder();
+        let mut bytes = [tc_start, text("hi"), step_completed].concat();
+        bytes.extend_from_slice(truncated);
+        decoder.feed(&bytes).expect("decodes");
+        let err = decoder.finish().expect_err("open tool call blocks completion");
+        assert_eq!(err.code.as_deref(), Some("incomplete_stream"));
+
+        // 7. textDelta + turnEnded + truncated trailing repeat checkpoint -> completes cleanly.
+        let mut decoder = lookup_decoder();
+        let mut bytes = [text("finished"), turn_ended].concat();
+        bytes.extend_from_slice(truncated);
+        let mut events = decoder.feed(&bytes).expect("decodes");
+        events.extend(decoder.finish().expect("turnEnded tolerates trailing truncated frame"));
+        let out: String = events.iter().filter_map(|e| if let StreamEvent::TextDelta(t) = e { Some(t.as_str()) } else { None }).collect();
+        assert_eq!(out, "finished");
+        assert!(events.iter().any(|e| matches!(e, StreamEvent::Completed { .. })));
+    }
+
+    #[test]
+    fn cut_and_end_stream_error_tolerance_require_turn_ended_and_terminal_checkpoint() {
+        let text = |s: &str| update(1, |t| t.string(1, s));
+        let step_completed = update(17, |_| {});
+        let turn_ended = update(14, |_| {});
+        let checkpoint = frame_of(|m| m.bytes(3, b"cp"));
+        let err_end = crate::providers::connect::frame::encode(
+            br#"{"error":{"code":"unavailable","message":"post-turn disconnect"}}"#,
+            crate::providers::connect::frame::END_STREAM,
+        );
+
+        // 1. turnEnded + terminal checkpoint: can_complete_on_cut is true and trailing END_STREAM error completes cleanly.
+        let mut decoder = lookup_decoder();
+        let events = decoder
+            .feed(&[text("done"), turn_ended.clone(), checkpoint.clone(), err_end.clone()].concat())
+            .expect("END_STREAM error after terminal checkpoint completes cleanly");
+        let out: String = events.iter().filter_map(|e| if let StreamEvent::TextDelta(t) = e { Some(t.as_str()) } else { None }).collect();
+        assert_eq!(out, "done");
+        assert!(events.iter().any(|e| matches!(e, StreamEvent::Completed { .. })));
+
+        // 2. turnEnded WITHOUT terminal checkpoint: can_complete_on_cut is false and END_STREAM error fails.
+        let mut decoder = lookup_decoder();
+        let first = decoder.feed(&[text("done"), turn_ended].concat()).expect("decodes");
+        assert!(!first.is_empty());
+        assert!(!decoder.can_complete_on_cut());
+        let err = decoder.feed(&err_end).expect_err("END_STREAM error without terminal checkpoint must fail");
+        assert_eq!(err.code.as_deref(), Some("unavailable"));
+
+        // 3. stepCompleted + checkpoint WITHOUT turnEnded: can_complete_on_cut is false and END_STREAM error fails.
+        let mut decoder = lookup_decoder();
+        decoder.feed(&[text("done"), step_completed, checkpoint].concat()).expect("decodes");
+        assert!(!decoder.can_complete_on_cut());
+        let err = decoder.feed(&err_end).expect_err("END_STREAM error after stepCompleted without turnEnded must fail");
+        assert_eq!(err.code.as_deref(), Some("unavailable"));
+    }
 }
 
 impl CursorDecoder {
@@ -1068,6 +1688,14 @@ impl CursorDecoder {
             filter: ThinkFilter::default(),
             saw_turn_ended: false,
             saw_end: false,
+            step_completed_is_latest: false,
+            last_output_was_text: false,
+            open_tool_calls: HashSet::new(),
+            anonymous_open_tool_calls: 0,
+            progress_version: 0,
+            latest_checkpoint: None,
+            latest_checkpoint_progress_version: None,
+            latest_checkpoint_terminal: false,
             output_tokens: 0,
             context_tokens: None,
             pending: Vec::new(),
@@ -1110,6 +1738,7 @@ impl CursorDecoder {
                 events.push(StreamEvent::ItemStart { kind: ItemKind::Text, phase: None });
             }
             self.exposure.text_emitted = true;
+            self.last_output_was_text = true;
             events.push(StreamEvent::TextDelta(content));
         }
     }
@@ -1119,11 +1748,47 @@ impl CursorDecoder {
             self.reasoning_started = true;
             events.push(StreamEvent::ItemStart { kind: ItemKind::Reasoning, phase: None });
         }
+        self.last_output_was_text = false;
         events.push(StreamEvent::ReasoningDelta(text));
     }
 
     fn interaction(&mut self, update: InteractionUpdate, events: &mut Vec<StreamEvent>) {
         let before = events.len();
+        let heartbeat_only_update = update.is_heartbeat_only();
+        if !heartbeat_only_update {
+            self.progress_version += 1;
+        }
+        if update.step_completed
+            && update.text_delta.is_none()
+            && update.thinking_delta.is_none()
+            && update.tool_call_started.is_none()
+            && update.tool_call_completed.is_none()
+            && !update.tool_call_partial
+            && !update.turn_ended
+        {
+            self.step_completed_is_latest = true;
+        } else if !heartbeat_only_update {
+            self.step_completed_is_latest = false;
+        }
+        if let Some(call_id) = update.tool_call_started {
+            if call_id.is_empty() {
+                self.anonymous_open_tool_calls += 1;
+            } else {
+                self.open_tool_calls.insert(call_id);
+            }
+            self.last_output_was_text = false;
+        }
+        if let Some(call_id) = update.tool_call_completed {
+            if call_id.is_empty() {
+                self.anonymous_open_tool_calls = self.anonymous_open_tool_calls.saturating_sub(1);
+            } else {
+                self.open_tool_calls.remove(&call_id);
+            }
+            self.last_output_was_text = false;
+        }
+        if update.tool_call_partial {
+            self.last_output_was_text = false;
+        }
         if let Some(delta) = update.text_delta.filter(|t| !t.is_empty()) {
             let (content, reasoning) = self.filter.process(&delta);
             self.text(content, reasoning, events);
@@ -1141,15 +1806,137 @@ impl CursorDecoder {
         if let Some(listed) = update.listed {
             self.listed = Some(listed);
         }
-        self.heartbeat_only =
-            update.heartbeat && events.len() == before && update.token_delta == 0 && !update.turn_ended && !update.step_completed && update.listed.is_none();
+        self.heartbeat_only = heartbeat_only_update && events.len() == before;
         // Tokens generated with no text to show are the model working (a long think streams only them).
         if update.token_delta > 0 && events.len() == before {
             events.push(StreamEvent::Progress(ProgressKind::Semantic));
         }
         self.liveness |= update.heartbeat;
-        self.spoke |= events.len() > before;
+        self.spoke |= events.len() > before || update.token_delta > 0;
         self.output_tokens += update.token_delta.max(0) as u64;
+    }
+
+    fn can_finalize_without_turn_ended(&self) -> bool {
+        self.step_completed_is_latest
+            && self.last_output_was_text
+            && self.pending.is_empty()
+            && self.open_tool_calls.is_empty()
+            && self.anonymous_open_tool_calls == 0
+    }
+
+    /// True once `turnEnded` and its terminal checkpoint have both arrived,
+    /// so a trailing transport fault or `END_STREAM` error should finalize cleanly
+    /// instead of failing or resuming.
+    pub fn can_complete_on_cut(&self) -> bool {
+        !self.terminal && self.saw_turn_ended && self.latest_checkpoint_terminal
+    }
+
+    /// True once a Connect `END_STREAM` frame was decoded for this wire stream.
+    pub fn saw_end_stream(&self) -> bool {
+        self.saw_end
+    }
+
+    /// Latest checkpoint bytes when the checkpoint covers every frame and client
+    /// reply processed so far and predates `turnEnded`.
+    pub fn fresh_checkpoint(&self) -> Option<&[u8]> {
+        if !self.latest_checkpoint_terminal && self.pending.is_empty() && self.latest_checkpoint_progress_version == Some(self.progress_version) {
+            self.latest_checkpoint.as_deref()
+        } else {
+            None
+        }
+    }
+
+    /// Resets per-connection framing state before reopening the stream on a
+    /// checkpoint resume, preserving emitted block state, blob store, and
+    /// checkpoint freshness so an immediate cut without progress still sees the
+    /// same checkpoint for `noProgressResumes` accounting.
+    pub fn prepare_checkpoint_resume(&mut self) {
+        self.frames = FrameReader::new(MAX_CONNECT_FRAME_BYTES);
+        self.waiting.clear();
+        self.saw_end = false;
+        self.saw_turn_ended = false;
+        self.latest_checkpoint_terminal = false;
+        self.step_completed_is_latest = false;
+        self.terminal = false;
+        self.refusal = Refusal::default();
+        self.outbound.clear();
+    }
+
+    fn push_side_effect(&mut self, msg: Vec<u8>) {
+        self.progress_version += 1;
+        self.outbound.push(msg);
+    }
+
+    fn extend_side_effects(&mut self, messages: impl IntoIterator<Item = Vec<u8>>) {
+        self.progress_version += 1;
+        self.outbound.extend(messages);
+    }
+
+    fn try_handle_parked_frame(&mut self, frame: &Frame) -> Result<bool, ProviderError> {
+        if frame.is_compressed() || frame.flags != 0 {
+            return Ok(false);
+        }
+        let Ok(message) = ServerMessage::decode(&frame.payload) else {
+            return Ok(false);
+        };
+        if message.interaction.is_none()
+            && message.exec.is_none()
+            && message.checkpoint.is_none()
+            && message.exec_abort.is_none()
+            && message.query.is_none()
+            && message.unknown.is_empty()
+            && let Some(kv) = message.kv
+        {
+            self.kv(kv)?;
+            return Ok(true);
+        }
+        if message.kv.is_none()
+            && message.exec.is_none()
+            && message.checkpoint.is_none()
+            && message.exec_abort.is_none()
+            && message.query.is_none()
+            && message.unknown.is_empty()
+            && message.interaction.as_ref().is_some_and(InteractionUpdate::is_heartbeat_only)
+        {
+            self.liveness = true;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    /// Total bytes buffered in the frame reader and unread waiting queue.
+    pub fn buffered_bytes(&self) -> usize {
+        self.frames.buffered() + self.waiting.iter().map(|frame| frame.payload.len() + 5).sum::<usize>()
+    }
+
+    /// Services any pure KV or heartbeat frames already queued in `waiting`
+    /// while preserving all other frames in order.
+    pub fn drain_parked_waiting(&mut self) -> Result<(), ProviderError> {
+        let queued = std::mem::take(&mut self.waiting);
+        for frame in queued {
+            if !self.try_handle_parked_frame(&frame)? {
+                self.waiting.push_back(frame);
+            }
+        }
+        Ok(())
+    }
+
+    /// Feeds incoming bytes while the run is parked: pure KV (`getBlob` /
+    /// `setBlob`) and heartbeat frames are handled immediately, while all other
+    /// frames remain queued in order for resumption.
+    pub fn park_feed(&mut self, bytes: &[u8]) -> Result<(), ProviderError> {
+        let frames = self.frames.push(bytes).map_err(|e| {
+            let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
+            error.code = Some("protocol_error".to_owned());
+            error.message = format!("Cursor frame exceeds {} bytes", e.max);
+            error
+        })?;
+        for frame in frames {
+            if !self.try_handle_parked_frame(&frame)? {
+                self.waiting.push_back(frame);
+            }
+        }
+        Ok(())
     }
 
     /// The server's heartbeat arrived since the last call: the run is alive, which is no progress of the model.
@@ -1184,6 +1971,8 @@ impl CursorDecoder {
                 execution.answered = true;
             }
         }
+        // Writing tool results back advances the turn past any prior checkpoint.
+        self.progress_version += 1;
         // A step whose count was reached is over already; one handed over at the quiet point is still counted.
         self.resumed = self.listed.is_some() || !self.step_execs.is_empty();
         self.next_batch();
@@ -1248,7 +2037,12 @@ impl CursorDecoder {
     fn next_batch(&mut self) {
         self.terminal = false;
         self.saw_turn_ended = false;
+        self.latest_checkpoint_terminal = false;
         self.saw_end = false;
+        self.step_completed_is_latest = false;
+        self.last_output_was_text = false;
+        self.open_tool_calls.clear();
+        self.anonymous_open_tool_calls = 0;
         self.output_tokens = 0;
         self.exposure = Exposure::default();
         self.reasoning_started = false;
@@ -1258,7 +2052,7 @@ impl CursorDecoder {
     }
 
     fn reply_exec(&mut self, exec: &ExecServer, result: ExecResult, echo: ExecEcho) {
-        self.outbound.push(exec_client_message(exec.id, &exec.exec_id, &result, &echo));
+        self.push_side_effect(exec_client_message(exec.id, &exec.exec_id, &result, &echo));
     }
 
     fn unavailable(&mut self, exec: &ExecServer, kind: UnavailableKind, reason: &str, echo: ExecEcho) {
@@ -1276,7 +2070,7 @@ impl CursorDecoder {
             // answers it. One still running is answered when it ends.
             if known.answered {
                 let result = self.result_of(&known.call_id);
-                self.outbound.extend(answer::answer(exec, &result));
+                self.extend_side_effects(answer::answer(exec, &result));
             }
             return;
         }
@@ -1285,9 +2079,25 @@ impl CursorDecoder {
             pending.tool_call_id = random_uuid();
         }
         self.spoke = true;
+        self.last_output_was_text = false;
         self.executions.insert(key.clone(), Execution { call_id: pending.tool_call_id.clone(), answered: false });
         pending.exec_key = key;
         self.pending.push(pending);
+    }
+
+    fn abort_exec(&mut self, abort_id: u64) {
+        let mut aborted_keys = Vec::new();
+        self.pending.retain(|pending| {
+            if pending.exec.id == abort_id {
+                aborted_keys.push(pending.exec_key.clone());
+                false
+            } else {
+                true
+            }
+        });
+        for key in aborted_keys {
+            self.executions.remove(&key);
+        }
     }
 
     fn mcp_exec(&mut self, exec: &ExecServer) {
@@ -1366,7 +2176,7 @@ impl CursorDecoder {
             } else if let Ok(text) = String::from_utf8(a.file_bytes.clone()) {
                 text
             } else {
-                self.outbound.push(exec_client_message(
+                self.push_side_effect(exec_client_message(
                     exec.id,
                     &exec.exec_id,
                     &ExecResult::Unavailable(
@@ -1470,8 +2280,8 @@ impl CursorDecoder {
             self.unavailable(exec, K::Empty { field: 9 }, "", ExecEcho::default());
         } else {
             // A throw ends the exec's stream on this side too: the close follows it.
-            self.outbound.push(exec_throw(exec.id, "Unsupported Cursor native exec. Use a Mixdog tool instead."));
-            self.outbound.push(exec_stream_close(exec.id));
+            self.push_side_effect(exec_throw(exec.id, "Unsupported Cursor native exec. Use a Mixdog tool instead."));
+            self.push_side_effect(exec_stream_close(exec.id));
         }
     }
 
@@ -1529,7 +2339,7 @@ impl CursorDecoder {
             // while its heartbeats keep the run alive: the turn ends here.
             QueryCase::Unknown(field) => return Err(drift(&format!("Unsupported Cursor interaction query: field_{field}"))),
         };
-        self.outbound.push(interaction_response(id, reply, reason));
+        self.push_side_effect(interaction_response(id, reply, reason));
         Ok(())
     }
 
@@ -1547,13 +2357,23 @@ impl CursorDecoder {
         } else if let Some(checkpoint) = message.checkpoint {
             // The run's latest size: a batch that receives no checkpoint of its own reports the one before it, a step
             // old, so a turn that has shown a size never shows none.
+            self.progress_version += 1;
             self.context_tokens = checkpoint_used_tokens(&checkpoint).or(self.context_tokens);
+            self.latest_checkpoint = Some(checkpoint);
+            self.latest_checkpoint_progress_version = Some(self.progress_version);
+            self.latest_checkpoint_terminal = self.saw_turn_ended;
         } else if let Some(exec) = message.exec {
+            self.progress_version += 1;
+            self.step_completed_is_latest = false;
             self.exec(exec);
         } else if let Some(query) = message.query {
+            self.progress_version += 1;
+            self.step_completed_is_latest = false;
             self.query(query.id, query.case)?;
-        } else if message.exec_abort {
-            return Err(drift_named("exec_aborted", "Cursor aborted the active exec"));
+        } else if let Some(abort_id) = message.exec_abort {
+            self.progress_version += 1;
+            self.step_completed_is_latest = false;
+            self.abort_exec(abort_id);
         } else if let Some(field) = message.unknown.first() {
             return Err(drift(&format!("Unsupported Cursor server message field {field}")));
         }
@@ -1571,38 +2391,7 @@ impl CursorDecoder {
             }
         };
         let object = parsed.get("error")?.as_object()?;
-        let code = object.get("code").and_then(Value::as_str).filter(|c| !c.is_empty()).unwrap_or("error").to_ascii_lowercase();
-        let detail = object.get("message").and_then(Value::as_str).filter(|m| !m.is_empty()).unwrap_or("request failed");
-        let advice_text = |v: &Value| match v {
-            Value::String(s) => Some(s.clone()),
-            Value::Number(n) => Some(n.to_string()),
-            Value::Array(items) => items.first().and_then(|i| i.as_str().map(str::to_owned)),
-            _ => None,
-        };
-        let retry_after = object
-            .get("retryAfter")
-            .or_else(|| object.get("retry_after"))
-            .or_else(|| parsed.get("metadata").and_then(|m| m.get("retry-after")))
-            .or_else(|| parsed.get("metadata").and_then(|m| m.get("retryAfter")))
-            .and_then(advice_text)
-            .and_then(|text| advice::from_headers(&[("retry-after".to_owned(), text)], std::time::SystemTime::now()));
-        // `parseEndStream`'s `tooLarge`: a `resource_exhausted` whose text names the tool catalog or the request payload as
-        // too large is a 413 `request_too_large`, terminal before any output; rate or quota wording keeps it a throttle.
-        let too_large = code == "resource_exhausted" && !THROTTLE_CUE.is_match(detail) && REQUEST_TOO_LARGE.is_match(detail);
-        let mut error = provider_error(
-            ConnectFailure {
-                code: if too_large { String::new() } else { code.clone() },
-                message: format!("Cursor {code}: {detail}"),
-                http_status: too_large.then_some(413),
-                retry_after,
-            },
-            DeliveryState::Accepted,
-        );
-        if too_large {
-            error.code = Some("request_too_large".to_owned());
-        }
-        error.exposure = self.exposure;
-        Some(error)
+        Some(classify_error_object(object, parsed.get("metadata"), None, &[], self.exposure))
     }
 
     /// The events of a finished run.

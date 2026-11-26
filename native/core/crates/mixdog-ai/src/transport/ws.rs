@@ -171,6 +171,11 @@ impl TransportKeepalive for WsLink {
         let max_age = locked(&self.schedule).ws_max_age;
         max_age.is_none_or(|max| self.opened.elapsed() < max)
     }
+
+    fn max_age_remaining(&self) -> Option<std::time::Duration> {
+        let max_age = locked(&self.schedule).ws_max_age?;
+        Some(max_age.saturating_sub(self.opened.elapsed()))
+    }
 }
 
 struct AbortOnDrop {

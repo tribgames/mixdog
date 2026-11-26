@@ -349,3 +349,171 @@ async fn a_fallback_is_chosen_on_readings_taken_as_the_pool_switches() {
     measured.sort();
     assert_eq!(measured, [ID_B, ID_C], "the accounts it could switch to are measured, once");
 }
+
+struct CreditReadingProbe {
+    store: AccountStore,
+    has_credits: Arc<std::sync::atomic::AtomicBool>,
+    fail_probe: Arc<std::sync::atomic::AtomicBool>,
+    reset_at: i64,
+}
+
+#[async_trait]
+impl UsageProbe for CreditReadingProbe {
+    async fn measure(&self, provider: &str, account_id: &str, force: bool) {
+        let _ = self.measure_recorded(provider, account_id, force).await;
+    }
+
+    async fn measure_recorded(&self, provider: &str, account_id: &str, _force: bool) -> bool {
+        if self.fail_probe.load(std::sync::atomic::Ordering::SeqCst) {
+            return false;
+        }
+        let window = QuotaWindowInput {
+            label: "7D".into(),
+            limit: Some("codex".into()),
+            used_pct: Some(100.0),
+            reset_at: Some(self.reset_at),
+            ..QuotaWindowInput::default()
+        };
+        let has_credits = self.has_credits.load(std::sync::atomic::Ordering::SeqCst);
+        self.store.record_usage_with_credits(provider, account_id, vec![window], Some(has_credits)).await.unwrap();
+        true
+    }
+}
+
+#[tokio::test]
+async fn a_wire_quota_refusal_recorded_with_usable_credits_survives_next_turn_refreshes_and_resume_checks() {
+    use crate::service::quota_usable::{AccountReading, Measurement, quota_measurement_serves_model};
+
+    mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let s = store(&dir);
+    let pace = clock();
+    let now = pace.now_ms() as i64;
+    let reset_at = now + 18_000_000;
+    s.register("openai-oauth", ID_A, "Default", false).await.unwrap();
+    s.change("openai-oauth", AccountChange { use_credits: Some(true), ..AccountChange::default() }).await.unwrap();
+
+    let has_credits = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let fail_probe = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let probe = Arc::new(CreditReadingProbe { store: s.clone(), has_credits: has_credits.clone(), fail_probe: fail_probe.clone(), reset_at });
+    let rotation = AccountRotation::new(s.clone(), probe.clone(), pace.clone());
+    let mut send_ctx = ctx();
+    send_ctx.model = "gpt-6.2-astra".into();
+
+    // Turn 1: server returns 429 QuotaExhausted even though readings already show usable credits.
+    let mut quota_429 = refusal(ErrorKind::QuotaExhausted, 429);
+    quota_429.error.reset_at = Some(std::time::UNIX_EPOCH + std::time::Duration::from_millis(reset_at as u64));
+    let turn1 = Script::new(vec![(ID_A, vec![Err(quota_429)])]);
+    let err = rotation.pool_send("openai-oauth", &send_ctx, &turn1).await.unwrap_err();
+    assert!(err.quota_exhausted.is_some());
+    assert_eq!(turn1.calls(), [ID_A]);
+    let row = s.pool("openai-oauth").await.unwrap().account(ID_A).unwrap().clone();
+    assert_eq!(row.blocked_with_credits, Some(true));
+
+    // Turn 2: begin_loop resets probe pacing; the next send must not clear the block or hit the wire again.
+    rotation.reset_probe_pacing();
+    let turn2 = Script::new(vec![]);
+    let err = rotation.pool_send("openai-oauth", &send_ctx, &turn2).await.unwrap_err();
+    assert!(err.quota_exhausted.is_some());
+    assert!(turn2.calls().is_empty(), "a wire refusal taken under usable credits must not be re-sent next turn");
+
+    // Sidebar/statusline refresh with the same credit reading must keep the block.
+    probe.measure("openai-oauth", ID_A, true).await;
+    let pool = s.pool("openai-oauth").await.unwrap();
+    assert!(policy::account_exhausted(pool.account(ID_A).unwrap(), now, "gpt-6.2-astra", true));
+
+    // Quota-resume check must not wake a paused session into the same 429.
+    let reading = serde_json::json!({
+        "quotaWindows": [{ "label": "7D", "limit": "codex", "usedPct": 100.0, "resetAt": reset_at }],
+        "balance": { "source": "openai-codex-credits", "hasCredits": true, "unlimited": false, "remainingCredits": 570.84 }
+    });
+    assert!(
+        !quota_measurement_serves_model(
+            &Measurement::Roster { use_credits: true, accounts: vec![AccountReading { id: ID_A, reading: Some(&reading) }], pool: &pool },
+            "gpt-6.2-astra",
+            now,
+        ),
+        "quota-resume must stay paused while the server's credit-mode block holds"
+    );
+
+    // Manual policy (`auto: false`) with `use_credits: true` must also honor `blocked_with_credits`.
+    s.change("openai-oauth", AccountChange { auto: Some(false), ..AccountChange::default() }).await.unwrap();
+    let manual_pool = s.pool("openai-oauth").await.unwrap();
+    assert!(
+        !quota_measurement_serves_model(
+            &Measurement::Roster { use_credits: true, accounts: vec![AccountReading { id: ID_A, reading: Some(&reading) }], pool: &manual_pool },
+            "gpt-6.2-astra",
+            now,
+        ),
+        "manual policy must not wake paused session into a credit-mode block"
+    );
+    rotation.reset_probe_pacing();
+    let manual_turn = Script::new(vec![]);
+    assert!(rotation.pool_send("openai-oauth", &send_ctx, &manual_turn).await.is_err());
+    assert!(manual_turn.calls().is_empty());
+    s.change("openai-oauth", AccountChange { auto: Some(true), ..AccountChange::default() }).await.unwrap();
+
+    // Contrast 1: if the refusal-time usage probe fails while stale `has_credits = Some(true)` is on disk,
+    // `blocked_with_credits` must NOT be stamped so a later credit refill/measurement lifts the block.
+    s.clear_quota_state("openai-oauth", ID_A).await.unwrap();
+    probe.measure("openai-oauth", ID_A, true).await;
+    assert_eq!(s.pool("openai-oauth").await.unwrap().account(ID_A).unwrap().has_credits, Some(true));
+    fail_probe.store(true, std::sync::atomic::Ordering::SeqCst);
+    let mut unmeasured_429 = refusal(ErrorKind::QuotaExhausted, 429);
+    unmeasured_429.error.reset_at = Some(std::time::UNIX_EPOCH + std::time::Duration::from_millis(reset_at as u64));
+    let unmeasured_turn = Script::new(vec![(ID_A, vec![Err(unmeasured_429)])]);
+    assert!(rotation.pool_send("openai-oauth", &send_ctx, &unmeasured_turn).await.is_err());
+    assert_eq!(
+        s.pool("openai-oauth").await.unwrap().account(ID_A).unwrap().blocked_with_credits,
+        None,
+        "stale pre-refusal has_credits must not stamp blocked_with_credits when refusal probe fails"
+    );
+    fail_probe.store(false, std::sync::atomic::Ordering::SeqCst);
+    rotation.reset_probe_pacing();
+    let recovered_after_probe = Script::new(vec![(ID_A, vec![Ok("recovered-after-probe")])]);
+    assert!(rotation.pool_send("openai-oauth", &send_ctx, &recovered_after_probe).await.unwrap().starts_with("recovered-after-probe"));
+
+    // Contrast 2: a 429 recorded while credits were NOT usable IS contradicted and lifted once credits become usable.
+    s.clear_quota_state("openai-oauth", ID_A).await.unwrap();
+    has_credits.store(false, std::sync::atomic::Ordering::SeqCst);
+    let mut depleted_429 = refusal(ErrorKind::QuotaExhausted, 429);
+    depleted_429.error.reset_at = Some(std::time::UNIX_EPOCH + std::time::Duration::from_millis(reset_at as u64));
+    let turn3 = Script::new(vec![(ID_A, vec![Err(depleted_429)])]);
+    assert!(rotation.pool_send("openai-oauth", &send_ctx, &turn3).await.is_err());
+    assert_eq!(s.pool("openai-oauth").await.unwrap().account(ID_A).unwrap().blocked_with_credits, None);
+
+    has_credits.store(true, std::sync::atomic::Ordering::SeqCst);
+    rotation.reset_probe_pacing();
+    let turn4 = Script::new(vec![(ID_A, vec![Ok("recovered")])]);
+    assert!(rotation.pool_send("openai-oauth", &send_ctx, &turn4).await.unwrap().starts_with("recovered"));
+    assert_eq!(turn4.calls(), [ID_A]);
+}
+
+#[tokio::test]
+async fn implicit_account_with_credits_still_pre_blocks_non_credit_model_buckets() {
+    mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let s = store(&dir);
+    let pace = clock();
+    let now = pace.now_ms() as i64;
+    let reset_at = now + 18_000_000;
+    s.change("openai-oauth", AccountChange { use_credits: Some(true), ..AccountChange::default() }).await.unwrap();
+    let rotation = AccountRotation::new(s, Arc::new(NoProbe), pace);
+
+    let spark_full = super::model::Window {
+        label: "7D Spark".into(),
+        limit: Some("codex_bengalfox".into()),
+        models: Some(vec!["spark".into()]),
+        used_pct: Some(100.0),
+        reset_at: Some(reset_at),
+        ..super::model::Window::default()
+    };
+    let mut send_ctx = ctx();
+    send_ctx.model = "gpt-5-codex-spark".into();
+    send_ctx.implicit_plan_usage = Some(Account { usage: Some(super::model::Usage { windows: vec![spark_full], checked_at: now }), ..Account::new("default") });
+
+    let script = Script::new(vec![]);
+    let err = rotation.pool_send("openai-oauth", &send_ctx, &script).await.unwrap_err();
+    assert!(err.quota_exhausted.is_some());
+    assert!(script.calls().is_empty());
+}

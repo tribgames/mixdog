@@ -102,6 +102,77 @@ pub trait VoiceSettingsSource: Send + Sync {
     fn voice_section(&self) -> Value;
 }
 
+struct AttachmentState {
+    sessions: HashMap<String, std::collections::HashSet<String>>,
+    next_run: u64,
+    /// Per in-flight attachment: `(live_runs, forgotten_before_run)`.
+    in_flight: HashMap<String, (usize, u64)>,
+}
+
+impl Default for AttachmentState {
+    fn default() -> Self {
+        Self { sessions: HashMap::new(), next_run: 1, in_flight: HashMap::new() }
+    }
+}
+
+impl AttachmentState {
+    fn begin_run(&mut self, attachment_id: &str) -> u64 {
+        let run_id = self.next_run;
+        self.next_run = self.next_run.wrapping_add(1).max(1);
+        let entry = self.in_flight.entry(attachment_id.to_owned()).or_insert((0, 0));
+        entry.0 += 1;
+        run_id
+    }
+
+    fn end_run(&mut self, attachment_id: &str) {
+        if let Some(entry) = self.in_flight.get_mut(attachment_id) {
+            entry.0 = entry.0.saturating_sub(1);
+            if entry.0 == 0 {
+                self.in_flight.remove(attachment_id);
+                if self.in_flight.is_empty() {
+                    self.in_flight.shrink_to_fit();
+                }
+            }
+        }
+    }
+
+    fn invalidate_in_flight(&mut self, attachment_id: &str) {
+        if let Some(entry) = self.in_flight.get_mut(attachment_id) {
+            entry.1 = self.next_run;
+        }
+    }
+
+    fn can_cache(&self, attachment_id: &str, session_id: Option<&str>, run_id: u64) -> bool {
+        let not_forgotten = self.in_flight.get(attachment_id).is_some_and(|&(_, forgotten_before)| run_id >= forgotten_before);
+        if !not_forgotten {
+            return false;
+        }
+        match session_id {
+            Some(sid) => self.sessions.get(sid).is_some_and(|set| set.contains(attachment_id)) || self.sessions.values().any(|set| set.contains(attachment_id)),
+            None => true,
+        }
+    }
+}
+
+struct RunGuard {
+    pipeline: Arc<VoicePipeline>,
+    attachment_id: String,
+    run_id: u64,
+}
+
+impl RunGuard {
+    fn begin(pipeline: &Arc<VoicePipeline>, attachment_id: &str) -> Self {
+        let run_id = pipeline.attachments.lock().unwrap().begin_run(attachment_id);
+        Self { pipeline: Arc::clone(pipeline), attachment_id: attachment_id.to_owned(), run_id }
+    }
+}
+
+impl Drop for RunGuard {
+    fn drop(&mut self) {
+        self.pipeline.attachments.lock().unwrap().end_run(&self.attachment_id);
+    }
+}
+
 pub struct VoicePipeline {
     data_dir: PathBuf,
     manifest: RuntimeManifest,
@@ -112,6 +183,7 @@ pub struct VoicePipeline {
     transcripts: Mutex<HashMap<String, String>>,
     transcribing: SingleFlight<Result<Option<String>, VoiceError>>,
     wav_by_attachment: Mutex<HashMap<String, PathBuf>>,
+    attachments: Mutex<AttachmentState>,
     converting: SingleFlight<Result<(), VoiceError>>,
     /// The lane every file read and write of the voice path runs on.
     lane: DurabilityIo,
@@ -155,9 +227,91 @@ impl VoicePipeline {
             transcripts: Mutex::default(),
             transcribing: SingleFlight::default(),
             wav_by_attachment: Mutex::default(),
+            attachments: Mutex::default(),
             converting: SingleFlight::default(),
             lane,
         }
+    }
+
+    /// Associates an attachment with `session_id` so ending the session releases its cached entries.
+    pub fn bind_session(&self, session_id: &str, attachment_id: &str) {
+        self.attachments.lock().unwrap().sessions.entry(session_id.to_owned()).or_default().insert(attachment_id.to_owned());
+    }
+
+    /// Transcribes an attachment belonging to `session_id`, binding its lifecycle to that session.
+    pub async fn transcribe_for_session(
+        self: &Arc<Self>,
+        session_id: &str,
+        audio: &Path,
+        attachment_id: &str,
+        cancel: &CancellationToken,
+    ) -> Result<Option<String>, VoiceError> {
+        self.bind_session(session_id, attachment_id);
+        self.transcribe_inner(audio, Some(attachment_id), Some(session_id), cancel).await
+    }
+
+    /// Drops the cached transcript and converted WAV path once the attachment is sent or removed.
+    pub fn forget_attachment(&self, attachment_id: &str) {
+        let mut state = self.attachments.lock().unwrap();
+        state.sessions.retain(|_, attachments| {
+            attachments.remove(attachment_id);
+            !attachments.is_empty()
+        });
+        if state.sessions.is_empty() {
+            state.sessions.shrink_to_fit();
+        }
+        state.invalidate_in_flight(attachment_id);
+        {
+            let mut transcripts = self.transcripts.lock().unwrap();
+            transcripts.remove(attachment_id);
+            if transcripts.is_empty() {
+                transcripts.shrink_to_fit();
+            }
+        }
+        {
+            let mut wavs = self.wav_by_attachment.lock().unwrap();
+            wavs.remove(attachment_id);
+            if wavs.is_empty() {
+                wavs.shrink_to_fit();
+            }
+        }
+    }
+
+    /// Drops every cached transcript and WAV path associated with a session that ended.
+    pub fn forget_session(&self, session_id: &str) {
+        let mut state = self.attachments.lock().unwrap();
+        let removed = state.sessions.remove(session_id);
+        if state.sessions.is_empty() {
+            state.sessions.shrink_to_fit();
+        }
+        let Some(attachments) = removed else { return };
+        let orphaned: Vec<String> = attachments.into_iter().filter(|id| !state.sessions.values().any(|set| set.contains(id))).collect();
+        for id in &orphaned {
+            state.invalidate_in_flight(id);
+        }
+        {
+            let mut transcripts = self.transcripts.lock().unwrap();
+            for id in &orphaned {
+                transcripts.remove(id);
+            }
+            if transcripts.is_empty() {
+                transcripts.shrink_to_fit();
+            }
+        }
+        {
+            let mut wavs = self.wav_by_attachment.lock().unwrap();
+            for id in &orphaned {
+                wavs.remove(id);
+            }
+            if wavs.is_empty() {
+                wavs.shrink_to_fit();
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn cache_counts(&self) -> (usize, usize) {
+        (self.transcripts.lock().unwrap().len(), self.wav_by_attachment.lock().unwrap().len())
     }
 
     pub fn lane(&self) -> DurabilityIo {
@@ -237,13 +391,24 @@ impl VoicePipeline {
     /// attachment share one run, and the run (and its whisper request) is cancelled when the last
     /// of them has left.
     pub async fn transcribe(self: &Arc<Self>, audio: &Path, attachment_id: Option<&str>, cancel: &CancellationToken) -> Result<Option<String>, VoiceError> {
-        match Scope::new().cancel(cancel).run(self.transcribe_gated(audio, attachment_id)).await {
+        self.transcribe_inner(audio, attachment_id, None, cancel).await
+    }
+
+    async fn transcribe_inner(
+        self: &Arc<Self>,
+        audio: &Path,
+        attachment_id: Option<&str>,
+        session_id: Option<&str>,
+        cancel: &CancellationToken,
+    ) -> Result<Option<String>, VoiceError> {
+        match Scope::new().cancel(cancel).run(self.transcribe_gated(audio, attachment_id, session_id)).await {
             Scoped::Done(result) => result,
             Scoped::Cancelled | Scoped::DeadlineExceeded => Err(VoiceError("transcribe: cancelled".into())),
         }
     }
 
-    async fn transcribe_gated(self: &Arc<Self>, audio: &Path, attachment_id: Option<&str>) -> Result<Option<String>, VoiceError> {
+    async fn transcribe_gated(self: &Arc<Self>, audio: &Path, attachment_id: Option<&str>, session_id: Option<&str>) -> Result<Option<String>, VoiceError> {
+        let run_guard = attachment_id.map(|id| RunGuard::begin(self, id));
         let settings = self.settings();
         let max_bytes = settings.max_file_size_mb * 1024.0 * 1024.0;
         if max_bytes > 0.0 {
@@ -261,29 +426,33 @@ impl VoicePipeline {
             return Ok(None);
         }
         let Some(id) = attachment_id else {
-            return Arc::clone(self).transcribe_uncached(audio.to_owned(), None).await;
+            return Arc::clone(self).transcribe_uncached(audio.to_owned(), None, None).await;
         };
+        let run_guard = run_guard.expect("started when attachment_id is Some");
         if let Some(text) = self.transcripts.lock().unwrap().get(id).cloned() {
             return Ok(Some(text));
         }
-        let (this, audio, key) = (Arc::clone(self), audio.to_owned(), id.to_owned());
-        self.transcribing.run(id, move || this.transcribe_uncached(audio, Some(key))).await
+        let (this, audio, session) = (Arc::clone(self), audio.to_owned(), session_id.map(str::to_owned));
+        self.transcribing.run(id, move || this.transcribe_uncached(audio, Some(run_guard), session)).await
     }
 
-    async fn transcribe_uncached(self: Arc<Self>, audio: PathBuf, attachment_id: Option<String>) -> Result<Option<String>, VoiceError> {
-        let attachment_id = attachment_id.as_deref();
+    async fn transcribe_uncached(self: Arc<Self>, audio: PathBuf, run: Option<RunGuard>, session_id: Option<String>) -> Result<Option<String>, VoiceError> {
+        let session_id = session_id.as_deref();
         let settings = self.settings();
         let (runtime, contract) = self.contract(&settings).await?;
         let language = self.language(&settings);
-        let wav = self.ensure_wav(&audio, attachment_id, &runtime, &settings).await?;
+        let wav = self.ensure_wav(&audio, run.as_ref(), session_id, &runtime, &settings).await?;
         self.engine.ensure_ready(&contract).await?;
         let text = self.engine.transcribe(&wav, Some(&language)).await?;
         let text = mixdog_js::js_trim(&text);
         if text.is_empty() {
             return Ok(None);
         }
-        if let Some(id) = attachment_id {
-            self.transcripts.lock().unwrap().insert(id.to_owned(), text.to_owned());
+        if let Some(run) = &run {
+            let state = self.attachments.lock().unwrap();
+            if state.can_cache(&run.attachment_id, session_id, run.run_id) {
+                self.transcripts.lock().unwrap().insert(run.attachment_id.clone(), text.to_owned());
+            }
         }
         Ok(Some(text.to_owned()))
     }
@@ -291,10 +460,12 @@ impl VoicePipeline {
     async fn ensure_wav(
         self: &Arc<Self>,
         audio: &Path,
-        attachment_id: Option<&str>,
+        run: Option<&RunGuard>,
+        session_id: Option<&str>,
         runtime: &VoiceRuntime,
         settings: &VoiceSettings,
     ) -> Result<PathBuf, VoiceError> {
+        let attachment_id = run.map(|r| r.attachment_id.as_str());
         if let Some(id) = attachment_id {
             let cached = self.wav_by_attachment.lock().unwrap().get(id).cloned();
             if let Some(path) = cached {
@@ -318,8 +489,11 @@ impl VoicePipeline {
                 on_lane(lane, move || pad_wav(&padded)).await.map_err(|e| VoiceError(e.to_string()))?
             })
             .await?;
-        if let Some(id) = attachment_id {
-            self.wav_by_attachment.lock().unwrap().insert(id.to_owned(), wav.clone());
+        if let Some(run) = run {
+            let state = self.attachments.lock().unwrap();
+            if state.can_cache(&run.attachment_id, session_id, run.run_id) {
+                self.wav_by_attachment.lock().unwrap().insert(run.attachment_id.clone(), wav.clone());
+            }
         }
         Ok(wav)
     }
@@ -548,5 +722,214 @@ pub(crate) mod tests {
         let (p, _, engine) = pipeline(dir.path(), json!({}), FakeTools::default(), FakeEngine { text: "  ".into(), ..Default::default() });
         assert_eq!(p.transcribe(&audio, Some("e"), &CancellationToken::new()).await.unwrap(), None);
         assert_eq!(engine.runs.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn forgetting_an_attachment_or_ending_its_session_releases_transcript_and_wav() {
+        let dir = tempfile::tempdir().unwrap();
+        install(dir.path());
+        let a1 = dir.path().join("a1.ogg");
+        let a2 = dir.path().join("a2.ogg");
+        let a3 = dir.path().join("a3.ogg");
+        for path in [&a1, &a2, &a3] {
+            std::fs::write(path, b"audio").unwrap();
+        }
+        let (p, _, _) = pipeline(dir.path(), json!({}), FakeTools::default(), FakeEngine { text: "hello".into(), ..Default::default() });
+        p.transcribe(&a1, Some("att-sent"), &CancellationToken::new()).await.unwrap();
+        p.transcribe_for_session("sess-1", &a2, "att-s1", &CancellationToken::new()).await.unwrap();
+        p.transcribe_for_session("sess-2", &a3, "att-s2", &CancellationToken::new()).await.unwrap();
+        assert_eq!(p.cache_counts(), (3, 3));
+
+        // Attachment sent or removed.
+        p.forget_attachment("att-sent");
+        assert_eq!(p.cache_counts(), (2, 2));
+
+        // Session 1 ends: its entries go while session 2's live attachment stays.
+        p.forget_session("sess-1");
+        assert_eq!(p.cache_counts(), (1, 1));
+        assert!(p.transcripts.lock().unwrap().contains_key("att-s2"));
+
+        // Session 2 ends: everything is released.
+        p.forget_session("sess-2");
+        assert_eq!(p.cache_counts(), (0, 0));
+    }
+
+    #[tokio::test]
+    async fn forgetting_mid_flight_does_not_leak_wav_or_transcript_cache_entries() {
+        struct GatedTools {
+            entered: Arc<tokio::sync::Notify>,
+            release: Arc<tokio::sync::Notify>,
+            gate_convert: bool,
+        }
+        #[async_trait]
+        impl AudioTools for GatedTools {
+            async fn convert_to_wav(&self, _: &Path, _: &Path, wav: &Path, rate: u32, _: u32, _: usize) -> Result<(), VoiceError> {
+                if self.gate_convert {
+                    self.entered.notify_one();
+                    self.release.notified().await;
+                }
+                let mut w = b"RIFF\0\0\0\0WAVEfmt ".to_vec();
+                w.extend(16u32.to_le_bytes());
+                w.extend([1, 0, 1, 0]);
+                w.extend(rate.to_le_bytes());
+                w.extend((rate * 2).to_le_bytes());
+                w.extend([2, 0, 16, 0]);
+                w.extend(b"data");
+                w.extend(2u32.to_le_bytes());
+                w.extend([9, 0]);
+                std::fs::write(wav, w).unwrap();
+                Ok(())
+            }
+            async fn probe_duration_sec(&self, _: &Path) -> Option<f64> {
+                None
+            }
+        }
+        struct GatedEngine {
+            entered: Arc<tokio::sync::Notify>,
+            release: Arc<tokio::sync::Notify>,
+            gate_transcribe: bool,
+        }
+        #[async_trait]
+        impl WhisperEngine for GatedEngine {
+            async fn ensure_ready(&self, _: &ServerContract) -> Result<(), VoiceError> {
+                Ok(())
+            }
+            async fn transcribe(&self, _: &Path, _: Option<&str>) -> Result<String, VoiceError> {
+                if self.gate_transcribe {
+                    self.entered.notify_one();
+                    self.release.notified().await;
+                }
+                Ok("transcribed text".into())
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        install(dir.path());
+
+        // Case 1: forget_session runs while convert_to_wav is in flight -> neither wav nor transcript is cached.
+        let a1 = dir.path().join("mid1.ogg");
+        std::fs::write(&a1, b"audio").unwrap();
+        let conv_entered = Arc::new(tokio::sync::Notify::new());
+        let conv_release = Arc::new(tokio::sync::Notify::new());
+        let p1 = Arc::new(VoicePipeline::new(
+            dir.path().to_path_buf(),
+            manifest(),
+            Arc::new(Fixed(json!({}))),
+            Arc::new(GatedEngine { entered: Arc::new(tokio::sync::Notify::new()), release: Arc::new(tokio::sync::Notify::new()), gate_transcribe: false }),
+            Arc::new(GatedTools { entered: conv_entered.clone(), release: conv_release.clone(), gate_convert: true }),
+            mixdog_rt::testing::tokens().durability_io,
+        ));
+        let task1 = {
+            let p = Arc::clone(&p1);
+            let a = a1.clone();
+            tokio::spawn(async move { p.transcribe_for_session("sess-1", &a, "att-1", &CancellationToken::new()).await })
+        };
+        conv_entered.notified().await;
+        p1.forget_session("sess-1");
+        conv_release.notify_one();
+        assert_eq!(task1.await.unwrap().unwrap().as_deref(), Some("transcribed text"));
+        assert_eq!(p1.cache_counts(), (0, 0), "mid-flight forget_session must not leave orphaned wav or transcript");
+
+        // Case 2: forget_attachment runs while engine.transcribe is in flight -> neither wav nor transcript survives.
+        let a2 = dir.path().join("mid2.ogg");
+        std::fs::write(&a2, b"audio").unwrap();
+        let tx_entered = Arc::new(tokio::sync::Notify::new());
+        let tx_release = Arc::new(tokio::sync::Notify::new());
+        let p2 = Arc::new(VoicePipeline::new(
+            dir.path().to_path_buf(),
+            manifest(),
+            Arc::new(Fixed(json!({}))),
+            Arc::new(GatedEngine { entered: tx_entered.clone(), release: tx_release.clone(), gate_transcribe: true }),
+            Arc::new(GatedTools { entered: Arc::new(tokio::sync::Notify::new()), release: Arc::new(tokio::sync::Notify::new()), gate_convert: false }),
+            mixdog_rt::testing::tokens().durability_io,
+        ));
+        let task2 = {
+            let p = Arc::clone(&p2);
+            let a = a2.clone();
+            tokio::spawn(async move { p.transcribe_for_session("sess-2", &a, "att-2", &CancellationToken::new()).await })
+        };
+        tx_entered.notified().await;
+        p2.forget_attachment("att-2");
+        tx_release.notify_one();
+        assert_eq!(task2.await.unwrap().unwrap().as_deref(), Some("transcribed text"));
+        assert_eq!(p2.cache_counts(), (0, 0), "mid-flight forget_attachment must not leave orphaned transcript");
+
+        // Case 3: session-less transcribe(..., Some(id), ...) (e.g. one-shot dictation) + mid-flight forget_attachment
+        // during convert_to_wav -> neither wav nor transcript leaks, and in_flight tracking clears.
+        let a3 = dir.path().join("mid3.ogg");
+        std::fs::write(&a3, b"audio").unwrap();
+        let d_conv_entered = Arc::new(tokio::sync::Notify::new());
+        let d_conv_release = Arc::new(tokio::sync::Notify::new());
+        let p3 = Arc::new(VoicePipeline::new(
+            dir.path().to_path_buf(),
+            manifest(),
+            Arc::new(Fixed(json!({}))),
+            Arc::new(GatedEngine { entered: Arc::new(tokio::sync::Notify::new()), release: Arc::new(tokio::sync::Notify::new()), gate_transcribe: false }),
+            Arc::new(GatedTools { entered: d_conv_entered.clone(), release: d_conv_release.clone(), gate_convert: true }),
+            mixdog_rt::testing::tokens().durability_io,
+        ));
+        let task3 = {
+            let p = Arc::clone(&p3);
+            let a = a3.clone();
+            tokio::spawn(async move { p.transcribe(&a, Some("dictation-1"), &CancellationToken::new()).await })
+        };
+        d_conv_entered.notified().await;
+        p3.forget_attachment("dictation-1");
+        d_conv_release.notify_one();
+        assert_eq!(task3.await.unwrap().unwrap().as_deref(), Some("transcribed text"));
+        assert_eq!(p3.cache_counts(), (0, 0), "session-less transcribe + mid-flight forget_attachment during convert must not leak");
+        assert!(p3.attachments.lock().unwrap().in_flight.is_empty());
+
+        // Case 4: session-less transcribe(..., Some(id), ...) + mid-flight forget_attachment during engine.transcribe
+        // -> already-cached wav is dropped and finished transcript is not inserted.
+        let a4 = dir.path().join("mid4.ogg");
+        std::fs::write(&a4, b"audio").unwrap();
+        let d_tx_entered = Arc::new(tokio::sync::Notify::new());
+        let d_tx_release = Arc::new(tokio::sync::Notify::new());
+        let p4 = Arc::new(VoicePipeline::new(
+            dir.path().to_path_buf(),
+            manifest(),
+            Arc::new(Fixed(json!({}))),
+            Arc::new(GatedEngine { entered: d_tx_entered.clone(), release: d_tx_release.clone(), gate_transcribe: true }),
+            Arc::new(GatedTools { entered: Arc::new(tokio::sync::Notify::new()), release: Arc::new(tokio::sync::Notify::new()), gate_convert: false }),
+            mixdog_rt::testing::tokens().durability_io,
+        ));
+        let task4 = {
+            let p = Arc::clone(&p4);
+            let a = a4.clone();
+            tokio::spawn(async move { p.transcribe(&a, Some("dictation-2"), &CancellationToken::new()).await })
+        };
+        d_tx_entered.notified().await;
+        p4.forget_attachment("dictation-2");
+        d_tx_release.notify_one();
+        assert_eq!(task4.await.unwrap().unwrap().as_deref(), Some("transcribed text"));
+        assert_eq!(p4.cache_counts(), (0, 0), "session-less transcribe + mid-flight forget_attachment during transcribe must not leak");
+        assert!(p4.attachments.lock().unwrap().in_flight.is_empty());
+
+        // Case 5: bind_session + session-less transcribe + mid-flight forget_session -> neither wav nor transcript leaks.
+        let a5 = dir.path().join("mid5.ogg");
+        std::fs::write(&a5, b"audio").unwrap();
+        let b_tx_entered = Arc::new(tokio::sync::Notify::new());
+        let b_tx_release = Arc::new(tokio::sync::Notify::new());
+        let p5 = Arc::new(VoicePipeline::new(
+            dir.path().to_path_buf(),
+            manifest(),
+            Arc::new(Fixed(json!({}))),
+            Arc::new(GatedEngine { entered: b_tx_entered.clone(), release: b_tx_release.clone(), gate_transcribe: true }),
+            Arc::new(GatedTools { entered: Arc::new(tokio::sync::Notify::new()), release: Arc::new(tokio::sync::Notify::new()), gate_convert: false }),
+            mixdog_rt::testing::tokens().durability_io,
+        ));
+        p5.bind_session("sess-bound", "att-bound");
+        let task5 = {
+            let p = Arc::clone(&p5);
+            let a = a5.clone();
+            tokio::spawn(async move { p.transcribe(&a, Some("att-bound"), &CancellationToken::new()).await })
+        };
+        b_tx_entered.notified().await;
+        p5.forget_session("sess-bound");
+        b_tx_release.notify_one();
+        assert_eq!(task5.await.unwrap().unwrap().as_deref(), Some("transcribed text"));
+        assert_eq!(p5.cache_counts(), (0, 0), "bind_session + transcribe + mid-flight forget_session must not leak");
+        assert!(p5.attachments.lock().unwrap().in_flight.is_empty());
     }
 }

@@ -168,3 +168,17 @@ async fn a_single_wire_model_is_asked_its_route_once() {
     }
     assert_eq!(link.calls.load(Ordering::SeqCst), 1);
 }
+
+#[tokio::test]
+async fn proxied_adapter_resolves_vision_policy_from_pc_traits() {
+    let vision = stand_in(pc(Vec::new(), None));
+    assert!(mixdog_image_egress::route::resolve(&vision.image_route(&hi()).await).policy().vision);
+
+    let text_only = ProxiedAdapter::new(
+        "mixdog-local",
+        w::ProxyTraits { takes_images: Some(false), ..Default::default() },
+        Arc::new(pc(Vec::new(), None)),
+        Arc::new(NoStore),
+    );
+    assert!(!mixdog_image_egress::route::resolve(&text_only.image_route(&hi()).await).policy().vision);
+}

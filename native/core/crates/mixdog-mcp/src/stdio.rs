@@ -244,26 +244,45 @@ async fn write_loop(mut stdin: tokio::process::ChildStdin, mut rx: mpsc::Unbound
     }
 }
 
+/// Line buffer capacity kept between reads; anything larger is returned to the allocator after the line is parsed.
+const LINE_RETAIN_BYTES: usize = 64 * 1024;
+
+fn reset_line_buffer(line: &mut Vec<u8>) {
+    line.clear();
+    if line.capacity() > LINE_RETAIN_BYTES {
+        *line = Vec::new();
+    }
+}
+
+async fn read_next_line<R: tokio::io::AsyncRead + Unpin>(reader: &mut BufReader<R>, line: &mut Vec<u8>) -> std::io::Result<usize> {
+    reset_line_buffer(line);
+    reader.read_until(b'\n', line).await
+}
+
 async fn read_loop(stdout: tokio::process::ChildStdout, tx: IncomingTx) {
     let mut reader = BufReader::new(stdout);
     let mut line = Vec::new();
     loop {
-        line.clear();
-        match reader.read_until(b'\n', &mut line).await {
+        match read_next_line(&mut reader, &mut line).await {
             Ok(0) | Err(_) => return,
             Ok(_) => {}
         }
         let trimmed = line.trim_ascii();
         if trimmed.is_empty() {
+            reset_line_buffer(&mut line);
             continue;
         }
         match serde_json::from_slice::<Value>(trimmed) {
             Ok(message) => {
+                reset_line_buffer(&mut line);
                 if tx.send(Incoming::Message(message)).is_err() {
                     return;
                 }
             }
-            Err(error) => tracing::warn!(%error, "mcp stdio: line is not JSON"),
+            Err(error) => {
+                reset_line_buffer(&mut line);
+                tracing::warn!(%error, "mcp stdio: line is not JSON");
+            }
         }
     }
 }
@@ -311,6 +330,9 @@ impl Redactor {
     fn release(&mut self, cut: usize, ranges: &[std::ops::Range<usize>]) -> String {
         let out = crate::config::redact(&self.held, self.hidden, cut, ranges);
         self.held.drain(..cut);
+        if self.held.capacity() > LINE_RETAIN_BYTES && self.held.len() <= LINE_RETAIN_BYTES {
+            self.held.shrink_to(LINE_RETAIN_BYTES);
+        }
         self.hidden = 0;
         out
     }
@@ -741,6 +763,21 @@ mod tests {
         sink.write("boom\n");
         sink.end("last words");
         assert_eq!(*tail.lock().unwrap(), "boom\nlast words");
+    }
+
+    #[tokio::test]
+    async fn stdio_line_buffer_returns_capacity_after_an_oversized_line() {
+        let huge = format!("{{\"payload\":\"{}\"}}\n{{\"ok\":true}}\n", "a".repeat(512 * 1024));
+        let mut reader = BufReader::new(std::io::Cursor::new(huge.into_bytes()));
+        let mut line = Vec::new();
+        let n = read_next_line(&mut reader, &mut line).await.unwrap();
+        assert!(n > 512 * 1024);
+        assert!(line.capacity() >= 512 * 1024);
+        reset_line_buffer(&mut line);
+        assert!(line.capacity() <= LINE_RETAIN_BYTES, "capacity stayed at {}", line.capacity());
+        let n2 = read_next_line(&mut reader, &mut line).await.unwrap();
+        assert!(n2 > 0);
+        assert!(line.capacity() <= LINE_RETAIN_BYTES, "capacity stayed at {}", line.capacity());
     }
 
     /// A child that floods stderr and ignores its closed stdin, with a log whose writer blocks until the test releases it:

@@ -216,9 +216,9 @@ struct Inner {
     store: Arc<FactsStore>,
     queue: CommandQueue,
     slots: Mutex<HashMap<String, Arc<PageSlot>>>,
-    /// The state each download was last reported in, by any page: downloads belong to the session (their ids are the host's, never
-    /// repeated), each page keeps its own cursor.
-    download_reports: Mutex<DownloadReports>,
+    /// The state each download was last reported in, scoped per session: downloads belong to the session (their ids are the host's,
+    /// never repeated), each page keeps its own cursor, and `forget_session` clears the session's entry.
+    download_reports: Mutex<HashMap<String, DownloadReports>>,
     directory: Mutex<Directory>,
     tasks: Mutex<TaskPages>,
     commands: AtomicU64,
@@ -947,11 +947,15 @@ impl BrowserEngine {
     /// The session is released: the pages it owned are no longer tracked, and the host forgets what it remembered of it.
     pub async fn forget_session(&self, thread: &ThreadId) {
         locked(&self.inner.tasks).forget(thread.as_str());
+        locked(&self.inner.download_reports).remove(thread.as_str());
         // The session's pages are gone with it, and so is the person's hold on them (`releaseLocal`): a hold left behind would
         // refuse the next agent command on a page id the host never reuses, and keep a record for ever.
-        if let Some(held) = locked(&self.inner.directory).sessions.remove(thread.as_str()) {
+        // Release the directory lock before `drop_page`, which also locks `directory`.
+        let held = locked(&self.inner.directory).sessions.remove(thread.as_str());
+        if let Some(held) = held {
             for page_id in held.current.iter().chain(held.backgrounds.values()) {
                 self.inner.ports.hold.release_page(page_id);
+                self.inner.drop_page(page_id);
             }
         }
         self.inner.turn_note(thread, BrowserTurnOp::Forget, None, false).await;

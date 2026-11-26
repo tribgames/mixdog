@@ -25,8 +25,8 @@ pub enum Idle {
     /// An HTTP/2 connection is shared by every request: `id` is its creation number.
     H2 { id: u64, send: h2::client::SendRequest<Bytes> },
     /// The client `slot` (an h1 connection's `born`) whose socket has ended ([`Conn`]'s drop): free, in its place in the
-    /// order, and connected again by the request that takes it.
-    Vacant { slot: u64 },
+    /// order, and connected again by the request that takes it until its keep-alive (`until`, `stamp`) runs out.
+    Vacant { slot: u64, until: Instant, stamp: u64 },
 }
 
 impl Idle {
@@ -34,7 +34,7 @@ impl Idle {
     fn slot(&self) -> Option<u64> {
         match self {
             Idle::H1 { conn, .. } => Some(conn.born),
-            Idle::Vacant { slot } => Some(*slot),
+            Idle::Vacant { slot, .. } => Some(*slot),
             Idle::H2 { .. } => None,
         }
     }
@@ -450,6 +450,67 @@ mod tests {
         assert_eq!(pool.idle_count("k"), 0, "not kept under the old route");
         assert_eq!(eof(&mut far).await, 0, "the peer sees the close");
     }
+
+    #[tokio::test(start_paused = true)]
+    async fn closed_h1_vacant_host_keys_are_pruned_after_keep_alive() {
+        let pool = Arc::new(Pool::default());
+        let (near, _far) = tokio::io::duplex(64);
+        let mut conn = Conn::open(Box::new(near), pool.birth(), pool.generation()).await.unwrap();
+        conn.track(&pool, "closed-host");
+        conn.flight = Some(pool.begin());
+        drop(conn);
+        pool.settled().await;
+        assert!(pool.has_key("closed-host"));
+        assert_eq!(pool.idle_count("closed-host"), 1);
+
+        tokio::time::advance(Duration::from_secs(59)).await;
+        tokio::task::yield_now().await;
+        assert!(pool.has_key("closed-host"), "vacant slot stays inside keep-alive");
+
+        tokio::time::advance(Duration::from_secs(2)).await;
+        tokio::task::yield_now().await;
+        assert!(!pool.has_key("closed-host"), "closed H1 host key must be pruned once vacant keep-alive expires");
+        assert_eq!(pool.idle_count("closed-host"), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn vacant_slot_preserves_active_h1_order_then_yields_to_live_socket_after_expiry() {
+        let pool = Arc::new(Pool::default());
+
+        // Inside keep-alive: an older closed client keeps its slot ahead of a newer idle socket.
+        let (near1, _far1) = tokio::io::duplex(64);
+        let (near2, _far2) = tokio::io::duplex(64);
+        let mut c1 = Conn::open(Box::new(near1), pool.birth(), pool.generation()).await.unwrap();
+        let born1 = c1.born;
+        c1.track(&pool, "active-order");
+        c1.flight = Some(pool.begin());
+        let c2 = Conn::open(Box::new(near2), pool.birth(), pool.generation()).await.unwrap();
+        let born2 = c2.born;
+        drop(c1);
+        pool.settled().await;
+        pool.put_h1("active-order".into(), c2, Duration::from_secs(90));
+        let Some(Taken::Vacant(slot)) = pool.checkout("active-order") else { panic!("older vacant slot first") };
+        assert_eq!(slot, born1);
+        let Some(Taken::H1(live)) = pool.checkout("active-order") else { panic!("newer live socket next") };
+        assert_eq!(live.born, born2);
+
+        // Past keep-alive: the expired vacant slot is pruned and the remaining live socket is reused.
+        let (near3, _far3) = tokio::io::duplex(64);
+        let (near4, _far4) = tokio::io::duplex(64);
+        let mut c3 = Conn::open(Box::new(near3), pool.birth(), pool.generation()).await.unwrap();
+        c3.track(&pool, "expired-order");
+        c3.flight = Some(pool.begin());
+        let c4 = Conn::open(Box::new(near4), pool.birth(), pool.generation()).await.unwrap();
+        let born4 = c4.born;
+        drop(c3);
+        pool.settled().await;
+        pool.put_h1("expired-order".into(), c4, Duration::from_secs(90));
+        tokio::time::advance(Duration::from_secs(61)).await;
+        tokio::task::yield_now().await;
+        let Some(Taken::H1(reused)) = pool.checkout("expired-order") else { panic!("live socket reused after vacant slot expired") };
+        assert_eq!(reused.born, born4);
+        assert!(!pool.has_key("expired-order"));
+    }
 }
 
 impl Pool {
@@ -549,11 +610,27 @@ impl Pool {
     }
 
     /// The client `slot` of `key`, whose connection opened under route `generation`, has lost its socket: it is free and
-    /// keeps its place ([`Idle::Vacant`]), unless the route has changed since.
-    pub fn vacate(&self, key: String, slot: u64, generation: u64) {
-        let mut state = self.lock();
-        if state.generation == generation {
-            insert_ordered(state.idle.entry(key).or_default(), Idle::Vacant { slot });
+    /// keeps its place ([`Idle::Vacant`]) for `KEEP_ALIVE`, unless the route has changed since.
+    pub fn vacate(self: &Arc<Self>, key: String, slot: u64, generation: u64) {
+        let until = Instant::now() + super::KEEP_ALIVE;
+        let stamp = self.birth();
+        let inserted = {
+            let mut state = self.lock();
+            if state.generation == generation {
+                insert_ordered(state.idle.entry(key.clone()).or_default(), Idle::Vacant { slot, until, stamp });
+                true
+            } else {
+                false
+            }
+        };
+        if inserted && tokio::runtime::Handle::try_current().is_ok() {
+            let pool: Weak<Self> = Arc::downgrade(self);
+            tokio::spawn(async move {
+                mixdog_rt::time::sleep_until(until).await;
+                if let Some(pool) = pool.upgrade() {
+                    pool.expire(&key, stamp);
+                }
+            });
         }
     }
 
@@ -623,12 +700,12 @@ impl Pool {
         drop(gone);
     }
 
-    /// The idle period `stamp` of `key` is over: its connection closes.
+    /// The idle period `stamp` of `key` is over: its connection closes, or its vacant slot is pruned.
     fn expire(&self, key: &str, stamp: u64) {
         let gone = {
             let mut state = self.lock();
             let Some(list) = state.idle.get_mut(key) else { return };
-            let at = list.iter().position(|idle| matches!(idle, Idle::H1 { stamp: s, .. } if *s == stamp));
+            let at = list.iter().position(|idle| matches!(idle, Idle::H1 { stamp: s, .. } | Idle::Vacant { stamp: s, .. } if *s == stamp));
             let gone = at.map(|at| list.remove(at));
             if list.is_empty() {
                 state.idle.remove(key);
@@ -699,10 +776,12 @@ impl Pool {
     /// ended (closed or past its keep-alive), to be connected again. It is chosen at once, as undici's pool picks a free
     /// client inside `dispatch`, so a request after this one in the same turn finds it busy.
     pub fn checkout(self: &Arc<Self>, key: &str) -> Option<Taken> {
+        let now = Instant::now();
         let found = {
             let mut state = self.lock();
             let State { idle, h2, .. } = &mut *state;
             let list = idle.get_mut(key)?;
+            list.retain(|idle| !matches!(idle, Idle::Vacant { until, .. } if now >= *until));
             let found = match list.first() {
                 Some(Idle::H2 { id, send }) => {
                     // The stream is counted open, and an armed idle timer outdated, before the lock is let go.
@@ -725,7 +804,7 @@ impl Pool {
         match found? {
             Idle::H1 { conn, until, .. } if Instant::now() < until && !conn.is_closed() => Some(Taken::H1(conn)),
             Idle::H1 { conn, .. } => Some(Taken::Vacant(conn.into_slot())),
-            Idle::Vacant { slot } => Some(Taken::Vacant(slot)),
+            Idle::Vacant { slot, .. } => Some(Taken::Vacant(slot)),
             Idle::H2 { id, send } => Some(Taken::H2 { id, send, guard: H2Guard { pool: self.clone(), key: key.to_owned(), id, conn: None } }),
         }
     }
@@ -733,6 +812,11 @@ impl Pool {
     #[cfg(test)]
     pub fn idle_count(&self, key: &str) -> usize {
         self.lock().idle.get(key).map_or(0, Vec::len)
+    }
+
+    #[cfg(test)]
+    pub fn has_key(&self, key: &str) -> bool {
+        self.lock().idle.contains_key(key)
     }
 
     /// The idle period an HTTP/2 connection's armed timer belongs to.

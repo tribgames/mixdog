@@ -1,13 +1,14 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex, Weak};
+use std::time::Duration;
 
 use base64::Engine as _;
 use mixdog_rt::MaintenanceIo;
 use serde_json::{Value, json};
-use tokio::sync::Semaphore;
+use tokio::sync::{Notify, Semaphore};
+use tokio::time::Instant;
 
 use crate::lane::on_lane;
 use mixdog_js::device_paths::{is_unc_path, is_windows_device_path};
@@ -132,6 +133,7 @@ struct View {
     filters: Filters,
     titles: Option<Arc<HashMap<String, String>>>,
     candidate_ids: Vec<String>,
+    candidate_set: Arc<HashSet<String>>,
     member_ids: Vec<String>,
     selectable_ids: Vec<String>,
     projects: Vec<(String, usize)>,
@@ -145,6 +147,27 @@ struct State {
     /// canonical path → (stamp key, metadata)
     meta: HashMap<PathBuf, (String, Meta)>,
     views: Vec<View>,
+    pinned: HashMap<String, usize>,
+    picked: HashMap<String, Instant>,
+    /// Lower bound on the earliest expiry across `views` and `picked`, or `None` when both are empty.
+    earliest_expiry: Option<Instant>,
+    in_flight_scans: usize,
+    expiry_armed: bool,
+    #[cfg(test)]
+    sweep_count: usize,
+    #[cfg(test)]
+    expiry_scan_count: usize,
+}
+
+impl State {
+    fn retains_candidate(&self, id: &str) -> bool {
+        self.in_flight_scans > 0 || self.views.iter().any(|v| v.candidate_set.contains(id)) || self.pinned.contains_key(id) || self.picked.contains_key(id)
+    }
+
+    fn record_expiry(&mut self, touched_at: Instant) {
+        let exp = touched_at + VIEW_TTL;
+        self.earliest_expiry = Some(self.earliest_expiry.map_or(exp, |cur| cur.min(exp)));
+    }
 }
 
 pub struct Discovery {
@@ -156,6 +179,59 @@ pub struct Discovery {
     permits: Semaphore,
     /// The lane enumeration, prefix reads and conversions run on.
     lane: MaintenanceIo,
+    expiry_wake: Arc<Notify>,
+}
+
+impl Drop for Discovery {
+    fn drop(&mut self) {
+        self.expiry_wake.notify_one();
+    }
+}
+
+/// Keeps an active import job's candidates resident even if the listing view expires while the job runs.
+pub(crate) struct CandidatePin {
+    discovery: Weak<Discovery>,
+    ids: Vec<String>,
+}
+
+impl Drop for CandidatePin {
+    fn drop(&mut self) {
+        if let Some(discovery) = self.discovery.upgrade() {
+            let mut state = discovery.state.lock().unwrap();
+            let mut unpinned = false;
+            for id in &self.ids {
+                if let Some(count) = state.pinned.get_mut(id) {
+                    *count = count.saturating_sub(1);
+                    if *count == 0 {
+                        state.pinned.remove(id);
+                        unpinned = true;
+                    }
+                }
+            }
+            if !Discovery::prune_expired_views(&mut state) && unpinned {
+                Discovery::sweep_unretained(&mut state);
+            }
+        }
+    }
+}
+
+struct ScanGuard<'a>(&'a Discovery);
+
+impl<'a> ScanGuard<'a> {
+    fn begin(discovery: &'a Discovery) -> Self {
+        discovery.state.lock().unwrap().in_flight_scans += 1;
+        Self(discovery)
+    }
+}
+
+impl Drop for ScanGuard<'_> {
+    fn drop(&mut self) {
+        let mut state = self.0.state.lock().unwrap();
+        state.in_flight_scans = state.in_flight_scans.saturating_sub(1);
+        if state.in_flight_scans == 0 && !Discovery::prune_expired_views(&mut state) {
+            Discovery::sweep_unretained(&mut state);
+        }
+    }
 }
 
 fn fold_text(value: &str) -> String {
@@ -442,7 +518,39 @@ impl Discovery {
 
     /// `scan_max_bytes` overrides the per-file budget of a sidechain-only scan.
     pub fn with_scan_budget(env: Env, scan_max_bytes: u64, lane: MaintenanceIo) -> Arc<Self> {
-        Arc::new(Self { env, scan_max_bytes, state: Mutex::default(), metas: SingleFlight::default(), permits: Semaphore::new(META_CONCURRENCY), lane })
+        Arc::new(Self {
+            env,
+            scan_max_bytes,
+            state: Mutex::default(),
+            metas: SingleFlight::default(),
+            permits: Semaphore::new(META_CONCURRENCY),
+            lane,
+            expiry_wake: Arc::new(Notify::new()),
+        })
+    }
+
+    pub(crate) fn pin_candidates(self: &Arc<Self>, ids: &[String]) -> CandidatePin {
+        let mut state = self.state.lock().unwrap();
+        for id in ids {
+            *state.pinned.entry(id.clone()).or_default() += 1;
+        }
+        CandidatePin { discovery: Arc::downgrade(self), ids: ids.to_vec() }
+    }
+
+    /// Closes an open listing view and releases cached candidates and metadata when no view remains.
+    pub fn close_view(&self, view_id: &str) {
+        let mut state = self.state.lock().unwrap();
+        let before = state.views.len();
+        state.views.retain(|v| v.id != view_id);
+        let removed = state.views.len() < before;
+        if state.views.is_empty() && state.picked.is_empty() {
+            state.earliest_expiry = None;
+        }
+        if !Self::prune_expired_views(&mut state) && removed {
+            Self::sweep_unretained(&mut state);
+        }
+        drop(state);
+        self.expiry_wake.notify_one();
     }
 
     pub fn env(&self) -> &Env {
@@ -529,7 +637,11 @@ impl Discovery {
                 let meta = read.unwrap_or_else(|_| Err(ImportError::new("unreadable"))).unwrap_or_else(|e| Meta { error_code: Some(e.0), ..Meta::default() });
                 // A read that never ran is not cached: "unreadable" would stick to the file's stamp.
                 if ran {
-                    this.state.lock().unwrap().meta.insert(cand.path.clone(), (cand.stamp_key(), meta.clone()));
+                    let mut state = this.state.lock().unwrap();
+                    Self::prune_expired_views(&mut state);
+                    if state.retains_candidate(&cand.id) {
+                        state.meta.insert(cand.path.clone(), (cand.stamp_key(), meta.clone()));
+                    }
                 }
                 meta
             })
@@ -572,21 +684,142 @@ impl Discovery {
             .collect()
     }
 
-    fn prune_views(state: &mut State) {
+    fn compute_next_expiry(state: &State) -> Option<Instant> {
+        state.views.iter().map(|v| v.touched_at + VIEW_TTL).chain(state.picked.values().map(|at| *at + VIEW_TTL)).min()
+    }
+
+    fn next_expiry(state: &State) -> Option<Instant> {
+        state.earliest_expiry
+    }
+
+    fn arm_expiry(self: &Arc<Self>) {
+        let mut state = self.state.lock().unwrap();
+        if Self::next_expiry(&state).is_none() {
+            return;
+        }
+        if state.expiry_armed {
+            drop(state);
+            self.expiry_wake.notify_one();
+            return;
+        }
+        state.expiry_armed = true;
+        drop(state);
+        let weak = Arc::downgrade(self);
+        let wake = self.expiry_wake.clone();
+        mixdog_rt::spawn("import.discovery-expiry", mixdog_rt::TaskClass::Work, async move {
+            loop {
+                let Some(discovery) = weak.upgrade() else { return };
+                let next = {
+                    let mut state = discovery.state.lock().unwrap();
+                    Self::prune_expired_views(&mut state);
+                    match Self::next_expiry(&state) {
+                        Some(at) => at,
+                        None => {
+                            state.expiry_armed = false;
+                            return;
+                        }
+                    }
+                };
+                let target = next + Duration::from_millis(1);
+                drop(discovery);
+                tokio::select! {
+                    _ = mixdog_rt::time::sleep_until(target) => {}
+                    _ = wake.notified() => {}
+                }
+            }
+        });
+    }
+
+    fn sweep_unretained(state: &mut State) {
+        if state.in_flight_scans > 0 {
+            return;
+        }
+        #[cfg(test)]
+        {
+            state.sweep_count += 1;
+        }
+        if state.views.is_empty() && state.pinned.is_empty() && state.picked.is_empty() {
+            state.candidates.clear();
+            state.candidates.shrink_to_fit();
+            state.meta.clear();
+            state.meta.shrink_to_fit();
+            return;
+        }
+        let State { candidates, meta, views, pinned, picked, .. } = state;
+        candidates.retain(|id, _| views.iter().any(|v| v.candidate_set.contains(id)) || pinned.contains_key(id) || picked.contains_key(id));
+        let keep_paths: HashSet<&Path> = candidates.values().map(|c| c.path.as_path()).collect();
+        meta.retain(|path, _| keep_paths.contains(path.as_path()));
+        if candidates.is_empty() {
+            candidates.shrink_to_fit();
+        }
+        if meta.is_empty() {
+            meta.shrink_to_fit();
+        }
+    }
+
+    /// Removes expired/evicted views and expired picked files, sweeping unretained candidates/meta
+    /// only when at least one entry was removed.
+    fn prune_expired_views(state: &mut State) -> bool {
         let now = Instant::now();
-        state.views.retain(|v| now.duration_since(v.touched_at) <= VIEW_TTL);
+        let has_expired = state.earliest_expiry.is_some_and(|exp| now > exp);
+        let over_capacity = state.views.len() > MAX_VIEWS;
+        if !has_expired && !over_capacity {
+            return false;
+        }
+        let views_before = state.views.len();
+        let picked_before = state.picked.len();
+        if has_expired {
+            #[cfg(test)]
+            {
+                state.expiry_scan_count += 1;
+            }
+            state.views.retain(|v| now.saturating_duration_since(v.touched_at) <= VIEW_TTL);
+            state.picked.retain(|_, at| now.saturating_duration_since(*at) <= VIEW_TTL);
+        }
         while state.views.len() > MAX_VIEWS {
             state.views.remove(0);
         }
+        if has_expired {
+            state.earliest_expiry = Self::compute_next_expiry(state);
+        }
+        let removed = state.views.len() < views_before || state.picked.len() < picked_before;
+        if removed {
+            Self::sweep_unretained(state);
+        }
+        removed
     }
 
     /// A live listing view, or an error when it expired (membership is never re-derived).
     fn require_view(&self, view_id: &str) -> Result<View, ImportError> {
         let mut state = self.state.lock().unwrap();
-        Self::prune_views(&mut state);
+        Self::prune_expired_views(&mut state);
         let view = state.views.iter_mut().find(|v| v.id == view_id).ok_or_else(|| ImportError::new("viewExpired"))?;
         view.touched_at = Instant::now();
-        Ok(view.clone())
+        let cloned = view.clone();
+        drop(state);
+        self.expiry_wake.notify_one();
+        Ok(cloned)
+    }
+
+    /// Atomically validates `view_id` and snapshots its retained `(Candidate, Option<Meta>)` entries.
+    fn require_view_entries(&self, view_id: &str) -> Result<(View, Vec<(Candidate, Option<Meta>)>), ImportError> {
+        let mut state = self.state.lock().unwrap();
+        Self::prune_expired_views(&mut state);
+        let view = state.views.iter_mut().find(|v| v.id == view_id).ok_or_else(|| ImportError::new("viewExpired"))?;
+        view.touched_at = Instant::now();
+        let cloned = view.clone();
+        let entries = cloned
+            .candidate_ids
+            .iter()
+            .filter_map(|id| {
+                let candidate = state.candidates.get(id)?.clone();
+                let meta = state.meta.get(&candidate.path).filter(|(stamp, _)| *stamp == candidate.stamp_key()).map(|(_, m)| m.clone());
+                Some((candidate, meta))
+            })
+            .collect();
+        drop(state);
+        self.expiry_wake.notify_one();
+        Ok((cloned, entries))
     }
 
     async fn page_result(&self, view: &View, offset: usize, limit: usize, imported: &Imported) -> Value {
@@ -637,6 +870,7 @@ impl Discovery {
             needle: mixdog_js::js_trim(&fold_text(&params.query)).to_owned(),
             project: params.project.as_ref().map(|p| mixdog_js::js_trim(p).to_owned()).filter(|p| !p.is_empty()),
         };
+        let _scan = ScanGuard::begin(self);
         let (root, candidates) = self.enumerate(source).await?;
         let titles = self.load_stored_titles(source).await;
         // Background metadata for everything, newest first; the first page is awaited.
@@ -649,7 +883,9 @@ impl Discovery {
             }
         }
         let candidate_ids: Vec<String> = candidates.iter().map(|c| c.id.clone()).collect();
+        let candidate_set = Arc::new(candidate_ids.iter().cloned().collect());
         let filtered = self.filter(&candidate_ids, &filters, imported, titles.clone()).await;
+        let touched_at = Instant::now();
         let view = View {
             id: uuid::Uuid::new_v4().to_string(),
             source,
@@ -657,17 +893,20 @@ impl Discovery {
             filters,
             titles,
             candidate_ids,
+            candidate_set,
             member_ids: filtered.member_ids,
             selectable_ids: filtered.selectable_ids,
             projects: filtered.projects,
             complete: filtered.complete,
-            touched_at: Instant::now(),
+            touched_at,
         };
         {
             let mut state = self.state.lock().unwrap();
             state.views.push(view.clone());
-            Self::prune_views(&mut state);
+            state.record_expiry(touched_at);
+            Self::prune_expired_views(&mut state);
         }
+        self.arm_expiry();
         Ok(self.page_result(&view, 0, limit, imported).await)
     }
 
@@ -686,16 +925,20 @@ impl Discovery {
     /// every candidate the view enumerated is resolved, re-applies the view's filters, then drops
     /// `exclude_ids` and already-imported conversations. An expired view is rejected.
     pub async fn resolve_view_selection(self: &Arc<Self>, view_id: &str, exclude_ids: &[String], imported: &Imported) -> Result<Vec<String>, ImportError> {
-        let view = self.require_view(view_id)?;
-        let candidates: Vec<Candidate> = {
-            let state = self.state.lock().unwrap();
-            view.candidate_ids.iter().filter_map(|id| state.candidates.get(id).cloned()).collect()
-        };
+        let (_, initial) = self.require_view_entries(view_id)?;
+        let candidates: Vec<Candidate> = initial.into_iter().map(|(c, _)| c).collect();
         for handle in self.spawn_resolve(&candidates) {
             let _ = handle.await;
         }
-        let ids: Vec<String> = candidates.iter().map(|c| c.id.clone()).collect();
-        let filtered = self.filter(&ids, &view.filters, imported, view.titles.clone()).await;
+        let (view, entries) = self.require_view_entries(view_id)?;
+        let (filters, imported, titles) = (view.filters, imported.clone(), view.titles);
+        let filtered = on_lane(self.lane, move || filter_candidates(&entries, &filters, &imported, titles.as_deref())).await.unwrap_or(Filtered {
+            member_ids: Vec::new(),
+            selectable_ids: Vec::new(),
+            projects: Vec::new(),
+            complete: false,
+        });
+        self.require_view(view_id)?;
         let excluded: HashSet<&String> = exclude_ids.iter().collect();
         Ok(filtered.selectable_ids.into_iter().filter(|id| !excluded.contains(id)).collect())
     }
@@ -725,6 +968,7 @@ impl Discovery {
         if is_unc_path(&real.to_string_lossy()) || is_windows_device_path(&real.to_string_lossy()) || !meta.is_file() || !pickable(&real) {
             return Err(ImportError::new("unsupported"));
         }
+        let _scan = ScanGuard::begin(self);
         let mut candidate = Candidate::for_file(source, None, real, meta.len());
         candidate.mtime_ms = mtime_ms(&meta);
         let candidate = self.register(candidate);
@@ -733,6 +977,13 @@ impl Discovery {
             return Err(ImportError::new(code));
         }
         self.record_conversion(&candidate, &converted);
+        {
+            let mut state = self.state.lock().unwrap();
+            let now = Instant::now();
+            state.picked.insert(candidate.id.clone(), now);
+            state.record_expiry(now);
+        }
+        self.arm_expiry();
         let titles = self.load_stored_titles(source).await;
         let meta = self.cached_meta(&candidate);
         let cwd = on_lane(self.lane, {
@@ -766,5 +1017,273 @@ mod lane_tests {
         let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
         assert!(discovery.list_conversations(&params, &Imported::default()).await.is_err());
         assert!(discovery.state.lock().unwrap().views.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn candidates_and_meta_are_released_when_no_import_view_remains() {
+        let dir = tempfile::tempdir().unwrap();
+        let projects = dir.path().join("projects").join("demo");
+        std::fs::create_dir_all(&projects).unwrap();
+        let line = json!({
+            "type": "user",
+            "sessionId": "sess-1",
+            "cwd": dir.path().to_string_lossy(),
+            "message": {"role": "user", "content": "hello import"}
+        });
+        std::fs::write(projects.join("chat.jsonl"), format!("{line}\n")).unwrap();
+        let env = Env { home: dir.path().to_path_buf(), claude_config_dir: Some(dir.path().to_string_lossy().into_owned()), ..Env::default() };
+        let discovery = Discovery::new(env, mixdog_rt::testing::tokens().maintenance_io);
+        let params = ListParams { source: Some(Source::Claude), ..ListParams::default() };
+
+        let listed = discovery.list_conversations(&params, &Imported::default()).await.unwrap();
+        let view_id = listed["viewId"].as_str().expect("viewId").to_owned();
+        {
+            let state = discovery.state.lock().unwrap();
+            assert!(!state.candidates.is_empty());
+            assert!(!state.meta.is_empty());
+        }
+
+        // Closing the only open view releases candidates and meta immediately.
+        discovery.close_view(&view_id);
+        {
+            let state = discovery.state.lock().unwrap();
+            assert!(state.candidates.is_empty(), "candidates must be released when no view is open");
+            assert!(state.meta.is_empty(), "meta must be released when no view is open");
+        }
+
+        // Opening another view and letting VIEW_TTL pass releases them automatically without another call.
+        discovery.list_conversations(&params, &Imported::default()).await.unwrap();
+        assert!(!discovery.state.lock().unwrap().candidates.is_empty());
+        tokio::time::advance(VIEW_TTL + Duration::from_secs(1)).await;
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        let state = discovery.state.lock().unwrap();
+        assert!(state.views.is_empty());
+        assert!(state.candidates.is_empty(), "candidates must expire with the last view");
+        assert!(state.meta.is_empty(), "meta must expire with the last view");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn detached_resolve_meta_does_not_repopulate_meta_after_view_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let projects = dir.path().join("projects").join("demo");
+        std::fs::create_dir_all(&projects).unwrap();
+        let line = json!({
+            "type": "user",
+            "sessionId": "sess-detached",
+            "cwd": dir.path().to_string_lossy(),
+            "message": {"role": "user", "content": "detached meta"}
+        });
+        std::fs::write(projects.join("chat.jsonl"), format!("{line}\n")).unwrap();
+        let env = Env { home: dir.path().to_path_buf(), claude_config_dir: Some(dir.path().to_string_lossy().into_owned()), ..Env::default() };
+        let discovery = Discovery::new(env, mixdog_rt::testing::tokens().maintenance_io);
+        let params = ListParams { source: Some(Source::Claude), ..ListParams::default() };
+
+        let listed = discovery.list_conversations(&params, &Imported::default()).await.unwrap();
+        let view_id = listed["viewId"].as_str().expect("viewId").to_owned();
+        let cand = discovery.state.lock().unwrap().candidates.values().next().cloned().expect("candidate");
+        discovery.state.lock().unwrap().meta.clear();
+
+        // Block resolve_meta at the permit pool until after the view is closed.
+        let held = discovery.permits.acquire_many(META_CONCURRENCY as u32).await.unwrap();
+        let task = tokio::spawn({
+            let discovery = discovery.clone();
+            let cand = cand.clone();
+            async move { discovery.resolve_meta(&cand).await }
+        });
+        tokio::task::yield_now().await;
+
+        discovery.close_view(&view_id);
+        drop(held);
+        let _ = task.await.unwrap();
+
+        let state = discovery.state.lock().unwrap();
+        assert!(state.candidates.is_empty());
+        assert!(state.meta.is_empty(), "detached resolve_meta must not repopulate meta after close_view");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn resolve_view_selection_returns_view_expired_when_view_expires_or_evicts_mid_resolve() {
+        let dir = tempfile::tempdir().unwrap();
+        let projects = dir.path().join("projects").join("demo");
+        std::fs::create_dir_all(&projects).unwrap();
+        for idx in 0..3 {
+            let line = json!({
+                "type": "user",
+                "sessionId": format!("sess-sel-{idx}"),
+                "cwd": dir.path().to_string_lossy(),
+                "message": {"role": "user", "content": format!("select all {idx}")}
+            });
+            std::fs::write(projects.join(format!("chat-{idx}.jsonl")), format!("{line}\n")).unwrap();
+        }
+        let env = Env { home: dir.path().to_path_buf(), claude_config_dir: Some(dir.path().to_string_lossy().into_owned()), ..Env::default() };
+        let discovery = Discovery::new(env, mixdog_rt::testing::tokens().maintenance_io);
+        let params = ListParams { source: Some(Source::Claude), ..ListParams::default() };
+
+        // Active view resolves complete selection.
+        let listed = discovery.list_conversations(&params, &Imported::default()).await.unwrap();
+        let view_id = listed["viewId"].as_str().unwrap().to_owned();
+        let selected = discovery.resolve_view_selection(&view_id, &[], &Imported::default()).await.unwrap();
+        assert_eq!(selected.len(), 3);
+
+        // View expires while resolve_view_selection is awaiting metadata reads -> viewExpired, not Ok([]).
+        discovery.state.lock().unwrap().meta.clear();
+        let held = discovery.permits.acquire_many(META_CONCURRENCY as u32).await.unwrap();
+        let task = tokio::spawn({
+            let discovery = discovery.clone();
+            let view_id = view_id.clone();
+            async move { discovery.resolve_view_selection(&view_id, &[], &Imported::default()).await }
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(VIEW_TTL + Duration::from_secs(1)).await;
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        drop(held);
+        let err = task.await.unwrap().expect_err("expired view must fail with viewExpired");
+        assert_eq!(err.0, "viewExpired");
+
+        // View closed/evicted while resolve_view_selection is awaiting metadata reads -> viewExpired.
+        let listed2 = discovery.list_conversations(&params, &Imported::default()).await.unwrap();
+        let view_id2 = listed2["viewId"].as_str().unwrap().to_owned();
+        discovery.state.lock().unwrap().meta.clear();
+        let held = discovery.permits.acquire_many(META_CONCURRENCY as u32).await.unwrap();
+        let task2 = tokio::spawn({
+            let discovery = discovery.clone();
+            let view_id2 = view_id2.clone();
+            async move { discovery.resolve_view_selection(&view_id2, &[], &Imported::default()).await }
+        });
+        tokio::task::yield_now().await;
+        discovery.close_view(&view_id2);
+        drop(held);
+        let err2 = task2.await.unwrap().expect_err("evicted/closed view must fail with viewExpired");
+        assert_eq!(err2.0, "viewExpired");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn background_resolve_meta_does_not_redundantly_sweep_active_views() {
+        let dir = tempfile::tempdir().unwrap();
+        let projects = dir.path().join("projects").join("demo");
+        std::fs::create_dir_all(&projects).unwrap();
+        let count = 16;
+        for idx in 0..count {
+            let line = json!({
+                "type": "user",
+                "sessionId": format!("sess-bg-{idx}"),
+                "cwd": dir.path().to_string_lossy(),
+                "message": {"role": "user", "content": format!("bg meta {idx}")}
+            });
+            std::fs::write(projects.join(format!("chat-{idx:02}.jsonl")), format!("{line}\n")).unwrap();
+        }
+        let env = Env { home: dir.path().to_path_buf(), claude_config_dir: Some(dir.path().to_string_lossy().into_owned()), ..Env::default() };
+        let discovery = Discovery::new(env, mixdog_rt::testing::tokens().maintenance_io);
+        let params = ListParams { source: Some(Source::Claude), limit: Some(1), ..ListParams::default() };
+
+        let listed = discovery.list_conversations(&params, &Imported::default()).await.unwrap();
+        let view_id = listed["viewId"].as_str().unwrap().to_owned();
+        let candidates: Vec<Candidate> = discovery.state.lock().unwrap().candidates.values().cloned().collect();
+        assert_eq!(candidates.len(), count);
+
+        // Clear cached meta and run resolve_meta for every candidate while the view is active and no scan guard is held.
+        let sweeps_before = {
+            let mut state = discovery.state.lock().unwrap();
+            assert_eq!(state.in_flight_scans, 0);
+            state.meta.clear();
+            state.sweep_count
+        };
+        for cand in &candidates {
+            let _ = discovery.resolve_meta(cand).await;
+        }
+        {
+            let state = discovery.state.lock().unwrap();
+            assert_eq!(state.meta.len(), count, "all active view metadata must be cached");
+            assert_eq!(state.sweep_count, sweeps_before, "active-view resolve_meta completions must not trigger redundant sweeps");
+        }
+
+        // Closing the view still sweeps and releases candidates/meta immediately.
+        discovery.close_view(&view_id);
+        let state = discovery.state.lock().unwrap();
+        assert_eq!(state.sweep_count, sweeps_before + 1);
+        assert!(state.candidates.is_empty());
+        assert!(state.meta.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn picked_files_and_uncached_resolve_meta_skip_expiry_scans_within_ttl_then_prune_after() {
+        let dir = tempfile::tempdir().unwrap();
+        let projects = dir.path().join("projects").join("demo");
+        let picked_dir = dir.path().join("picked");
+        std::fs::create_dir_all(&projects).unwrap();
+        std::fs::create_dir_all(&picked_dir).unwrap();
+
+        let count = 16;
+        let mut picked_paths = Vec::with_capacity(count);
+        for idx in 0..count {
+            let line = json!({
+                "type": "user",
+                "sessionId": format!("sess-list-{idx}"),
+                "cwd": dir.path().to_string_lossy(),
+                "message": {"role": "user", "content": format!("listed {idx}")}
+            });
+            std::fs::write(projects.join(format!("chat-{idx:02}.jsonl")), format!("{line}\n")).unwrap();
+
+            let picked_line = json!({
+                "type": "user",
+                "sessionId": format!("sess-pick-{idx}"),
+                "cwd": dir.path().to_string_lossy(),
+                "message": {"role": "user", "content": format!("picked {idx}")}
+            });
+            let picked_path = picked_dir.join(format!("picked-{idx:02}.jsonl"));
+            std::fs::write(&picked_path, format!("{picked_line}\n")).unwrap();
+            picked_paths.push(picked_path);
+        }
+
+        let env = Env { home: dir.path().to_path_buf(), claude_config_dir: Some(dir.path().to_string_lossy().into_owned()), ..Env::default() };
+        let discovery = Discovery::new(env, mixdog_rt::testing::tokens().maintenance_io);
+
+        for path in &picked_paths {
+            discovery.register_file(Source::Claude, &path.to_string_lossy(), &Imported::default(), Limits::default()).await.unwrap();
+        }
+        let params = ListParams { source: Some(Source::Claude), limit: Some(1), ..ListParams::default() };
+        let listed = discovery.list_conversations(&params, &Imported::default()).await.unwrap();
+        let view_id = listed["viewId"].as_str().unwrap().to_owned();
+
+        let (listed_candidates, scans_before, sweeps_before) = {
+            let mut state = discovery.state.lock().unwrap();
+            assert_eq!(state.picked.len(), count);
+            let view = state.views.iter().find(|v| v.id == view_id).unwrap();
+            let cands: Vec<Candidate> = view.candidate_ids.iter().filter_map(|id| state.candidates.get(id).cloned()).collect();
+            for cand in &cands {
+                state.meta.remove(&cand.path);
+            }
+            (cands, state.expiry_scan_count, state.sweep_count)
+        };
+        assert_eq!(listed_candidates.len(), count);
+
+        // Complete uncached resolve_meta across all candidates within TTL: strictly O(1) fast path (no expiry scan, no sweep).
+        tokio::time::advance(VIEW_TTL / 2).await;
+        for cand in &listed_candidates {
+            let _ = discovery.resolve_meta(cand).await;
+        }
+        {
+            let state = discovery.state.lock().unwrap();
+            assert_eq!(state.expiry_scan_count, scans_before, "uncached resolve_meta within TTL must not scan picked/views");
+            assert_eq!(state.sweep_count, sweeps_before, "uncached resolve_meta within TTL must not sweep");
+            assert_eq!(state.picked.len(), count);
+            assert_eq!(state.views.len(), 1);
+        }
+
+        // Once TTL elapses, both views and picked files are pruned and their candidates/meta are released.
+        tokio::time::advance(VIEW_TTL + Duration::from_secs(1)).await;
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        let state = discovery.state.lock().unwrap();
+        assert!(state.expiry_scan_count > scans_before, "expiry scan must run once TTL elapses");
+        assert!(state.views.is_empty());
+        assert!(state.picked.is_empty());
+        assert!(state.candidates.is_empty());
+        assert!(state.meta.is_empty());
     }
 }

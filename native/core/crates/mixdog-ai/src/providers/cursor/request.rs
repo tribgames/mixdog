@@ -619,6 +619,35 @@ pub fn build_prepared(prepared: Prepared, selection: &ModelSelection, conversati
     Ok(RunBuild { message, blobs, tools, cloud_rule })
 }
 
+/// Builds an `AgentClientMessage` resuming an interrupted turn from a
+/// server-emitted `ConversationStateStructure` checkpoint verbatim.
+pub fn build_checkpoint_resume(
+    checkpoint: Vec<u8>,
+    tools: &[McpToolDefinition],
+    cloud_rule: Option<&str>,
+    selection: &ModelSelection,
+    conversation_id: &str,
+) -> Result<Vec<u8>, ProviderError> {
+    let context = request_context(tools, cloud_rule);
+    let message = RunRequest {
+        conversation_state: checkpoint,
+        action: Action::Resume { context },
+        conversation_id: conversation_id.to_owned(),
+        model_id: if matches!(selection.model_id.to_ascii_lowercase().as_str(), "auto" | "default") {
+            "default".to_owned()
+        } else {
+            selection.model_id.clone()
+        },
+        max_mode: selection.max_mode,
+        parameters: selection.parameters.clone(),
+    }
+    .encode();
+    if message.len() > MAX_CONNECT_FRAME_BYTES {
+        return Err(too_large("frame", MAX_CONNECT_FRAME_BYTES));
+    }
+    Ok(message)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

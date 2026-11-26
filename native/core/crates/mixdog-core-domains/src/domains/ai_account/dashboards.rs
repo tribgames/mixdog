@@ -48,6 +48,18 @@ fn scope_key(options: &Value) -> String {
     ids.join(",")
 }
 
+fn has_elapsed_reset(dashboard: &Value, now: i64) -> bool {
+    dashboard.get("rows").and_then(Value::as_array).is_some_and(|rows| {
+        rows.iter().any(|row| {
+            row.get("windows").and_then(Value::as_array).is_some_and(|windows| {
+                windows.iter().any(|window| {
+                    window.get("resetAt").and_then(Value::as_f64).is_some_and(|reset_at| reset_at.is_finite() && reset_at > 0.0 && reset_at <= now as f64)
+                })
+            })
+        })
+    })
+}
+
 impl Dashboards {
     pub fn new(setup: Arc<dyn SetupSource>) -> Arc<Self> {
         Arc::new(Self { setup, cache: Mutex::default() })
@@ -93,17 +105,16 @@ impl Dashboards {
         let force_setup = options.get("force") == Some(&Value::Bool(true)) || (refresh_usage && options.get("refreshSetup") != Some(&Value::Bool(false)));
         {
             let cache = self.cache();
-            if !force_setup && !refresh_usage && cache.dashboard.is_some() {
-                return Ok(self.cached(&cache));
-            }
-            let scope = scope_key(options);
-            if refresh_usage
-                && !force_setup
-                && scope.is_empty()
-                && let (Some(_), Some(live)) = (&cache.dashboard, cache.live_at)
-                && now - live < USAGE_REFRESH_REUSE_MS
+            if let Some(cached) = &cache.dashboard
+                && !has_elapsed_reset(cached, now)
             {
-                return Ok(self.cached(&cache));
+                if !force_setup && !refresh_usage {
+                    return Ok(self.cached(&cache));
+                }
+                let scope = scope_key(options);
+                if refresh_usage && !force_setup && scope.is_empty() && cache.live_at.is_some_and(|live| now - live < USAGE_REFRESH_REUSE_MS) {
+                    return Ok(self.cached(&cache));
+                }
             }
         }
         let dashboard = self.build(options, refresh_usage, force_setup, sources, accounts, now).await?;

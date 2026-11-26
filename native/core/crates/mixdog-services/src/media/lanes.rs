@@ -71,7 +71,7 @@ fn grok_video() -> Value {
 }
 
 fn gemini_image_controls() -> Value {
-    json!({ "aspectRatio": ["auto", "1:1", "16:9", "9:16", "4:3", "3:4"], "maxReferences": 3 })
+    json!({ "aspectRatio": ["auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"], "maxReferences": 3 })
 }
 
 fn lanes() -> Vec<LaneDef> {

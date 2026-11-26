@@ -24,7 +24,6 @@ use serde_json::json;
 use super::codec::antigravity_user_agent;
 use super::serving::FLEX_MODELS;
 use super::serving::PRIORITY_MODELS;
-use super::serving::listed_locations;
 use super::traits::ModelTraits;
 use super::traits::ThinkingControl;
 
@@ -52,8 +51,6 @@ fn truthy(value: Option<&Value>) -> bool {
 fn count(value: &Value) -> Option<u64> {
     value.as_f64().filter(|n| n.is_finite() && *n > 0.0).map(|n| n.floor() as u64)
 }
-
-use mixdog_js::json_number as number;
 
 // Gemini API
 
@@ -162,29 +159,15 @@ impl GeminiRow {
         })
     }
 
-    fn json(&self) -> Value {
-        json!({
-            "id": self.id,
-            "display": self.display,
-            "family": self.family,
-            "provider": "gemini",
-            "contextWindow": self.context_window,
-            "outputTokens": self.output_tokens,
-            "tier": "version",
-            "latest": self.latest,
-            "description": self.description,
-        })
-    }
-
     fn record(&self) -> ModelRecord {
         let mut record = ModelRecord::new(self.id.clone());
         record.display_name = Some(self.display.clone());
+        record.family = Some(self.family.to_owned());
         record.context_window = count(&self.context_window);
         record.max_output_tokens = count(&self.output_tokens);
         record.picker.tier = Some("version".to_owned());
         record.picker.latest = self.latest;
         record.picker.description = Some(self.description.clone());
-        record.raw = Some(self.json());
         record
     }
 }
@@ -333,7 +316,7 @@ pub fn discovered_id<'a>(publisher: &str, model: &'a Value) -> Option<&'a str> {
 
 /// Vertex AI's fixed table, with the hand-written facts of each row.
 pub fn vertex_table() -> Vec<ModelRecord> {
-    VERTEX_MODELS.iter().map(|&(id, name, window, family)| vertex_record(id, name, window, family, None)).collect()
+    VERTEX_MODELS.iter().map(|&(id, name, window, family)| vertex_record(id, name, window, family)).collect()
 }
 
 /// The models the publisher listings found that `table` lacks, in listing order; `found` is
@@ -346,7 +329,7 @@ pub fn vertex_discovered(found: &[(&str, Value)], table: &[ModelRecord]) -> Vec<
             continue;
         }
         let family = ["opus", "sonnet", "haiku", "fable"].into_iter().find(|f| *publisher == "anthropic" && id.contains(f));
-        let mut record = vertex_record(id, id, None, family, Some(model));
+        let mut record = vertex_record(id, id, None, family);
         // The catalog names it when it knows the model; the id stands in when it does not.
         record.display_name = None;
         record.name = None;
@@ -355,42 +338,21 @@ pub fn vertex_discovered(found: &[(&str, Value)], table: &[ModelRecord]) -> Vec<
     added
 }
 
-fn vertex_record(id: &str, name: &str, context_window: Option<u64>, family: Option<&str>, found: Option<&Value>) -> ModelRecord {
-    let mut row = Map::new();
-    row.insert("id".into(), json!(id));
-    row.insert("name".into(), json!(name));
-    if let Some(family) = family {
-        row.insert("family".into(), json!(family));
-    }
-    if let Some(window) = context_window {
-        row.insert("contextWindow".into(), json!(window));
-    }
-    if let Some(locations) = listed_locations(id) {
-        row.insert("locations".into(), json!(locations));
-    }
-    for key in ["versionId", "launchStage"] {
-        if let Some(value) = found.and_then(|model| model.get(key)).filter(|value| value.is_string()) {
-            row.insert(key.into(), value.clone());
-        }
-    }
-    row.insert("provider".into(), json!("vertex-ai"));
+fn vertex_record(id: &str, name: &str, context_window: Option<u64>, family: Option<&str>) -> ModelRecord {
     let mut record = ModelRecord::new(id);
     record.display_name = Some(name.to_owned());
     record.name = Some(name.to_owned());
+    record.family = family.map(str::to_owned);
     record.context_window = context_window;
     // The picker offers effort only from a declared ladder, and a tier only where `serving_problem` allows it; both
     // are keyed by id, so a discovered model gets them only when the tables name it.
     if let Some(levels) = documented_levels(id) {
-        row.insert("supportsReasoning".into(), json!(true));
-        row.insert("reasoningOptions".into(), json!([{"type": "effort", "values": levels}]));
         record.supports_reasoning = Some(true);
         record.picker.reasoning_options = vec![ReasoningOption { kind: "effort".into(), values: levels }];
     }
     if let Some(option) = tier_option(id) {
-        row.insert("modelParameterOptions".into(), json!([option]));
         record.picker.model_parameter_options = vec![option];
     }
-    record.raw = Some(Value::Object(row));
     record
 }
 
@@ -535,7 +497,7 @@ pub fn antigravity_family(roster: &[ModelRecord], model: &str) -> Option<String>
         return family.map(str::to_owned);
     }
     let record = roster.iter().find(|r| r.id == model).or_else(|| roster.iter().find(|r| wires_of(r).iter().any(|wire| wire == model)))?;
-    record.raw.as_ref()?.get("family")?.as_str().filter(|family| !family.is_empty()).map(str::to_owned)
+    record.family.clone().filter(|family| !family.is_empty())
 }
 
 struct AntigravityRow {
@@ -586,13 +548,12 @@ fn antigravity_row(key: String, family: Family, traits: &dyn ModelTraits) -> Ant
     let efforts: Vec<&str> = EFFORT_ORDER.iter().copied().filter(|e| wires_of(e).is_some()).collect();
     let tiered = efforts.len() > 1;
     let pick = |slot: &str| pick_wire(wires_of(slot).expect("a slot of the family"), &family.base);
-    let (wire, ids, id) = if tiered {
+    let (single_wire, ids, id) = if tiered {
         let tiers: Vec<(String, String)> = efforts.iter().map(|e| ((*e).to_owned(), pick(e))).collect();
-        let map: Map<String, Value> = tiers.iter().map(|(e, w)| (e.clone(), json!(w))).collect();
-        (Value::Object(map), WireIds::Tiers(tiers), key)
+        (None, WireIds::Tiers(tiers), key)
     } else {
         let wire = pick(efforts.first().copied().unwrap_or(""));
-        (json!(wire), WireIds::One(wire.clone()), wire)
+        (Some(wire.clone()), WireIds::One(wire.clone()), wire)
     };
     let display = match efforts.first() {
         Some(first) if !tiered => {
@@ -603,40 +564,22 @@ fn antigravity_row(key: String, family: Family, traits: &dyn ModelTraits) -> Ant
         _ => family.base.clone(),
     };
     let levels: Vec<String> = if efforts.is_empty() {
-        bare_levels(wire.as_str().unwrap_or(""), family.reasoning, traits)
+        bare_levels(single_wire.as_deref().unwrap_or(""), family.reasoning, traits)
     } else if tiered {
         efforts.iter().map(|e| (*e).to_owned()).collect()
     } else {
         Vec::new()
     };
-    let mut row = Map::new();
-    row.insert("id".into(), json!(id));
-    row.insert("name".into(), json!(display));
-    row.insert("display".into(), json!(display));
-    row.insert("provider".into(), json!("antigravity-oauth"));
-    if let Some(kind) = family_kind(&family.base) {
-        row.insert("family".into(), json!(kind));
-    }
-    row.insert("contextWindow".into(), number(family.context_window));
-    if family.max_output > 0.0 {
-        row.insert("maxOutputTokens".into(), number(family.max_output));
-    }
-    row.insert("supportsVision".into(), json!(family.vision));
-    row.insert("supportsReasoning".into(), json!(family.reasoning));
-    row.insert("supportsFunctionCalling".into(), json!(true));
-    row.insert("reasoningLevels".into(), json!(levels));
-    row.insert("wire".into(), wire);
-    let json = Value::Object(row);
     let mut record = ModelRecord::new(id);
     record.wire = Some(ids);
     record.display_name = Some(display.clone());
     record.name = Some(display.clone());
+    record.family = family_kind(&family.base).map(str::to_owned);
     record.context_window = Some(family.context_window as u64);
     record.max_output_tokens = (family.max_output > 0.0).then_some(family.max_output as u64);
     record.supports_reasoning = Some(family.reasoning);
     record.supports_images = Some(family.vision);
     record.reasoning_levels = levels;
-    record.raw = Some(json);
     AntigravityRow { display, record }
 }
 

@@ -38,6 +38,7 @@ use tokio_util::sync::CancellationToken;
 use super::accounts::AccountProbe;
 use super::adapter_http::JsonPost;
 use super::antigravity_image::{AntigravityAuth as MediaLogin, AntigravitySession};
+use super::catalog::catalog_http_code;
 use super::catalog_fetch::{Auth, FetchError};
 use super::codex_image::{CodexAuth, CodexSession, chatgpt_limit_reset_at};
 use super::download::AdapterError;
@@ -242,12 +243,41 @@ pub async fn antigravity_rows(post: &dyn JsonPost, client_version: &str, auth: &
     })?;
     if !(200..300).contains(&reply.status) {
         let text = mixdog_js::slice_utf16(&scrub_oauth_secrets(&reply.body, &[]), ERROR_TEXT_LIMIT);
-        return Err(plain(format!("[antigravity-oauth] fetchAvailableModels failed: {} {text}", reply.status)));
+        return Err(FetchError {
+            message: format!("[antigravity-oauth] fetchAvailableModels failed: {} {text}", reply.status),
+            code: Some(catalog_http_code(reply.status, &reply.body).to_owned()),
+            status: Some(reply.status),
+            timed_out: false,
+        });
     }
     // `res.json()` rejects with V8's own message (`v8_json_parse_error`: wp-svc-misc-21).
     let parsed: Value =
         mixdog_js::json_parse(&reply.body).map_err(|error| plain(mixdog_js::v8_json_parse_error(&reply.body).unwrap_or_else(|| error.to_string())))?;
-    let Some(models) = parsed.get("models").and_then(Value::as_object) else {
+    let models = parsed.get("models").and_then(Value::as_object);
+    if let Some(advertised) = parsed.get("imageGenerationModelIds").and_then(Value::as_array) {
+        let mut seen = std::collections::HashSet::new();
+        let ids: Vec<String> = advertised
+            .iter()
+            .filter_map(Value::as_str)
+            .map(mixdog_js::js_trim)
+            .filter(|id| !id.is_empty())
+            .filter(|id| seen.insert((*id).to_owned()))
+            .map(str::to_owned)
+            .collect();
+        return Ok(Value::Array(
+            ids.into_iter()
+                .enumerate()
+                .map(|(order, id)| {
+                    let mut out: Map<String, Value> = models.and_then(|map| map.get(&id)).and_then(Value::as_object).cloned().unwrap_or_default();
+                    out.insert("id".to_owned(), Value::String(id));
+                    out.insert("imageGeneration".to_owned(), Value::Bool(true));
+                    out.insert("imageGenerationOrder".to_owned(), json!(order));
+                    Value::Object(out)
+                })
+                .collect(),
+        ));
+    }
+    let Some(models) = models else {
         return Err(plain("[antigravity-oauth] fetchAvailableModels returned no models"));
     };
     // `{ ...row, id }`: a row that is not an object contributes only the id.

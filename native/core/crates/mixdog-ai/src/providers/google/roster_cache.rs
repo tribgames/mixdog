@@ -62,7 +62,7 @@ impl RosterCache {
 
     /// `save(models)`: best effort (a failed write only costs the next call a fetch); the failure is logged.
     pub async fn save(&self, models: &[ModelRecord]) {
-        let rows: Vec<&Value> = models.iter().filter_map(|record| record.raw.as_ref()).collect();
+        let rows: Vec<Value> = models.iter().map(row_of_record).collect();
         let record = json!({ "version": VERSION, "fetchedAt": (self.now_ms)(), "models": rows });
         let path = self.path();
         let opts = mixdog_statefile::Opts { lock: true, fsync_dir: true, ..mixdog_statefile::Opts::default() };
@@ -73,7 +73,37 @@ impl RosterCache {
     }
 }
 
-/// The record a stored row stands for: what `antigravity_rows` builds from the same row, `raw` being the row itself.
+fn row_of_record(record: &ModelRecord) -> Value {
+    let display = record.display_name.as_deref().or(record.name.as_deref()).unwrap_or(&record.id);
+    let name = record.name.as_deref().unwrap_or(display);
+    let mut row = serde_json::Map::new();
+    row.insert("id".into(), json!(record.id));
+    row.insert("name".into(), json!(name));
+    row.insert("display".into(), json!(display));
+    row.insert("provider".into(), json!("antigravity-oauth"));
+    if let Some(family) = record.family.as_deref().filter(|f| !f.is_empty()) {
+        row.insert("family".into(), json!(family));
+    }
+    if let Some(window) = record.context_window {
+        row.insert("contextWindow".into(), json!(window));
+    }
+    if let Some(max_output) = record.max_output_tokens {
+        row.insert("maxOutputTokens".into(), json!(max_output));
+    }
+    row.insert("supportsVision".into(), json!(record.supports_images.unwrap_or(false)));
+    row.insert("supportsReasoning".into(), json!(record.supports_reasoning.unwrap_or(false)));
+    row.insert("supportsFunctionCalling".into(), json!(true));
+    row.insert("reasoningLevels".into(), json!(record.reasoning_levels));
+    let wire = match &record.wire {
+        Some(WireIds::One(wire)) => json!(wire),
+        Some(WireIds::Tiers(tiers)) => Value::Object(tiers.iter().map(|(e, w)| (e.clone(), json!(w))).collect()),
+        None => json!(record.id),
+    };
+    row.insert("wire".into(), wire);
+    Value::Object(row)
+}
+
+/// The record a stored row stands for: what `antigravity_rows` builds from the same row.
 fn record_of_row(row: &Value) -> Option<ModelRecord> {
     let id = row.get("id").and_then(Value::as_str).filter(|id| !id.is_empty())?;
     let text = |key: &str| row.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
@@ -81,6 +111,7 @@ fn record_of_row(row: &Value) -> Option<ModelRecord> {
     let mut record = ModelRecord::new(id);
     record.display_name = text("display");
     record.name = text("name").or_else(|| text("display"));
+    record.family = text("family");
     record.context_window = count("contextWindow");
     record.max_output_tokens = count("maxOutputTokens");
     record.supports_reasoning = row.get("supportsReasoning").and_then(Value::as_bool);
@@ -95,6 +126,5 @@ fn record_of_row(row: &Value) -> Option<ModelRecord> {
         Some(Value::Object(tiers)) => Some(WireIds::Tiers(tiers.iter().filter_map(|(level, wire)| Some((level.clone(), wire.as_str()?.to_owned()))).collect())),
         _ => None,
     };
-    record.raw = Some(row.clone());
     Some(record)
 }

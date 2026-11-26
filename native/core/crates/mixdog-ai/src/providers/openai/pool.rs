@@ -13,9 +13,11 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
+use std::sync::Weak;
 
 use sha2::Digest;
 use sha2::Sha256;
+use tokio::task::AbortHandle;
 
 use super::adapter::Attempt;
 use super::delta::Chain;
@@ -43,6 +45,14 @@ impl Compat {
     }
 }
 
+struct ParkGuard(AbortHandle);
+
+impl Drop for ParkGuard {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 struct Parked {
     socket: Box<dyn WsSocket>,
     owner: u64,
@@ -50,6 +60,7 @@ struct Parked {
     compat: Compat,
     auth: Option<Attempt>,
     released: u64,
+    _watch: Option<ParkGuard>,
 }
 
 /// What hears that a session's socket closed (`_onEntryClosed`: `retireCodexTurnStateOwner(poolKey, entry)`), and
@@ -207,12 +218,19 @@ impl WsPool {
             });
             *parked = kept;
             closed = gone;
+            if parked.is_empty() {
+                state.idle.remove(key);
+            }
         }
         let reused = if fresh {
             None
         } else {
-            let idle = state.idle.entry(key.to_owned()).or_default();
-            idle.iter().enumerate().max_by_key(|(_, p)| p.released).map(|(i, _)| i).map(|i| idle.swap_remove(i))
+            let taken =
+                state.idle.get_mut(key).and_then(|idle| idle.iter().enumerate().max_by_key(|(_, p)| p.released).map(|(i, _)| i).map(|i| idle.swap_remove(i)));
+            if state.idle.get(key).is_some_and(Vec::is_empty) {
+                state.idle.remove(key);
+            }
+            taken
         };
         let parked_count = state.idle.get(key).map_or(0, Vec::len);
         let leased = state.leased.get(key).copied().unwrap_or(0);
@@ -249,7 +267,7 @@ impl WsPool {
         self.release_sockets(key, reason, false);
     }
 
-    /// A session's runtime unloaded: its sockets are closed and their chains dropped, and it stays pinned to HTTP when it was.
+    /// A session's runtime unloaded: its sockets and continuation state go while its HTTP pin stays until `release_session`.
     pub fn release_unloaded(self: &Arc<Self>, key: &str) {
         self.release_sockets(key, "session_unloaded", true);
     }
@@ -293,6 +311,57 @@ impl WsPool {
     /// use go as a disposed scope's do, so a checkout dialing or finishing never parks a socket under the dead key.
     pub fn release_session(self: &Arc<Self>, key: &str) {
         self.release_scope(key, "session_closed");
+    }
+
+    /// Evicts a parked socket whose link closed or reached its age limit while idle.
+    fn evict_parked(self: &Arc<Self>, key: &str, owner: u64, close: Option<(u16, &str)>) {
+        let removed = {
+            let mut state = self.state();
+            let taken = state.idle.get_mut(key).and_then(|idle| idle.iter().position(|p| p.owner == owner).map(|i| idle.swap_remove(i)));
+            if state.idle.get(key).is_some_and(Vec::is_empty) {
+                state.idle.remove(key);
+            }
+            taken
+        };
+        if let Some(parked) = removed {
+            self.retire(key, parked.owner, None, parked.socket, close);
+        }
+    }
+
+    fn watch_parked(
+        self: &Arc<Self>,
+        key: String,
+        owner: u64,
+        closed: Option<tokio::sync::watch::Receiver<bool>>,
+        max_age: Option<std::time::Duration>,
+    ) -> Option<ParkGuard> {
+        if closed.is_none() && max_age.is_none() {
+            return None;
+        }
+        let weak: Weak<Self> = Arc::downgrade(self);
+        let handle = mixdog_rt::spawn("ai.openai.ws_idle_watch", mixdog_rt::TaskClass::Work, async move {
+            let reason = match (closed, max_age) {
+                (Some(mut closed), Some(max_age)) => {
+                    tokio::select! {
+                        _ = closed.wait_for(|gone| *gone) => None,
+                        _ = mixdog_rt::time::sleep(max_age) => Some((1000, "ws_max_age")),
+                    }
+                }
+                (Some(mut closed), None) => {
+                    let _ = closed.wait_for(|gone| *gone).await;
+                    None
+                }
+                (None, Some(max_age)) => {
+                    mixdog_rt::time::sleep(max_age).await;
+                    Some((1000, "ws_max_age"))
+                }
+                (None, None) => return,
+            };
+            if let Some(pool) = weak.upgrade() {
+                pool.evict_parked(&key, owner, reason);
+            }
+        });
+        Some(ParkGuard(handle.abort_handle()))
     }
 
     #[cfg(test)]
@@ -368,12 +437,23 @@ impl Checkout {
             return;
         }
         let socket = self.socket.take().expect("checked above");
+        let closed = socket.closed();
+        let max_age = socket.link().max_age_remaining();
+        let watch = self.pool.watch_parked(self.key.clone(), self.owner, closed, max_age);
         let chain = if self.shared { Chain::default() } else { chain };
         state.leases.remove(&self.id);
         state.released += 1;
         let released = state.released;
         let auth = self.auth.take();
-        state.idle.entry(self.key.clone()).or_default().push(Parked { socket, owner: self.owner, chain, compat: self.compat.clone(), auth, released });
+        state.idle.entry(self.key.clone()).or_default().push(Parked {
+            socket,
+            owner: self.owner,
+            chain,
+            compat: self.compat.clone(),
+            auth,
+            released,
+            _watch: watch,
+        });
         drop(state);
         if let Some(claim) = self.claim() {
             self.pool.release_owner(&self.key, claim);
@@ -488,9 +568,9 @@ mod tests {
         assert_eq!(pool.parked("session-a"), 0);
     }
 
-    // A session whose runtime unloads keeps nothing parked, but stays pinned to HTTP; the session's end lifts the pin.
+    // A session whose runtime unloads closes its parked sockets while keeping its HTTP pin until the session ends.
     #[tokio::test]
-    async fn an_unload_closes_the_parked_sockets_and_keeps_the_http_pin_until_the_session_ends() {
+    async fn an_unload_closes_the_parked_sockets_and_keeps_the_http_pin_until_release_session() {
         mixdog_rt::testing::tokens();
         let pool = Arc::new(WsPool::default());
         let compat = Compat::new("route", "identity", "cache");
@@ -502,8 +582,32 @@ mod tests {
         pool.mark_http("session-a");
         pool.release_unloaded("session-a");
         assert_eq!(pool.parked("session-a"), 0);
-        assert!(pool.http_active(&["session-a"]), "the pin outlives the runtime");
+        assert!(!pool.state().idle.contains_key("session-a"));
+        assert!(pool.http_active(&["session-a"]), "unload must preserve the session HTTP pin");
         pool.release_session("session-a");
-        assert!(!pool.http_active(&["session-a"]));
+        assert!(!pool.http_active(&["session-a"]), "session release drops the HTTP pin");
+    }
+
+    // A parked socket that closes while idle leaves the pool immediately without waiting for another checkout or release.
+    #[tokio::test]
+    async fn a_closed_parked_socket_leaves_the_pool_without_another_checkout() {
+        mixdog_rt::testing::tokens();
+        let pool = Arc::new(WsPool::default());
+        let compat = Compat::new("route", "identity", "cache");
+        let (near, far) = tokio::io::duplex(1 << 12);
+        let mut held = pool.checkout("session-idle", &compat, false, false).await;
+        assert!(held.attach(Box::new(WsConnection::client_over(near).await)));
+        held.finish(Chain::default());
+        assert_eq!(pool.parked("session-idle"), 1);
+
+        drop(far);
+        mixdog_rt::time::timeout(WITHIN, async {
+            while pool.parked("session-idle") > 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("closed parked socket evicted");
+        assert!(!pool.state().idle.contains_key("session-idle"));
     }
 }

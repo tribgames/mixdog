@@ -90,33 +90,97 @@ impl ChangeSink for Router {
 /// snapshot carries (`{section: {key: {revision, value}}}`).
 struct LspProject {
     publisher: Publisher,
-    revisions: HashMap<(&'static str, String), u64>,
+    revisions: HashMap<&'static str, u64>,
     state: Value,
 }
 
 pub(crate) struct LspFeeds {
     feeds: Arc<dyn ScopedFeeds>,
     by_project: Mutex<HashMap<String, LspProject>>,
+    case_insensitive_paths: bool,
 }
 
 /// Node's `statusKey` (`renderer/editor-language-store.ts:135`) without the project, which the feed
 /// already names: the language, and the file too when the server answered for one document.
-fn lsp_status_key(event: &Value) -> String {
-    let language = event["languageId"].as_str().unwrap_or_default();
-    match event["relPath"].as_str().filter(|r| !r.is_empty()) {
-        Some(rel) => format!("{language}\0{}", rel.replace('\\', "/").to_lowercase()),
+fn lsp_status_key_for_case(language: &str, rel_path: Option<&str>, case_insensitive: bool) -> String {
+    match rel_path.filter(|r| !r.is_empty()) {
+        Some(rel) => {
+            let normalized = rel.replace('\\', "/");
+            if case_insensitive { format!("{language}\0{}", normalized.to_lowercase()) } else { format!("{language}\0{normalized}") }
+        }
         None => language.to_owned(),
+    }
+}
+
+#[cfg(test)]
+fn lsp_status_key_for(language: &str, rel_path: Option<&str>) -> String {
+    lsp_status_key_for_case(language, rel_path, cfg!(any(windows, target_os = "macos")))
+}
+
+impl LspProject {
+    fn next_revision(&mut self, section: &'static str) -> u64 {
+        let revision = self.revisions.entry(section).or_insert(0);
+        *revision += 1;
+        *revision
+    }
+
+    fn remove(&mut self, section: &'static str, key: String, method: &str) {
+        let revision = self.next_revision(section);
+        let mut rows = self.state[section].as_object().cloned().unwrap_or_default();
+        rows.shift_remove(&key);
+        self.state[section] = Value::Object(rows);
+        let state = self.state.clone();
+        self.publisher.publish(method, json!({ "section": section, "key": key, "revision": revision, "removed": true }), Some(state));
+    }
+
+    fn publish(&mut self, section: &'static str, key: String, method: &str, value: Value, clears: bool) {
+        let revision = self.next_revision(section);
+        let mut rows = self.state[section].as_object().cloned().unwrap_or_default();
+        if clears {
+            rows.shift_remove(&key);
+        } else {
+            rows.insert(key.clone(), json!({ "revision": revision, "value": value.clone() }));
+        }
+        self.state[section] = Value::Object(rows);
+        let state = self.state.clone();
+        self.publisher.publish(method, json!({ "section": section, "key": key, "revision": revision, "value": value }), Some(state.clone()));
+        if clears {
+            // Follow empty-diagnostics clear with an explicit removal so live client mirrors evict the held row.
+            let remove_revision = self.next_revision(section);
+            self.publisher.publish(method, json!({ "section": section, "key": key, "revision": remove_revision, "removed": true }), Some(state));
+        }
     }
 }
 
 impl LspFeeds {
     pub(crate) fn new(feeds: Arc<dyn ScopedFeeds>) -> Self {
-        Self { feeds, by_project: Mutex::default() }
+        Self { feeds, by_project: Mutex::default(), case_insensitive_paths: cfg!(any(windows, target_os = "macos")) }
+    }
+
+    #[cfg(test)]
+    fn with_case_sensitivity(feeds: Arc<dyn ScopedFeeds>, case_insensitive_paths: bool) -> Self {
+        Self { feeds, by_project: Mutex::default(), case_insensitive_paths }
+    }
+
+    fn status_key(&self, language: &str, rel_path: Option<&str>) -> String {
+        lsp_status_key_for_case(language, rel_path, self.case_insensitive_paths)
     }
 
     /// The project's feed, as `lsp/subscribe` attaches to it (created on first use).
     pub(crate) fn source(&self, project: &str) -> Arc<dyn mixdog_core_api::feed::FeedSource> {
         self.with(project, |p| p.publisher.source())
+    }
+
+    pub(crate) fn remove_project(&self, root: &Path) {
+        let removed: Vec<LspProject> = {
+            let mut projects = self.by_project.lock().expect("lsp feeds");
+            let doomed: Vec<String> =
+                projects.keys().filter(|k| Path::new(k.as_str()) == root || crate::pathguard::is_within(root, Path::new(k.as_str()))).cloned().collect();
+            doomed.into_iter().filter_map(|k| projects.remove(&k)).collect()
+        };
+        for project in removed {
+            project.publisher.close();
+        }
     }
 
     fn with<R>(&self, project: &str, f: impl FnOnce(&mut LspProject) -> R) -> R {
@@ -132,28 +196,14 @@ impl LspFeeds {
     /// Publishes one section update and folds it into the read model. An empty diagnostics list
     /// is still published (it is what clears the document on the client) but leaves the model.
     fn publish(&self, project: &str, section: &'static str, key: String, method: &str, value: Value, clears: bool) {
-        self.with(project, |p| {
-            let revision = p.revisions.entry((section, key.clone())).or_insert(0);
-            *revision += 1;
-            let revision = *revision;
-            let rows = p.state[section].as_object().cloned().unwrap_or_default();
-            let mut rows = rows;
-            if clears {
-                rows.shift_remove(&key);
-            } else {
-                rows.insert(key.clone(), json!({ "revision": revision, "value": value.clone() }));
-            }
-            p.state[section] = Value::Object(rows);
-            let state = p.state.clone();
-            p.publisher.publish(method, json!({ "section": section, "key": key, "revision": revision, "value": value }), Some(state));
-        });
+        self.with(project, |p| p.publish(section, key, method, value, clears));
     }
 }
 
 impl LspSink for LspFeeds {
     fn status(&self, event: Value) {
         let project = event["projectPath"].as_str().unwrap_or_default().to_owned();
-        let key = lsp_status_key(&event);
+        let key = self.status_key(event["languageId"].as_str().unwrap_or_default(), event["relPath"].as_str());
         self.publish(&project, "lspStatus", key, "lsp/status/updated", event, false);
     }
 
@@ -162,6 +212,20 @@ impl LspSink for LspFeeds {
         let uri = event["uri"].as_str().unwrap_or_default().to_owned();
         let clears = event["diagnostics"].as_array().is_none_or(Vec::is_empty);
         self.publish(&project, "lspDiagnostics", uri, "lsp/diagnostics/updated", event, clears);
+    }
+
+    fn clear_document(&self, project_path: &str, server: &str, language_id: &str, rel_path: &str, uri: &str) {
+        let event = json!({
+            "projectPath": project_path, "relPath": rel_path, "uri": uri,
+            "server": server, "diagnostics": [],
+        });
+        let status_key = (!rel_path.is_empty()).then(|| self.status_key(language_id, Some(rel_path)));
+        self.with(project_path, |p| {
+            if let Some(key) = status_key {
+                p.remove("lspStatus", key, "lsp/status/updated");
+            }
+            p.publish("lspDiagnostics", uri.to_owned(), "lsp/diagnostics/updated", event, true);
+        });
     }
 }
 
@@ -196,7 +260,10 @@ pub struct Deps {
 }
 
 /// The language servers rooted in a folder that goes away.
-struct LspRelease(Arc<LspManager>);
+struct LspRelease {
+    lsp: Arc<LspManager>,
+    feeds: Arc<LspFeeds>,
+}
 
 #[async_trait::async_trait]
 impl crate::release::FolderRelease for LspRelease {
@@ -204,7 +271,8 @@ impl crate::release::FolderRelease for LspRelease {
         "language servers"
     }
     async fn release_under(&self, root: &Path) -> Result<(), String> {
-        self.0.dispose_under(root).await;
+        self.lsp.dispose_under(root).await;
+        self.feeds.remove_project(root);
         Ok(())
     }
 }
@@ -273,7 +341,6 @@ pub struct WorkspaceService {
     router: Arc<Router>,
     watches: Mutex<HashMap<String, Owned>>,
     search: Arc<SearchSessions>,
-    search_owner: Mutex<HashMap<String, String>>,
     lsp: Arc<LspManager>,
     lsp_feeds: Arc<LspFeeds>,
     sources: Vec<Arc<dyn crate::transfer::TransferSource>>,
@@ -698,6 +765,213 @@ mod serverdownload_calls {
         }
         panic!("the part file is still there");
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn lsp_feeds_clear_per_file_status_bound_revisions_and_remove_project_on_release() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = service(dir.path());
+        let project = dir.path().join("proj");
+        let project_str = project.to_string_lossy().into_owned();
+
+        let keep_rel = "src/keep.rs";
+        let keep_uri = "file:///proj/src/keep.rs";
+        service.lsp_feeds.status(json!({
+            "projectPath": project_str, "languageId": "rust", "status": "ready", "available": true, "server": "rust-analyzer"
+        }));
+        service.lsp_feeds.status(json!({
+            "projectPath": project_str, "languageId": "rust", "relPath": keep_rel, "status": "ready", "available": true, "server": "rust-analyzer"
+        }));
+        service.lsp_feeds.diagnostics(json!({
+            "projectPath": project_str, "relPath": keep_rel, "uri": keep_uri, "server": "rust-analyzer", "diagnostics": [{"message": "keep err"}]
+        }));
+
+        for i in 0..5 {
+            let rel = format!("src/f{i}.rs");
+            let uri = format!("file:///proj/{rel}");
+            service.lsp_feeds.status(json!({
+                "projectPath": project_str, "languageId": "rust", "relPath": rel, "status": "ready", "available": true, "server": "rust-analyzer"
+            }));
+            service.lsp_feeds.diagnostics(json!({
+                "projectPath": project_str, "relPath": rel, "uri": uri, "server": "rust-analyzer", "diagnostics": [{"message": "err"}]
+            }));
+            service.lsp_feeds.clear_document(&project_str, "rust-analyzer", "rust", &rel, &uri);
+        }
+
+        {
+            let projects = service.lsp_feeds.by_project.lock().unwrap();
+            let entry = projects.get(&project_str).expect("project feed present");
+            assert!(entry.revisions.len() <= 2, "revisions stay bounded per section, not per file");
+            for state in [&entry.state, &entry.publisher.state()] {
+                let statuses = state["lspStatus"].as_object().unwrap();
+                assert_eq!(statuses.len(), 2, "closed per-file statuses removed while server and open doc remain");
+                assert!(statuses.contains_key("rust"));
+                assert!(statuses.contains_key("rust\0src/keep.rs"));
+                let diagnostics = state["lspDiagnostics"].as_object().unwrap();
+                assert_eq!(diagnostics.len(), 1, "closed diagnostics removed while open doc diagnostics remain");
+                assert!(diagnostics.contains_key(keep_uri));
+            }
+        }
+
+        let failures = service.releases.release_under(&project).await;
+        assert!(failures.is_empty());
+        assert!(!service.lsp_feeds.by_project.lock().unwrap().contains_key(&project_str), "release_under removes project feed");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn closing_one_document_clears_lsp_feeds_without_emitting_stopped_status() {
+        let feeds = Arc::new(MockScopedFeeds::new(MockLimits::default()));
+        let lsp_feeds = LspFeeds::new(feeds.clone());
+        let project = "/proj";
+
+        lsp_feeds.status(json!({
+            "projectPath": project, "languageId": "rust", "status": "ready", "available": true, "server": "rust-analyzer"
+        }));
+        let feed = feeds.find(&feeds.ids()[0]).expect("lsp feed created");
+        let tap = mixdog_core_api::mock::FeedTap::attach(&feed);
+
+        lsp_feeds.status(json!({
+            "projectPath": project, "languageId": "rust", "relPath": "src/a.rs", "status": "ready", "available": true, "server": "rust-analyzer"
+        }));
+        lsp_feeds.diagnostics(json!({
+            "projectPath": project, "relPath": "src/a.rs", "uri": "file:///proj/src/a.rs", "server": "rust-analyzer", "diagnostics": [{"message": "a"}]
+        }));
+        lsp_feeds.status(json!({
+            "projectPath": project, "languageId": "rust", "relPath": "src/b.rs", "status": "ready", "available": true, "server": "rust-analyzer"
+        }));
+        lsp_feeds.diagnostics(json!({
+            "projectPath": project, "relPath": "src/b.rs", "uri": "file:///proj/src/b.rs", "server": "rust-analyzer", "diagnostics": [{"message": "b"}]
+        }));
+
+        lsp_feeds.clear_document(project, "rust-analyzer", "rust", "src/a.rs", "file:///proj/src/a.rs");
+
+        let frames = tap
+            .notifications_until(|seen| {
+                seen.iter()
+                    .any(|f| f["method"] == "lsp/diagnostics/updated" && f["params"]["key"] == "file:///proj/src/a.rs" && f["params"]["removed"] == json!(true))
+            })
+            .await;
+        assert!(
+            frames.iter().any(|f| {
+                f["method"] == "lsp/status/updated"
+                    && f["params"]["section"] == "lspStatus"
+                    && f["params"]["key"] == "rust\0src/a.rs"
+                    && f["params"]["removed"] == json!(true)
+                    && f["params"].get("value").is_none()
+            }),
+            "closing a document must emit an explicit removed frame for its per-file status"
+        );
+        assert!(
+            frames.iter().any(|f| {
+                f["method"] == "lsp/diagnostics/updated"
+                    && f["params"]["section"] == "lspDiagnostics"
+                    && f["params"]["key"] == "file:///proj/src/a.rs"
+                    && f["params"]["value"]["uri"] == "file:///proj/src/a.rs"
+                    && f["params"]["value"]["diagnostics"] == json!([])
+            }),
+            "closing a document must still emit empty diagnostics to clear editor markers"
+        );
+        assert!(
+            frames.iter().any(|f| {
+                f["method"] == "lsp/diagnostics/updated"
+                    && f["params"]["section"] == "lspDiagnostics"
+                    && f["params"]["key"] == "file:///proj/src/a.rs"
+                    && f["params"]["removed"] == json!(true)
+                    && f["params"].get("value").is_none()
+            }),
+            "closing a document must emit an explicit removed frame for its diagnostics row"
+        );
+        assert!(
+            !frames.iter().any(|f| f["method"] == "lsp/status/updated" && f["params"]["value"]["status"] == "stopped"),
+            "closing a document must never broadcast lsp/status/updated with status=stopped"
+        );
+
+        let projects = lsp_feeds.by_project.lock().unwrap();
+        let entry = projects.get(project).unwrap();
+        for state in [&entry.state, &entry.publisher.state()] {
+            let statuses = state["lspStatus"].as_object().unwrap();
+            assert!(!statuses.contains_key("rust\0src/a.rs"));
+            assert!(statuses.contains_key("rust"));
+            assert!(statuses.contains_key("rust\0src/b.rs"));
+            let diagnostics = state["lspDiagnostics"].as_object().unwrap();
+            assert!(!diagnostics.contains_key("file:///proj/src/a.rs"));
+            assert!(diagnostics.contains_key("file:///proj/src/b.rs"));
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn case_sensitive_lsp_status_keys_do_not_collide_on_close() {
+        let feeds = Arc::new(MockScopedFeeds::new(MockLimits::default()));
+        let lsp_feeds = LspFeeds::with_case_sensitivity(feeds.clone(), false);
+        let project = "/proj";
+
+        lsp_feeds.status(json!({
+            "projectPath": project, "languageId": "rust", "relPath": "src/Foo.rs", "status": "ready", "available": true, "server": "rust-analyzer"
+        }));
+        let feed = feeds.find(&feeds.ids()[0]).expect("lsp feed created");
+        let tap = mixdog_core_api::mock::FeedTap::attach(&feed);
+
+        lsp_feeds.status(json!({
+            "projectPath": project, "languageId": "rust", "relPath": "src/foo.rs", "status": "ready", "available": true, "server": "rust-analyzer"
+        }));
+        lsp_feeds.clear_document(project, "rust-analyzer", "rust", "src/Foo.rs", "file:///proj/src/Foo.rs");
+
+        let frames = tap
+            .notifications_until(|seen| {
+                seen.iter().any(|f| {
+                    f["method"] == "lsp/diagnostics/updated" && f["params"]["key"] == "file:///proj/src/Foo.rs" && f["params"]["removed"] == json!(true)
+                })
+            })
+            .await;
+        assert!(
+            frames.iter().any(|f| { f["method"] == "lsp/status/updated" && f["params"]["key"] == "rust\0src/Foo.rs" && f["params"]["removed"] == json!(true) }),
+            "removal frame targets only the closed file's exact-case key"
+        );
+        assert!(
+            !frames.iter().any(|f| f["method"] == "lsp/status/updated" && f["params"]["key"] == "rust\0src/foo.rs" && f["params"]["removed"] == json!(true)),
+            "other case-distinct open file must not receive a removal frame"
+        );
+
+        let projects = lsp_feeds.by_project.lock().unwrap();
+        let entry = projects.get(project).unwrap();
+        for state in [&entry.state, &entry.publisher.state()] {
+            let statuses = state["lspStatus"].as_object().unwrap();
+            assert!(!statuses.contains_key("rust\0src/Foo.rs"));
+            assert!(statuses.contains_key("rust\0src/foo.rs"));
+        }
+
+        // Case-insensitive platforms normalize backslash and case to one key; platform default follows cfg.
+        assert_eq!(lsp_status_key_for_case("rust", Some("src\\Foo.rs"), true), "rust\0src/foo.rs");
+        assert_eq!(lsp_status_key_for_case("rust", Some("src\\Foo.rs"), false), "rust\0src/Foo.rs");
+        let expected_default = if cfg!(any(windows, target_os = "macos")) { "rust\0src/foo.rs" } else { "rust\0src/Foo.rs" };
+        assert_eq!(lsp_status_key_for("rust", Some("src\\Foo.rs")), expected_default);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn reopening_removed_project_publishes_on_fresh_lsp_feed() {
+        let feeds = Arc::new(MockScopedFeeds::new(MockLimits::default()));
+        let lsp_feeds = LspFeeds::new(feeds.clone());
+        let project = "/proj-reopen";
+
+        lsp_feeds.status(json!({
+            "projectPath": project, "languageId": "rust", "status": "ready", "available": true, "server": "rust-analyzer"
+        }));
+        lsp_feeds.remove_project(Path::new(project));
+        assert!(!lsp_feeds.by_project.lock().unwrap().contains_key(project));
+
+        let _fresh_source = lsp_feeds.source(project);
+        let fresh_feed = feeds.find(&mixdog_core_api::ids::FeedId::from(format!("lsp:{project}"))).expect("fresh lsp feed created");
+        let tap = mixdog_core_api::mock::FeedTap::attach(&fresh_feed);
+        lsp_feeds.diagnostics(json!({
+            "projectPath": project, "relPath": "src/main.rs", "uri": "file:///proj-reopen/src/main.rs",
+            "server": "rust-analyzer", "diagnostics": [{"message": "reopened"}]
+        }));
+        let frames = tap
+            .notifications_until(|seen| {
+                seen.iter().any(|f| f["method"] == "lsp/diagnostics/updated" && f["params"]["value"]["uri"] == "file:///proj-reopen/src/main.rs")
+            })
+            .await;
+        assert!(frames.iter().any(|f| f["params"]["value"]["diagnostics"][0]["message"] == "reopened"));
+    }
 }
 
 impl WorkspaceService {
@@ -716,7 +990,7 @@ impl WorkspaceService {
         let search = SearchSessions::new(deps.lanes, deps.feeds.clone(), watcher.clone());
         let lsp_feeds = Arc::new(LspFeeds::new(deps.feeds.clone()));
         let lsp = LspManager::new(deps.processes.clone(), lsp_feeds.clone(), deps.lanes.maintenance);
-        deps.releases.add(Arc::new(LspRelease(lsp.clone())));
+        deps.releases.add(Arc::new(LspRelease { lsp: lsp.clone(), feeds: lsp_feeds.clone() }));
         let service = Arc::new(Self {
             me: OnceLock::new(),
             feeds: deps.feeds.clone(),
@@ -730,7 +1004,6 @@ impl WorkspaceService {
             router,
             watches: Mutex::default(),
             search,
-            search_owner: Mutex::default(),
             lsp,
             lsp_feeds,
             sources: deps.sources,
@@ -990,11 +1263,7 @@ impl WorkspaceService {
         for id in watches {
             self.unwatch(&id);
         }
-        let sessions: Vec<String> = self.search_owner.lock().expect("search owners").iter().filter(|(_, c)| **c == owner).map(|(k, _)| k.clone()).collect();
-        for id in sessions {
-            self.search_owner.lock().expect("search owners").remove(&id);
-            self.search.stop(&id);
-        }
+        self.search.stop_owned_by(&owner);
     }
 
     /// The host's catalog dropped a conversation, and this is told in the step that publishes the change (Node's `retainSessions`): the

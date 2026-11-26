@@ -14,6 +14,7 @@ use super::Access;
 use super::AccessToken;
 use super::CLIENT_VERSION_FLOOR;
 use super::CursorAdapter;
+use crate::providers::connect::pb::Writer;
 use crate::providers::listing_row::testing::Replay;
 use crate::transport::http::BidiOpen;
 use crate::transport::http::FrameSink;
@@ -299,7 +300,7 @@ async fn a_renewal_refused_after_another_process_renewed_is_asked_again() {
     let (written, refused, renewed) = (path.clone(), format!("Bearer {first}"), format!("Bearer {other}"));
     let stored_by_other = pair(&other, "other-refresh");
     let http = Arc::new(Replay::new(move |request: &WireRequest| {
-        if request.url == super::auth::EXCHANGE_URL {
+        if request.url == super::auth::OAUTH_REFRESH_URL {
             // The other process renewed first: the old refresh token is spent.
             std::fs::write(&written, &stored_by_other).unwrap();
             (401, Vec::new())
@@ -378,6 +379,7 @@ fn the_sessions_selected_window_picks_the_max_variant_on_the_adapters_path() {
         supports_max_mode: true,
         supports_non_max_mode: true,
         supports_vision: false,
+        vision_known: false,
         supports_reasoning: false,
         definitions: vec![],
         variants: vec![variant(false), variant(true)],
@@ -461,6 +463,8 @@ async fn a_streamed_throttle_rotates_the_next_conversation_and_a_released_scope_
             tools: Vec::new(),
             cloud_rule: None,
         },
+        conversation_id: String::new(),
+        original_request_id: String::new(),
     };
     let request =
         Arc::new(mixdog_core_api::domain::provider::ModelRequest { model: "m".into(), messages: Vec::new(), tools: Vec::new(), options: Default::default() });
@@ -527,19 +531,22 @@ async fn a_throttled_conversation_is_retried_under_a_fresh_id() {
         options: mixdog_core_api::domain::provider::RequestOptions { session_id: Some("s1".into()), ..Default::default() },
     });
     // The conversation id each refused request carried, read off the request itself.
-    let sent = |request: Arc<mixdog_core_api::domain::provider::ModelRequest>| async {
-        let error = adapter.attempt(request).await.err().expect("throttled");
-        assert_eq!(error.status, Some(429));
-        let body = runs.0.lock().unwrap().last().expect("a request").clone();
-        let field = |bytes: &[u8], wanted: u32| {
-            let mut reader = crate::providers::connect::pb::Reader::new(bytes);
-            std::iter::from_fn(|| reader.next_field().ok().flatten()).find(|(n, _)| *n == wanted).map(|(_, v)| v.bytes().to_vec()).expect("the field")
-        };
-        String::from_utf8(field(&field(&body[5..], 1), 5)).expect("an id")
+    let sent = |request: Arc<mixdog_core_api::domain::provider::ModelRequest>, expected_status: u16| {
+        let (adapter, runs) = (&adapter, &runs);
+        async move {
+            let error = adapter.attempt(request).await.err().expect("throttled");
+            assert_eq!(error.status, Some(expected_status));
+            let body = runs.0.lock().unwrap().last().expect("a request").clone();
+            let field = |bytes: &[u8], wanted: u32| {
+                let mut reader = crate::providers::connect::pb::Reader::new(bytes);
+                std::iter::from_fn(|| reader.next_field().ok().flatten()).find(|(n, _)| *n == wanted).map(|(_, v)| v.bytes().to_vec()).expect("the field")
+            };
+            String::from_utf8(field(&field(&body[5..], 1), 5)).expect("an id")
+        }
     };
     let derived = super::request::conversation_id("s1");
-    assert_eq!(sent(request.clone()).await, derived);
-    assert_eq!(sent(request.clone()).await, derived, "a first request's refusal is the service's verdict: the same conversation is asked again");
+    assert_eq!(sent(request.clone(), 429).await, derived);
+    assert_eq!(sent(request.clone(), 429).await, derived, "a first request's refusal is the service's verdict: the same conversation is asked again");
 
     // The process starts with the conversation under way: the transcript holds a turn of the assistant, and the
     // service holds the conversation as surely as after a run completed here.
@@ -555,10 +562,113 @@ async fn a_throttled_conversation_is_retried_under_a_fresh_id() {
         .collect();
     let under_way = Arc::new(under_way);
     let derived = super::request::conversation_id("s2");
-    assert_eq!(sent(under_way.clone()).await, derived, "the request that is refused");
-    let fresh = sent(under_way.clone()).await;
+    assert_eq!(sent(under_way.clone(), 503).await, derived, "the rotated refusal surfaces as transient 503");
+    let fresh = sent(under_way.clone(), 429).await;
     assert_ne!(fresh, derived, "the retry carries a fresh conversation id");
-    assert_eq!(sent(under_way.clone()).await, fresh, "and the fresh id's refusal stands");
+    assert_eq!(sent(under_way.clone(), 429).await, fresh, "and the fresh id's refusal stands");
+}
+
+#[tokio::test(start_paused = true)]
+async fn unopened_429_quota_exhausted_and_non_retryable_do_not_rotate_or_rewrite_to_503() {
+    use mixdog_core_api::domain::provider::ErrorKind;
+
+    struct ScriptedBody(Option<Vec<u8>>);
+
+    #[async_trait]
+    impl crate::transport::http::BodyStream for ScriptedBody {
+        async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
+            self.0.take().map(|b| Ok(bytes::Bytes::from(b)))
+        }
+    }
+
+    struct Scripted429 {
+        seen: std::sync::Mutex<Vec<Vec<u8>>>,
+        bodies: std::sync::Mutex<std::collections::VecDeque<Vec<u8>>>,
+    }
+
+    #[async_trait]
+    impl BidiOpen for Scripted429 {
+        async fn open(&self, _: WireRequest, first: Vec<u8>, _: crate::transport::Exchange) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
+            self.seen.lock().unwrap().push(first);
+            let body = self.bodies.lock().unwrap().pop_front().unwrap_or_default();
+            Ok((HttpResponse { status: 429, headers: vec![], body: Box::new(ScriptedBody(Some(body))) }, Arc::new(Silent)))
+        }
+    }
+
+    let quota_body = serde_json::json!({
+        "code": "resource_exhausted",
+        "message": "Error",
+        "details": [{
+            "type": "aiserver.v1.ErrorDetails",
+            "debug": {
+                "error": "ERROR_FREE_USER_USAGE_LIMIT",
+                "details": { "title": "Usage limit", "detail": "Upgrade your plan" }
+            }
+        }]
+    })
+    .to_string()
+    .into_bytes();
+    let non_retryable_body = serde_json::json!({
+        "code": "resource_exhausted",
+        "message": "Error",
+        "details": [{
+            "type": "aiserver.v1.ErrorDetails",
+            "debug": {
+                "error": 0,
+                "details": { "title": "Rejected", "detail": "Do not retry", "isRetryable": false }
+            }
+        }]
+    })
+    .to_string()
+    .into_bytes();
+
+    let http = Arc::new(Replay::new(|_| (500, Vec::new())));
+    let runs =
+        Arc::new(Scripted429 { seen: Default::default(), bodies: std::sync::Mutex::new([quota_body, non_retryable_body, Vec::new(), Vec::new()].into()) });
+    let adapter = CursorAdapter::new("cursor-api", None, Some(CLIENT_VERSION_FLOOR.into()), http, runs.clone(), Arc::new(Token));
+    let under_way = Arc::new(mixdog_core_api::domain::provider::ModelRequest {
+        model: "auto".into(),
+        messages: ["hi", "hello", "again"]
+            .iter()
+            .enumerate()
+            .map(|(at, text)| {
+                let role = if at == 1 { mixdog_core_api::domain::provider::Role::Assistant } else { mixdog_core_api::domain::provider::Role::User };
+                mixdog_core_api::domain::provider::Message::new(role, mixdog_core_api::domain::provider::Content::Text((*text).into()))
+            })
+            .collect(),
+        tools: vec![],
+        options: mixdog_core_api::domain::provider::RequestOptions { session_id: Some("s-no-rotate".into()), ..Default::default() },
+    });
+
+    let last_conv_id = || {
+        let body = runs.seen.lock().unwrap().last().expect("request").clone();
+        let field = |bytes: &[u8], wanted: u32| {
+            let mut reader = crate::providers::connect::pb::Reader::new(bytes);
+            std::iter::from_fn(|| reader.next_field().ok().flatten()).find(|(n, _)| *n == wanted).map(|(_, v)| v.bytes().to_vec()).expect("field")
+        };
+        String::from_utf8(field(&field(&body[5..], 1), 5)).expect("utf8 conv id")
+    };
+    let derived = super::request::conversation_id("s-no-rotate");
+
+    // 1. Plan quota 429 stays QuotaExhausted 429 and does not rotate.
+    let err = adapter.attempt(under_way.clone()).await.err().expect("quota 429");
+    assert_eq!((err.status, err.kind), (Some(429), ErrorKind::QuotaExhausted));
+    assert_eq!(last_conv_id(), derived);
+
+    // 2. Non-retryable resource_exhausted stays InvalidRequest 429 with should_retry=Some(false)
+    // and still carries the original conversation id (no rotation occurred).
+    let err = adapter.attempt(under_way.clone()).await.err().expect("non-retryable 429");
+    assert_eq!((err.status, err.kind, err.should_retry), (Some(429), ErrorKind::InvalidRequest, Some(false)));
+    assert_eq!(last_conv_id(), derived);
+
+    // 3. A subsequent bare 429 still uses the unconsumed rotation slot -> 503 Transient and rotates.
+    let err = adapter.attempt(under_way.clone()).await.err().expect("bare 429");
+    assert_eq!((err.status, err.kind, err.should_retry), (Some(503), ErrorKind::Transient, None));
+    assert_eq!(last_conv_id(), derived);
+
+    let err = adapter.attempt(under_way.clone()).await.err().expect("rotated retry");
+    assert_eq!((err.status, err.kind), (Some(429), ErrorKind::RateLimited));
+    assert_ne!(last_conv_id(), derived);
 }
 
 /// A run is asked with the tools this side offers and no tool of the service's own; a unary call names none.
@@ -597,4 +707,125 @@ async fn a_model_list_that_outlives_its_timer_reads_as_nodes() {
     let error = adapter.fetch_models("t").await.expect_err("never answers");
     assert_window("cursorModelsCall", &transport);
     assert_thrown("cursorModelsCall", &error.message);
+}
+
+#[tokio::test(start_paused = true)]
+async fn cursor_image_route_uses_inline_branch_and_honors_live_vision_metadata() {
+    use super::models::CursorModel;
+    use mixdog_image_egress::Column;
+    use std::sync::Arc;
+
+    let (_, adapter) = lists_with(|_| (500, Vec::new()));
+    let req =
+        |model: &str| mixdog_core_api::domain::provider::ModelRequest { model: model.into(), messages: vec![], tools: vec![], options: Default::default() };
+    let fallback_plan = mixdog_image_egress::route::resolve(&adapter.image_route(&req("claude-opus-5-5")).await);
+    assert_eq!((fallback_plan.policy().column, fallback_plan.policy().vision), (Column::Inline, true));
+
+    adapter.catalog.store(Some(Arc::new(vec![
+        CursorModel {
+            id: "claude-opus-5-5".into(),
+            name: "Claude Opus 5.5".into(),
+            description: String::new(),
+            context_window: 200_000,
+            max_context_window: 1_000_000,
+            supports_max_mode: true,
+            supports_non_max_mode: true,
+            supports_vision: true,
+            vision_known: true,
+            supports_reasoning: true,
+            definitions: vec![],
+            variants: vec![],
+            aliases: vec![],
+        },
+        CursorModel {
+            id: "composer-text".into(),
+            name: "Composer Text".into(),
+            description: String::new(),
+            context_window: 200_000,
+            max_context_window: 0,
+            supports_max_mode: false,
+            supports_non_max_mode: true,
+            supports_vision: false,
+            vision_known: true,
+            supports_reasoning: false,
+            definitions: vec![],
+            variants: vec![],
+            aliases: vec![],
+        },
+    ])));
+
+    let vision_plan = mixdog_image_egress::route::resolve(&adapter.image_route(&req("claude-opus-5-5")).await);
+    assert_eq!((vision_plan.policy().column, vision_plan.policy().vision), (Column::Inline, true));
+
+    let text_plan = mixdog_image_egress::route::resolve(&adapter.image_route(&req("composer-text")).await);
+    assert!(!text_plan.policy().vision);
+
+    // Decoded catalog rows omitting field 10 (`supports_images`) leave `vision_known = false` so
+    // `takes_vision` / `image_route` never strips images on vision-capable models.
+    let mut resp = Writer::new();
+    resp.varint(11, 1);
+    for (id, supports_images) in [("grok-4", None), ("composer-2.5", None), ("kimi-k3", None), ("explicit-text", Some(false))] {
+        let mut m = Writer::new();
+        m.string(1, id);
+        if let Some(flag) = supports_images {
+            m.varint(10, u64::from(flag));
+        }
+        resp.message(2, m);
+    }
+    let decoded = super::models::decode_available_models(&resp.finish()).unwrap();
+    adapter.catalog.store(Some(Arc::new(decoded)));
+    for id in ["grok-4", "composer-2.5", "kimi-k3"] {
+        let plan = mixdog_image_egress::route::resolve(&adapter.image_route(&req(id)).await);
+        assert!(plan.policy().vision, "{id}: omitted supports_images must not strip vision");
+    }
+    let stripped = mixdog_image_egress::route::resolve(&adapter.image_route(&req("explicit-text")).await);
+    assert!(!stripped.policy().vision, "explicit supports_images=false must strip vision");
+}
+
+#[test]
+fn cursor_retry_policy_retries_silent_transport_and_503_caps_429_once_and_surfaces_exposed_or_499() {
+    use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, Exposure, TransportFault};
+    use mixdog_core_api::domain::retry::{JitterSamples, RetryClass, RetryDecider, RetryState, Verdict};
+
+    let policy = super::retry_policy();
+    let decider = crate::retry::StandardRetryDecider;
+    let samples = JitterSamples { step: 0.5, advice: 0.5 };
+    let request0 = RetryState::new(RetryClass::Request, "auto");
+    let midstream0 = RetryState::new(RetryClass::Midstream, "auto");
+
+    // Silent transport reset retries; post-exposure transport reset surfaces immediately.
+    let silent_cut = ProviderError::transport(TransportFault::Reset, DeliveryState::Accepted);
+    assert!(matches!(decider.verdict(&silent_cut, &midstream0, &policy, samples).verdict, Verdict::Retry { .. }));
+    let mut exposed_cut = ProviderError::transport(TransportFault::Reset, DeliveryState::Accepted);
+    exposed_cut.exposure = Exposure { text_emitted: true, ..Exposure::default() };
+    assert_eq!(decider.verdict(&exposed_cut, &midstream0, &policy, samples).verdict, Verdict::Surface);
+
+    // 429 rate-limit is capped at 1 retry.
+    let mut rate_limit = ProviderError::new(ErrorKind::RateLimited, DeliveryState::Accepted);
+    rate_limit.status = Some(429);
+    let d1 = decider.verdict(&rate_limit, &request0, &policy, samples);
+    assert!(matches!(d1.verdict, Verdict::Retry { .. }));
+    let d2 = decider.verdict(&rate_limit, &d1.next, &policy, samples);
+    assert_eq!(d2.verdict, Verdict::Surface);
+
+    // 503 transient (including rotated-conversation rejections) retries past attempt 1 up to 5 retries,
+    // and no session-level recovery cycle runs after in-place budget is spent.
+    let mut transient = ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
+    transient.status = Some(503);
+    let mut state = RetryState::new(RetryClass::Request, "auto");
+    for attempt in 0..5 {
+        let decision = decider.verdict(&transient, &state, &policy, samples);
+        assert!(matches!(decision.verdict, Verdict::Retry { .. }), "503 attempt {attempt}");
+        state = decision.next;
+    }
+    assert_eq!(decider.verdict(&transient, &state, &policy, samples).verdict, Verdict::Exhausted);
+    let recovery0 = RetryState::new(RetryClass::Recovery, "auto");
+    assert_eq!(decider.verdict(&transient, &recovery0, &policy, samples).verdict, Verdict::Surface);
+
+    // 499 user-aborted request surfaces immediately.
+    let mut aborted = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::Accepted);
+    aborted.status = Some(499);
+    aborted.code = Some("canceled".into());
+    aborted.should_retry = Some(false);
+    assert_eq!(decider.verdict(&aborted, &request0, &policy, samples).verdict, Verdict::Surface);
 }

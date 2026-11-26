@@ -20,7 +20,6 @@
 //! else leaves "unknown" and the next turn creates. A second send on a conversation whose owner is still in
 //! flight goes unthreaded.
 
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -31,6 +30,7 @@ use std::time::Instant;
 
 use futures::future::Either;
 use futures::future::select;
+use mixdog_protocol::ProviderId;
 use mixdog_rt::TaskClass;
 use regex::Regex;
 use serde_json::Map;
@@ -39,6 +39,9 @@ use serde_json::json;
 use sha2::Digest;
 use sha2::Sha256;
 
+use super::decoder::AnthropicDecoder;
+use super::decoder::ReceiptSnapshot;
+use super::decoder::Shared as SharedDecoder;
 use crate::transport::http::BodyStream;
 
 pub const MESSAGE_THREADS_BETA: &str = "message-threads-2026-08-12";
@@ -534,6 +537,11 @@ impl Threads {
         }
         self.inner.lock().unwrap_or_else(PoisonError::into_inner).scopes.remove(scope);
     }
+
+    #[cfg(test)]
+    pub(super) fn has_scope(&self, scope: &str) -> bool {
+        self.inner.lock().unwrap_or_else(PoisonError::into_inner).scopes.contains_key(scope)
+    }
 }
 
 /// One send's hold on its conversation.
@@ -584,8 +592,8 @@ impl Claim {
     }
 
     /// Records the streamed response the API confirmed storing.
-    fn commit(&self, receipt: &Receipt) {
-        let Some(stop) = receipt.stored_stop() else { return };
+    fn commit(&self, receipt: &ReceiptSnapshot) {
+        let Some(stop) = stored_stop(receipt) else { return };
         let mut inner = self.threads.inner.lock().unwrap_or_else(PoisonError::into_inner);
         if self.owned(&mut inner).is_none() {
             return;
@@ -597,7 +605,7 @@ impl Claim {
             prefix_count: self.prefix_count,
             prefix_hash: self.prefix_hash.clone(),
             response_id: receipt.id.clone(),
-            response_digest: response_digest(&Value::Array(receipt.blocks())),
+            response_digest: response_digest(&Value::Array(receipt.blocks.clone())),
             stop_reason: stop.to_owned(),
             stored_at: receipt.stopped_at,
             from_replay: self.replay,
@@ -647,9 +655,16 @@ impl Plan {
         }
         let Some(generation) = inner.scopes.get_mut(&claim.scope) else { return };
         match self.displaced.take() {
-            Some(record) => generation.records.insert(claim.provider.clone(), record),
-            None => generation.records.remove(&claim.provider),
-        };
+            Some(record) => {
+                generation.records.insert(claim.provider.clone(), record);
+            }
+            None => {
+                generation.records.remove(&claim.provider);
+                if generation.records.is_empty() {
+                    inner.scopes.remove(&claim.scope);
+                }
+            }
+        }
     }
 
     /// The send's session: it feeds on the response stream, settles the conversation when dropped and records
@@ -720,148 +735,50 @@ impl Plan {
 
 // The streamed response as the API stores it
 
-/// The response id, whether `message_stop` arrived (and when), and every content block exactly as the API
-/// stored it. `opaque` marks anything the recording cannot reproduce exactly (an unknown delta, an unparsable
-/// tool input, a block never closed); such a response is never continued.
-#[derive(Default)]
-pub struct Receipt {
-    id: String,
-    stopped_at: u64,
-    stop: Option<String>,
-    opaque: bool,
-    fallback_iteration: bool,
-    open: BTreeMap<u64, (Value, String)>,
-    blocks: BTreeMap<u64, Value>,
-    line: Vec<u8>,
+/// The stop reason when the API stored this response: `message_stop` arrived, the stop was a normal one, no
+/// tool call was cut by `max_tokens`, no fallback model wrote it, and every block was recorded completely.
+fn stored_stop(receipt: &ReceiptSnapshot) -> Option<&str> {
+    if receipt.id.is_empty() || receipt.stopped_at == 0 || receipt.opaque {
+        return None;
+    }
+    let stop = receipt.stop.as_deref().filter(|s| NORMAL_STOPS.contains(s))?;
+    let tool_call = receipt.blocks.iter().any(|b| b["type"] == "tool_use" || b["type"] == "server_tool_use");
+    if stop == "max_tokens" && tool_call {
+        return None;
+    }
+    if receipt.blocks.iter().any(|b| b["type"] == "fallback") || receipt.fallback_iteration {
+        return None;
+    }
+    Some(stop)
 }
 
-impl Receipt {
-    /// Folds a chunk of the SSE body in: every complete `data:` line is one event.
-    pub fn feed(&mut self, chunk: &[u8], now: u64) {
-        self.line.extend_from_slice(chunk);
-        while let Some(end) = self.line.iter().position(|b| *b == b'\n') {
-            let line: Vec<u8> = self.line.drain(..=end).collect();
-            let text = String::from_utf8_lossy(&line);
-            if let Some(data) = text.trim_end().strip_prefix("data:")
-                && let Ok(event) = serde_json::from_str::<Value>(data.trim())
-            {
-                self.note(&event, now);
-            }
-        }
-    }
-
-    fn note(&mut self, event: &Value, now: u64) {
-        match event["type"].as_str() {
-            Some("message_start") => {
-                if let Some(id) = event["message"]["id"].as_str() {
-                    self.id = id.to_owned();
-                }
-            }
-            Some("message_delta") => {
-                if let Some(stop) = event["delta"]["stop_reason"].as_str().filter(|s| !s.is_empty()) {
-                    self.stop = Some(stop.to_owned());
-                }
-                if event["usage"]["iterations"].as_array().is_some_and(|all| all.iter().any(|it| it["type"] == "fallback_message")) {
-                    self.fallback_iteration = true;
-                }
-            }
-            Some("message_stop") => {
-                if self.stopped_at == 0 {
-                    self.stopped_at = now.max(1);
-                }
-                if !self.open.is_empty() {
-                    self.opaque = true;
-                }
-            }
-            Some("content_block_start") => match event.get("content_block").filter(|b| b.is_object()) {
-                Some(block) => {
-                    self.open.insert(event["index"].as_u64().unwrap_or(0), (block.clone(), String::new()));
-                }
-                None => self.opaque = true,
-            },
-            Some("content_block_delta") => {
-                let delta = &event["delta"];
-                let Some((block, json)) = self.open.get_mut(&event["index"].as_u64().unwrap_or(0)) else {
-                    self.opaque = true;
-                    return;
-                };
-                let append = |block: &mut Value, field: &str, piece: &Value| {
-                    let joined = format!("{}{}", block[field].as_str().unwrap_or_default(), piece.as_str().unwrap_or_default());
-                    block[field] = Value::String(joined);
-                };
-                match delta["type"].as_str() {
-                    Some("text_delta") => append(block, "text", &delta["text"]),
-                    Some("thinking_delta") => append(block, "thinking", &delta["thinking"]),
-                    Some("signature_delta") => append(block, "signature", &delta["signature"]),
-                    Some("input_json_delta") => json.push_str(delta["partial_json"].as_str().unwrap_or_default()),
-                    Some("citations_delta") => {
-                        if !block["citations"].is_array() {
-                            block["citations"] = json!([]);
-                        }
-                        if let Some(citations) = block["citations"].as_array_mut() {
-                            citations.push(delta["citation"].clone());
-                        }
-                    }
-                    _ => self.opaque = true,
-                }
-            }
-            Some("content_block_stop") => {
-                let index = event["index"].as_u64().unwrap_or(0);
-                let Some((mut block, json)) = self.open.remove(&index) else {
-                    self.opaque = true;
-                    return;
-                };
-                if !json.is_empty() {
-                    match serde_json::from_str::<Value>(&json) {
-                        Ok(input) => block["input"] = input,
-                        Err(_) => self.opaque = true,
-                    }
-                }
-                self.blocks.insert(index, block);
-            }
-            _ => {}
-        }
-    }
-
-    fn blocks(&self) -> Vec<Value> {
-        self.blocks.values().cloned().collect()
-    }
-
-    /// The stop reason when the API stored this response: `message_stop` arrived, the stop was a normal one, no
-    /// tool call was cut by `max_tokens`, no fallback model wrote it, and every block was recorded completely.
-    fn stored_stop(&self) -> Option<&str> {
-        if self.id.is_empty() || self.stopped_at == 0 || self.opaque {
-            return None;
-        }
-        let stop = self.stop.as_deref().filter(|s| NORMAL_STOPS.contains(s))?;
-        let tool_call = self.blocks.values().any(|b| b["type"] == "tool_use" || b["type"] == "server_tool_use");
-        if stop == "max_tokens" && tool_call {
-            return None;
-        }
-        if self.blocks.values().any(|b| b["type"] == "fallback") || self.fallback_iteration {
-            return None;
-        }
-        Some(stop)
-    }
-}
-
-/// A threaded send, seen from its stream: feeds the receipt, records the stored response, and gives the
-/// conversation back when it is dropped (the send is over; a later send may take it).
+/// A threaded send, seen from its stream: shares the stream's single decoder, records the stored response, and gives
+/// the conversation back when it is dropped (the send is over; a later send may take it).
 pub struct ThreadSession {
     claim: Claim,
-    receipt: Receipt,
+    decoder: SharedDecoder,
     /// The response began (a chunk arrived) and its end was never decoded: a cut stream.
     cut: bool,
 }
 
 impl ThreadSession {
     fn new(claim: Claim) -> Self {
-        Self { claim, receipt: Receipt::default(), cut: false }
+        Self { claim, decoder: SharedDecoder::new(AnthropicDecoder::for_model(ProviderId::from(""), "")), cut: false }
+    }
+
+    /// Shares the stream's single decoder so blocks are kept once instead of duplicated into a separate receipt map.
+    pub(super) fn with_decoder(mut self, decoder: SharedDecoder) -> Self {
+        self.decoder = decoder;
+        self
+    }
+
+    pub(super) fn mark_started(&mut self) {
+        self.cut = true;
     }
 
     pub fn feed(&mut self, chunk: &[u8]) {
         self.cut = true;
-        self.receipt.feed(chunk, super::oauth::now_ms());
+        self.decoder.feed_receipt(chunk);
     }
 
     /// The response ended (its terminal event was decoded). A confirmed `message_stop` is recorded now; when
@@ -869,8 +786,9 @@ impl ThreadSession {
     /// [`MESSAGE_STOP_WAIT_MS`], for the frame that confirms storage; the turn is not held for it.
     pub fn complete(mut self, body: Option<Box<dyn BodyStream>>) {
         self.cut = false;
-        if self.receipt.stopped_at != 0 {
-            self.claim.commit(&self.receipt);
+        if self.decoder.receipt_stopped() {
+            let snapshot = self.decoder.receipt_snapshot();
+            self.claim.commit(&snapshot);
             return;
         }
         let Some(mut body) = body else { return };
@@ -880,7 +798,7 @@ impl ThreadSession {
         let deadline = mixdog_rt::ticker().wait_until(Instant::now() + Duration::from_millis(MESSAGE_STOP_WAIT_MS));
         drop(mixdog_rt::spawn("anthropic.thread-message-stop", TaskClass::Work, async move {
             let mut deadline = Box::pin(deadline);
-            while self.receipt.stopped_at == 0 {
+            while !self.decoder.receipt_stopped() {
                 let read = Box::pin(body.next());
                 match select(read, deadline).await {
                     Either::Left((Some(Ok(chunk)), pending)) => {
@@ -890,7 +808,8 @@ impl ThreadSession {
                     _ => break,
                 }
             }
-            self.claim.commit(&self.receipt);
+            let snapshot = self.decoder.receipt_snapshot();
+            self.claim.commit(&snapshot);
         }));
     }
 }
@@ -906,6 +825,8 @@ impl Drop for ThreadSession {
 
 #[cfg(test)]
 mod tests {
+    use mixdog_core_api::domain::provider::WireDecoder;
+
     use super::*;
 
     #[test]
@@ -916,5 +837,60 @@ mod tests {
         assert!(supports_model("claude-haiku-4-5-20251001"));
         assert!(!supports_model("claude-3-7-sonnet-20250219"));
         assert!(!supports_model(""));
+    }
+
+    #[test]
+    fn thread_session_reads_single_decoder_copy_without_separate_feed() {
+        let threads = Arc::new(Threads::default());
+        let body = json!({
+            "model": "claude-sonnet-4-5",
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "hello"}]}]
+        });
+        let mut first = threads.plan(PlanInput {
+            scope: "sess-1",
+            provider: "anthropic",
+            account: "acct-1",
+            body: &body,
+            betas: &[],
+            cache_ttls: "",
+            now: 1_000,
+            directive: None,
+            send_group: None,
+        });
+        assert_eq!(first.mode, Mode::Create);
+        let mut decoder = SharedDecoder::new(AnthropicDecoder::for_model(ProviderId::from("anthropic"), "claude-sonnet-4-5"));
+        let mut session = first.take_session().expect("session").with_decoder(decoder.clone());
+        let sse = concat!(
+            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_shared_1\",\"model\":\"claude-sonnet-4-5\"}}\n\n",
+            "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"world\"}}\n\n",
+            "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+            "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n\n",
+            "data: {\"type\":\"message_stop\"}\n\n"
+        );
+        session.mark_started();
+        decoder.feed(sse.as_bytes()).expect("decoded");
+        session.complete(None);
+
+        let next_body = json!({
+            "model": "claude-sonnet-4-5",
+            "messages": [
+                {"role": "user", "content": [{"type": "text", "text": "hello"}]},
+                {"role": "assistant", "content": [{"type": "text", "text": "world"}]},
+                {"role": "user", "content": [{"type": "text", "text": "again"}]}
+            ]
+        });
+        let second = threads.plan(PlanInput {
+            scope: "sess-1",
+            provider: "anthropic",
+            account: "acct-1",
+            body: &next_body,
+            betas: &[],
+            cache_ttls: "",
+            now: 2_000,
+            directive: None,
+            send_group: None,
+        });
+        assert_eq!(second.mode, Mode::Continue, "committed from shared decoder alone without calling session.feed");
     }
 }

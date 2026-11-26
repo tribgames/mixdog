@@ -281,8 +281,13 @@ pub fn credential_stamp(provider: &str, doc: &serde_json::Map<String, Value>) ->
         _ => pick(&["access_token", "accessToken"])?,
     };
     let named = nested.get("identity").and_then(Value::as_object);
+    let jwt_sub = (provider == "cursor-oauth")
+        .then(|| crate::accounts::validity::decode_jwt_payload(token))
+        .flatten()
+        .and_then(|claims| claims.get("sub").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned));
     let identity = pick(&["account_id", "accountId", "user_id", "userId", "project_id", "projectId", "email", "userName"])
         .or_else(|| ["id", "email"].iter().find_map(|k| named?.get(*k).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty())))
+        .or(jwt_sub.as_deref())
         .unwrap_or(token);
     Some(crate::catalog::account_fingerprint(&[provider, identity]))
 }
@@ -346,17 +351,44 @@ fn has_future_window(snapshot: &Value, now: i64) -> bool {
     windows.is_empty() || windows.iter().any(|w| !norm::truthy(w.get("resetAt")) || num_or(w.get("resetAt"), 0.0) > now as f64)
 }
 
-fn fresh(snapshot: Option<&Value>, ttl_ms: i64, now: i64) -> Option<Value> {
+fn all_windows_current(snapshot: &Value, now: i64) -> bool {
+    let Some(windows) = snapshot.get("quotaWindows").and_then(Value::as_array) else {
+        return true;
+    };
+    windows.iter().all(|w| {
+        if !norm::truthy(w.get("resetAt")) {
+            return true;
+        }
+        let reset_at = num_or(w.get("resetAt"), 0.0);
+        reset_at <= 0.0 || reset_at > now as f64
+    })
+}
+
+fn fresh_reading(snapshot: Option<&Value>, ttl_ms: i64, now: i64, allow_stale: bool) -> Option<Value> {
     let s = snapshot.filter(|s| contentful(s))?;
     let at = num_or(s.get("cachedAt"), 0.0);
-    if at == 0.0 || now as f64 - at > ttl_ms as f64 || !has_future_window(s, now) {
+    if at == 0.0 || now as f64 - at > ttl_ms as f64 {
+        return None;
+    }
+    let windows_ok = if allow_stale { has_future_window(s, now) } else { all_windows_current(s, now) };
+    if !windows_ok {
         return None;
     }
     Some(s.clone())
 }
 
+fn fresh(snapshot: Option<&Value>, ttl_ms: i64, now: i64) -> Option<Value> {
+    fresh_reading(snapshot, ttl_ms, now, false)
+}
+
 /// The newest fresh snapshot of `provider` (its bare key or any route key).
-fn newest_provider_snapshot<'a>(entries: impl Iterator<Item = (&'a String, &'a Value)>, provider: &str, ttl_ms: i64, now: i64) -> Option<Value> {
+fn newest_provider_snapshot<'a>(
+    entries: impl Iterator<Item = (&'a String, &'a Value)>,
+    provider: &str,
+    ttl_ms: i64,
+    now: i64,
+    allow_stale: bool,
+) -> Option<Value> {
     if provider.is_empty() {
         return None;
     }
@@ -367,7 +399,7 @@ fn newest_provider_snapshot<'a>(entries: impl Iterator<Item = (&'a String, &'a V
         if key != provider && !key.starts_with(&prefix) {
             continue;
         }
-        if let Some(f) = fresh(Some(snapshot), ttl_ms, now) {
+        if let Some(f) = fresh_reading(Some(snapshot), ttl_ms, now, allow_stale) {
             let at = num_or(f.get("cachedAt"), 0.0);
             if at >= best_at {
                 best_at = at;
@@ -944,7 +976,8 @@ impl OAuthUsage {
                 binding: w.get("binding").and_then(Value::as_bool),
             })
             .collect();
-        match self.deps.store.record_usage(provider, account_id, inputs).await {
+        let has_credits = super::quota_usable::snapshot_credit_state(provider, snapshot);
+        match self.deps.store.record_usage_with_credits(provider, account_id, inputs, has_credits).await {
             Ok(()) => true,
             Err(e) => {
                 self.log(&format!("Account usage could not be saved: {e}"));
@@ -1089,8 +1122,12 @@ fn grok_provider(route: &RouteInfo) -> String {
 #[async_trait]
 impl UsageProbe for Arc<OAuthUsage> {
     async fn measure(&self, provider: &str, account_id: &str, force: bool) {
+        let _ = self.measure_recorded(provider, account_id, force).await;
+    }
+
+    async fn measure_recorded(&self, provider: &str, account_id: &str, force: bool) -> bool {
         let route = RouteInfo { provider: provider.to_owned(), model: String::new(), account_id: account_id.to_owned() };
-        let _ = self.fetch_snapshot(&route, force).await;
+        self.fetch_snapshot(&route, force).await.is_some()
     }
 }
 

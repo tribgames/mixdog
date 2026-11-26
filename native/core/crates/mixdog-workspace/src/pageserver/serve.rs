@@ -6,12 +6,12 @@
 //! The page server (`local-page-server.ts`): leases name pages, a loopback listener answers GET/HEAD for them, and every response is read from
 //! the one handle opened first, authorized again for the lease it is served under.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Weak};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
@@ -28,7 +28,7 @@ use tokio::sync::{OnceCell, mpsc};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use super::lease::{LOCAL_PAGE_TTL, Lease, Leases, PageScope};
+use super::lease::{LOCAL_PAGE_TTL, Lease, Leases, PageScope, Pinned};
 use super::policy::{page_asset_type, page_location};
 use super::shim::with_sandbox_storage_shim;
 use super::virtual_pages::{INDEX, VirtualFile};
@@ -59,22 +59,16 @@ pub trait PageAuthority: Send + Sync {
 
 pub(super) type PageBody = BoxBody<Bytes, io::Error>;
 
-/// The path and page a lease was made from. A lease pins the real location of `rel` under `root` (a link may be retargeted later);
-/// each response resolves it again and a different answer is a definite denial.
-#[derive(Clone)]
-struct Pinned {
-    root: PathBuf,
-    rel: String,
-}
-
 struct Listening {
     origin: String,
     task: JoinHandle<()>,
+    expiry_task: JoinHandle<()>,
 }
 
 impl Drop for Listening {
     fn drop(&mut self) {
         self.task.abort();
+        self.expiry_task.abort();
     }
 }
 
@@ -155,6 +149,8 @@ fn percent_encode(part: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -727,6 +723,105 @@ mod tests {
         assert_eq!(crate::pageserver::ports::read_port_file(&port_file), Some(fx.port));
         assert_eq!(fx.server.origin().await.unwrap(), format!("http://127.0.0.1:{}", fx.port));
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn virtual_page_buffers_drop_promptly_at_ttl_expiry_and_pins_are_pruned() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("site");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("page.html"), "<p>hi</p>").unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes =
+            Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk };
+        let server = PageServer::with_ttl(dir.path().join("page.port"), Arc::new(Mock::default()), lanes, Duration::from_millis(60));
+
+        let files =
+            Arc::new(BTreeMap::from([(INDEX.to_owned(), VirtualFile { bytes: b"<p>virtual</p>".to_vec().into(), content_type: HTML_TYPE.to_owned() })]));
+        let weak_files = Arc::downgrade(&files);
+        let _virtual_url = server.lease_virtual(files, Some("w1".into())).await.unwrap();
+        let _file_url = server.lease_url(&root, "page.html", PageScope::Project, Some("w1".into())).await.unwrap();
+        assert_eq!(server.leases.pin_count(), 1);
+        assert_eq!(server.leases.len(), 2);
+
+        // Wait for the background expiry sweeper with no further requests or inserts.
+        for _ in 0..100 {
+            if weak_files.upgrade().is_none() && server.leases.pin_count() == 0 && server.leases.len() == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(weak_files.upgrade().is_none(), "virtual buffer Arc dropped promptly on TTL expiry");
+        assert_eq!(server.leases.len(), 0, "expired leases swept");
+        assert_eq!(server.leases.pin_count(), 0, "expired pins pruned");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn revoke_owner_prunes_pins_immediately() {
+        let fx = Fx::new().await;
+        let _first = fx.server.lease_url(&fx.root, "page.html", file_scope(), Some("w1".into())).await.unwrap();
+        let _second = fx.server.lease_url(&fx.root, "page.html", file_scope(), Some("w2".into())).await.unwrap();
+        assert_eq!(fx.server.leases.pin_count(), 2);
+        fx.server.revoke_owner("w1");
+        assert_eq!(fx.server.leases.pin_count(), 1, "revoked owner's pin pruned immediately");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn lazy_expiry_prunes_pin_before_background_sweeper_runs() {
+        let fx = Fx::with_ttl(Duration::from_secs(60)).await;
+        let url = fx.server.lease_url(&fx.root, "page.html", file_scope(), Some("w1".into())).await.unwrap();
+        let path = fx.path_of(&url);
+        let token = path.split('/').nth(1).unwrap();
+        assert_eq!(fx.server.leases.len(), 1);
+        assert_eq!(fx.server.leases.pin_count(), 1);
+
+        // Lazy expiry via Leases::active before expiry_task fires must drop both the lease and its pin.
+        assert!(fx.server.leases.active(token, Instant::now() + Duration::from_secs(120)).is_none());
+        assert_eq!(fx.server.leases.len(), 0);
+        assert_eq!(fx.server.leases.pin_count(), 0, "lazy expiry leaves no orphan pin");
+
+        // An HTTP request hitting an already-expired lease also leaves no orphan pin.
+        let zero = Fx::with_ttl(Duration::ZERO).await;
+        let expired_url = zero.server.lease_url(&zero.root, "page.html", file_scope(), Some("w1".into())).await.unwrap();
+        assert_eq!(zero.get(&expired_url, None).await.status, 404);
+        assert_eq!(zero.server.leases.len(), 0);
+        assert_eq!(zero.server.leases.pin_count(), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn concurrent_lease_insert_and_revoke_owner_leave_no_orphan_pins() {
+        let fx = Fx::new().await;
+        let server = fx.server.clone();
+        let root = fx.root.clone();
+
+        let inserters: Vec<_> = (0..4)
+            .map(|_| {
+                let server = server.clone();
+                let root = root.clone();
+                tokio::spawn(async move {
+                    for _ in 0..40 {
+                        let _ = server.lease_url(&root, "page.html", file_scope(), Some("w1".into())).await.unwrap();
+                    }
+                })
+            })
+            .collect();
+        let revoker = {
+            let server = server.clone();
+            tokio::spawn(async move {
+                for _ in 0..160 {
+                    server.revoke_owner("w1");
+                    tokio::task::yield_now().await;
+                }
+            })
+        };
+
+        for task in inserters {
+            task.await.unwrap();
+        }
+        revoker.await.unwrap();
+        server.revoke_owner("w1");
+        assert_eq!(server.leases.len(), 0);
+        assert_eq!(server.leases.pin_count(), 0, "concurrent revoke_owner and lease_url never orphan pins");
+    }
 }
 
 pub struct PageServer {
@@ -736,7 +831,6 @@ pub struct PageServer {
     lanes: Lanes,
     ttl: Duration,
     leases: Leases,
-    pins: Mutex<HashMap<String, Pinned>>,
     listening: OnceCell<Listening>,
 }
 impl PageServer {
@@ -745,16 +839,7 @@ impl PageServer {
     }
 
     pub(super) fn with_ttl(port_file: PathBuf, authority: Arc<dyn PageAuthority>, lanes: Lanes, ttl: Duration) -> Arc<Self> {
-        Arc::new_cyclic(|me| Self {
-            me: me.clone(),
-            port_file,
-            authority,
-            lanes,
-            ttl,
-            leases: Leases::new(),
-            pins: Mutex::new(HashMap::new()),
-            listening: OnceCell::new(),
-        })
+        Arc::new_cyclic(|me| Self { me: me.clone(), port_file, authority, lanes, ttl, leases: Leases::new(), listening: OnceCell::new() })
     }
 
     /// `http://127.0.0.1:<port>`: the app frames visualize pages from this origin only, so its CSP names it exactly. Starts the listener.
@@ -765,7 +850,20 @@ impl PageServer {
                 let port_file = self.port_file.clone();
                 let (listener, port) = lanes::run_fallible(self.lanes.interactive, &CancellationToken::new(), move || super::http::bind(&port_file)).await?;
                 let task = super::http::spawn_accept_loop(listener, self.me.clone(), port)?;
-                Ok::<_, WsError>(Listening { origin: format!("http://127.0.0.1:{port}"), task })
+                let changed = self.leases.changed();
+                let server = self.me.clone();
+                let expiry_task = mixdog_rt::spawn("pageserver-lease-expiry", mixdog_rt::TaskClass::Work, async move {
+                    crate::lease_end::run_deadlines(
+                        &changed,
+                        |ms| mixdog_rt::time::sleep(Duration::from_millis(ms)),
+                        || {
+                            let server = server.upgrade()?;
+                            server.leases.expire_due(Instant::now())
+                        },
+                    )
+                    .await;
+                });
+                Ok::<_, WsError>(Listening { origin: format!("http://127.0.0.1:{port}"), task, expiry_task })
             })
             .await?;
         Ok(listening.origin.clone())
@@ -782,11 +880,14 @@ impl PageServer {
         self.check_scope(&scope, &page).await?;
         let path: Vec<String> =
             page.components().skip(location_root.components().count()).map(|part| percent_encode(&part.as_os_str().to_string_lossy())).collect();
-        let token = self.leases.insert(Lease { root: location_root, page, scope, owner_id, expires_at: Instant::now() + self.ttl });
-        let mut pins = self.pins();
-        let now = Instant::now();
-        pins.retain(|token, _| self.leases.active(token, now).is_some());
-        pins.insert(token.clone(), Pinned { root: root.to_path_buf(), rel: rel.to_string() });
+        let token = self.leases.insert(Lease {
+            root: location_root,
+            page,
+            scope,
+            owner_id,
+            expires_at: Instant::now() + self.ttl,
+            pin: Some(Pinned { root: root.to_path_buf(), rel: rel.to_string() }),
+        });
         Ok(format!("{origin}/{token}/{}", path.join("/")))
     }
 
@@ -799,7 +900,8 @@ impl PageServer {
         let scope = PageScope::Virtual { files };
         self.check_scope(&scope, Path::new(INDEX)).await?;
         let origin = self.origin().await?;
-        let token = self.leases.insert(Lease { root: PathBuf::new(), page: PathBuf::from(INDEX), scope, owner_id, expires_at: Instant::now() + self.ttl });
+        let token =
+            self.leases.insert(Lease { root: PathBuf::new(), page: PathBuf::from(INDEX), scope, owner_id, expires_at: Instant::now() + self.ttl, pin: None });
         Ok(format!("{origin}/{token}/{INDEX}"))
     }
 
@@ -815,13 +917,8 @@ impl PageServer {
         self.leases.revoke_owner(owner_id);
     }
 
-    fn pins(&self) -> std::sync::MutexGuard<'_, HashMap<String, Pinned>> {
-        self.pins.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     fn revoke(&self, token: &str) {
         self.leases.revoke(token);
-        self.pins().remove(token);
     }
 
     fn is_active(&self, token: &str) -> bool {
@@ -934,7 +1031,7 @@ impl PageServer {
     /// late success, and a definite denial revokes.
     async fn authorize(&self, token: &str, lease: &Lease, file: &Path) -> Result<(), StatusCode> {
         let verdict = match self.authority.check(&lease.scope, file).await {
-            Ok(()) => self.recheck_pin(token, lease).await,
+            Ok(()) => self.recheck_pin(lease).await,
             Err(refusal) => Err(refusal),
         };
         match verdict {
@@ -951,8 +1048,8 @@ impl PageServer {
 
     /// The page the lease was made for must still be the real file at its path: a retargeted folder link or page alias is a denial, a
     /// path that cannot be resolved just now is not.
-    async fn recheck_pin(&self, token: &str, lease: &Lease) -> Result<(), Refusal> {
-        let Some(pin) = self.pins().get(token).cloned() else { return Ok(()) };
+    async fn recheck_pin(&self, lease: &Lease) -> Result<(), Refusal> {
+        let Some(pin) = lease.pin.clone() else { return Ok(()) };
         let current = lanes::run_fallible(self.lanes.interactive, &CancellationToken::new(), move || page_location(&pin.root, &pin.rel)).await;
         match current {
             Ok((root, page)) if root == lease.root && page == lease.page => Ok(()),

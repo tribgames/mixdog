@@ -32,7 +32,7 @@ const STRUCTURED_ENTRIES_MAX: usize = 5_000;
 const STRUCTURED_STRING_TOTAL_MAX: usize = 32_000_000;
 const REQUIRED_STRING_MAX: usize = 32_768;
 
-const LSP_DOCUMENT_KEYS: &[&str] = &["kind", "projectPath", "relPath", "languageId", "version", "content"];
+const LSP_DOCUMENT_KEYS: &[&str] = &["kind", "projectPath", "relPath", "languageId", "version", "content", "attachmentId"];
 const LSP_REQUEST_KEYS: &[&str] = &["projectPath", "relPath", "languageId", "method", "params"];
 const WORKSPACE_WRITE_KEYS: &[&str] = &["relPath", "content", "expectedContent"];
 const WORKSPACE_SEARCH_KEYS: &[&str] = &["query", "include", "exclude", "matchCase", "wholeWord", "regex", "maxResults"];
@@ -353,6 +353,9 @@ fn lsp_document(params: &Map<String, Value>) -> Verdict {
     }
     if let Some(project_path) = input.get("projectPath") {
         required_string(Some(project_path), "/document/projectPath", "projectPath", REQUIRED_STRING_MAX)?;
+    }
+    if let Some(attachment_id) = input.get("attachmentId") {
+        required_string(Some(attachment_id), "/document/attachmentId", "attachmentId", 128)?;
     }
     required_string(input.get("relPath"), "/document/relPath", "relPath", 4_096)?;
     required_string(input.get("languageId"), "/document/languageId", "languageId", 64)

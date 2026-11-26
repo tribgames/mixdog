@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use tokio::sync::Notify;
 
 use super::virtual_pages::VirtualFile;
 
@@ -24,6 +25,14 @@ pub enum PageScope {
     Virtual { files: Arc<BTreeMap<String, VirtualFile>> },
 }
 
+/// The path and page a lease was made from. A lease pins the real location of `rel` under `root` (a link may be retargeted later);
+/// each response resolves it again and a different answer is a definite denial.
+#[derive(Clone, Debug)]
+pub struct Pinned {
+    pub root: PathBuf,
+    pub rel: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct Lease {
     pub root: PathBuf,
@@ -32,6 +41,7 @@ pub struct Lease {
     /// The window that opened the page; closing it revokes the lease.
     pub owner_id: Option<String>,
     pub expires_at: Instant,
+    pub pin: Option<Pinned>,
 }
 
 struct Slot {
@@ -49,11 +59,16 @@ struct Table {
 #[derive(Default)]
 pub struct Leases {
     table: Mutex<Table>,
+    changed: Arc<Notify>,
 }
 
 impl Leases {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub(super) fn changed(&self) -> Arc<Notify> {
+        self.changed.clone()
     }
 
     fn table(&self) -> std::sync::MutexGuard<'_, Table> {
@@ -68,16 +83,32 @@ impl Leases {
         bytes[16..].copy_from_slice(&uuid::Uuid::new_v4().as_bytes()[..8]);
         let token = URL_SAFE_NO_PAD.encode(bytes);
         let now = Instant::now();
+        {
+            let mut table = self.table();
+            table.slots.retain(|_, slot| now < slot.lease.expires_at);
+            while table.slots.len() >= MAX_LOCAL_PAGE_LEASES {
+                let Some(oldest) = table.slots.iter().min_by_key(|(_, slot)| slot.used).map(|(key, _)| key.clone()) else { break };
+                table.slots.remove(&oldest);
+            }
+            table.clock += 1;
+            let used = table.clock;
+            table.slots.insert(token.clone(), Slot { lease, used });
+        }
+        self.changed.notify_one();
+        token
+    }
+
+    /// Drops every lease expired at or before `now`, returning the milliseconds
+    /// until the earliest remaining lease expires (`None` when the table is empty).
+    pub fn expire_due(&self, now: Instant) -> Option<u64> {
         let mut table = self.table();
         table.slots.retain(|_, slot| now < slot.lease.expires_at);
-        while table.slots.len() >= MAX_LOCAL_PAGE_LEASES {
-            let Some(oldest) = table.slots.iter().min_by_key(|(_, slot)| slot.used).map(|(key, _)| key.clone()) else { break };
-            table.slots.remove(&oldest);
-        }
-        table.clock += 1;
-        let used = table.clock;
-        table.slots.insert(token.clone(), Slot { lease, used });
-        token
+        table
+            .slots
+            .values()
+            .map(|slot| slot.lease.expires_at.saturating_duration_since(now))
+            .min()
+            .map(|wait| wait.as_nanos().div_ceil(1_000_000).min(u64::MAX as u128) as u64)
     }
 
     /// The lease of `token` while it has not expired; an expired one is dropped.
@@ -112,6 +143,16 @@ impl Leases {
     pub fn revoke_owner(&self, owner_id: &str) {
         self.table().slots.retain(|_, slot| slot.lease.owner_id.as_deref() != Some(owner_id));
     }
+
+    #[cfg(test)]
+    pub(super) fn len(&self) -> usize {
+        self.table().slots.len()
+    }
+
+    #[cfg(test)]
+    pub(super) fn pin_count(&self) -> usize {
+        self.table().slots.values().filter(|slot| slot.lease.pin.is_some()).count()
+    }
 }
 
 #[cfg(test)]
@@ -125,6 +166,7 @@ mod tests {
             scope: PageScope::Project,
             owner_id: owner.map(str::to_string),
             expires_at: Instant::now() + lives,
+            pin: None,
         }
     }
 

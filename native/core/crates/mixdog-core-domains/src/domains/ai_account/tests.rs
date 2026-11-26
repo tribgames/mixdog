@@ -221,3 +221,101 @@ async fn a_pasted_code_is_refused_unless_the_login_is_pending_and_takes_one_and_
     assert_eq!(second["state"], "pending");
     flows.cancel_all();
 }
+
+#[tokio::test]
+async fn cached_dashboard_with_elapsed_window_reset_is_not_reused_within_30s() {
+    use std::collections::VecDeque;
+    use std::sync::Mutex;
+
+    struct CodexSetup;
+
+    #[async_trait::async_trait]
+    impl super::dashboards::SetupSource for CodexSetup {
+        async fn setup(&self, _: bool, _: bool) -> Result<Value, String> {
+            Ok(serde_json::json!({
+                "oauth": [{ "id": "openai-oauth", "authenticated": true }]
+            }))
+        }
+
+        async fn display_config(&self) -> Result<Value, String> {
+            Ok(serde_json::json!({}))
+        }
+    }
+
+    struct ScriptedQuotas {
+        fetches: Mutex<usize>,
+        replies: Mutex<VecDeque<Value>>,
+    }
+
+    #[async_trait::async_trait]
+    impl super::usage::dashboard::UsageSources for ScriptedQuotas {
+        async fn cached_oauth(&self, _: &str, _: bool) -> Option<Value> {
+            None
+        }
+
+        fn oauth_provider_ready(&self, provider: &str) -> bool {
+            provider == "openai-oauth"
+        }
+
+        async fn fetch_oauth(&self, provider: &str, _: bool) -> Result<Option<Value>, String> {
+            if provider != "openai-oauth" {
+                return Ok(None);
+            }
+            *self.fetches.lock().unwrap() += 1;
+            Ok(self.replies.lock().unwrap().pop_front())
+        }
+
+        async fn cached_api(&self, _: &str) -> Option<Value> {
+            None
+        }
+
+        async fn fetch_api(&self, _: &str, _: bool) -> Result<Option<Value>, String> {
+            Ok(None)
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let accounts = AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+    let dashboards = super::dashboards::Dashboards::new(std::sync::Arc::new(CodexSetup));
+    let sources = ScriptedQuotas {
+        fetches: Mutex::new(0),
+        replies: Mutex::new(VecDeque::from([
+            serde_json::json!({
+                "provider": "openai-oauth",
+                "source": "openai-wham",
+                "quotaWindows": [
+                    { "label": "5H", "usedPct": 100.0, "resetAt": 5_000 },
+                    { "label": "7D", "usedPct": 20.0, "resetAt": 500_000 }
+                ]
+            }),
+            serde_json::json!({
+                "provider": "openai-oauth",
+                "source": "openai-wham",
+                "quotaWindows": [
+                    { "label": "5H", "usedPct": 0.0, "resetAt": 18_005_000 },
+                    { "label": "7D", "usedPct": 20.0, "resetAt": 500_000 }
+                ]
+            }),
+        ])),
+    };
+
+    let refresh = serde_json::json!({ "refresh": true, "refreshSetup": false });
+    let initial = dashboards.get_at(&refresh, &sources, &accounts, 1_000).await.unwrap();
+    assert!(initial.get("cached").is_none());
+    assert_eq!(*sources.fetches.lock().unwrap(), 1);
+
+    // Before 5H resetAt (5_000) and within USAGE_REFRESH_REUSE_MS (30_000), both plain and refresh reuse the cache.
+    let reused_refresh = dashboards.get_at(&refresh, &sources, &accounts, 4_000).await.unwrap();
+    assert_eq!(reused_refresh["cached"], true);
+    let reused_plain = dashboards.get_at(&serde_json::json!({}), &sources, &accounts, 4_500).await.unwrap();
+    assert_eq!(reused_plain["cached"], true);
+    assert_eq!(*sources.fetches.lock().unwrap(), 1);
+
+    // Once 5H resetAt (5_000) has passed, even 5s after live_at (< 30s), cache is bypassed and rebuilt live.
+    let after_reset = dashboards.get_at(&refresh, &sources, &accounts, 6_000).await.unwrap();
+    assert!(after_reset.get("cached").is_none(), "elapsed resetAt must bypass 30s reuse cache: {after_reset}");
+    assert_eq!(*sources.fetches.lock().unwrap(), 2);
+    let codex_row = after_reset["rows"].as_array().unwrap().iter().find(|r| r["id"] == "openai-oauth").unwrap();
+    assert_eq!(codex_row["windows"][0]["usedPct"], 0);
+}

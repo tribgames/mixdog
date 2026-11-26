@@ -238,14 +238,13 @@ fn mark_latest(rows: &mut [ModelRecord]) {
 }
 
 /// A public-API list row: the id and the release stamp `created` (a number
-/// only), with the whole row kept. Node's row has a `name` but no `display`,
-/// so the catalog may still supply the display name.
+/// only). Node's row has a `name` but no `display`, so the catalog may still
+/// supply the display name.
 fn api_record(row: &Value) -> Option<ModelRecord> {
     let id = row.get("id").and_then(Value::as_str).filter(|s| !s.is_empty())?;
     let mut record = ModelRecord::new(id);
     record.name = Some(id.to_owned());
     record.created = row.get("created").and_then(|c| c.as_i64().or_else(|| c.as_f64().map(|n| n as i64)));
-    record.raw = Some(row.clone());
     Some(record)
 }
 

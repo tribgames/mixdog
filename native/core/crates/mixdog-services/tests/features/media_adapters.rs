@@ -560,12 +560,16 @@ async fn a_gemini_answer_with_no_image_is_the_models_refusal_and_keeps_reported_
 }
 
 #[test]
-fn a_candidate_names_its_failure_before_its_text_and_the_first_inline_image_wins() {
+fn a_candidate_names_its_failure_before_its_text_and_the_last_non_thought_inline_image_wins() {
     let parts = vec![json!({"text": "a note"})];
     let error = pick_gemini_image_part(&parts, "Antigravity", Some("prompt blocked (SAFETY)".into()), None).unwrap_err();
     assert_eq!(error.message, "Antigravity returned no image data: prompt blocked (SAFETY)");
-    let two = vec![json!({"inlineData": {"data": b64(&png())}}), json!({"inlineData": {"data": b64(b"second")}})];
-    assert_eq!(pick_gemini_image_part(&two, "Gemini", None, None).unwrap().bytes, png());
+    let two = vec![
+        json!({"thought": true, "inlineData": {"data": b64(b"draft")}}),
+        json!({"inlineData": {"data": b64(&png())}}),
+        json!({"inlineData": {"data": b64(b"second")}}),
+    ];
+    assert_eq!(pick_gemini_image_part(&two, "Gemini", None, None).unwrap().bytes, b"second");
 }
 
 // ---- Antigravity ----
@@ -622,9 +626,11 @@ async fn an_antigravity_image_streams_through_the_gateway_envelope() {
     let envelope = &sent[0].body;
     assert_eq!(
         (envelope["project"].as_str(), envelope["model"].as_str(), envelope["userAgent"].as_str(), envelope["requestType"].as_str()),
-        (Some("proj"), Some("nano-banana"), Some("antigravity"), Some("agent"))
+        (Some("proj"), Some("nano-banana"), Some("antigravity"), Some("image_gen"))
     );
-    assert_eq!((envelope["requestId"].as_str(), envelope["request"]["sessionId"].as_str()), (Some("agent-u1"), Some("-u2")));
+    let request_id = envelope["requestId"].as_str().unwrap_or_default();
+    assert!(request_id.starts_with("image_gen/") && request_id.ends_with("/u1/12"), "unexpected requestId: {request_id}");
+    assert!(envelope["request"].get("sessionId").is_none());
     assert_eq!(envelope["request"]["contents"][0]["parts"][0], json!({"text": "a fox"}));
 }
 
@@ -636,7 +642,7 @@ async fn antigravity_failures_come_from_the_login_the_stream_or_the_status() {
     assert!(http.sent().is_empty(), "nothing is sent without a login");
     let blocked = Http::with(vec![answer(200, sse(&[json!({"response": {"promptFeedback": {"blockReason": "SAFETY"}}})]))]);
     let error = antigravity_image::generate_image(&blocked, &session(), "m", "p", &json!({}), &none(), &cancel()).await.unwrap_err();
-    assert_eq!(failure_of(&error), ("Antigravity returned no image data: prompt blocked (SAFETY)", Some("MEDIA_EMPTY_RESULT"), Some(502)));
+    assert_eq!(failure_of(&error), ("Antigravity: image generation blocked by safety filter (SAFETY)", Some("MEDIA_SAFETY_BLOCKED"), Some(422)));
     let refused = Http::with(vec![answer(503, "later")]);
     let error = antigravity_image::generate_image(&refused, &session(), "m", "p", &json!({}), &none(), &cancel()).await.unwrap_err();
     assert_eq!(error.message, upstream_error("Antigravity image", 503, "later").message);

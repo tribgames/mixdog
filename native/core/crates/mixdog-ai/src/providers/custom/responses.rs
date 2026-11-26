@@ -111,6 +111,30 @@ impl ProviderAdapter for ResponsesAdapter {
         self.inner.models()
     }
 
+    fn native_pdf(&self) -> bool {
+        self.inner.native_pdf()
+    }
+
+    fn native_documents(&self) -> Option<bool> {
+        self.inner.native_documents()
+    }
+
+    fn input_excludes_cache(&self) -> Option<bool> {
+        self.inner.input_excludes_cache()
+    }
+
+    async fn media_support(&self, request: &ModelRequest) -> mixdog_core_api::domain::provider::MediaSupport {
+        self.inner.media_support(request).await
+    }
+
+    async fn takes_vision(&self, request: &ModelRequest) -> bool {
+        self.inner.takes_vision(request).await
+    }
+
+    async fn image_route(&self, request: &ModelRequest) -> mixdog_image_egress::route::RouteFacts {
+        self.inner.image_route(request).await
+    }
+
     fn release_send(&self, group: &str) {
         self.inner.release_send(group);
     }

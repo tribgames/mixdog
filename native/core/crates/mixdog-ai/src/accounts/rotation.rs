@@ -111,6 +111,12 @@ pub trait AccountSender<T: Send>: Send + Sync {
 #[async_trait]
 pub trait UsageProbe: Send + Sync {
     async fn measure(&self, provider: &str, account_id: &str, force: bool);
+
+    /// Re-measures and returns `true` only when a fresh reading was recorded in the store.
+    async fn measure_recorded(&self, provider: &str, account_id: &str, force: bool) -> bool {
+        self.measure(provider, account_id, force).await;
+        false
+    }
 }
 
 pub struct SendContext {
@@ -224,6 +230,7 @@ struct Ledger {
 struct Verdict {
     exhausted: bool,
     evidence: bool,
+    credit_measured: bool,
     until: i64,
     server_scheduled: bool,
     reset: bool,
@@ -231,7 +238,7 @@ struct Verdict {
 
 impl Verdict {
     fn not_exhausted() -> Self {
-        Self { exhausted: false, evidence: false, until: 0, server_scheduled: false, reset: false }
+        Self { exhausted: false, evidence: false, credit_measured: false, until: 0, server_scheduled: false, reset: false }
     }
 }
 
@@ -384,6 +391,7 @@ impl AccountRotation {
         failed: &Failed,
         policy: Option<&CooldownPolicy>,
         plan_meters_apply: bool,
+        uses_credits: bool,
     ) -> Result<Verdict, AccountError> {
         let error = &failed.error;
         let now = self.now();
@@ -407,7 +415,7 @@ impl AccountRotation {
         };
         let blocked = |evidence: bool, reason: &str, with_reset: bool| {
             let (until, server_scheduled, reset) = until_for(with_reset, reason);
-            Verdict { exhausted: true, evidence, until, server_scheduled, reset }
+            Verdict { exhausted: true, evidence, credit_measured: false, until, server_scheduled, reset }
         };
         if is_server_side(error.kind) {
             return Ok(Verdict::not_exhausted());
@@ -416,10 +424,15 @@ impl AccountRotation {
         // as quota; auth refusals say nothing about the quota.
         let typed = error.kind.is_quota() && !matches!(error.status, Some(401 | 403));
         if typed {
+            let mut credit_measured = false;
             if plan_meters_apply {
-                self.measure_once(provider, row).await;
+                if uses_credits {
+                    credit_measured = self.probe.measure_recorded(provider, &row.id, true).await;
+                } else {
+                    self.measure_once(provider, row).await;
+                }
             }
-            return Ok(blocked(true, "quota", true));
+            return Ok(Verdict { credit_measured, ..blocked(true, "quota", true) });
         }
         if policy.is_some_and(|p| p.rotate_on_rate_limit) && error.kind == ErrorKind::RateLimited && error.status == Some(429) {
             if plan_meters_apply {
@@ -429,12 +442,14 @@ impl AccountRotation {
         }
         let mut exhausted = false;
         let mut evidence = false;
+        let mut credit_measured = false;
         if error.status == Some(429) && plan_meters_apply {
-            self.probe.measure(provider, &row.id, true).await;
+            let measured = self.probe.measure_recorded(provider, &row.id, true).await;
             // The plan meters are read only where they describe the service the refusal came from.
             let pool = self.pool_for_service(provider, plan_meters_apply).await?;
             if let Some(entry) = pool.account(&row.id) {
                 let credits = pool.uses_credits();
+                credit_measured = credits && measured;
                 let now = self.now();
                 evidence = policy::account_exhausted(&entry.with_blocks(|_| false), now, model, credits);
                 exhausted = evidence || policy::account_exhausted(entry, now, model, credits);
@@ -443,7 +458,7 @@ impl AccountRotation {
         if !exhausted {
             return Ok(Verdict { evidence, ..Verdict::not_exhausted() });
         }
-        Ok(blocked(evidence, if evidence { "quota" } else { "unknown" }, evidence))
+        Ok(Verdict { credit_measured, ..blocked(evidence, if evidence { "quota" } else { "unknown" }, evidence) })
     }
 
     async fn record_block(&self, provider: &str, id: &str, model: &str, failed: &Failed, v: &Verdict) -> Result<(), AccountError> {
@@ -453,7 +468,13 @@ impl AccountRotation {
                 id,
                 v.until,
                 model,
-                BlockOptions { server_scheduled: v.server_scheduled, quota: v.evidence, limit: failed.quota_limit.clone(), reset: v.reset },
+                BlockOptions {
+                    server_scheduled: v.server_scheduled,
+                    quota: v.evidence,
+                    credit_measured: v.credit_measured,
+                    limit: failed.quota_limit.clone(),
+                    reset: v.reset,
+                },
             )
             .await?;
         Ok(())
@@ -475,7 +496,7 @@ impl AccountRotation {
         let Some(row) = pool.account(account_id) else {
             return Ok(false);
         };
-        let verdict = self.judge(provider, row, model, failed, cooldown, plan_meters_apply).await?;
+        let verdict = self.judge(provider, row, model, failed, cooldown, plan_meters_apply, pool.uses_credits()).await?;
         if !verdict.exhausted {
             return Ok(false);
         }
@@ -591,13 +612,15 @@ impl AccountRotation {
     }
 
     /// Before the pool gives up, re-measures EVERY account it is about to
-    /// refuse for, paced per account. Returns whether it measured any.
-    async fn probe_refused(&self, provider: &str, pool: &Pool, model: &str) -> bool {
+    /// refuse for, paced per account. Accounts already attempted in this send
+    /// are excluded so a live refusal is not immediately re-probed and cleared.
+    async fn probe_refused(&self, provider: &str, pool: &Pool, excluded: &HashSet<String>, model: &str) -> bool {
         let now = self.now();
         let mut due: Vec<&Account> = {
             let state = self.state();
             pool.accounts
                 .iter()
+                .filter(|r| !excluded.contains(&r.id))
                 .filter(|r| policy::account_exhausted(r, now, model, pool.uses_credits()))
                 .filter(|r| now - state.last_probe.get(&format!("{provider}:{}", r.id)).copied().unwrap_or(0) >= PROBE_INTERVAL_MS)
                 .collect()
@@ -693,26 +716,28 @@ impl AccountRotation {
         Ok(())
     }
 
-    /// No roster: with credit use off, a stored reading showing the plan's
-    /// window spent refuses before the implicit account sends.
+    /// No roster: a stored reading showing the plan's window spent (including
+    /// non-credit buckets when credit use is on) refuses before the implicit
+    /// account sends.
     fn plan_quota_spent(&self, provider: &str, pool: &Pool, ctx: &SendContext) -> Option<PoolError> {
         let now = self.now();
-        if pool.uses_credits() || !ctx.plan_meters_apply {
+        if !ctx.plan_meters_apply {
             return None;
         }
+        let credits = pool.uses_credits();
         let row = ctx.implicit_plan_usage.as_ref()?;
         if row.usage.as_ref().is_some_and(|u| {
             !u.windows.is_empty()
                 && !policy::stale_quota_windows(provider, &u.windows)
                 && (!uses_bound_plan_evidence(provider) || policy::quota_reading_fresh(u.checked_at, now))
-        }) && policy::account_exhausted(row, now, &ctx.model, false)
+        }) && policy::account_exhausted(row, now, &ctx.model, credits)
         {
             return Some(PoolError {
-                cause: Cause::AccountsExhausted { use_credits: false },
+                cause: Cause::AccountsExhausted { use_credits: credits },
                 quota_exhausted: Some(QuotaExhausted {
                     provider: provider.to_owned(),
                     model: ctx.model.clone(),
-                    reset_at: policy::accounts_reset_at(std::slice::from_ref(row), now, &ctx.model, false),
+                    reset_at: policy::accounts_reset_at(std::slice::from_ref(row), now, &ctx.model, credits),
                 }),
             });
         }
@@ -805,7 +830,7 @@ impl AccountRotation {
                 // outlive the meter. Tried before the failure is reported.
                 if !probed && ctx.plan_meters_apply {
                     probed = true;
-                    if self.probe_refused(provider, &pool, model).await {
+                    if self.probe_refused(provider, &pool, &ledger.attempted, model).await {
                         continue;
                     }
                 }
@@ -853,7 +878,7 @@ impl AccountRotation {
                 return Err(PoolError::of(Cause::Provider(failed.error)));
             }
             let cooldown = sender.cooldown_policy(&row.id);
-            let verdict = self.judge(provider, &row, model, &failed, cooldown.as_ref(), ctx.plan_meters_apply).await?;
+            let verdict = self.judge(provider, &row, model, &failed, cooldown.as_ref(), ctx.plan_meters_apply, pool.uses_credits()).await?;
             if !verdict.exhausted {
                 return Err(PoolError::of(Cause::Provider(failed.error)));
             }

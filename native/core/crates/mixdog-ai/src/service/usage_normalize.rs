@@ -150,18 +150,57 @@ fn obj(pairs: Vec<(&str, Value)>) -> Value {
 
 // Codex
 
-fn balance_from_credits(credits: Option<&Value>, source: &str) -> Value {
-    let Some(c @ Value::Object(_)) = credits else { return Value::Null };
-    let Some(balance) = num(first(c, &["balance", "remaining", "remaining_dollars"]), None) else {
+fn workspace_limit_reached(rate_limit_reached_type: Option<&Value>) -> bool {
+    let kind = rate_limit_reached_type.and_then(|v| v.get("type").or(Some(v))).and_then(Value::as_str).map(str::trim);
+    matches!(
+        kind,
+        Some(
+            "workspace_owner_credits_depleted"
+                | "workspace_member_credits_depleted"
+                | "workspace_owner_usage_limit_reached"
+                | "workspace_member_usage_limit_reached"
+        )
+    )
+}
+
+fn balance_from_credits(credits: Option<&Value>, spend_control: Option<&Value>, rate_limit_reached_type: Option<&Value>, source: &str) -> Value {
+    let c = credits.filter(|v| v.is_object());
+    let balance = c.and_then(|c| num(first(c, &["balance", "remaining", "remaining_dollars"]), None));
+    let unlimited = c.and_then(|c| c.get("unlimited")).and_then(Value::as_bool) == Some(true);
+    let raw_has_credits = c.and_then(|c| c.get("has_credits")).and_then(Value::as_bool);
+    let overage_reached = c.and_then(|c| c.get("overage_limit_reached")).and_then(Value::as_bool) == Some(true);
+    let spend_reached = spend_control.and_then(|s| s.get("reached")) == Some(&Value::Bool(true));
+    let workspace_reached = workspace_limit_reached(rate_limit_reached_type);
+    if balance.is_none() && !unlimited && raw_has_credits.is_none() && !overage_reached && !spend_reached && !workspace_reached {
         return Value::Null;
-    };
-    obj(vec![
-        ("source", source.into()),
-        ("unit", "credits".into()),
-        ("remainingCredits", jn(round(balance, 4))),
-        ("unlimited", Value::Bool(c.get("unlimited") == Some(&Value::Bool(true)))),
-        ("hasCredits", Value::Bool(c.get("has_credits") == Some(&Value::Bool(true)))),
-    ])
+    }
+    let mut pairs = vec![("source", source.into()), ("unit", "credits".into())];
+    if let Some(balance) = balance {
+        pairs.push(("remainingCredits", jn(round(balance, 4))));
+    }
+    pairs.push(("unlimited", Value::Bool(unlimited)));
+    let has_credits = raw_has_credits.or_else(|| {
+        if overage_reached || spend_reached || workspace_reached {
+            Some(false)
+        } else if unlimited {
+            Some(true)
+        } else {
+            balance.map(|b| b > 0.0)
+        }
+    });
+    if let Some(has_credits) = has_credits {
+        pairs.push(("hasCredits", Value::Bool(has_credits)));
+    }
+    if overage_reached {
+        pairs.push(("overageLimitReached", Value::Bool(true)));
+    }
+    if spend_reached {
+        pairs.push(("spendControlReached", Value::Bool(true)));
+    }
+    if workspace_reached {
+        pairs.push(("workspaceLimitReached", Value::Bool(true)));
+    }
+    obj(pairs)
 }
 
 fn codex_limit_id(v: Option<&Value>) -> String {
@@ -230,7 +269,7 @@ pub fn normalize_openai_wham_usage(data: &Value, now_ms: i64) -> Option<Value> {
         ("source", "openai-codex-wham".into()),
         ("planType", opt_str(clean(data.get("plan_type")))),
         ("quotaWindows", Value::Array(windows)),
-        ("balance", balance_from_credits(data.get("credits"), "openai-codex-credits")),
+        ("balance", balance_from_credits(data.get("credits"), data.get("spend_control"), data.get("rate_limit_reached_type"), "openai-codex-credits")),
         ("rawKeys", sorted_keys(data)),
     ]))
 }
@@ -253,7 +292,7 @@ pub fn normalize_codex_rate_limits(rate_limits: Option<&Value>, source: &str, no
         ("source", source.into()),
         ("planType", opt_str(clean(r.get("plan_type")))),
         ("quotaWindows", Value::Array(windows)),
-        ("balance", balance_from_credits(r.get("credits"), &format!("{source}-credits"))),
+        ("balance", balance_from_credits(r.get("credits"), r.get("spend_control"), r.get("rate_limit_reached_type"), &format!("{source}-credits"))),
     ]))
 }
 
@@ -364,16 +403,31 @@ fn balance_from_anthropic_spend(spend: Option<&Value>) -> Value {
 
 fn balance_from_extra_usage(extra: Option<&Value>) -> Value {
     let Some(extra @ Value::Object(_)) = extra else { return Value::Null };
-    let Some(limit_cents) = num(extra.get("monthly_limit"), None) else { return Value::Null };
-    let limit = limit_cents / 100.0;
+    if extra.get("is_enabled").is_some_and(|v| v != &Value::Bool(true)) {
+        return Value::Null;
+    }
     let used = num_or(extra.get("used_credits"), 0.0) / 100.0;
+    let currency = clean(extra.get("currency")).unwrap_or_else(|| "USD".into());
+    let Some(limit_cents) = num(extra.get("monthly_limit"), None) else {
+        if extra.get("is_enabled") != Some(&Value::Bool(true)) {
+            return Value::Null;
+        }
+        return obj(vec![
+            ("source", "anthropic-oauth-extra".into()),
+            ("period", "monthly".into()),
+            ("unlimited", Value::Bool(true)),
+            ("spentUsd", jn(round(used, 4))),
+            ("currency", currency.into()),
+        ]);
+    };
+    let limit = limit_cents / 100.0;
     obj(vec![
         ("source", "anthropic-oauth-extra".into()),
         ("period", "monthly".into()),
         ("budgetUsd", jn(round(limit, 4))),
         ("spentUsd", jn(round(used, 4))),
         ("remainingUsd", jn(round((limit - used).max(0.0), 4))),
-        ("currency", clean(extra.get("currency")).unwrap_or_else(|| "USD".into()).into()),
+        ("currency", currency.into()),
     ])
 }
 
@@ -464,15 +518,22 @@ fn scoped_anthropic_windows(data: &Value, source: &str, now_ms: i64) -> Vec<Valu
 
 fn anthropic_extra_usage_window(extra: Option<&Value>, now_ms: i64) -> Option<Value> {
     let extra = extra.filter(|e| e.get("is_enabled") == Some(&Value::Bool(true)))?;
-    let limit_usd = num_or(extra.get("monthly_limit"), 0.0) / 100.0;
     let used_usd = num_or(extra.get("used_credits"), 0.0) / 100.0;
-    let entry = obj(vec![
-        ("utilization", extra.get("utilization").cloned().unwrap_or(Value::Null)),
-        ("limit_dollars", jn(limit_usd)),
-        ("used_dollars", jn(used_usd)),
-        ("remaining_dollars", jn((limit_usd - used_usd).max(0.0))),
-    ]);
+    let mut pairs = vec![("utilization", extra.get("utilization").cloned().unwrap_or(Value::Null)), ("used_dollars", jn(used_usd))];
+    let unlimited = match num(extra.get("monthly_limit"), None) {
+        Some(limit_cents) => {
+            let limit_usd = limit_cents / 100.0;
+            pairs.push(("limit_dollars", jn(limit_usd)));
+            pairs.push(("remaining_dollars", jn((limit_usd - used_usd).max(0.0))));
+            false
+        }
+        None => true,
+    };
+    let entry = obj(pairs);
     let mut w = window_from_percent("EXTRA", Some(&entry), "anthropic-oauth-extra", now_ms)?.as_object().cloned().unwrap_or_default();
+    if unlimited {
+        w.insert("unlimited".into(), Value::Bool(true));
+    }
     w.insert("models".into(), Value::Array(Vec::new()));
     Some(Value::Object(w))
 }

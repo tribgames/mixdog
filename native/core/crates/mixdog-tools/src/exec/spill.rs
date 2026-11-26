@@ -154,26 +154,6 @@ pub async fn write_record(lane: impl LaneToken, cancel: &CancellationToken, dir:
     }
 }
 
-/// The last `cap` bytes of each of `logs`, with the offset they start at: the output a job read back from its logs shows
-/// (`readShellTaskOutput` over the recorded log paths). A log that cannot be read is empty.
-pub async fn read_log_tails(lane: impl LaneToken, cancel: &CancellationToken, logs: [PathBuf; 2], cap: usize) -> [(u64, Vec<u8>); 2] {
-    let Ok(job) = lane.submit(cancel, move |_| logs.map(|log| log_tail(&log, cap).unwrap_or_default())) else {
-        return Default::default();
-    };
-    job.await.unwrap_or_default()
-}
-
-fn log_tail(path: &Path, cap: usize) -> std::io::Result<(u64, Vec<u8>)> {
-    use std::io::Read;
-    use std::io::Seek;
-    let mut file = std::fs::File::open(path)?;
-    let from = file.metadata()?.len().saturating_sub(cap as u64);
-    file.seek(std::io::SeekFrom::Start(from))?;
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
-    Ok((from, bytes))
-}
-
 /// Compaction only accepts an entire capture. Never read past its known size even if a
 /// log was replaced or grew after the process settled.
 pub(super) async fn read_capture_logs(
