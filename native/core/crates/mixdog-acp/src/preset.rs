@@ -132,10 +132,11 @@ pub struct Command {
     pub args: Vec<String>,
 }
 
-/// A file under the folder an environment variable names.
+/// Where a CLI may be: its file under the folder an environment variable names, or, with no variable, `path` as it
+/// is, an absolute file or a name `PATH` finds.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Location {
-    pub env: String,
+    pub env: Option<String>,
     pub path: String,
 }
 
@@ -168,8 +169,11 @@ pub enum Distribution {
     Registry {
         index_url: String,
         agent_id: String,
-        /// The hosts a build's archive may come from.
+        /// The hosts a build's archive may come from, every redirect of its download included.
         allowed_archive_hosts: Vec<String>,
+        /// The programs beside the build's own that it starts, relative to the folder the archive is unpacked into: an
+        /// archive without one of them is no build, and each is left executable with it.
+        helpers: Vec<String>,
         /// The registry's build of the agent runs on this system.
         supported: bool,
         /// The variable that gives the agent a home of Mixdog's own, `<acp data>/homes/<preset id>`: its sign-in and
@@ -188,8 +192,8 @@ impl Distribution {
     pub fn without_mutations(self) -> Self {
         match self {
             Self::Cli { installed_at, .. } => Self::Cli { installer: None, installed_at, update_args: None },
-            Self::Registry { index_url, agent_id, allowed_archive_hosts, supported, home_env, sign_in_files, .. } => {
-                Self::Registry { index_url, agent_id, allowed_archive_hosts, supported, home_env, sign_in_files, kept_current: false }
+            Self::Registry { index_url, agent_id, allowed_archive_hosts, helpers, supported, home_env, sign_in_files, .. } => {
+                Self::Registry { index_url, agent_id, allowed_archive_hosts, helpers, supported, home_env, sign_in_files, kept_current: false }
             }
         }
     }
@@ -204,10 +208,13 @@ pub enum Login {
         args: Vec<String>,
         /// Variables the login runs without, so it prints its link instead of opening a browser of its own.
         env_remove: Vec<String>,
+        /// The login may open its page in the system's browser itself.
+        opens_browser: bool,
     },
     /// The protocol's `authenticate` with the method `method_id`, asked of a process of its own in a home of its own: the
     /// agent writes the line `link_line` followed by the page to open on its stderr, and answers once the user signed in
-    /// there.
+    /// there. Where the page sends the browser back to a loopback address of the agent's, the address the browser ended
+    /// on, or its code, is delivered there for a browser on another machine.
     AcpAuthenticate {
         method_id: String,
         /// The agent opens the page in the system's browser itself.
@@ -225,14 +232,24 @@ impl Login {
             Self::Cli { .. } => None,
         }
     }
+
+    /// The sign-in opens its page in the system's browser itself.
+    pub fn opens_browser(&self) -> bool {
+        match self {
+            Self::Cli { opens_browser, .. } | Self::AcpAuthenticate { opens_browser, .. } => *opens_browser,
+        }
+    }
 }
 
-/// The CLI's own report of the signed-in account's quota: run to its exit, it prints one JSON object whose
-/// `command.data.groups` hold the quota's buckets (each with an `id`, a `window`, a `remaining_fraction` and a
-/// `reset_time`), asks no model and starts no conversation.
+/// Where the signed-in account's quota is read. Neither asks a model or starts a conversation.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UsageReport {
-    pub args: Vec<String>,
+pub enum UsageReport {
+    /// The CLI's own report: run to its exit with `args`, it prints one JSON object whose `command.data.groups` hold the
+    /// quota's buckets (each with an `id`, a `window`, a `remaining_fraction` and a `reset_time`).
+    Command { args: Vec<String> },
+    /// The quota summary of Cloud Code Assist (`retrieveUserQuotaSummary`), asked with the Google credential the agent
+    /// keeps at `token_file` of its home (its `client_id`, `client_secret`, `refresh_token` and `project_id`).
+    Summary { token_file: String },
 }
 
 /// How an agent runs with none of its own tools, for a session that is handed Mixdog's.
@@ -337,9 +354,26 @@ fn antigravity_installer() -> Command {
     }
 }
 
+/// Where the agy CLI is, past `agy` on `PATH`: where its installer puts it, the folders Homebrew links into (which an app
+/// started from the Finder or the Dock has no `PATH` to), and the same under its other name.
 fn antigravity_installed_at() -> Vec<Location> {
-    let (env, path) = if cfg!(windows) { ("LOCALAPPDATA", "agy/bin/agy.exe") } else { ("HOME", ".local/bin/agy") };
-    vec![Location { env: env.into(), path: path.into() }]
+    let under = |env: &str, path: &str| Location { env: Some(env.into()), path: path.into() };
+    let at = |path: &str| Location { env: None, path: path.into() };
+    if cfg!(windows) {
+        return vec![under("LOCALAPPDATA", "agy/bin/agy.exe"), at("antigravity"), under("LOCALAPPDATA", "agy/bin/antigravity.exe")];
+    }
+    let homebrew: &[&str] = if cfg!(target_os = "macos") { &["/opt/homebrew/bin", "/usr/local/bin"] } else { &[] };
+    let mut found = vec![under("HOME", ".local/bin/agy")];
+    found.extend(homebrew.iter().map(|folder| at(&format!("{folder}/agy"))));
+    found.extend([at("antigravity"), under("HOME", ".local/bin/antigravity")]);
+    found.extend(homebrew.iter().map(|folder| at(&format!("{folder}/antigravity"))));
+    found
+}
+
+/// What a Python agent's `webbrowser` runs in place of a browser (`BROWSER`): it takes the page and exits 0, so no other
+/// browser is tried. The `%s` has it read as a command line.
+fn no_browser() -> String {
+    if cfg!(windows) { "cmd /d /c exit 0 %s" } else { "true %s" }.to_owned()
 }
 
 /// The model ids of Google's own models in Antigravity's list: Google's official ACP server runs them, and offers no
@@ -420,7 +454,9 @@ pub fn builtin() -> Vec<AgentPreset> {
         // The server has no version flag: it names its version in `initialize`.
         version_args: Vec::new(),
         // Its sign-in is kept in a file of its home, not in the system's keychain entry every other client of Google shares.
-        env: vec![("AGY_ACP_FORCE_FILE_STORAGE".into(), "1".into())],
+        // It opens no browser: a check or a sign-out that meets a sign-in it asks for shows nothing, a terminal browser
+        // never holds it, and the sign-in's page is opened by the window that asked for it, on whichever machine it is.
+        env: vec![("AGY_ACP_FORCE_FILE_STORAGE".into(), "1".into()), ("BROWSER".into(), no_browser())],
         // The build whose settings and answers this preset was measured on.
         minimum_version: Version::new(1, 5, 2),
         quirks: Quirks {
@@ -445,19 +481,21 @@ pub fn builtin() -> Vec<AgentPreset> {
             index_url: "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json".into(),
             agent_id: "antigravity-acp".into(),
             allowed_archive_hosts: vec!["dl.google.com".into()],
+            // The harness the server drives: without it the server starts and fails each turn ("Localharness not found.").
+            helpers: vec![if cfg!(windows) { "localharness_external.exe" } else { "localharness_external" }.into()],
             // 1.5.2 hangs at its start on an Intel Mac.
             supported: !(cfg!(target_os = "macos") && cfg!(target_arch = "x86_64")),
             home_env: "GEMINI_HOME".into(),
             sign_in_files: vec!["antigravity-acp/settings.json".into(), "antigravity-acp/acp_token.json".into()],
             kept_current: true,
         },
-        // Google's own sign-in, which the server opens in the system's browser itself.
+        // Google's own sign-in, whose page sends the browser back to the server's loopback address.
         login: Some(Login::AcpAuthenticate {
             method_id: "oauth-personal".into(),
-            opens_browser: true,
+            opens_browser: false,
             link_line: "Open the following link to authenticate the ACP server:".into(),
         }),
-        usage: None,
+        usage: Some(UsageReport::Summary { token_file: "antigravity-acp/acp_token.json".into() }),
         same_quota_as: Some("antigravity-oauth".into()),
     };
     let cli = AgentPreset {
@@ -487,10 +525,14 @@ pub fn builtin() -> Vec<AgentPreset> {
             installed_at: antigravity_installed_at(),
             update_args: Some(vec!["update".into()]),
         },
-        // Without a display the CLI prints its sign-in link only.
-        login: Some(Login::Cli { args: vec!["acp".into(), "--login".into()], env_remove: vec!["DISPLAY".into(), "WAYLAND_DISPLAY".into()] }),
+        // Without a display the CLI prints its sign-in link only; Windows and macOS always have one.
+        login: Some(Login::Cli {
+            args: vec!["acp".into(), "--login".into()],
+            env_remove: vec!["DISPLAY".into(), "WAYLAND_DISPLAY".into()],
+            opens_browser: cfg!(windows) || cfg!(target_os = "macos"),
+        }),
         // The `/usage` command in print mode: the account's quota as data, with no turn.
-        usage: Some(UsageReport { args: vec!["--print".into(), "/usage".into(), "--output-format".into(), "json".into()] }),
+        usage: Some(UsageReport::Command { args: vec!["--print".into(), "/usage".into(), "--output-format".into(), "json".into()] }),
         same_quota_as: Some("antigravity-oauth".into()),
         // Below it the CLI lists only Gemini models to a client that is not an allowed editor.
         minimum_version: Version::new(1, 5, 1),
@@ -532,6 +574,20 @@ mod tests {
         assert_eq!([&official, &cli].map(|preset| preset.same_quota_as.as_deref()), [Some("antigravity-oauth"); 2]);
         assert!(matches!(official.distribution, Distribution::Registry { .. }) && official.version_args.is_empty());
         assert!(matches!(cli.distribution, Distribution::Cli { .. }));
+    }
+
+    /// The CLI is looked for under its other name too, and on macOS in the folders Homebrew links into, which an app
+    /// started from the Finder has no `PATH` to.
+    #[test]
+    fn the_cli_is_looked_for_under_both_names_and_where_homebrew_links_it() {
+        let Distribution::Cli { installed_at, .. } = shipped("antigravity-cli").distribution else { panic!("the CLI's preset") };
+        let paths: Vec<&str> = installed_at.iter().map(|location| location.path.as_str()).collect();
+        assert!(paths.contains(&"antigravity"), "{paths:?}");
+        if cfg!(target_os = "macos") {
+            for path in ["/opt/homebrew/bin/agy", "/usr/local/bin/agy"] {
+                assert!(paths.contains(&path), "{paths:?}");
+            }
+        }
     }
 
     /// A session handed Mixdog's tools asks the official server for its whole results and Mixdog's tools by name; one

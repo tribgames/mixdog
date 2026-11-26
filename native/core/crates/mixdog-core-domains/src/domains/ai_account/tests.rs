@@ -138,6 +138,55 @@ async fn a_device_login_keeps_its_kind_after_its_state_moves_on_and_a_newer_logi
     flows.cancel_all();
 }
 
+/// A manual code whose `provide` fails ends the flow as `failed` and cancels the underlying session so its process,
+/// listener and guards tear down instead of leaking.
+#[tokio::test]
+async fn a_failed_code_completion_cancels_the_login_session() {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::Ordering;
+
+    use mixdog_core_api::domain::login::LoginError;
+    use mixdog_core_api::domain::login::LoginFailure;
+    use mixdog_core_api::domain::login::LoginInput;
+    use mixdog_core_api::domain::login::LoginSession;
+    use mixdog_core_api::domain::login::LoginState;
+    use mixdog_core_api::feed_publisher::LoginFeeds;
+    use mixdog_core_api::mock::MockLimits;
+    use mixdog_core_api::mock::MockScopedFeeds;
+
+    struct FailingPaste {
+        cancelled: Arc<AtomicBool>,
+    }
+
+    #[async_trait::async_trait]
+    impl LoginSession for FailingPaste {
+        fn state(&self) -> LoginState {
+            LoginState::Authorize { url: "https://auth.example/a".into(), manual_url: Some("https://auth.example/a".into()) }
+        }
+        async fn next(&self) -> Option<LoginState> {
+            std::future::pending().await
+        }
+        async fn provide(&self, _: LoginInput) -> Result<(), LoginError> {
+            Err(LoginError::Failed(LoginFailure::Failed { code: "agentLogin".into(), message: "wrong state".into() }))
+        }
+        fn cancel(&self) {
+            self.cancelled.store(true, Ordering::SeqCst);
+        }
+    }
+
+    let scoped = Arc::new(MockScopedFeeds::new(MockLimits::default()));
+    let flows = super::flows::OAuthFlows::new(std::time::Duration::from_millis(super::flows::DEFAULT_FLOW_TTL_MS), Arc::new(LoginFeeds::new(scoped)));
+    let settle: super::flows::Settle = Box::new(move |_| Box::pin(async move { Ok(true) }));
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let started = flows.register("acp-antigravity", Box::new(FailingPaste { cancelled: cancelled.clone() }), settle).unwrap();
+    let id = started["flowId"].as_str().unwrap().to_owned();
+    let err = flows.complete(&id, "http://localhost:1/oauth2callback?state=wrong&code=c").await.unwrap_err();
+    assert_eq!(err.message(), "wrong state");
+    assert_eq!(flows.status(&id).unwrap()["state"], "failed");
+    assert!(cancelled.load(Ordering::SeqCst), "the underlying session was cancelled when complete failed");
+}
+
 /// A roster read that never ran is not the "default" account: a login, a forget or a credit
 /// redemption on "default" would act on a different account than the selected one.
 #[tokio::test]

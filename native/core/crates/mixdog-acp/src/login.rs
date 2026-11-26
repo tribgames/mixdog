@@ -2,8 +2,9 @@
 //! is the flow's state for the client to open, a code that page shows is written to the CLI, and
 //! the CLI stores the credential itself: Mixdog reads the page's address and the exit, nothing else.
 //! A registry agent is asked the protocol's `authenticate` in a process of its own with a staging
-//! home: it opens the page itself and writes it on its stderr, and the sign-in it stores there is
-//! moved into the agent's home once it succeeded.
+//! home: it writes the page on its stderr, the address a browser elsewhere ended on is delivered to
+//! its loopback listener, and the sign-in it stores there is moved into the agent's home once it
+//! succeeded.
 //!
 //! A sign-in is a [`LoginSession`] kept by the account service's flow registry, so it is started,
 //! read, completed and cancelled by the `account/*OAuthProviderLogin` calls every provider
@@ -85,8 +86,98 @@ struct Shared {
     handle: ProcessHandle,
     /// Fired by a cancel and by the feature being turned off.
     stop: CancellationToken,
-    /// The sign-in takes a code the page shows, as a line of its stdin.
-    takes_code: bool,
+    /// Where what the user pastes goes.
+    answer: Answer,
+}
+
+/// Where what the user pastes goes.
+enum Answer {
+    /// The code the page showed, as a line of the CLI's stdin.
+    Stdin,
+    /// The address the page sent the browser to, to the agent's loopback listener, known once the page is: `None` for a
+    /// page that sends the browser anywhere else.
+    Loopback(Mutex<Option<Loopback>>),
+}
+
+/// The agent's loopback listener a sign-in page sends the browser back to: its `redirect_uri`, an HTTP address on
+/// `127.0.0.1`, and the `state` the listener checks.
+#[derive(Clone)]
+struct Loopback {
+    redirect: url::Url,
+    state: String,
+}
+
+impl Loopback {
+    /// The listener the sign-in page `page` sends the browser back to; `None` for a page that sends it anywhere else.
+    fn of(page: &str) -> Option<Self> {
+        let page = url::Url::parse(page).ok()?;
+        let named = |key: &str| page.query_pairs().find(|(name, _)| name == key).map(|(_, value)| value.into_owned());
+        let redirect = url::Url::parse(&named("redirect_uri")?).ok()?;
+        let loopback = redirect.scheme() == "http"
+            && redirect.host_str() == Some("127.0.0.1")
+            && redirect.port().is_some()
+            && redirect.username().is_empty()
+            && redirect.password().is_none();
+        loopback.then(|| Self { redirect, state: named("state").unwrap_or_default() })
+    }
+
+    /// The address the browser would have reached the listener with, from what the user pasted: the address the page
+    /// ended on, its query, or the code alone. Only the code or the error is taken from it; the listener's address and the
+    /// state are the page's own. `Err` says why a paste is none of this sign-in's.
+    fn target(&self, pasted: &str) -> Result<url::Url, String> {
+        let pasted = pasted.trim();
+        let query = match pasted.split_once('?') {
+            Some((_, query)) => query.split('#').next().unwrap_or_default(),
+            None if pasted.contains('=') => pasted,
+            None if pasted.contains("://") => return Err("The address holds no sign-in code. Paste the whole address the sign-in page ended on.".into()),
+            None => "",
+        };
+        let pairs: Vec<(String, String)> = url::form_urlencoded::parse(query.as_bytes()).into_owned().collect();
+        let named = |key: &str| pairs.iter().find(|(name, _)| name == key).map(|(_, value)| value.clone()).filter(|value| !value.is_empty());
+        if named("state").is_some_and(|state| state != self.state) {
+            return Err("The address is of another sign-in. Paste the address this sign-in's page ended on.".into());
+        }
+        let (code, error) = if query.is_empty() { (Some(pasted.to_owned()), None) } else { (named("code"), named("error")) };
+        if code.is_none() && error.is_none() {
+            return Err("The address holds no sign-in code. Paste the whole address the sign-in page ended on.".into());
+        }
+        let mut target = self.redirect.clone();
+        {
+            let mut query = target.query_pairs_mut();
+            query.append_pair("state", &self.state);
+            for (key, value) in [("code", code), ("error", error)] {
+                if let Some(value) = value {
+                    query.append_pair(key, &value);
+                }
+            }
+        }
+        Ok(target)
+    }
+}
+
+/// Asks the agent's loopback listener for `target` as the browser that signed in would have; the status its answer
+/// starts with is all that is read of it.
+async fn deliver(target: &url::Url) -> Result<(), String> {
+    use tokio::io::AsyncReadExt;
+    use tokio::io::AsyncWriteExt;
+    let gone = || "The sign-in no longer waits for its page. Start the sign-in again.".to_owned();
+    let port = target.port().ok_or_else(gone)?;
+    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.map_err(|_| gone())?;
+    let request = format!("GET {} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n", &target[url::Position::BeforePath..]);
+    stream.write_all(request.as_bytes()).await.map_err(|_| gone())?;
+    let (mut answer, mut chunk) = (Vec::new(), [0_u8; 256]);
+    while !answer.windows(2).any(|end| end == b"\r\n") {
+        match stream.read(&mut chunk).await {
+            Ok(0) | Err(_) => break,
+            Ok(read) => answer.extend_from_slice(&chunk[..read]),
+        }
+    }
+    let status = String::from_utf8_lossy(&answer).split_whitespace().nth(1).and_then(|status| status.parse::<u16>().ok());
+    match status {
+        Some(200..=299) => Ok(()),
+        Some(status) => Err(format!("The sign-in did not take the address (HTTP {status}). Start the sign-in again.")),
+        None => Err(gone()),
+    }
 }
 
 impl Shared {
@@ -182,13 +273,19 @@ impl Authenticate {
             connection.request("authenticate", json!({ "methodId": self.method_id })).await.map_err(|fault| fault.to_string())?;
             Ok(capabilities)
         };
-        // The agent opens the page itself; it is shown with no form for a code, as the agent receives the sign-in itself.
+        // The window that asked opens the page. Where it sends the browser back to the agent's loopback listener, a browser
+        // on another machine cannot reach it: the address that browser ended on is pasted and delivered here.
         let shown = async {
             while let Some(line) = lines.recv().await {
                 if line.contains(self.link_line.as_str())
                     && let Some(page) = page_in(&line)
                 {
-                    shared.advance(LoginState::Authorize { url: page, manual_url: None });
+                    let loopback = Loopback::of(&page);
+                    let manual_url = loopback.is_some().then(|| page.clone());
+                    if let Answer::Loopback(at) = &shared.answer {
+                        *lock(at) = loopback;
+                    }
+                    shared.advance(LoginState::Authorize { url: page, manual_url });
                 }
             }
             std::future::pending::<()>().await
@@ -257,23 +354,37 @@ impl LoginSession for AgentLogin {
         Some(state)
     }
 
-    /// The code the sign-in page showed: the CLI reads it as a line.
+    /// The code the sign-in page showed, which the CLI reads as a line; or the address the page ended on, delivered to
+    /// the agent's loopback listener.
     async fn provide(&self, input: LoginInput) -> Result<(), LoginError> {
         let LoginInput::AuthorizationCode(code) = input;
         match &*self.0.state.borrow() {
             state if state.is_terminal() => return Err(LoginError::Finished),
-            LoginState::Authorize { .. } | LoginState::Waiting if self.0.takes_code => {}
+            LoginState::Authorize { .. } | LoginState::Waiting => {}
             _ => return Err(LoginError::InputNotExpected),
         }
-        let mut line = code.trim().as_bytes().to_vec();
-        line.push(b'\n');
-        match self.0.processes.write_stdin_whole(&self.0.handle, line).await {
-            Ok(()) => {
-                self.0.advance(LoginState::Waiting);
-                Ok(())
-            }
-            Err(_) => Err(LoginError::Finished),
-        }
+        let Answer::Loopback(at) = &self.0.answer else {
+            let mut line = code.trim().as_bytes().to_vec();
+            line.push(b'\n');
+            return match self.0.processes.write_stdin_whole(&self.0.handle, line).await {
+                Ok(()) => {
+                    self.0.advance(LoginState::Waiting);
+                    Ok(())
+                }
+                Err(_) => Err(LoginError::Finished),
+            };
+        };
+        let Some(loopback) = lock(at).clone() else { return Err(LoginError::InputNotExpected) };
+        let refused = |message: String| LoginError::Failed(LoginFailure::Failed { code: "agentLogin".into(), message });
+        let target = loopback.target(&code).map_err(refused)?;
+        let delivered = tokio::select! {
+            biased;
+            () = self.0.stop.cancelled() => return Err(LoginError::Finished),
+            delivered = deliver(&target) => delivered,
+        };
+        delivered.map_err(refused)?;
+        self.0.advance(LoginState::Waiting);
+        Ok(())
     }
 
     fn cancel(&self) {
@@ -284,7 +395,8 @@ impl LoginSession for AgentLogin {
 }
 
 impl Agents {
-    /// Starts `preset`'s own login. A sign-in of the preset that still runs is ended first.
+    /// Starts `preset`'s own login. A sign-in of the preset that still runs is ended first. The account stays the one
+    /// signed in, with what was read of its quota, until the sign-in settles.
     pub async fn begin_login(self: &Arc<Self>, preset: &AgentPreset) -> Result<Box<dyn LoginSession>, String> {
         if !self.enabled() {
             return Err("ACP agents are turned off in Settings.".to_owned());
@@ -295,8 +407,7 @@ impl Agents {
         if let Some(prior) = lock(&self.logins).insert(preset.id.clone(), stop.clone()) {
             prior.cancel();
         }
-        self.account_left(&preset.id, AccountEvent::Left);
-        let shared = |handle: ProcessHandle, takes_code: bool| {
+        let shared = |handle: ProcessHandle, answer: Answer| {
             let (state, cursor) = watch::channel(LoginState::Starting);
             Arc::new(Shared {
                 state,
@@ -307,22 +418,26 @@ impl Agents {
                 processes: self.parts.processes.clone(),
                 handle,
                 stop: stop.clone(),
-                takes_code,
+                answer,
             })
         };
         match login {
-            Login::Cli { args, env_remove } => {
+            Login::Cli { args, env_remove, .. } => {
+                // A CLI not looked at yet is found first: it may be only where its installer put it.
+                if lock(&self.slots).get(&preset.id).is_none_or(|slot| slot.program.is_none()) {
+                    self.look(preset).await;
+                }
                 let launch = Launch { program: self.program(preset).path, args: args.clone(), env: preset.env.clone(), env_remove: env_remove.clone(), cwd };
                 let (handle, events) =
                     spawn_piped(&self.parts.processes, launch).await.map_err(|fault| format!("{}'s sign-in did not start: {fault}", preset.label))?;
-                let shared = shared(handle, true);
+                let shared = shared(handle, Answer::Stdin);
                 drop(mixdog_rt::spawn("acp.login", TaskClass::Work, follow(shared.clone(), events)));
                 Ok(Box::new(AgentLogin(shared)))
             }
             Login::AcpAuthenticate { method_id, link_line, .. } => {
                 let held = self.hold_program(preset);
                 let (connection, staging) = self.start_authenticate(preset, cwd).await?;
-                let shared = shared(connection.handle().clone(), false);
+                let shared = shared(connection.handle().clone(), Answer::Loopback(Mutex::new(None)));
                 let asked = Authenticate {
                     agents: self.clone(),
                     preset: preset.clone(),

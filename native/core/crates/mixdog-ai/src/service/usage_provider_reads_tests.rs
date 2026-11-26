@@ -226,6 +226,15 @@ fn antigravity_rows_come_from_the_gateways_bucket_ids_and_the_used_share_is_the_
 }
 
 #[test]
+fn a_disabled_antigravity_bucket_meters_nothing_and_is_no_row() {
+    let mut disabled = bucket("gemini-5h", "5h", 0.0, None);
+    disabled["disabled"] = true.into();
+    let all = rows(json!({ "groups": [{ "buckets": [disabled, bucket("3p-5h", "5h", 0.5, None)] }] }));
+    let labels: Vec<&str> = all.iter().map(|r| r["label"].as_str().unwrap()).collect();
+    assert_eq!(labels, ["5H Claude/GPT"]);
+}
+
+#[test]
 fn antigravity_gemini_rows_cover_only_gemini_and_odd_buckets_are_skipped() {
     let plain = rows(json!({ "groups": [{ "buckets": [bucket("gemini-5h", "5h", 0.4, None)] }] }));
     assert_eq!(plain.len(), 1);

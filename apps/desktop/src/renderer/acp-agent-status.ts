@@ -48,6 +48,8 @@ export interface AcpAgentStatus {
   canSignOut: boolean;
   /** The core's sign-in opens the browser on its own machine. */
   loginOpensBrowser: boolean;
+  /** A browser on another machine pastes the address the sign-in page ended on, not a code the page showed. */
+  loginTakesRedirect: boolean;
   /** The agent's sign-in is the one its CLI uses outside Mixdog. */
   sharesExternalSignIn: boolean;
 }
@@ -87,6 +89,7 @@ export function acpAgentsOf(value: unknown): AcpAgentStatus[] {
         plan: String(agent.plan || ''),
         canSignOut: agent.canSignOut === true,
         loginOpensBrowser: agent.loginOpensBrowser === true,
+        loginTakesRedirect: agent.loginTakesRedirect === true,
         // A core that does not say is one whose only agent was the CLI.
         sharesExternalSignIn: agent.sharesExternalSignIn !== false,
       },
@@ -100,6 +103,11 @@ export interface AcpAgentGroup {
   agent: AcpAgentStatus;
   /** In the core's order. */
   members: AcpAgentStatus[];
+  /** The members that run here and are ready, each with the account it is signed in with: a sibling in another state
+   *  hides none of them. */
+  ready: AcpAgentStatus[];
+  /** Beside a ready member, every other member that runs here, each with its own state and next step. */
+  pending: AcpAgentStatus[];
 }
 
 /** Which member's state the group shows: the work under way, then what stops it, then what keeps it short of
@@ -146,7 +154,12 @@ export function acpAgentGroups(value: unknown): AcpAgentGroup[] {
     const key = agentServiceProvider(agent.provider) ?? agent.id;
     groups.set(key, [...(groups.get(key) ?? []), agent]);
   }
-  return [...groups.values()].map((members) => ({ agent: groupAgent(members), members }));
+  return [...groups.values()].map((members) => {
+    const usable = members.filter((member) => member.state !== 'unsupported');
+    const ready = usable.filter((member) => member.state === 'ready');
+    const pending = ready.length ? usable.filter((member) => member.state !== 'ready') : [];
+    return { agent: groupAgent(members), members, ready, pending };
+  });
 }
 
 /** Whether `provider` is an agent's route provider, by the window's settings value as it is now. */

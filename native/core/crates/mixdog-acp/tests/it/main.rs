@@ -512,6 +512,18 @@ struct Registry {
     downloads: Mutex<Vec<String>>,
     /// A download that never ends.
     hangs: AtomicBool,
+    /// An unpack of a download that never ends goes on writing into its folder after the download was ended, as an
+    /// extraction on its lane does, until `finish` is notified.
+    lingers: AtomicBool,
+    /// Notified once `unpack` has recorded the download and armed any lingering writer.
+    entered: Notify,
+    finish: Arc<Notify>,
+    /// Notified once the lingering writer has written its late file and released `Unpacking`.
+    late_done: Arc<Notify>,
+    /// The answer to a post to each address.
+    answers: Mutex<HashMap<String, Value>>,
+    /// What was posted, in order: the address, the headers and the body.
+    posted: Mutex<Vec<(String, Vec<(String, String)>, Vec<u8>)>>,
 }
 
 impl Registry {
@@ -529,6 +541,15 @@ impl Registry {
     fn downloads(&self) -> Vec<String> {
         self.downloads.lock().unwrap().clone()
     }
+
+    /// Answers a post to `url` with `answer`.
+    fn answer(&self, url: &str, answer: Value) {
+        self.answers.lock().unwrap().insert(url.to_owned(), answer);
+    }
+
+    fn posted(&self) -> Vec<(String, Vec<(String, String)>, Vec<u8>)> {
+        self.posted.lock().unwrap().clone()
+    }
 }
 
 #[async_trait]
@@ -538,15 +559,40 @@ impl mixdog_acp::registry::RegistryFetcher for Registry {
     }
 
     #[allow(clippy::disallowed_methods, reason = "a test unpacks the fake agent as a build")]
-    async fn unpack(&self, build: &mixdog_acp::registry::Build, _archive: &std::path::Path, into: &std::path::Path) -> Result<(), String> {
+    async fn unpack(
+        &self,
+        build: &mixdog_acp::registry::Build,
+        _archive: &std::path::Path,
+        into: &std::path::Path,
+        held: mixdog_acp::registry::Unpacking,
+    ) -> Result<(), String> {
         self.downloads.lock().unwrap().push(build.archive.clone());
         if self.hangs.load(Ordering::SeqCst) {
             std::fs::create_dir_all(into).map_err(|error| error.to_string())?;
+            if self.lingers.load(Ordering::SeqCst) {
+                let (finish, late, late_done) = (self.finish.clone(), into.join("late"), self.late_done.clone());
+                drop(tokio::spawn(async move {
+                    finish.notified().await;
+                    std::fs::create_dir_all(&late).and_then(|()| std::fs::write(late.join("part"), "written late")).expect("the late write");
+                    drop(held);
+                    late_done.notify_one();
+                }));
+            }
+            self.entered.notify_one();
             std::future::pending::<()>().await;
         }
+        self.entered.notify_one();
         std::fs::create_dir_all(into).map_err(|error| error.to_string())?;
         std::fs::copy(mixdog_testkit::bin_exe!("mixdog-acp-fake-agent"), into.join(&build.cmd)).map_err(|error| error.to_string())?;
+        for helper in &build.helpers {
+            std::fs::write(into.join(helper), "").map_err(|error| error.to_string())?;
+        }
         Ok(())
+    }
+
+    async fn post(&self, url: &str, headers: &[(String, String)], body: Vec<u8>) -> Result<Value, String> {
+        self.posted.lock().unwrap().push((url.to_owned(), headers.to_vec(), body));
+        self.answers.lock().unwrap().get(url).cloned().ok_or_else(|| format!("{url} was not answered"))
     }
 }
 
@@ -609,10 +655,13 @@ struct World {
     refusals: Arc<Kept>,
     /// The ACP registry, which cannot be reached until it is given an index.
     registry: Arc<Registry>,
+    /// Notified whenever the agents report a state change.
+    changed: Arc<Notify>,
     dir: tempfile::TempDir,
 }
 
 /// The agents of an app that starts over `presets` in `dir`: what `refusals` keeps is all they share with the ones before.
+#[allow(clippy::too_many_arguments, reason = "test harness helper wiring world collaborators")]
 fn agents_of(
     presets: &[AgentPreset],
     processes: &Arc<dyn ProcessManager>,
@@ -620,6 +669,7 @@ fn agents_of(
     enabled: &Arc<AtomicBool>,
     refusals: &Arc<Kept>,
     registry: &Arc<Registry>,
+    changed: &Arc<Notify>,
     dir: &std::path::Path,
 ) -> Arc<Agents> {
     let home = dir.join("home").to_string_lossy().into_owned();
@@ -632,7 +682,10 @@ fn agents_of(
             let enabled = enabled.clone();
             Arc::new(move || enabled.load(Ordering::SeqCst))
         },
-        changed: Arc::new(|| {}),
+        changed: {
+            let changed = changed.clone();
+            Arc::new(move || changed.notify_waiters())
+        },
         probe_cwd: dir.to_path_buf(),
         definitions: dir.join("acp-agents"),
         data_dir: dir.join("acp-agents"),
@@ -688,13 +741,22 @@ impl World {
                 let mut preset = shipped.iter().find(|preset| preset.id == *id).expect("a shipped preset").clone();
                 // A session handed tools starts the fake in a folder of its own, which has no settings file.
                 preset.env.extend(lines.iter().filter_map(|line| line.split_once('=')).map(|(name, value)| (name.to_owned(), value.to_owned())));
-                if let Distribution::Registry { .. } = preset.distribution {
+                if let Distribution::Registry { helpers, .. } = &preset.distribution {
+                    let helpers = helpers.clone();
                     preset.env.push(("FAKE_AGENT_OFFICIAL".into(), "1".into()));
                     let version = settings.iter().find(|(name, _)| *name == "FAKE_AGENT_VERSION").map_or("1.5.2", |(_, version)| *version);
                     let installed = json!({ "version": version, "cmd": fake, "args": ["acp", "--from-manifest"], "sha256": "" });
                     let folder = dir.path().join("acp-agents").join("bin").join(&preset.id);
+                    let build = folder.join(version);
                     #[allow(clippy::disallowed_methods, reason = "a test installs the fake as Mixdog keeps a registry agent's build")]
-                    std::fs::create_dir_all(&folder).and_then(|()| std::fs::write(folder.join("installed.json"), installed.to_string())).expect("the install");
+                    {
+                        std::fs::create_dir_all(&build)
+                            .and_then(|()| std::fs::write(folder.join("installed.json"), installed.to_string()))
+                            .expect("the install");
+                        for helper in &helpers {
+                            std::fs::write(build.join(helper), "").expect("the helper");
+                        }
+                    }
                     sign_in_home(dir.path(), &preset.id);
                     keep_answers(dir.path(), &preset.id, settings);
                 } else {
@@ -717,7 +779,8 @@ impl World {
         std::fs::write(dir.path().join("note.txt"), "hello\nsecond line\n").expect("the note");
         let refusals: Arc<Kept> = Arc::default();
         let registry: Arc<Registry> = Arc::default();
-        let agents = agents_of(&presets, &processes, &opened, &enabled, &refusals, &registry, dir.path());
+        let changed: Arc<Notify> = Arc::default();
+        let agents = agents_of(&presets, &processes, &opened, &enabled, &refusals, &registry, &changed, dir.path());
         agents.bind_wake({
             let woken = woken.clone();
             Arc::new(move |thread: &ThreadId| {
@@ -725,13 +788,13 @@ impl World {
                 woken.1.notify_waiters();
             })
         });
-        Self { agents, processes, preset, presets, enabled, woken, opened, refusals, registry, dir }
+        Self { agents, processes, preset, presets, enabled, woken, opened, refusals, registry, changed, dir }
     }
 
     /// The app is started again: new agents, over what the ones before kept.
     fn restart(&mut self) {
         self.agents.release_all();
-        self.agents = agents_of(&self.presets, &self.processes, &self.opened, &self.enabled, &self.refusals, &self.registry, self.dir.path());
+        self.agents = agents_of(&self.presets, &self.processes, &self.opened, &self.enabled, &self.refusals, &self.registry, &self.changed, self.dir.path());
     }
 
     /// Waits for the fake agent to have logged `line`.
@@ -1535,6 +1598,26 @@ async fn a_reply_that_refuses_the_account_fails_the_turn_in_the_agents_words_and
     assert_eq!((&agent["state"], &agent["message"]), (&json!("ready"), &Value::Null), "{agent}");
     world.restart();
     assert_eq!(world.checked().await["state"], "ready");
+}
+
+/// An account the agent refused is still the one signed in: it can be signed out, to sign in with another.
+#[tokio::test]
+async fn an_account_the_agent_refused_can_still_be_signed_out() {
+    let world = World::new(&[]);
+    assert_eq!(world.checked().await["canSignOut"], true);
+    world.ask(&Surface::default(), "suspended", Turns::default()).await;
+    let agent = world.agents.status()["agents"][0].clone();
+    assert_eq!((&agent["state"], &agent["canSignOut"]), (&json!("failed"), &json!(true)), "{agent}");
+    assert_eq!(within("the sign-out", world.agents.sign_out(&world.preset)).await, Ok(()));
+    assert_eq!(world.checked().await["state"], "signedOut");
+}
+
+/// Where the CLI's own login opens its page in the system's browser (a system with a display it keeps), the window that
+/// asked for the sign-in is told so, and opens no second tab.
+#[tokio::test]
+async fn a_cli_login_that_opens_the_browser_itself_tells_the_window_so() {
+    let world = World::new(&[]);
+    assert_eq!(world.checked().await["loginOpensBrowser"], json!(cfg!(windows) || cfg!(target_os = "macos")));
 }
 
 /// No committed row of `surface` shows the agent's notice of a failure.
@@ -3307,17 +3390,29 @@ async fn a_session_whose_tools_are_not_bound_hands_its_agent_no_server() {
 
 /// A world whose CLI is on no `PATH`: the installer puts it under `FAKE_HOME`.
 fn uninstalled(settings: &[(&str, &str)]) -> World {
-    World::build(settings, |preset, dir| {
-        let installed = format!("bin/fake-agy{}", std::env::consts::EXE_SUFFIX);
-        preset.distribution = Distribution::Cli {
-            installer: Some(Command {
-                program: mixdog_testkit::bin_exe!("mixdog-acp-fake-agent"),
-                args: vec!["install-into".into(), dir.join("home").join(&installed).to_string_lossy().into_owned()],
-            }),
-            installed_at: vec![Location { env: "FAKE_HOME".into(), path: installed }],
-            update_args: Some(vec!["update".into()]),
-        };
-        preset.command = "mixdog-acp-no-such-cli".into();
+    World::build(settings, make_uninstalled)
+}
+
+/// `preset`, a CLI of the world in `dir`, on no `PATH`: its installer puts it under `FAKE_HOME`.
+fn make_uninstalled(preset: &mut AgentPreset, dir: &std::path::Path) {
+    let installed = format!("bin/fake-agy{}", std::env::consts::EXE_SUFFIX);
+    preset.distribution = Distribution::Cli {
+        installer: Some(Command {
+            program: mixdog_testkit::bin_exe!("mixdog-acp-fake-agent"),
+            args: vec!["install-into".into(), dir.join("home").join(&installed).to_string_lossy().into_owned()],
+        }),
+        installed_at: vec![Location { env: Some("FAKE_HOME".into()), path: installed }],
+        update_args: Some(vec!["update".into()]),
+    };
+    preset.command = "mixdog-acp-no-such-cli".into();
+}
+
+/// A world whose CLI is on no `PATH` and under no variable's folder: it is found only as the file it is, as in a folder
+/// a package manager links its programs into.
+fn found_only_as_its_file(settings: &[(&str, &str)]) -> World {
+    World::build(settings, |preset, _| {
+        let fake = std::mem::replace(&mut preset.command, "mixdog-acp-no-such-cli".into());
+        preset.distribution = Distribution::Cli { installer: None, installed_at: vec![Location { env: None, path: fake }], update_args: None };
     })
 }
 
@@ -3397,9 +3492,74 @@ async fn a_failed_update_keeps_the_working_cli_and_is_reported_once() {
     assert!(matches!(end, TurnEnd::Completed { .. }), "{end:?}");
 }
 
-/// What may change the account an agent's quota was read of (a sign-in begun, a sign-in settled, a sign-out, the
-/// feature turned off) reaches the callback bound for it, with the agent's id; only the settled sign-in asks for the
-/// next reading to be taken at once.
+/// A preset that cannot be installed leaves the others to their install: the official server's build cannot be had, and
+/// the CLI is installed all the same, the failure told for the official server alone.
+#[tokio::test]
+async fn an_install_that_fails_for_one_preset_still_installs_the_others() {
+    let mut world = World::of(&["antigravity", "antigravity-cli"], &[], |_, dir| {
+        #[allow(clippy::disallowed_methods, reason = "a test removes the build it installed")]
+        std::fs::remove_file(dir.join("acp-agents").join("bin").join("antigravity").join("installed.json")).expect("the install");
+    });
+    let dir = world.dir.path().to_path_buf();
+    make_uninstalled(&mut world.presets[1], &dir);
+    world.restart();
+    let failed = within("the install", world.agents.install()).await.expect_err("the official server's install fails");
+    assert_eq!(failed, "Antigravity could not be installed: the registry cannot be reached");
+    let agents = world.agents.status()["agents"].clone();
+    assert_eq!((&agents[0]["state"], &agents[1]["state"], &agents[1]["lastError"]), (&json!("notInstalled"), &json!("ready"), &Value::Null), "{agents}");
+    assert_eq!(world.logged("install"), 1);
+}
+
+#[tokio::test]
+async fn a_cli_on_no_path_and_under_no_variables_folder_is_found_as_the_file_it_is() {
+    let world = found_only_as_its_file(&[]);
+    let agent = world.checked().await;
+    assert_eq!((&agent["state"], &agent["version"]), (&json!("ready"), &json!("1.5.1")), "{agent}");
+}
+
+/// A sign-in begun before any check runs the CLI where a look finds it, not a command `PATH` does not have.
+#[tokio::test]
+async fn a_sign_in_begun_before_any_check_runs_the_cli_where_it_is_found() {
+    let world = found_only_as_its_file(&[("FAKE_AGENT_SIGNED_OUT", "1")]);
+    let login = within("the sign-in's start", world.agents.begin_login(&world.preset)).await.expect("the sign-in starts on the CLI found");
+    let shown = login_state(login.as_ref(), |state| matches!(state, LoginState::Authorize { .. })).await;
+    assert!(matches!(shown, LoginState::Authorize { .. }), "{shown:?}");
+    login.cancel();
+    assert_eq!(login_state(login.as_ref(), LoginState::is_terminal).await, LoginState::Cancelled);
+    world.all_exited().await;
+}
+
+/// An update that never ends holds no turn: the turn ends it, and runs on the CLI as it was before it.
+#[tokio::test]
+async fn a_turn_ends_an_update_that_never_ends_and_runs_on_the_cli_as_it_was() {
+    let world = World::new(&[("FAKE_AGENT_UPDATE_HANGS", "1")]);
+    world.agents.recheck();
+    world.logs("update").await;
+    assert_eq!(world.agents.status()["agents"][0]["state"], "updating");
+    let end = within("the turn", world.prompt(&thread(), &Surface::default(), "whoami", None, CancellationToken::new())).await;
+    assert!(completed_text(&end).starts_with("session=sess-1"), "{end:?}");
+    assert_eq!(world.agents.status()["agents"][0]["state"], "ready");
+    // The update ended with its check: once the session's agent is gone, nothing of it runs.
+    let session = world.agents.running(&thread()).expect("the session's agent");
+    world.agents.release(&thread());
+    within("the agent's exit", session.connection.exited().cancelled()).await;
+    world.all_exited().await;
+    assert_eq!(world.logged("update"), 1);
+}
+
+/// A version run that fails is a failed check in the CLI's own words, whatever version it printed beside them.
+#[tokio::test]
+async fn a_version_run_that_fails_is_a_failed_check_in_the_clis_words() {
+    let why = "error while loading shared libraries: libsecret-1.so.0";
+    let world = World::new(&[("FAKE_AGENT_VERSION_FAILS", why)]);
+    let agent = world.checked().await;
+    assert_eq!((&agent["state"], &agent["message"]), (&json!("failed"), &json!(why)), "{agent}");
+    assert_eq!(world.logged("start acp"), 0, "a CLI whose version run failed is not started");
+}
+
+/// What changes the account an agent's quota was read of (a sign-in settled, a sign-out, the feature turned off) reaches
+/// the callback bound for it, with the agent's id; only the settled sign-in asks for the next reading to be taken at
+/// once. A sign-in begun changes nothing until it settles: the account and its reading stay.
 #[tokio::test]
 async fn each_change_of_an_agents_account_reaches_the_bound_callback() {
     let world = World::new(&[]);
@@ -3413,16 +3573,16 @@ async fn each_change_of_an_agents_account_reaches_the_bound_callback() {
     let seen = || told.lock().unwrap().clone();
 
     let login = within("the sign-in's start", world.agents.begin_login(&world.preset)).await.expect("the sign-in starts");
-    assert_eq!(seen(), [(id.clone(), AccountEvent::Left)], "a sign-in begun");
+    assert_eq!(seen(), [], "a sign-in begun");
     login.cancel();
 
     // The look the settle makes finds the CLI ready (askable), then the sign-in is told.
     assert_eq!(within("the sign-in's settle", (world.agents.settle_login(&world.preset))(true)).await, Ok(true));
-    assert_eq!(seen()[1..], [(id.clone(), AccountEvent::Askable), (id.clone(), AccountEvent::SignedIn)], "a sign-in settled");
+    assert_eq!(seen(), [(id.clone(), AccountEvent::Askable), (id.clone(), AccountEvent::SignedIn)], "a sign-in settled");
 
     assert_eq!(within("the sign-out", world.agents.sign_out(&world.preset)).await, Ok(()));
     let after_sign_out = seen();
-    assert!(after_sign_out.len() > 3 && after_sign_out[3..].iter().all(|told| told == &(id.clone(), AccountEvent::Left)), "a sign-out: {after_sign_out:?}");
+    assert!(after_sign_out.len() > 2 && after_sign_out[2..].iter().all(|told| told == &(id.clone(), AccountEvent::Left)), "a sign-out: {after_sign_out:?}");
 
     let before_off = after_sign_out.len();
     world.enabled.store(false, Ordering::SeqCst);
@@ -4668,6 +4828,271 @@ async fn turning_the_feature_off_ends_a_download_of_the_official_server() {
     let left: Vec<String> =
         std::fs::read_dir(&builds).expect("the builds").filter_map(Result::ok).map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
     assert!(!left.iter().any(|name| name.starts_with(".staging-")), "{left:?}");
+}
+
+/// A build whose program is gone (deleted, or quarantined by an antivirus) is no build: a check finds the official server
+/// not installed, and the install puts it back.
+#[tokio::test]
+async fn a_build_whose_program_is_gone_is_not_installed_and_the_install_puts_it_back() {
+    let world = World::official(&[]);
+    let builds = builds_of(&world);
+    let record = json!({ "version": "1.5.2", "cmd": "agy_acp_server.exe", "args": [], "sha256": "" });
+    #[allow(clippy::disallowed_methods, reason = "a test names a build whose program is gone")]
+    std::fs::write(builds.join("installed.json"), record.to_string()).expect("the record");
+    let agent = world.checked().await;
+    assert_eq!((&agent["state"], &agent["canInstall"]), (&json!("notInstalled"), &json!(true)), "{agent}");
+
+    world.registry.offer("1.5.2", ARCHIVE);
+    within("the install", world.agents.install()).await.expect("the install");
+    assert_eq!(world.registry.downloads(), [ARCHIVE]);
+    let agent = world.agents.status()["agents"][0].clone();
+    assert_eq!((&agent["state"], &agent["version"]), (&json!("ready"), &json!("1.5.2")), "{agent}");
+}
+
+/// A build whose helper binary (`localharness_external[.exe]`) is gone while `installed.json` and the server remain is
+/// incomplete: a check finds it not installed, and the install repairs it.
+#[tokio::test]
+async fn a_build_whose_helper_is_gone_is_not_installed_and_the_install_puts_it_back() {
+    let world = World::official(&[]);
+    let builds = builds_of(&world);
+    let helper = if cfg!(windows) { "localharness_external.exe" } else { "localharness_external" };
+    let helper_path = builds.join("1.5.2").join(helper);
+    assert!(exists(&helper_path));
+    #[allow(clippy::disallowed_methods, reason = "a test removes the build's helper binary")]
+    std::fs::remove_file(&helper_path).expect("the helper");
+    let agent = world.checked().await;
+    assert_eq!((&agent["state"], &agent["canInstall"]), (&json!("notInstalled"), &json!(true)), "{agent}");
+
+    world.registry.offer("1.5.2", ARCHIVE);
+    within("the install", world.agents.install()).await.expect("the install");
+    assert_eq!(world.registry.downloads(), [ARCHIVE]);
+    assert!(exists(&helper_path));
+    let agent = world.agents.status()["agents"][0].clone();
+    assert_eq!((&agent["state"], &agent["version"]), (&json!("ready"), &json!("1.5.2")), "{agent}");
+}
+
+/// An install ended while its unpack still writes into its folder leaves that unpack to finish before the next install
+/// clears away what it left: nothing of the next one starts meanwhile, and no folder of the ended one is left after.
+#[tokio::test]
+async fn the_next_install_waits_for_an_ended_unpack_before_it_clears_what_that_left() {
+    let world = World::official(&[]);
+    let builds = builds_of(&world);
+    #[allow(clippy::disallowed_methods, reason = "a test removes the build it installed")]
+    std::fs::remove_file(builds.join("installed.json")).expect("the install");
+    world.registry.offer("1.5.2", ARCHIVE);
+    world.registry.hangs.store(true, Ordering::SeqCst);
+    world.registry.lingers.store(true, Ordering::SeqCst);
+    let first_entered = world.registry.entered.notified();
+    tokio::pin!(first_entered);
+    first_entered.as_mut().enable();
+    let installing = world.agents.install();
+    let off = async {
+        first_entered.await;
+        world.enabled.store(false, Ordering::SeqCst);
+        world.agents.status();
+    };
+    let (installed, ()) = within("the install's end", async { tokio::join!(installing, off) }).await;
+    assert_eq!(installed, Err("ACP agents were turned off before the install ended.".to_owned()));
+
+    world.enabled.store(true, Ordering::SeqCst);
+    world.registry.hangs.store(false, Ordering::SeqCst);
+    let late_done = world.registry.late_done.notified();
+    tokio::pin!(late_done);
+    late_done.as_mut().enable();
+    let again = world.agents.install();
+    let finish = async {
+        loop {
+            let changed = world.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if world.agents.status()["agents"][0]["state"] == "installing" {
+                break;
+            }
+            changed.await;
+        }
+        assert_eq!(world.registry.downloads().len(), 1, "the next install started while the ended unpack still wrote");
+        world.registry.finish.notify_one();
+        late_done.await;
+    };
+    let (installed, ()) = within("the install", async { tokio::join!(again, finish) }).await;
+    installed.expect("the install");
+    assert_eq!(world.registry.downloads().len(), 2);
+    #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "a test lists the builds' folder")]
+    let left: Vec<String> =
+        std::fs::read_dir(&builds).expect("the builds").filter_map(Result::ok).map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
+    assert!(!left.iter().any(|name| name.starts_with(".staging-")), "{left:?}");
+}
+
+/// The official server's quota is the summary its own Google credential reads, asked as the hub client asks it: with
+/// the access token its refresh token is exchanged for, for the project its sign-in names.
+#[tokio::test]
+async fn the_official_servers_quota_is_the_summary_its_own_credential_reads() {
+    use mixdog_ai::providers::google::auth::antigravity::TOKEN_URL;
+    use mixdog_ai::service::usage_antigravity::QUOTA_URL;
+    let world = World::official(&[]);
+    let token = json!({ "client_id": "client-1", "client_secret": "secret-1", "refresh_token": "refresh-1", "project_id": "project-1" });
+    #[allow(clippy::disallowed_methods, reason = "a test writes the credential the server's sign-in keeps")]
+    std::fs::write(home_of(world.dir.path(), "antigravity").join("antigravity-acp").join("acp_token.json"), token.to_string()).expect("the credential");
+    let summary = json!({ "groups": [{ "buckets": [{ "bucketId": "gemini-5h", "window": "5h", "remainingFraction": 0.25 }] }] });
+    world.registry.answer(TOKEN_URL, json!({ "access_token": "access-1" }));
+    world.registry.answer(QUOTA_URL, summary.clone());
+    assert_eq!(world.checked().await["state"], "ready");
+    assert!(world.agents.reports_usage(&world.preset));
+    assert_eq!(within("the report", world.agents.usage(&world.preset)).await, Some(Ok(summary)));
+
+    let posted = world.registry.posted();
+    assert_eq!(posted.iter().map(|(url, ..)| url.as_str()).collect::<Vec<_>>(), [TOKEN_URL, QUOTA_URL]);
+    let form: HashMap<String, String> = url::form_urlencoded::parse(&posted[0].2).into_owned().collect();
+    let field = |key: &str| form.get(key).map(String::as_str);
+    assert_eq!([field("grant_type"), field("refresh_token"), field("client_id")], [Some("refresh_token"), Some("refresh-1"), Some("client-1")]);
+    assert!(posted[1].1.contains(&("Authorization".to_owned(), "Bearer access-1".to_owned())), "{:?}", posted[1].1);
+    assert_eq!(serde_json::from_slice::<Value>(&posted[1].2).expect("JSON"), json!({ "project": "project-1" }));
+}
+
+/// A sign-in page that sends the browser back to the official server's loopback listener can be finished from a browser
+/// on another machine: the address it ended on, pasted, reaches the listener with the page's own state, and one of
+/// another sign-in is refused. The server runs with a browser of its own that takes the page and opens nothing.
+#[tokio::test]
+async fn an_official_sign_in_finished_on_another_machine_delivers_the_pasted_address_to_the_servers_listener() {
+    use mixdog_core_api::domain::login::LoginError;
+    use tokio::io::AsyncReadExt;
+    use tokio::io::AsyncWriteExt;
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.expect("a local listener");
+    let port = listener.local_addr().expect("its address").port();
+    let page = format!("https://accounts.google.com/o/oauth2/v2/auth?client_id=c&redirect_uri=http%3A%2F%2F127.0.0.1%3A{port}%2Foauth2callback&state=st-1");
+    let world = World::official(&[("FAKE_AGENT_AUTH_PAGE", &page), ("FAKE_AGENT_AUTH_UNTIL", "signed-in-on-the-page")]);
+    let signed_in = world.dir.path().join("signed-in-on-the-page");
+    // The server's listener: the address it is asked for signs the user in.
+    let listened = tokio::spawn(async move {
+        let (mut connection, _) = listener.accept().await.expect("the delivery");
+        let (mut request, mut chunk) = (Vec::new(), [0_u8; 1024]);
+        while !request.windows(4).any(|end| end == b"\r\n\r\n") {
+            match connection.read(&mut chunk).await.expect("the request") {
+                0 => break,
+                read => request.extend_from_slice(&chunk[..read]),
+            }
+        }
+        #[allow(clippy::disallowed_methods, reason = "the user signs in on the page")]
+        std::fs::write(&signed_in, "").expect("the sign-in");
+        connection.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.expect("the answer");
+        String::from_utf8_lossy(&request).split_whitespace().nth(1).map(str::to_owned)
+    });
+    let login = within("the sign-in's start", world.agents.begin_login(&world.preset)).await.expect("the sign-in starts");
+    let shown = login_state(login.as_ref(), |state| matches!(state, LoginState::Authorize { .. })).await;
+    assert_eq!(shown, LoginState::Authorize { url: page.clone(), manual_url: Some(page.clone()) });
+
+    let other = login.provide(LoginInput::AuthorizationCode("http://localhost:1/oauth2callback?state=another&code=c".into())).await;
+    let refused = "The address is of another sign-in. Paste the address this sign-in's page ended on.";
+    assert_eq!(other, Err(LoginError::Failed(LoginFailure::Failed { code: "agentLogin".into(), message: refused.into() })));
+    let pasted = "http://localhost:8085/oauth2callback?state=st-1&code=4/abc&scope=email";
+    login.provide(LoginInput::AuthorizationCode(pasted.into())).await.expect("the address is delivered");
+    let asked = within("the listener", listened).await.expect("the listener").expect("a request");
+    let asked = url::Url::parse(&format!("http://127.0.0.1:{port}{asked}")).expect("an address");
+    assert_eq!(asked.path(), "/oauth2callback");
+    let query: Vec<(String, String)> = asked.query_pairs().into_owned().collect();
+    assert_eq!(query, [("state".to_owned(), "st-1".to_owned()), ("code".to_owned(), "4/abc".to_owned())]);
+    assert_eq!(login_state(login.as_ref(), LoginState::is_terminal).await, LoginState::Done { account: None });
+
+    let browser = world.log().iter().find_map(|line| line.strip_prefix("official browser=").map(str::to_owned)).expect("the server's start");
+    assert!(browser.contains("%s"), "the server's own browser is a command given the page: {browser:?}");
+}
+
+/// A bad pasted redirect URL or a non-2xx loopback answer submitted through `OAuthFlows::complete` ends the flow as
+/// `failed` and cancels the underlying `Authenticate` login so its server process, staging home and update guard
+/// (`Starting`) are released instead of blocking subsequent updates.
+#[tokio::test]
+async fn a_failed_pasted_redirect_through_oauth_flows_cancels_the_login_and_releases_the_update_lock() {
+    use mixdog_core_api::domain::common::EventSource;
+    use mixdog_core_api::domain::process::ProcessEvent;
+    use mixdog_core_api::feed_publisher::LoginFeeds;
+    use mixdog_core_api::mock::MockLimits;
+    use mixdog_core_api::mock::MockScopedFeeds;
+    use mixdog_core_domains::domains::ai_account::flows::DEFAULT_FLOW_TTL_MS;
+    use mixdog_core_domains::domains::ai_account::flows::OAuthFlows;
+    use tokio::io::AsyncReadExt;
+    use tokio::io::AsyncWriteExt;
+
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.expect("a loopback listener");
+    let port = listener.local_addr().expect("a port").port();
+    let page = format!("https://accounts.example/o/oauth2/auth?redirect_uri=http%3A%2F%2F127.0.0.1%3A{port}%2Foauth2callback&state=st-1");
+    let world = World::official(&[("FAKE_AGENT_AUTH_PAGE", &page), ("FAKE_AGENT_AUTH_UNTIL", "signed-in-on-the-page")]);
+    let flows = OAuthFlows::new(Duration::from_millis(DEFAULT_FLOW_TTL_MS), Arc::new(LoginFeeds::new(Arc::new(MockScopedFeeds::new(MockLimits::default())))));
+
+    // Case 1: wrong-state pasted redirect URL fails in `complete`.
+    let login = within("the sign-in's start", world.agents.begin_login(&world.preset)).await.expect("the sign-in starts");
+    login_state(login.as_ref(), |state| matches!(state, LoginState::Authorize { .. })).await;
+    let proc = world.processes.list().into_iter().find(|p| p.exit.is_none()).expect("the login server process");
+    let mut events = world.processes.subscribe(&proc.handle, None).expect("process events");
+    let started = flows.register(&world.preset.provider, login, world.agents.settle_login(&world.preset)).expect("the flow");
+    let flow_id = started["flowId"].as_str().expect("flowId").to_owned();
+    assert_eq!(started["manualCodeSupported"], true);
+
+    let err = within("the wrong-state paste", flows.complete(&flow_id, "http://localhost:1/oauth2callback?state=another&code=c")).await.unwrap_err();
+    assert_eq!(err.message(), "The address is of another sign-in. Paste the address this sign-in's page ended on.");
+    assert_eq!(flows.status(&flow_id).expect("status")["state"], "failed");
+    within("the cancelled login server's exit", async {
+        while let Some(event) = events.next().await {
+            if matches!(event, ProcessEvent::Exited { .. }) {
+                break;
+            }
+        }
+    })
+    .await;
+    within("the staging home's removal", async {
+        while !staging_homes(&world).is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+
+    // `_held: Starting` must have dropped so an update can acquire `begin_update`.
+    let builds = builds_of(&world);
+    world.registry.offer("1.5.3", ARCHIVE);
+    within("the update after failed paste", world.agents.install()).await.expect("the update");
+    assert_eq!(read_json(&builds.join("installed.json"))["version"], "1.5.3");
+
+    // Case 2: non-2xx loopback delivery also cancels and releases the login session cleanly.
+    let refused = tokio::spawn(async move {
+        let (mut connection, _) = listener.accept().await.expect("the delivery");
+        let (mut request, mut chunk) = (Vec::new(), [0_u8; 512]);
+        while !request.windows(4).any(|end| end == b"\r\n\r\n") {
+            match connection.read(&mut chunk).await.expect("the request") {
+                0 => break,
+                read => request.extend_from_slice(&chunk[..read]),
+            }
+        }
+        connection.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.expect("the answer");
+    });
+    let login = within("the second sign-in's start", world.agents.begin_login(&world.preset)).await.expect("the sign-in starts");
+    login_state(login.as_ref(), |state| matches!(state, LoginState::Authorize { .. })).await;
+    let proc = world.processes.list().into_iter().find(|p| p.exit.is_none()).expect("the second login server process");
+    let mut events = world.processes.subscribe(&proc.handle, None).expect("process events");
+    let started = flows.register(&world.preset.provider, login, world.agents.settle_login(&world.preset)).expect("the flow");
+    let flow_id = started["flowId"].as_str().expect("flowId").to_owned();
+
+    let err = within("the 400 loopback paste", flows.complete(&flow_id, "http://localhost:8085/oauth2callback?state=st-1&code=4/abc")).await.unwrap_err();
+    assert!(err.message().contains("HTTP 400"), "unexpected error: {}", err.message());
+    assert_eq!(flows.status(&flow_id).expect("status")["state"], "failed");
+    within("the listener", refused).await.expect("the listener");
+    within("the second cancelled login server's exit", async {
+        while let Some(event) = events.next().await {
+            if matches!(event, ProcessEvent::Exited { .. }) {
+                break;
+            }
+        }
+    })
+    .await;
+    within("the second staging home's removal", async {
+        while !staging_homes(&world).is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+
+    world.registry.offer("1.5.4", ARCHIVE);
+    within("the update after 400 loopback", world.agents.install()).await.expect("the update");
+    assert_eq!(read_json(&builds.join("installed.json"))["version"], "1.5.4");
+    flows.cancel_all();
 }
 
 /// Where the registry's build does not run (an Intel Mac) the official server is unsupported: nothing is installed or
