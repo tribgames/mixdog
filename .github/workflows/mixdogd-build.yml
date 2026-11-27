@@ -234,6 +234,10 @@ jobs:
       # the ssh helper refuses a start with no endpoint (exit 2).
       - name: Every program starts and the core reports the release version
         if: ${{ matrix.run_version }}
+        env:
+          # A home of this run's own: on the project's own machine the default is the data of the Mixdog its user runs.
+          MIXDOG_HOME: ${{ runner.temp }}/mixdog-home
+          MIXDOG_DATA_DIR: ${{ runner.temp }}/mixdog-home/data
         run: |
           reported=$(out/mixdogd${{ matrix.exe }} --version | awk '{print $NF}')
           expected=$(node -p "require('./package.json').version")
