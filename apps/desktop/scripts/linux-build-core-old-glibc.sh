@@ -11,11 +11,22 @@
 # workspace-hack crate keeps the shared dependencies' features equal, so the second and third build reuse them.
 # The registry and git directories of cargo may be mounted at /root/.cargo/registry and /root/.cargo/git; they are made
 # readable by the runner user before the container ends.
+#
+# The same script cross-builds in ghcr.io/rust-cross/manylinux_2_28-cross:<arch> (an x86_64 image whose compiler targets
+# <arch> with a glibc 2.28 sysroot; it sets CARGO_BUILD_TARGET and the target's compiler variables): the programs are the
+# target's, built at the speed of the machine that runs the container.
 set -euo pipefail
-dnf install -y cmake pkgconf-pkg-config
+if command -v dnf >/dev/null; then dnf install -y cmake pkgconf-pkg-config; fi
 curl -fsSL -o /tmp/rustup-init.sh https://sh.rustup.rs
 sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain 1.99.1
 export PATH=$HOME/.cargo/bin:$PATH
+arch=$(uname -m)
+release=/tmp/target/release
+if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
+	rustup target add "$CARGO_BUILD_TARGET"
+	arch=${CARGO_BUILD_TARGET%%-*}
+	release=/tmp/target/$CARGO_BUILD_TARGET/release
+fi
 export RUSTFLAGS="-C link-arg=-Wl,--build-id=sha1"
 export CARGO_TARGET_DIR=/tmp/target
 # The project's own machine mounts a build folder it keeps at /tmp/target and names what that folder was built of (the
@@ -27,7 +38,7 @@ if [ -n "${MIXDOG_BUILD_STAMP:-}" ]; then
 fi
 # The prebuilt static libvpx is published per Ubuntu release, which this container is not: the oldest one is named.
 # A symbol it needed past glibc 2.28 would fail the link here.
-case "$(uname -m)" in
+case "$arch" in
 x86_64) export LIBVPX_TARGET=ubuntu-22.04_x86_64 ;;
 aarch64) export LIBVPX_TARGET=ubuntu-22.04_arm64 ;;
 esac
@@ -40,12 +51,12 @@ if [ "${MIXDOG_RELAY_ONLY:-}" != "1" ]; then
 	cargo build --locked --release --manifest-path "$manifest" -p mixdog-cli --bin mixdogd -p mixdog-askpass --bin mixdog-askpass
 	cargo build --locked --release --manifest-path "$manifest" -p mixdog-entry --bin mixdog
 	cargo build --locked --release --manifest-path /w/scripts/rust-core/tree-helper/Cargo.toml
-	cp /tmp/target/release/mixdogd /tmp/target/release/mixdog-askpass /tmp/target/release/mixdog /tmp/target/release/treerun "$out/"
+	cp "$release/mixdogd" "$release/mixdog-askpass" "$release/mixdog" "$release/treerun" "$out/"
 fi
 if [ "${MIXDOG_BUILD_RELAY:-}" = "1" ]; then
 	env -u MIXDOG_GOOGLE_OAUTH_CLIENT_ID -u MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET \
 		cargo build --locked --release --manifest-path "$manifest" -p mixdog-relay --bin mixdog-relay
-	cp /tmp/target/release/mixdog-relay "$out/"
+	cp "$release/mixdog-relay" "$out/"
 fi
 # The cache directories belong to root here; the runner user saves them.
 chmod -R a+rwX /root/.cargo/registry /root/.cargo/git 2>/dev/null || true
