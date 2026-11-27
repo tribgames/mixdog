@@ -327,11 +327,9 @@ async fn a_root_added_ahead_of_another_keeps_the_other_watch() {
 /// opened (the fixture's own folders) after it opened, but in order: each of them is applied once the fence is pushed.
 async fn fenced(seen: &mut Seen, fence: &Path) {
     std::fs::create_dir(fence).unwrap();
-    mixdog_rt::time::timeout(Duration::from_secs(10), async {
-        while !seen.recv().await.unwrap().1.iter().any(|path| Path::new(path) == fence) {}
-    })
-    .await
-    .expect("the fence is pushed");
+    mixdog_rt::time::timeout(Duration::from_secs(10), async { while !seen.recv().await.unwrap().1.iter().any(|path| Path::new(path) == fence) {} })
+        .await
+        .expect("the fence is pushed");
 }
 
 /// Every folder the skill list watches is also an entry its parent's watch hears: the data folder, watched for `skills`,
