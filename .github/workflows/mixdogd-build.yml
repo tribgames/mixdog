@@ -118,6 +118,15 @@ jobs:
       - name: Resolve the version-neutral Cargo.lock key
         id: cargo-lock
         run: echo "key=$(node scripts/cargo-cache-key.mjs native/core/Cargo.lock)" >> "$GITHUB_OUTPUT"
+      # The kept build folder holds what one compiler built of one set of third-party packages: a build with another reads none
+      # of it, so the folder is emptied then, and the machine holds one build folder's worth.
+      - name: Empty the kept build folder when the compiler or the third-party packages changed (the project's own machine)
+        if: ${{ !matrix.image && runner.environment == 'self-hosted' }}
+        run: |
+          stamp="$(rustc +1.99.1 --version) ${{ steps.cargo-lock.outputs.key }}"
+          if [[ -d native/core/target && "$(cat native/core/target/.build-stamp 2>/dev/null)" != "$stamp" ]]; then rm -rf native/core/target; fi
+          mkdir -p native/core/target
+          printf '%s' "$stamp" > native/core/target/.build-stamp
       # A hosted runner's: the project's own machine keeps its registry.
       - name: Cache cargo registry
         if: ${{ !matrix.image && runner.environment == 'github-hosted' }}

@@ -2137,6 +2137,16 @@ jobs:
             core-deps-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json') }}
             core-deps-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-
       - uses: ./.github/actions/install-nextest
+      # The kept build folder holds what one compiler built of one set of third-party packages (the lock without the workspace's
+      # own version, which a release rewrites): a build with another compiler or set reads none of it, so the folder is emptied
+      # then, and a machine holds one build folder's worth, not one for every toolchain and lock it has seen.
+      - name: Empty the kept build folder when the compiler or the third-party packages changed (the project's own machine)
+        if: runner.environment == 'self-hosted'
+        run: |
+          stamp="$(rustc --version) $(node scripts/cargo-cache-key.mjs native/core/Cargo.lock)"
+          if [[ -d native/core/target && "$(cat native/core/target/.build-stamp 2>/dev/null)" != "$stamp" ]]; then rm -rf native/core/target; fi
+          mkdir -p native/core/target
+          printf '%s' "$stamp" > native/core/target/.build-stamp
       # The parallel front end for the workspace crates, whose chain (mixdog-core-session, mixdog-core, its test build) is the
       # floor of the build while the other cores wait (scripts/ci/rustc-threads.rs). The test archive only: nothing a release
       # ships, nor core-real's or the dev daemon's mixdogd, is built through it, and core-lint compiles the same selection on
