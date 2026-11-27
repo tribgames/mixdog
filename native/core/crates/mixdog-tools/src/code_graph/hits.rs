@@ -5,6 +5,7 @@
 use std::cmp::Ordering;
 
 use mixdog_graph::outline::identifier_hits;
+use rayon::prelude::*;
 
 use super::graph::{Graph, Node};
 use super::outline::{parent_index, symbol_path};
@@ -232,10 +233,14 @@ pub(super) fn find_hits(graph: &Graph, symbol: &str, language: Option<&str>) -> 
         }
         return sorted(hits);
     }
-    let mut hits = Vec::new();
-    for node in graph.token_candidates(clean, language) {
+    let of = |node: &&Node| {
+        let mut hits = Vec::new();
         hits_on_node(node, clean, &mut hits);
-    }
+        hits
+    };
+    // A hit is a read and a scan of its file, and a common name is carried by thousands; a handful is read on this thread.
+    let carrying: Vec<&Node> = graph.token_candidates(clean, language).collect();
+    let hits = if carrying.len() > 32 { carrying.par_iter().flat_map_iter(of).collect() } else { carrying.iter().flat_map(of).collect() };
     sorted(hits)
 }
 

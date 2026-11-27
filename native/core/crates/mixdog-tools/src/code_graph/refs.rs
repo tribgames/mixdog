@@ -4,6 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use mixdog_graph::calls::CallInfo;
+use rayon::prelude::*;
 use regex::Regex;
 
 use super::exports::exposing_files;
@@ -308,7 +309,7 @@ fn caller_entries(graph: &Graph, symbol: &str, target_rels: &[String], language:
         return Vec::new();
     }
     let targets = exposing_files(graph, target_rels, symbol);
-    let mut found: Vec<(&Node, CallInfo)> = Vec::new();
+    let mut carrying: Vec<(&Node, HashSet<&str>, bool)> = Vec::new();
     for node in &graph.nodes {
         if language.is_some_and(|l| node.lang != l) || !scope.contains(&node.rel) {
             continue;
@@ -329,18 +330,29 @@ fn caller_entries(graph: &Graph, symbol: &str, target_rels: &[String], language:
         if names.is_empty() || !(node.tokens.is_empty() || names.iter().any(|n| node.has_token(n))) {
             continue;
         }
-        let Some(calls) = node.calls() else { continue };
-        for call in calls.iter().filter(|c| names.contains(c.name.as_str())) {
-            if call.kind == "method" && !SELF_RECEIVERS.contains(&call.recv.as_str()) && !imports_target {
-                continue;
-            }
-            found.push((node, call.clone()));
-        }
+        carrying.push((node, names, imports_target));
     }
+    // Each file's calls are extracted from its source: a name many files carry is a source read and a parse of each.
+    fn calls_of<'g>((node, names, imports_target): &(&'g Node, HashSet<&str>, bool)) -> Vec<(&'g Node, CallInfo)> {
+        let Some(calls) = node.calls() else { return Vec::new() };
+        calls
+            .iter()
+            .filter(|c| names.contains(c.name.as_str()))
+            .filter(|c| c.kind != "method" || SELF_RECEIVERS.contains(&c.recv.as_str()) || *imports_target)
+            .map(|c| (*node, c.clone()))
+            .collect()
+    }
+    // Few files are read on this thread: a handful is not worth a thread pool.
+    let mut found: Vec<(&Node, CallInfo)> =
+        if carrying.len() > 32 { carrying.par_iter().flat_map_iter(calls_of).collect() } else { carrying.iter().flat_map(calls_of).collect() };
     found.sort_by(|a, b| {
         name_cmp(&a.0.rel, &b.0.rel).then_with(|| name_cmp(&a.1.in_symbol, &b.1.in_symbol)).then(a.1.line.cmp(&b.1.line)).then(a.1.col.cmp(&b.1.col))
     });
-    let mut entries: Vec<Entry> = found.into_iter().map(|(node, call)| entry_from_call(node, &call)).collect();
+    let mut entries: Vec<Entry> = if found.len() > 32 {
+        found.par_iter().map(|(node, call)| entry_from_call(node, call)).collect()
+    } else {
+        found.iter().map(|(node, call)| entry_from_call(node, call)).collect()
+    };
     sort_entries(&mut entries, true);
     entries
 }
