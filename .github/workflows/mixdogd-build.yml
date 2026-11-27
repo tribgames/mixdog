@@ -126,7 +126,12 @@ jobs:
         if: ${{ !matrix.image }}
         run: |
           cargo=(cargo)
-          if [ -n "${{ matrix.rosetta }}" ]; then cargo=(arch -x86_64 cargo +1.99.1-x86_64-apple-darwin); fi
+          if [ -n "${{ matrix.rosetta }}" ]; then
+            # The toolchain's own programs: rustup's proxies are arm64 only.
+            bin=$(dirname "$(rustup which --toolchain 1.99.1-x86_64-apple-darwin cargo)")
+            export PATH="$bin:$PATH"
+            cargo=(arch -x86_64 "$bin/cargo")
+          fi
           "${cargo[@]}" build --locked --release --manifest-path native/core/Cargo.toml -p mixdog-cli --bin mixdogd -p mixdog-askpass --bin mixdog-askpass --target ${{ matrix.target }}
           "${cargo[@]}" build --locked --release --manifest-path native/core/Cargo.toml -p mixdog-entry --bin mixdog --target ${{ matrix.target }}
           "${cargo[@]}" build --locked --release --manifest-path scripts/rust-core/tree-helper/Cargo.toml --target ${{ matrix.target }}
