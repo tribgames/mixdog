@@ -81,23 +81,25 @@ test('a favorite dragged onto Recent is unfavorited', async (t) => {
 
 test('a session dragged out of a project folder onto Recent leaves the project', async (t) => {
   const { document, window, favorited, moves } = await mount(t, [row('inA', { cwd: 'C:\\Work\\Alpha' })]);
-  const recent = recentSection(document);
+  assert.equal(document.querySelector('#recent-session-list'), null, 'an empty Recent is hidden beside a project');
+  // The drag brings Recent out as a target.
   await act(async () => void fire(window, projectRow(document, 'inA'), 'dragstart'));
+  const recent = recentSection(document);
   await act(async () => void fire(window, recent, 'dragover'));
   assert.equal(recent.dataset.sessionDrop, 'true');
   await act(async () => void fire(window, recent, 'drop'));
   assert.deepEqual(moves, [['inA', '']]);
   assert.deepEqual(favorited, []);
-  assert.equal(recent.dataset.sessionDrop, undefined);
+  assert.equal(document.querySelector('[data-session-drop="true"]'), null);
 });
 
 test('a favorite in a project dragged from Favorites onto an empty Recent is unfavorited and stays in its project', async (t) => {
   const { document, window, favorited, moves } = await mount(t, [
     row('starA', { cwd: 'C:\\Work\\Alpha', favorite: true }),
   ]);
-  const recent = recentSection(document);
-  assert.equal(recent.querySelectorAll('[data-session-id]').length, 0, 'Recent lists no session');
+  assert.equal(document.querySelector('#recent-session-list'), null, 'Recent lists no session, so it is hidden');
   await act(async () => void fire(window, favoriteRow(document, 'starA'), 'dragstart'));
+  const recent = recentSection(document);
   await act(async () => void fire(window, recent, 'dragover'));
   assert.equal(recent.dataset.sessionDrop, 'true');
   await act(async () => void fire(window, recent, 'drop'));

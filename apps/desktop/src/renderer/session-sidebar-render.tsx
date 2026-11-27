@@ -564,7 +564,15 @@ function renderSidebarSection(section: string, ctx: SidebarSectionContext): Reac
           rename: ctx.projectRenameEditor,
         })
       );
-    case 'recent':
+    case 'recent': {
+      // Empty Recent stays only as the whole list's empty state: with sessions
+      // in another section it appears while a drag can drop a row back here.
+      const elsewhere =
+        ctx.favoriteRows.length > 0 ||
+        ctx.needsRows.length > 0 ||
+        ctx.workingRows.length > 0 ||
+        ctx.projectGroups.some((group) => group.rows.length > 0);
+      if (rows.length === 0 && ctx.sessionsReady && elsewhere && !ctx.recentDrop.available) return false;
       return recentSection({
         sessionsReady: ctx.sessionsReady,
         rowCount: rows.length,
@@ -587,6 +595,7 @@ function renderSidebarSection(section: string, ctx: SidebarSectionContext): Reac
         allRows: rows,
         renderRows: (list, limit, sentinelRef) => renderForkRows(ctx, list, limit, 'recent', sentinelRef),
       });
+    }
     case 'archived':
       return (
         archivedRows.length > 0 &&

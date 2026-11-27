@@ -615,6 +615,8 @@ interface ProjectsSectionProps {
   sessionDrop?: {
     /** Key of the folder currently highlighted as the drop target. */
     activeKey: string;
+    /** True while a session row is being dragged. */
+    dragging: boolean;
     /** True when the dragged session may drop on this folder (claims the event). */
     onDragOver(group: ProjectSessionGroup, event: React.DragEvent<HTMLElement>): boolean;
     onDragLeave(group: ProjectSessionGroup, event: React.DragEvent<HTMLElement>): void;
@@ -807,11 +809,6 @@ function projectFolderGroup(
           className={`session-list project-session-list${branches.length > 0 ? ' project-session-list-split' : ''}`}
           aria-label={group.name}
         >
-          {group.rows.length === 0 && !group.shownElsewhere && (
-            <p className="sidebar-section-empty mx-empty-state" ref={emptyStateHost}>
-              {t('No sessions.')}
-            </p>
-          )}
           {branches.length === 0 && renderRows(group.rows, limit, group.key)}
           {branches.map((branch) => {
             const branchKey = projectBranchKey(group.key, branch.name);
@@ -851,7 +848,12 @@ function projectFolderGroup(
 /** One top-level category per registered project. The heading is the drag
  *  handle for reordering and its hover + starts a task in that project. */
 export function projectsSection(props: ProjectsSectionProps) {
-  return <>{props.groups.map((group) => projectFolderGroup(group, props))}</>;
+  // A project with no sessions has no folder, except while a session is
+  // dragged, so it can be dropped into one.
+  const groups = props.sessionDrop?.dragging
+    ? props.groups
+    : props.groups.filter((group) => group.rows.length > 0 || group.shownElsewhere);
+  return <>{groups.map((group) => projectFolderGroup(group, props))}</>;
 }
 
 /** Archived section: restore and permanent-delete of parked sessions, kept

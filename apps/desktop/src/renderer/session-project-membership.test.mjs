@@ -113,9 +113,11 @@ const projectRow = (document, id) => document.querySelector(`.project-group [dat
 test('dragging a session outlines only valid project folders and drops move it', async (t) => {
   const { document, window, moves } = await mount(t, [row('free'), row('inA', { cwd: 'C:\\Work\\Alpha' })]);
   const alpha = group(document, 'Alpha');
-  const beta = group(document, 'Beta');
+  assert.equal(group(document, 'Beta'), undefined, 'a project with no session has no folder');
 
+  // The drag brings the empty project's folder out as a target.
   await act(async () => void fire(window, recentRow(document, 'free'), 'dragstart'));
+  const beta = group(document, 'Beta');
   await act(async () => void fire(window, alpha, 'dragover'));
   assert.equal(alpha.dataset.sessionDrop, 'true');
   assert.equal(beta.dataset.sessionDrop, undefined);
@@ -126,7 +128,7 @@ test('dragging a session outlines only valid project folders and drops move it',
   assert.equal(beta.dataset.sessionDrop, 'true');
   await act(async () => void fire(window, beta, 'drop'));
   assert.deepEqual(moves, [['free', B.path]]);
-  assert.equal(beta.dataset.sessionDrop, undefined);
+  assert.equal(group(document, 'Beta'), undefined, 'still empty after the drag: the folder is gone again');
   await act(async () => void fire(window, recentRow(document, 'free'), 'dragend'));
 
   // A session already inside a folder gets no highlight or drop on that folder.
@@ -138,7 +140,10 @@ test('dragging a session outlines only valid project folders and drops move it',
 });
 
 test('reordering folders shows the insertion state, never the session outline', async (t) => {
-  const { document, window } = await mount(t, [row('free')]);
+  const { document, window } = await mount(t, [
+    row('inA', { cwd: 'C:\\Work\\Alpha' }),
+    row('inB', { cwd: 'C:\\Work\\Beta' }),
+  ]);
   const alpha = group(document, 'Alpha');
   const beta = group(document, 'Beta');
   await act(async () => void fire(window, beta.querySelector('.project-folder'), 'dragstart'));

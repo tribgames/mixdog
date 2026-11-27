@@ -630,6 +630,7 @@ function useSessionFolderDrop(
     Boolean(onMoveSessionToProject && draggedSessionId) && sessionGroupKeys.get(draggedSessionId) !== group.key;
   const sessionDrop = onMoveSessionToProject && {
     activeKey: sessionDropKey,
+    dragging: Boolean(draggedSessionId),
     onDragOver: (group: ProjectSessionGroup, event: React.DragEvent<HTMLElement>) => {
       if (!canDropSession(group)) {
         setSessionDropKey('');

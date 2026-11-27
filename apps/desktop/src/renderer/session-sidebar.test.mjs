@@ -482,6 +482,18 @@ test('with no saved order, Recent (open) comes before Projects', async () => {
               projectPath: null,
               working: false,
             },
+            {
+              id: 'two',
+              title: 'two',
+              preview: '',
+              updatedAt: 1,
+              activityAt: 1,
+              messageCount: 1,
+              cwd: '',
+              classification: 'task',
+              projectPath: 'C:/Work/Beta',
+              working: false,
+            },
           ],
           sessionsReady: true,
           projects: [{ name: 'Beta', path: 'C:/Work/Beta', alias: null }],
@@ -682,7 +694,6 @@ test('the open session shows when it comes to rest in a folded folder, past its 
   try {
     assert.deepEqual(list.sections(), [
       ['Needs you', ['p-6']],
-      ['Recent sessions', []],
       ['Alpha', []],
     ]);
     // Opening it clears its unread turn: it rests in its folder, which opens far enough to show it.
@@ -715,14 +726,10 @@ test('a folded 작업 중 stays folded when the open session starts a turn, and 
     assert.deepEqual(list.sections(), [
       ['Working', []],
       ['Recent sessions', ['other']],
-      ['Alpha', []],
     ]);
     // The turn ends: the session is back in Recent, where it shows.
     await list.render({ workingSessionIds: new Set() });
-    assert.deepEqual(list.sections(), [
-      ['Recent sessions', ['open', 'other']],
-      ['Alpha', []],
-    ]);
+    assert.deepEqual(list.sections(), [['Recent sessions', ['open', 'other']]]);
   } finally {
     await list.cleanup();
   }
@@ -843,30 +850,26 @@ test('registered projects list as folders; Recent keeps the sessions outside the
       [...document.querySelectorAll('.session-sidebar-scroll > section')].map((section) =>
         section.getAttribute('aria-label')
       ),
-      ['Recent sessions', 'alpha-app', 'Beta', 'Empty']
+      ['Recent sessions', 'alpha-app', 'Beta']
     );
     assert.equal(recent.querySelector('.sidebar-category-header').getAttribute('draggable'), 'true');
     // Each project is its own top-level category; its heading is the grip.
     const groups = () => [...document.querySelectorAll('.session-sidebar-scroll > .project-group')];
     assert.deepEqual(
       groups().map((group) => group.querySelector('.project-folder-toggle').textContent),
-      ['alpha-app', 'Beta', 'Empty']
+      ['alpha-app', 'Beta']
     );
     assert.equal(groups()[0].querySelector('.project-folder').getAttribute('draggable'), 'true');
     assert.equal(document.querySelector('section[aria-label="Projects"]'), null);
-    // Folders start open: their sessions show, an empty one says so.
+    // Folders start open: their sessions show. A project with no session has no folder.
     assert.deepEqual(ids(groups()[0]), ['alpha-cwd', 'alpha-old']);
-    assert.match(groups()[2].textContent, /No sessions/);
     // Collapsing stores the explicit choice.
     await act(async () => {
       groups()[0].querySelector('.project-folder-toggle').click();
-      groups()[2].querySelector('.project-folder-toggle').click();
     });
     assert.deepEqual(ids(groups()[0]), []);
-    assert.doesNotMatch(groups()[2].textContent, /No sessions/);
     assert.deepEqual(JSON.parse(window.localStorage.getItem('mixdog:session-sidebar-project-open')), {
       'c:/work/alpha': false,
-      'c:/work/empty': false,
     });
     await act(async () => {
       groups()[1].querySelector('.project-folder-new').click();
@@ -1024,7 +1027,7 @@ test('sections and folders default open, persist choices, and a selected session
   window.localStorage.setItem('mixdog:session-sidebar-project-open', JSON.stringify({ 'c:/work/alpha': false }));
   const props = (selection) => ({
     open: true,
-    sessions: [row('a1'), row('a2'), row('b1', { cwd: 'C:/Work/Beta' })],
+    sessions: [row('a1'), row('a2'), row('b1', { cwd: 'C:/Work/Beta' }), row('loose', { cwd: 'D:/elsewhere' })],
     sessionsReady: true,
     projects: [
       { name: 'Alpha', path: 'C:/Work/Alpha', alias: null },
