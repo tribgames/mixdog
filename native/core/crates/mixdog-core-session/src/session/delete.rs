@@ -203,8 +203,8 @@ pub trait DeleteSeams: Send + Sync {
     /// The session's runtime unloaded while its external (ACP) agent process stays: the agent is not reopened before the
     /// session's next turn.
     fn agent_process_unloaded(&self, _session_id: &str) {}
-    /// A turn of the session, one that can start sub-agents, is producing output: the external (ACP) agents its
-    /// sub-agents run on are made ready ahead.
+    /// A turn of the session, one that can start sub-agents, began: the external (ACP) agents its sub-agents run on
+    /// are made ready ahead.
     fn agent_turn_under_way(&self, _session_id: &str) {}
     /// Release resources of an unloaded runtime without closing the conversation.
     fn release_unloaded_runtime(&self, _session_id: &str) {}

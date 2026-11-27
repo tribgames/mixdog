@@ -425,8 +425,8 @@ pub trait SessionAgentProcesses: Send + Sync {
     /// The session's runtime unloaded while its agent process stays: the agent is not reopened before the session's
     /// next turn.
     fn unloaded(&self, session_id: &str);
-    /// A turn of the session, one that can start sub-agents, is producing output: what the agents its sub-agents run
-    /// on need before a session opens is started now, and held until the session is let go of.
+    /// A turn of the session, one that can start sub-agents, began: what the agents its sub-agents run on need before
+    /// a session opens is started now, and held until the session is let go of.
     fn turn_under_way(&self, _session_id: &str) {}
 }
 

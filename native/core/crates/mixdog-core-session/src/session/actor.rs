@@ -6276,6 +6276,10 @@ impl SessionActor {
         // `setActiveTurnCount(+1)` wakes the parked warmups.
         self.turn_prewarm_armed = !std::mem::replace(&mut self.first_turn_prewarm_done, true);
         self.deps.code_graph_prewarm.wake();
+        // A worker starts no sub-agents of its own.
+        if !super::close::is_worker(&self.acked.header) {
+            self.deps.deletion.agent_turn_under_way(self.id.as_str());
+        }
         // `beginBrowserTurn`: the browser host keeps the session's pages out of reclaim while the turn is live.
         self.deps.snapshots.turn_begun(&self.id);
         self.cell.publish_run(Some(Arc::new(ActiveRun {
