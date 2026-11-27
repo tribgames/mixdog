@@ -13,6 +13,7 @@ const ANTHROPIC_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 struct FakeHttp {
     replies: Mutex<HashMap<String, VecDeque<Result<(u16, String), String>>>>,
     calls: Mutex<Vec<(String, Vec<(String, String)>)>>,
+    posted: Mutex<Vec<Value>>,
 }
 
 impl FakeHttp {
@@ -36,7 +37,8 @@ impl UsageHttp for FakeHttp {
         }
     }
 
-    async fn post_json(&self, url: &str, h: &[(String, String)], _: &Value, t: Duration) -> Result<UsageResponse, UsageError> {
+    async fn post_json(&self, url: &str, h: &[(String, String)], body: &Value, t: Duration) -> Result<UsageResponse, UsageError> {
+        self.posted.lock().unwrap().push(body.clone());
         self.get(url, h, t).await
     }
 }
@@ -516,6 +518,36 @@ async fn the_reset_credit_redeem_checks_its_arguments_then_replays_once() {
     assert!(!is_uuid_v1_to_5("123e4567-e89b-62d3-a456-426614174000"));
     assert_eq!(codex_reset_outcome(Some(&Value::from("no_credit"))).unwrap(), "noCredit");
     assert_eq!(codex_reset_outcome(None).unwrap_err().message, "Unknown Codex reset outcome: missing");
+}
+
+#[tokio::test]
+async fn the_reset_credit_that_expires_first_is_the_one_redeemed() {
+    const OFFER: &str = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits";
+    const CONSUME: &str = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume";
+    // As the server lists them: the later one first, one already spent, one that never expires.
+    let offer = r#"{"available_count":3,"credits":[
+        {"id":"thirteen-days","status":"available","expires_at":4072032000},
+        {"id":"spent","status":"redeemed","expires_at":4070000000},
+        {"id":"never","status":"available"},
+        {"id":"three-days","status":"available","expires_at":4071168000}]}"#;
+    let shown =
+        norm::normalize_codex_reset_credits(Some(&serde_json::from_str(offer).unwrap()), "", now_ms()).unwrap()["offerRevision"].as_str().unwrap().to_owned();
+    let r = rig().await;
+    r.http.queue(OFFER, Ok((200, offer.into())));
+    r.http.queue(CONSUME, Ok((200, r#"{"code":"reset"}"#.into())));
+    r.http.queue(OFFER, Ok((200, offer.into())));
+    r.usage.consume_codex_reset_credit(ID, &shown, ID).await.unwrap();
+    assert_eq!(*r.http.posted.lock().unwrap(), [serde_json::json!({ "redeem_request_id": ID, "credit_id": "three-days" })]);
+
+    // An offer that names no credit leaves the choice to the server.
+    let counted = r#"{"available_count":1,"credits":[{"status":"available","expires_at":4071168000}]}"#;
+    let shown =
+        norm::normalize_codex_reset_credits(Some(&serde_json::from_str(counted).unwrap()), "", now_ms()).unwrap()["offerRevision"].as_str().unwrap().to_owned();
+    r.http.queue(OFFER, Ok((200, counted.into())));
+    r.http.queue(CONSUME, Ok((200, r#"{"code":"reset"}"#.into())));
+    r.http.queue(OFFER, Ok((200, counted.into())));
+    r.usage.consume_codex_reset_credit(ID, &shown, ID).await.unwrap();
+    assert_eq!(r.http.posted.lock().unwrap()[1], serde_json::json!({ "redeem_request_id": ID }));
 }
 
 #[tokio::test]

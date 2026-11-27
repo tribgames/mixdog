@@ -309,6 +309,20 @@ fn reset_credit_rows(value: Option<&Value>, now_ms: i64) -> Vec<(String, Option<
         .collect()
 }
 
+/// The credit of an offer a redeem names: the available one that expires first, one with no expiry last. `None` when the
+/// offer names no credit, and the server chooses.
+pub fn soonest_codex_reset_credit(data: &Value, now_ms: i64) -> Option<String> {
+    let Some(Value::Array(rows)) = data.get("credits") else { return None };
+    rows.iter()
+        .filter(|c| clean(c.get("status")).unwrap_or_default().eq_ignore_ascii_case("available"))
+        .filter_map(|c| {
+            let expires = reset_at_ms(first(c, &["expires_at", "expiresAt"]), None, now_ms).filter(|v| *v > 0.0).unwrap_or(f64::INFINITY);
+            Some((expires, clean(c.get("id"))?))
+        })
+        .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(_, id)| id)
+}
+
 /// The Codex reset-credit offer (detail endpoint or the counts embedded in
 /// `/wham/usage`).
 pub fn normalize_codex_reset_credits(data: Option<&Value>, account_id: &str, now_ms: i64) -> Option<Value> {

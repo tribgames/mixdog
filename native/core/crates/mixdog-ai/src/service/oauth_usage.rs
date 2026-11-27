@@ -30,6 +30,7 @@ use super::usage_normalize::normalize_codex_reset_credits;
 use super::usage_normalize::normalize_openai_wham_usage;
 use super::usage_normalize::num_or;
 use super::usage_normalize::or_truthy;
+use super::usage_normalize::soonest_codex_reset_credit;
 use crate::accounts::ACCOUNT_PROVIDERS;
 use crate::accounts::AccountStore;
 use crate::accounts::QuotaWindowInput;
@@ -666,13 +667,18 @@ impl OAuthUsage {
         Ok(codex_auth_shape(auth))
     }
 
-    async fn reset_credits_with_auth(&self, auth: &CodexAuth) -> Result<Option<Value>, UsageError> {
+    /// The offer as the server states it, credit ids included.
+    async fn reset_offer(&self, auth: &CodexAuth) -> Result<Option<Value>, UsageError> {
         let res = self.deps.http.get(CODEX_RESET_CREDITS_URL, &codex_headers(auth, "codex-1"), FETCH_TIMEOUT).await?;
         if !res.ok() {
             return Ok(None);
         }
+        Ok(Some(res.json()?))
+    }
+
+    async fn reset_credits_with_auth(&self, auth: &CodexAuth) -> Result<Option<Value>, UsageError> {
         let account = auth.account_id.clone().unwrap_or_default();
-        Ok(normalize_codex_reset_credits(Some(&res.json()?), &account, now_ms()))
+        Ok(normalize_codex_reset_credits(self.reset_offer(auth).await?.as_ref(), &account, now_ms()))
     }
 
     /// The reset-credit offer of an account (`fetchOpenAICodexResetCredits`).
@@ -683,10 +689,13 @@ impl OAuthUsage {
         }
     }
 
-    async fn post_consume(&self, auth: &CodexAuth, key: &str) -> Result<UsageResponse, UsageError> {
+    async fn post_consume(&self, auth: &CodexAuth, key: &str, credit: Option<&str>) -> Result<UsageResponse, UsageError> {
         let mut headers = codex_headers(auth, "codex-1");
         headers.push(header("Content-Type", "application/json"));
-        let body = serde_json::json!({ "redeem_request_id": key });
+        let mut body = serde_json::json!({ "redeem_request_id": key });
+        if let Some(credit) = credit {
+            body["credit_id"] = Value::String(credit.to_owned());
+        }
         self.deps.http.post_json(CODEX_RESET_CONSUME_URL, &headers, &body, CODEX_REDEEM_TIMEOUT).await
     }
 
@@ -711,13 +720,17 @@ impl OAuthUsage {
             return Err(UsageError::new("Codex is not signed in"));
         };
         // The credit is single-use: it is spent only on the offer the user was shown, of the account that offer names.
-        let live = self.reset_credits_with_auth(&auth).await?;
+        let stated = self.reset_offer(&auth).await?;
+        let now = now_ms();
+        let live = normalize_codex_reset_credits(stated.as_ref(), auth.account_id.as_deref().unwrap_or_default(), now);
         if live.as_ref().and_then(|offer| offer.get("offerRevision")).and_then(Value::as_str) != Some(revision) {
             return Err(UsageError::new("Codex reset offer changed; refresh and try again"));
         }
-        let response = match self.post_consume(&auth, key).await {
+        // Left to the server, a credit with weeks to go is spent while another runs out in days.
+        let credit = stated.as_ref().and_then(|offer| soonest_codex_reset_credit(offer, now));
+        let response = match self.post_consume(&auth, key, credit.as_deref()).await {
             Ok(r) => r,
-            Err(_) => self.post_consume(&auth, key).await?,
+            Err(_) => self.post_consume(&auth, key, credit.as_deref()).await?,
         };
         if !response.ok() {
             return Err(UsageError::new(format!("Codex reset failed: HTTP {}", response.status)));
