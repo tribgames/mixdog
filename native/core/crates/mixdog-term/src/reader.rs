@@ -2,10 +2,10 @@
 //! queued when the session ends.
 //!
 //! Unix reads stdin with `read(2)` (waiting in `poll(2)` so that stopping the reader wakes it) and takes SIGWINCH through
-//! signal-hook. Windows waits on the console input handle and reads the records with `ReadConsoleInputW`: a key-down
-//! record's UTF-16 character, with surrogate pairs joined, becomes UTF-8 bytes (in VT input mode the console delivers the
-//! terminal's own sequences character by character), a window-buffer-size record becomes a [`TermEvent::Resize`] and every
-//! other record is ignored. Resize events are not debounced here: the application does that.
+//! signal-hook. Windows waits on the console input handle and reads every record queued with `ReadConsoleInputW` into one
+//! batch of bytes: a key-down record's UTF-16 character, with surrogate pairs joined, becomes UTF-8 bytes (in VT input mode
+//! the console delivers the terminal's own sequences character by character), a window-buffer-size record becomes a
+//! [`TermEvent::Resize`] and every other record is ignored. Resize events are not debounced here: the application does that.
 
 use std::io::{IsTerminal, stdin};
 use std::sync::mpsc::Sender;
@@ -285,7 +285,9 @@ mod platform {
 
     use mixdog_fsio::File;
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
-    use windows_sys::Win32::System::Console::{FlushConsoleInputBuffer, INPUT_RECORD, KEY_EVENT, ReadConsoleInputW, WINDOW_BUFFER_SIZE_EVENT};
+    use windows_sys::Win32::System::Console::{
+        FlushConsoleInputBuffer, GetNumberOfConsoleInputEvents, INPUT_RECORD, KEY_EVENT, ReadConsoleInputW, WINDOW_BUFFER_SIZE_EVENT,
+    };
     use windows_sys::Win32::System::Threading::{CreateEventW, INFINITE, SetEvent, WaitForMultipleObjects};
 
     use super::{ReaderHandle, TermEvent, push_utf16_unit};
@@ -352,47 +354,55 @@ mod platform {
                 let _ = tx.send(TermEvent::Closed);
                 return;
             }
-            // SAFETY: INPUT_RECORD is plain data; all-zero is a valid value.
-            let mut records: [INPUT_RECORD; RECORDS] = unsafe { std::mem::zeroed() };
-            let mut read = 0u32;
-            // SAFETY: the buffer holds RECORDS records and the count pointer is to a live u32.
-            let ok = unsafe { ReadConsoleInputW(handle, records.as_mut_ptr(), RECORDS as u32, &mut read) };
-            if ok == 0 {
-                let _ = tx.send(TermEvent::Closed);
-                return;
-            }
             let mut bytes = Vec::new();
-            for record in &records[..read as usize] {
-                match u32::from(record.EventType) {
-                    KEY_EVENT => {
-                        // SAFETY: EventType says the KeyEvent member is the one set.
-                        let key = unsafe { record.Event.KeyEvent };
-                        // SAFETY: both members of the union are plain integers.
-                        let unit = unsafe { key.uChar.UnicodeChar };
-                        // A key-down carries its character; the release of Alt carries the one typed with the Alt+numpad sequence
-                        // (the console host delivers every UTF-16 unit it has no key for, an emoji's two halves, that way).
-                        if key.bKeyDown == 0 && !(key.wVirtualKeyCode == VK_MENU && unit != 0) {
-                            continue;
+            loop {
+                // SAFETY: INPUT_RECORD is plain data; all-zero is a valid value.
+                let mut records: [INPUT_RECORD; RECORDS] = unsafe { std::mem::zeroed() };
+                let mut read = 0u32;
+                // SAFETY: the buffer holds RECORDS records and the count pointer is to a live u32.
+                let ok = unsafe { ReadConsoleInputW(handle, records.as_mut_ptr(), RECORDS as u32, &mut read) };
+                if ok == 0 {
+                    let _ = tx.send(TermEvent::Closed);
+                    return;
+                }
+                for record in &records[..read as usize] {
+                    match u32::from(record.EventType) {
+                        KEY_EVENT => {
+                            // SAFETY: EventType says the KeyEvent member is the one set.
+                            let key = unsafe { record.Event.KeyEvent };
+                            // SAFETY: both members of the union are plain integers.
+                            let unit = unsafe { key.uChar.UnicodeChar };
+                            // A key-down carries its character; the release of Alt carries the one typed with the Alt+numpad sequence
+                            // (the console host delivers every UTF-16 unit it has no key for, an emoji's two halves, that way).
+                            if key.bKeyDown == 0 && !(key.wVirtualKeyCode == VK_MENU && unit != 0) {
+                                continue;
+                            }
+                            if unit == 0 {
+                                continue;
+                            }
+                            for _ in 0..key.wRepeatCount.max(1) {
+                                push_utf16_unit(&mut bytes, &mut pending_high, unit);
+                            }
                         }
-                        if unit == 0 {
-                            continue;
+                        WINDOW_BUFFER_SIZE_EVENT => {
+                            if !flush_bytes(&mut bytes, tx) {
+                                return;
+                            }
+                            // SAFETY: EventType says the WindowBufferSizeEvent member is the one set.
+                            let size = unsafe { record.Event.WindowBufferSizeEvent.dwSize };
+                            let (columns, rows) = console::terminal_size().unwrap_or((u16::try_from(size.X).unwrap_or(0), u16::try_from(size.Y).unwrap_or(0)));
+                            if tx.send(TermEvent::Resize(columns, rows)).is_err() {
+                                return;
+                            }
                         }
-                        for _ in 0..key.wRepeatCount.max(1) {
-                            push_utf16_unit(&mut bytes, &mut pending_high, unit);
-                        }
+                        _ => {}
                     }
-                    WINDOW_BUFFER_SIZE_EVENT => {
-                        if !flush_bytes(&mut bytes, tx) {
-                            return;
-                        }
-                        // SAFETY: EventType says the WindowBufferSizeEvent member is the one set.
-                        let size = unsafe { record.Event.WindowBufferSizeEvent.dwSize };
-                        let (columns, rows) = console::terminal_size().unwrap_or((u16::try_from(size.X).unwrap_or(0), u16::try_from(size.Y).unwrap_or(0)));
-                        if tx.send(TermEvent::Resize(columns, rows)).is_err() {
-                            return;
-                        }
-                    }
-                    _ => {}
+                }
+                // Records still queued go out with these: a cut at the buffer's size would split an escape sequence across reads.
+                let mut queued = 0u32;
+                // SAFETY: the count pointer is to a live u32.
+                if unsafe { GetNumberOfConsoleInputEvents(handle, &mut queued) } == 0 || queued == 0 {
+                    break;
                 }
             }
             if !flush_bytes(&mut bytes, tx) {

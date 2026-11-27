@@ -5,10 +5,10 @@
 //! CLI options); apply the theme and write the terminal background before the first frame; touch the project (best effort);
 //! resolve the onboarding verdict; mount; turn mouse tracking on unless `MIXDOG_TUI_MOUSE` says no; run.
 //!
-//! The loop waits on one channel that carries the decoded terminal reads, the resizes and the store's events, and on the next
-//! deadline of any timer (the application's panel timers, the decoder's lone-ESC flush, the resize settle, the frame pacer, the
-//! store tick). A frame is drawn at most once per [`TUI_FRAME_MS`]; every flushed frame is the render acknowledgement the store's
-//! frame-batched publication waits for.
+//! The terminal's reads are decoded on an input thread, which also runs the decoder's lone-ESC wait. The loop waits on one
+//! channel that carries the decoded input, the resizes and the store's events, and on the next deadline of any timer (the
+//! application's panel timers, the resize settle, the frame pacer, the store tick). A frame is drawn at most once per
+//! [`TUI_FRAME_MS`]; every flushed frame is the render acknowledgement the store's frame-batched publication waits for.
 //!
 //! It ends through the application's exit flow (`/exit`, `/quit`), a signal, a dead stdio or a panic. The normal teardown: the
 //! reader stops, the store is disposed within `MIXDOG_TUI_EXIT_WAIT_MS` (2500 ms by default), the terminal is
@@ -121,7 +121,12 @@ impl BootProfile {
 
 /// What the loop waits on.
 enum LoopEvent {
-    Term(TermEvent),
+    /// A decoded terminal input.
+    Input(InputEvent),
+    /// The terminal's new size as `(columns, rows)`.
+    Resize(u16, u16),
+    /// The terminal input is gone ([`TermEvent::Closed`]).
+    InputClosed,
     Store(StoreEvent),
     /// The store's disposal finished (in time or not).
     Disposed,
@@ -184,19 +189,38 @@ fn spawn_store_forwarder(runtime: &Runtime, store: &Arc<SessionStore>, tx: Sende
     });
 }
 
-/// Starts the terminal reader and a forwarder of its events into the loop's channel.
+/// Starts the terminal reader and the input thread that decodes its events into the loop's channel.
 fn start_reader(tx: Sender<LoopEvent>) -> ReaderHandle {
     let (term_tx, term_rx) = mpsc::channel::<TermEvent>();
     let handle = spawn_reader(term_tx);
-    // The forwarder ends when the reader's sender is dropped with the reader.
-    let _ = std::thread::Builder::new().name("mixdog-tui-input".to_owned()).spawn(move || {
-        while let Ok(event) = term_rx.recv() {
-            if tx.send(LoopEvent::Term(event)).is_err() {
-                break;
+    // The input thread ends when the reader's sender is dropped with the reader.
+    let _ = std::thread::Builder::new().name("mixdog-tui-input".to_owned()).spawn(move || forward_input(&term_rx, &tx, Instant::now));
+    handle
+}
+
+/// Decodes the reader's events into the loop's channel until either side is gone, on the clock `now`. Whether an escape
+/// sequence split across reads is joined or flushed as typed is decided by when its reads came; a frame that holds the loop up
+/// past the decoder's wait cannot turn an in-time continuation into text.
+fn forward_input(term_rx: &Receiver<TermEvent>, tx: &Sender<LoopEvent>, now: impl Fn() -> Instant) {
+    let mut decoder = Decoder::new();
+    loop {
+        let received = match decoder.next_deadline() {
+            Some(due) => term_rx.recv_timeout(due.saturating_duration_since(now())),
+            None => term_rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+        };
+        let events: Vec<LoopEvent> = match received {
+            Ok(TermEvent::Bytes(bytes)) => decoder.feed(&bytes, now()).into_iter().map(LoopEvent::Input).collect(),
+            Ok(TermEvent::Resize(columns, rows)) => vec![LoopEvent::Resize(columns, rows)],
+            Ok(TermEvent::Closed) => vec![LoopEvent::InputClosed],
+            Err(RecvTimeoutError::Timeout) => decoder.flush_due(now()).into_iter().map(LoopEvent::Input).collect(),
+            Err(RecvTimeoutError::Disconnected) => return,
+        };
+        for event in events {
+            if tx.send(event).is_err() {
+                return;
             }
         }
-    });
-    handle
+    }
 }
 
 /// The event loop's state.
@@ -209,7 +233,6 @@ struct Driver {
     store: Arc<SessionStore>,
     runtime: Handle,
     tx: Sender<LoopEvent>,
-    decoder: Decoder,
     frames: PacedFrames<std::io::Stdout>,
     size: (u16, u16),
     dirty: bool,
@@ -250,7 +273,6 @@ impl Driver {
             store,
             runtime,
             tx,
-            decoder: Decoder::new(),
             frames,
             size,
             dirty: true,
@@ -305,8 +327,6 @@ impl Driver {
         consider(self.app.mouse_deadline());
         consider(self.app.statusline_wake_in_ms().map(|wait| now + wait.ceil() as u64));
         consider(self.frame_due);
-        let until = |instant: Instant| u64::try_from(instant.saturating_duration_since(Instant::now()).as_millis()).unwrap_or(0);
-        consider(self.decoder.next_deadline().map(|at| now + until(at)));
         consider(self.app.chrome.next_due().map(|due| due.max(0.0) as u64));
         wait.max(1)
     }
@@ -319,19 +339,17 @@ impl Driver {
     /// One event; `Some(code)` ends the loop.
     fn handle(&mut self, event: LoopEvent) -> Option<i32> {
         match event {
-            LoopEvent::Term(TermEvent::Bytes(bytes)) => {
-                for input in self.decoder.feed(&bytes, Instant::now()) {
-                    self.input(input);
-                }
+            LoopEvent::Input(input) => {
+                self.input(input);
                 self.dirty = true;
             }
-            LoopEvent::Term(TermEvent::Resize(columns, rows)) => {
+            LoopEvent::Resize(columns, rows) => {
                 self.size = (columns, rows);
                 if self.app.chrome.on_resize_event(self.now_ms() as f64) {
                     self.apply_size();
                 }
             }
-            LoopEvent::Term(TermEvent::Closed) => {
+            LoopEvent::InputClosed => {
                 // The input is gone: the teardown a signal runs, with code 1 (it ends the process).
                 self.cleanup.stdio_dead(StdioSource::Stdin, StdioEvent::Ended);
                 return Some(1);
@@ -369,10 +387,6 @@ impl Driver {
     fn turn(&mut self) -> Option<i32> {
         let now = self.now_ms();
         self.clock.set(now);
-        for input in self.decoder.flush_due(Instant::now()) {
-            self.input(input);
-            self.dirty = true;
-        }
         if self.app.chrome.poll(now as f64) {
             self.apply_size();
         }
@@ -500,6 +514,21 @@ mod tests {
         assert!(off.line("run:start", &[], start).is_none());
         let word_off = BootProfile::from_vars(|_| Some("0".to_owned()), start);
         assert!(word_off.line("run:start", &[], start).is_none());
+    }
+
+    #[test]
+    fn a_wheel_report_split_across_two_reads_reaches_the_loop_as_one_report() {
+        let (term_tx, term_rx) = mpsc::channel();
+        let (tx, rx) = mpsc::channel();
+        // The wheel-down report `ESC [ < 65 ; 40 ; 12 M`, cut four units in.
+        term_tx.send(TermEvent::Bytes(b"\x1b[<6".to_vec())).expect("queued");
+        term_tx.send(TermEvent::Bytes(b"5;40;12M".to_vec())).expect("queued");
+        drop(term_tx);
+        let read_at = Instant::now();
+        forward_input(&term_rx, &tx, move || read_at);
+        let inputs: Vec<InputEvent> = rx.try_iter().filter_map(|event| if let LoopEvent::Input(input) = event { Some(input) } else { None }).collect();
+        let [InputEvent::Mouse(report)] = inputs.as_slice() else { panic!("one wheel report and nothing typed: {inputs:?}") };
+        assert_eq!((report.kind, report.col, report.row), (mixdog_term::MouseKind::WheelDown, 39, 11));
     }
 
     #[test]
