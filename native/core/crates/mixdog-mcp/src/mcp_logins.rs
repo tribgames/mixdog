@@ -95,10 +95,9 @@ struct Flow {
     view: Mutex<View>,
     /// Bumped on every change: wakes the status reads waiting on the flow.
     changed: watch::Sender<u64>,
-    /// The flow's `login:<flowId>` feed: every change is published as the status a read answers.
+    /// The flow's `login:<flowId>` feed: every change is published as the status a read answers,
+    /// under the view's lock, so no read answers a status the feed does not hold yet.
     feeds: Arc<LoginFeeds>,
-    /// A status is read and published as one step, so the feed never ends on an older one.
-    publishing: Mutex<()>,
     session: Mutex<Option<Arc<dyn LoginSession>>>,
     /// Cancelled with the flow: ends the backend's start, which has no session to cancel yet.
     stop: tokio_util::sync::CancellationToken,
@@ -110,9 +109,21 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+impl View {
+    fn settle(&mut self, state: State, error: Option<String>) {
+        self.state = state;
+        if state == State::Failed {
+            self.error = Some(error.filter(|e| !e.is_empty()).unwrap_or_else(|| NOT_COMPLETED.to_owned()));
+        }
+    }
+}
+
 impl Flow {
     fn view(&self) -> Value {
-        let view = lock(&self.view);
+        self.render(&lock(&self.view))
+    }
+
+    fn render(&self, view: &View) -> Value {
         let mut out = json!({"flowId": self.id, "state": view.state.as_str()});
         if view.state == State::Pending {
             out["step"] = json!(view.step);
@@ -138,37 +149,28 @@ impl Flow {
         lock(&self.view).state == State::Pending
     }
 
-    fn touch(&self) {
+    /// Only a pending flow changes.
+    fn change(&self, change: impl FnOnce(&mut View) -> bool) -> bool {
+        {
+            let mut view = lock(&self.view);
+            if view.state != State::Pending || !change(&mut view) {
+                return false;
+            }
+            self.feeds.publish(&self.id, self.render(&view));
+        }
         self.changed.send_modify(|n| *n += 1);
-        let _one_publisher = lock(&self.publishing);
-        self.feeds.publish(&self.id, self.view());
+        true
     }
 
     fn set_step(&self, step: &'static str) {
-        {
-            let mut view = lock(&self.view);
-            if view.state != State::Pending || view.step == step {
-                return;
-            }
-            view.step = step;
-        }
-        self.touch();
+        self.change(|view| std::mem::replace(&mut view.step, step) != step);
     }
 
-    /// Only a pending flow settles.
     fn settle(&self, state: State, error: Option<String>) -> bool {
-        {
-            let mut view = lock(&self.view);
-            if view.state != State::Pending {
-                return false;
-            }
-            view.state = state;
-            if state == State::Failed {
-                view.error = Some(error.filter(|e| !e.is_empty()).unwrap_or_else(|| NOT_COMPLETED.to_owned()));
-            }
-        }
-        self.touch();
-        true
+        self.change(|view| {
+            view.settle(state, error);
+            true
+        })
     }
 
     async fn settled(&self) {
@@ -266,7 +268,6 @@ impl McpLogins {
                 view: Mutex::new(View { state: State::Pending, step: "starting", url: None, error: None, reason: None, awaiting_callback: false }),
                 changed,
                 feeds: Arc::clone(&self.feeds),
-                publishing: Mutex::new(()),
                 session: Mutex::new(None),
                 stop: tokio_util::sync::CancellationToken::new(),
                 cancelled: AtomicBool::new(false),
@@ -399,8 +400,11 @@ impl Driver {
     fn end(&self, state: State, error: Option<String>) {
         let flow = &self.flow;
         if flow.timed_out.load(Ordering::SeqCst) {
-            lock(&flow.view).reason = Some("timeout".to_owned());
-            flow.settle(State::Failed, Some(TIMED_OUT.to_owned()));
+            flow.change(|view| {
+                view.reason = Some("timeout".to_owned());
+                view.settle(State::Failed, Some(TIMED_OUT.to_owned()));
+                true
+            });
         } else if flow.cancelled.load(Ordering::SeqCst) {
             flow.settle(State::Cancelled, None);
         } else {
@@ -467,12 +471,12 @@ impl Driver {
                         session.cancel();
                         continue;
                     }
-                    {
-                        let mut view = lock(&flow.view);
+                    flow.change(|view| {
                         view.awaiting_callback = true;
                         view.url = Some(url.clone());
-                    }
-                    flow.set_step("browser");
+                        view.step = "browser";
+                        true
+                    });
                     if let Some(tx) = url_tx.take() {
                         let _ = tx.send(url.clone());
                     }
