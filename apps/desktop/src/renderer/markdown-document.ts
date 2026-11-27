@@ -288,9 +288,8 @@ export class LiveMarkdownDocument {
   /** The pages showing the live reply `text`. */
   update(text: string): MarkdownPage {
     if (text !== this.text) {
-      this.advance(text);
+      if (this.advance(text)) this.dirty = true;
       this.text = text;
-      this.dirty = true;
     }
     return this.current();
   }
@@ -352,8 +351,9 @@ export class LiveMarkdownDocument {
     this.last = null;
   }
 
-  private advance(text: string): void {
+  private advance(text: string): boolean {
     const parts = resolveStreamingMarkdownChunks(text, this.cache);
+    let changed = false;
     if (parts.generation !== this.generation) {
       // The text no longer continues what was frozen.
       this.generation = parts.generation;
@@ -364,7 +364,9 @@ export class LiveMarkdownDocument {
       this.tailStart = -1;
       this.tailUnits = [];
       this.tailCapped = false;
+      changed = true;
     }
+    if (parts.added.length > 0) changed = true;
     for (const { start, text: blockText } of parts.added) {
       const root = this.parseNow(blockText, false);
       const end = start + blockText.length;
@@ -390,7 +392,13 @@ export class LiveMarkdownDocument {
       this.tailShownLength = 0;
       this.tailRequested = null;
       this.slowAt = Number.POSITIVE_INFINITY;
+      changed = true;
     }
+    const prevTailText = this.tailText;
+    const prevTailParse = this.tailParse;
+    const prevTailCapped = this.tailCapped;
+    const prevTailUnits = this.tailUnits;
+    const prevTailFromUnits = prevTailText !== '' && this.usesTailUnits();
     this.tailText = parts.unstableText;
     this.tailParse = parts.parseUnstable;
     this.tailParseText = parts.parseUnstable ? healStreamingMarkdownTail(parts.unstableText) : '';
@@ -406,6 +414,19 @@ export class LiveMarkdownDocument {
       const root = this.parseNow(this.tailParseText, true);
       if (root) this.showTail(root, this.tailParseText, this.tailText.length);
     }
+    if (changed) return true;
+    const nextTailFromUnits = this.tailText !== '' && this.usesTailUnits();
+    if (prevTailFromUnits && nextTailFromUnits) return this.tailUnits !== prevTailUnits;
+    if (prevTailFromUnits !== nextTailFromUnits) return true;
+    return (
+      this.tailText !== prevTailText ||
+      this.tailParse !== prevTailParse ||
+      this.tailCapped !== prevTailCapped
+    );
+  }
+
+  private usesTailUnits(): boolean {
+    return this.tailParse && this.tailShown && (this.tailUnits.length > 0 || this.tailParseText === this.tailShownText);
   }
 
   private wantsTailParse(): boolean {
@@ -467,7 +488,7 @@ export class LiveMarkdownDocument {
       // on a stale partial AST until final parse.
       return [waitingUnit(this.tailStart, this.tailText, false, this.tailCapped ? `cap@${this.tailStart}` : undefined)];
     }
-    if (this.tailShown && (this.tailUnits.length > 0 || this.tailParseText === this.tailShownText)) {
+    if (this.usesTailUnits()) {
       return this.tailUnits;
     }
     return [waitingUnit(this.tailStart, this.tailText, this.tailParse)];

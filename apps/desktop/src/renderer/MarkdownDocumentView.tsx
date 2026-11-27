@@ -148,7 +148,7 @@ function PageItems({ page }: { page: MarkdownPage }) {
 const MarkdownDocumentPage = memo(PageItems);
 
 /** A reply's pages (markdown-document), live or finished alike. */
-export function MarkdownDocumentView({
+export const MarkdownDocumentView = memo(function MarkdownDocumentView({
   root,
   fadeTimeline,
   copyControl,
@@ -164,4 +164,4 @@ export function MarkdownDocumentView({
       <MarkdownDocumentPage page={root} />
     </DocumentScopeContext.Provider>
   );
-}
+});
