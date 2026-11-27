@@ -12,8 +12,8 @@
 # The registry and git directories of cargo may be mounted at /root/.cargo/registry and /root/.cargo/git; they are made
 # readable by the runner user before the container ends.
 #
-# The same script cross-builds in ghcr.io/rust-cross/manylinux_2_28-cross:<arch> (an x86_64 image whose compiler targets
-# <arch> with a glibc 2.28 sysroot; it sets CARGO_BUILD_TARGET and the target's compiler variables): the programs are the
+# The same script cross-builds in the image of linux-cross-arm64.Dockerfile (an x86_64 image whose compilers target arm64
+# with a glibc 2.28 sysroot; it sets CARGO_BUILD_TARGET and the target's compiler variables): the programs are the
 # target's, built at the speed of the machine that runs the container.
 set -euo pipefail
 if command -v dnf >/dev/null; then dnf install -y cmake pkgconf-pkg-config; fi
