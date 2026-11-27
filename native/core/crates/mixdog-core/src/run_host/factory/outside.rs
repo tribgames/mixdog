@@ -340,6 +340,8 @@ pub struct History {
     /// How many rows the session's model context holds ahead of the turn's input: the rows before the turn, or the
     /// summary a compaction of this turn stored in their place.
     held: Arc<std::sync::atomic::AtomicUsize>,
+    /// When the session's context was last compacted, by its header.
+    compacted_at: Option<f64>,
     budget_tokens: u64,
     compact_settings: Option<mixdog_agent::boundary::CompactSettings>,
     is_continuation: bool,
@@ -360,6 +362,10 @@ fn due(policy: Option<&mixdog_agent::boundary::CompactPolicy>, context_tokens: O
 fn header_positive_u64(header: &Header, key: &str) -> Option<u64> {
     let n = header.get(key).and_then(Value::as_f64)?.floor();
     (n.is_finite() && n >= 1.0).then_some(n as u64)
+}
+
+fn header_compacted_at(header: &Header) -> Option<f64> {
+    header.get("compaction")?.get("lastCompactAt")?.as_f64()
 }
 
 fn header_context_tokens(header: &Header) -> Option<u64> {
@@ -438,17 +444,22 @@ impl History {
         if !self.taken_over.is_empty() {
             return None;
         }
-        Self::standing_summary(&self.rows.iter().map(|(_, row)| row).collect::<Vec<_>>())
+        Self::standing_summary(&self.rows.iter().map(|(_, row)| row).collect::<Vec<_>>(), self.compacted_at)
     }
 
     /// The summary an earlier compaction left in `rows`, where they hold nothing the user said since: the text an agent
-    /// is handed as it stands. `None` for rows that hold a conversation, or no summary.
-    fn standing_summary(rows: &[&Value]) -> Option<Result<String, String>> {
+    /// is handed as it stands. `None` for rows that hold a conversation, or no summary. A request the compaction of
+    /// `compacted_at` kept beside its summary was said before it, and is part of what it left.
+    fn standing_summary(rows: &[&Value], compacted_at: Option<f64>) -> Option<Result<String, String>> {
         use mixdog_core_ports::ports::route::is_summary_anchor;
         use mixdog_core_session::session::route_session::has_user_conversation;
         let summarized = rows.iter().any(|row| is_summary_anchor(row));
-        let conversation =
-            rows.iter().enumerate().any(|(i, row)| !Self::is_unanswered_failed_user(rows, i) && has_user_conversation(std::slice::from_ref(*row)));
+        let kept =
+            |row: &Value| row.pointer("/meta/transcript/at").and_then(Value::as_f64).zip(compacted_at).is_some_and(|(said, compacted)| said <= compacted);
+        let conversation = rows
+            .iter()
+            .enumerate()
+            .any(|(i, row)| !Self::is_unanswered_failed_user(rows, i) && !kept(row) && has_user_conversation(std::slice::from_ref(*row)));
         (summarized && !conversation).then(|| {
             Self::told(
                 rows.iter()
@@ -1174,6 +1185,7 @@ pub(super) async fn drive_outside(outside: Outside) -> OutsideOutcome {
         after_input: committed_after_input.clone(),
         taken_over: taken_over.unwrap_or_default(),
         held: held.clone(),
+        compacted_at: header_compacted_at(&header),
         budget_tokens: handoff_budget_tokens,
         compact_settings: compact_settings.clone(),
         is_continuation: false,
@@ -1211,6 +1223,7 @@ pub(super) async fn drive_outside(outside: Outside) -> OutsideOutcome {
                     after_input: committed_after_input.clone(),
                     taken_over: Vec::new(),
                     held: held.clone(),
+                    compacted_at: header_compacted_at(&round_header),
                     budget_tokens: round_budget,
                     compact_settings: compact_settings.clone(),
                     is_continuation: true,
@@ -1716,14 +1729,28 @@ mod tests {
         let kept = json!({ "role": "assistant", "content": "I will finish the parser." });
         let said = json!({ "role": "user", "content": "go on" });
 
-        let handed = History::standing_summary(&[&system, &summary, &kept]).expect("a summary stands").expect("readable rows");
+        let handed = History::standing_summary(&[&system, &summary, &kept], None).expect("a summary stands").expect("readable rows");
         assert!(handed.starts_with("## User\n"), "{handed}");
         assert!(handed.contains("the user asked for a parser; it is half written"), "{handed}");
         assert!(handed.ends_with("## Assistant\nI will finish the parser."), "{handed}");
         assert!(!handed.contains("rules"), "the session's prompt is no part of the summary: {handed}");
 
-        assert!(History::standing_summary(&[&summary, &kept, &said]).is_none(), "a conversation since the summary is summarized anew");
-        assert!(History::standing_summary(&[&system]).is_none());
+        assert!(History::standing_summary(&[&summary, &kept, &said], None).is_none(), "a conversation since the summary is summarized anew");
+        assert!(History::standing_summary(&[&system], None).is_none());
+    }
+
+    /// A compaction keeps the latest request beside its summary: with nothing said since, an agent starting on that
+    /// context is handed it as it stands, where a second summary would cost the turn a model call.
+    #[test]
+    fn a_request_the_compaction_kept_does_not_summarize_its_summary_again() {
+        let summary = json!({ "role": "user", "content": format!("{}the parser is half written", mixdog_agent::compact::fresh::SUMMARY_PREFIX) });
+        let kept = json!({ "role": "user", "content": "read parser.rs", "meta": { "transcript": { "at": 100 } } });
+        let reply = json!({ "role": "assistant", "content": "parser.rs has 40 lines" });
+        let since = json!({ "role": "user", "content": "now fix it", "meta": { "transcript": { "at": 300 } } });
+
+        let handed = History::standing_summary(&[&summary, &kept, &reply], Some(200.0)).expect("the compaction's context stands").expect("readable rows");
+        assert!(handed.contains("read parser.rs") && handed.contains("parser.rs has 40 lines"), "{handed}");
+        assert!(History::standing_summary(&[&summary, &kept, &reply, &since], Some(200.0)).is_none(), "a request since the compaction is summarized");
     }
 
     /// A failed user turn after a compaction left no reply behind: the earlier summary still stands for hand-over
@@ -1737,13 +1764,13 @@ mod tests {
             "meta": { "transcript": { "completion": { "status": "failed" } } }
         });
 
-        let handed = History::standing_summary(&[&summary, &failed]).expect("the standing summary still holds").expect("readable rows");
+        let handed = History::standing_summary(&[&summary, &failed], None).expect("the standing summary still holds").expect("readable rows");
         assert!(handed.contains("the parser is half written"), "{handed}");
         assert!(!handed.contains("finish the parser"), "the failed prompt is not part of the standing summary: {handed}");
 
         let partial_reply = json!({ "role": "assistant", "content": "I started editing parser.rs" });
         assert!(
-            History::standing_summary(&[&summary, &failed, &partial_reply]).is_none(),
+            History::standing_summary(&[&summary, &failed, &partial_reply], None).is_none(),
             "a failed turn that produced a reply before failing is re-summarized"
         );
     }
