@@ -9,7 +9,7 @@ import { createBurstyStream } from './test-support/bursty-stream.mjs';
 import { completionFlashes, revealSteps, STREAM_FRAME_PROBE } from './test-support/stream-frames.mjs';
 
 const STREAM_SEED = 7;
-const FADE_MS = 400;
+const FADE_MS = 150;
 
 const HARNESS = `
   import { useRef } from 'react';
