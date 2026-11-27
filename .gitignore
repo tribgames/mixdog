@@ -206,6 +206,12 @@ benchmarks/terminal-bench-2.1/benchmarks/
 
 # Rust core workspace build output
 native/core/target/
+# The core's builds of the native tools are built through the workspace and locked by its lockfile; a cargo run inside one
+# of them writes a lockfile nothing keeps current.
+native/core/crates/mixdog-spawn/Cargo.lock
+native/core/crates/mixdog-patch/Cargo.lock
+native/core/crates/mixdog-graph/Cargo.lock
+native/core/crates/mixdog-secure-desktop/Cargo.lock
 scripts/rust-core/tree-helper/target/
 
 # PowerShell's module cache, written beside the working directory by a child started with an isolated profile.
