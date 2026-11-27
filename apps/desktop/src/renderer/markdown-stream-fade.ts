@@ -1,7 +1,7 @@
 import type { MarkdownAstRoot } from './markdown-ast';
 
 /** How long a phrase fades in (the default duration in 22-markdown.css). */
-export const STREAM_FADE_DURATION_MS = 400;
+export const STREAM_FADE_DURATION_MS = 150;
 /** Text revealed this long after a phrase opened still joins it. */
 const STREAM_FADE_PHRASE_OPEN_MS = 100;
 /** Arrivals faster than this (characters per ms, over windows of at least

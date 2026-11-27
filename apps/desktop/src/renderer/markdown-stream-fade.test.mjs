@@ -20,6 +20,13 @@ const element = (tagName, children = [], properties = {}) => ({ type: 'element',
 const textOf = (node) => (node.type === 'text' ? node.value : (node.children ?? []).map(textOf).join(''));
 const x = (count) => 'x'.repeat(count);
 
+/** A timeline whose phrases fade over 400 ms: the length these scenarios' clocks are written for. */
+function timelineAt(now, primed) {
+  const timeline = new StreamFadeTimeline(now, primed);
+  timeline.durationMs = 400;
+  return timeline;
+}
+
 /** A render pass that reveals `value` at `now`, its body bringing all of it
  *  on screen, and commits. */
 function show(timeline, value, now, revision = 0, ended = false) {
@@ -64,7 +71,7 @@ function wrapped(root) {
 const fours = (count) => Array.from({ length: count }, (_, index) => `w${String(index).padStart(2, '0')} `).join('');
 
 test('a large step fades as one phrase in one element: it starts at its render, with no stagger, over 400 ms', () => {
-  const timeline = new StreamFadeTimeline(0);
+  const timeline = timelineAt(0);
   show(timeline, fours(100), 1000);
   const out = wrapped(applyStreamFade(paragraph(text(fours(100))), 0, timeline, 1000).root);
   assert.deepEqual(
@@ -77,7 +84,7 @@ test('a large step fades as one phrase in one element: it starts at its render, 
 });
 
 test('text revealed within 100 ms shares one phrase; the next growth after that opens the next', () => {
-  const timeline = new StreamFadeTimeline(0);
+  const timeline = timelineAt(0);
   show(timeline, 'One ', 0);
   show(timeline, 'One two ', 50);
   show(timeline, 'One two thr', 99);
@@ -95,7 +102,7 @@ test('text revealed within 100 ms shares one phrase; the next growth after that 
 });
 
 test('letters that continue a word after its phrase closed fade from their own start, in Korean too', () => {
-  const timeline = new StreamFadeTimeline(0);
+  const timeline = timelineAt(0);
   const render = (value, now) => {
     show(timeline, value, now);
     return wrapped(applyStreamFade(paragraph(text(value)), 0, timeline, now).root);
@@ -126,7 +133,7 @@ test('a character that moves to another segment keeps its fade: 研究生 → �
     ['研究生', '研究生命'],
     ['中国人', '中国人民'],
   ]) {
-    const timeline = new StreamFadeTimeline(0);
+    const timeline = timelineAt(0);
     show(timeline, before, 0);
     applyStreamFade(paragraph(text(before)), 0, timeline, 0);
     show(timeline, after, 150);
@@ -148,7 +155,7 @@ test('decoded text keeps exact offsets: a reference, an escape, a quote marker, 
     ['> one\n> two', '> one\n> two three', ' three'],
     ['`a&amp;b` ', '`a&amp;b` next', 'next'],
   ]) {
-    const timeline = new StreamFadeTimeline(0);
+    const timeline = timelineAt(0);
     show(timeline, before, 0);
     show(timeline, after, 150, 0, true);
     const root = applyStreamFade(parseMarkdownToHast(after), 0, timeline, 150).root;
@@ -167,7 +174,7 @@ test('decoded text keeps exact offsets: a reference, an escape, a quote marker, 
 test('a re-parse that changes the text nodes fades nothing already shown again: a header becomes a table', () => {
   const header = '| a | b |\n';
   const table = `${header}|---|---|\n`;
-  const timeline = new StreamFadeTimeline(0);
+  const timeline = timelineAt(0);
   show(timeline, header, 0);
   const before = starts(applyStreamFade(parseMarkdownToHast(header), 0, timeline, 0).root);
   assert.ok(before.length > 0, 'the header fades in as a paragraph');
@@ -183,7 +190,7 @@ test('a re-parse that changes the text nodes fades nothing already shown again: 
 });
 
 test('arrivals faster than 1.6 characters per ms over two windows show unfaded, until 400 ms after', () => {
-  const timeline = new StreamFadeTimeline(0);
+  const timeline = timelineAt(0);
   const render = (value, now) => {
     show(timeline, value, now);
     return wrapped(applyStreamFade(paragraph(text(value)), 0, timeline, now).root).map((run) => [run.text, run.at]);
@@ -196,7 +203,7 @@ test('arrivals faster than 1.6 characters per ms over two windows show unfaded, 
 });
 
 test('a phrase is unwrapped once its fade ended; until then its element stays', () => {
-  const timeline = new StreamFadeTimeline(0);
+  const timeline = timelineAt(0);
   const render = (value, now) => wrapped(applyStreamFade(paragraph(text(value)), 0, timeline, now).root);
   show(timeline, 'Hello wor', 0);
   const first = render('Hello wor', 0);
@@ -220,7 +227,7 @@ test('a phrase is unwrapped once its fade ended; until then its element stays', 
 });
 
 test('a rewrite shows unwrapped', () => {
-  const timeline = new StreamFadeTimeline(0);
+  const timeline = timelineAt(0);
   show(timeline, 'Hello there', 0);
   assert.equal(wrapped(applyStreamFade(paragraph(text('Hello there')), 0, timeline, 0).root).length, 1);
   show(timeline, 'Bye', 10);
@@ -228,7 +235,7 @@ test('a rewrite shows unwrapped', () => {
 });
 
 test('text a revision of the reveal brings shows unfaded; a step never rescans the shown prefix', () => {
-  const timeline = new StreamFadeTimeline(0);
+  const timeline = timelineAt(0);
   const render = (value, now) =>
     wrapped(applyStreamFade(paragraph(text(value)), 0, timeline, now).root).map((run) => [run.text, run.at]);
   const first = 'Hello there, my good friend';
@@ -251,7 +258,7 @@ test('text a revision of the reveal brings shows unfaded; a step never rescans t
 });
 
 test('the part ending shows what had not shown as one last phrase from then, also mid-phrase and after fast arrivals', () => {
-  const timeline = new StreamFadeTimeline(0);
+  const timeline = timelineAt(0);
   show(timeline, 'One ', 0);
   // 80 ms into the open phrase: the rest does not join it.
   show(timeline, 'One two three', 80, 0, true);
@@ -263,7 +270,7 @@ test('the part ending shows what had not shown as one last phrase from then, als
     ]
   );
   assert.equal(timeline.fadesUntil(80), 480);
-  const fast = new StreamFadeTimeline(0);
+  const fast = timelineAt(0);
   show(fast, x(200), 100);
   show(fast, x(400), 200);
   show(fast, `${x(400)} tail`, 250, 0, true);
@@ -276,7 +283,7 @@ test('the part ending shows what had not shown as one last phrase from then, als
 });
 
 test('only fading phrases are kept: a token growing over fifty phrases keeps its live ones, then none', () => {
-  const timeline = new StreamFadeTimeline(0);
+  const timeline = timelineAt(0);
   let value = 'x';
   let pass = null;
   let now = 0;
@@ -294,7 +301,7 @@ test('only fading phrases are kept: a token growing over fifty phrases keeps its
 });
 
 test('text revealed before its parse lands fades in full from when it comes on screen, and the row is owed it until then', () => {
-  const timeline = new StreamFadeTimeline(0);
+  const timeline = timelineAt(0);
   show(timeline, 'Intro ', 0);
   // The rest is revealed (the part ends) while the body still shows the
   // older parse of "Intro ".
@@ -315,7 +322,7 @@ test('text revealed before its parse lands fades in full from when it comes on s
 });
 
 test('what has been on screen is kept as ranges: a later chunk showing first leaves the earlier one owed, and it fades when it shows', () => {
-  const timeline = new StreamFadeTimeline(0);
+  const timeline = timelineAt(0);
   const pass = timeline.read('Intro text', 0);
   // The later chunk [6, 10) shows; the earlier one [0, 6) is still parsing.
   const later = applyStreamFade(paragraph(text('text')), 6, timeline, 0, 10);
@@ -339,7 +346,7 @@ test('what has been on screen is kept as ranges: a later chunk showing first lea
 test('text a plugin rebuilt keeps exact offsets: **0.118%**이며 fades only its new suffix', () => {
   const before = '값은 **0.118%**이';
   const after = '값은 **0.118%**이며';
-  const timeline = new StreamFadeTimeline(0);
+  const timeline = timelineAt(0);
   show(timeline, before, 0);
   show(timeline, after, 150);
   const root = applyStreamFade(parseMarkdownToHast(after), 0, timeline, 150).root;
@@ -367,14 +374,14 @@ test('a reply keeps its timeline after it stops streaming, until dropped', () =>
 });
 
 test('a duration of 0 wraps nothing', () => {
-  const unfaded = new StreamFadeTimeline(0);
+  const unfaded = timelineAt(0);
   unfaded.durationMs = 0;
   show(unfaded, 'fast words', 0);
   assert.deepEqual(wrapped(applyStreamFade(paragraph(text('fast words')), 0, unfaded, 0).root), []);
 });
 
 test('a render React discards changes nothing: text past the committed pass is read from the latest one', () => {
-  const timeline = new StreamFadeTimeline(0);
+  const timeline = timelineAt(0);
   show(timeline, 'One ', 0);
   // Read but never committed (a discarded render), then read again later.
   timeline.read('One two', 150);
@@ -391,7 +398,7 @@ test('a render React discards changes nothing: text past the committed pass is r
 });
 
 test("a list item's marker fades with its first character; once its fade ended the item drops its box", () => {
-  const timeline = new StreamFadeTimeline(0);
+  const timeline = timelineAt(0);
   const root = { type: 'root', children: [element('ul', [element('li', [text('Runtime drives')])])] };
   show(timeline, 'Runtime drives', 300);
   const out = applyStreamFade(root, 0, timeline, 300).root;
@@ -410,7 +417,7 @@ test("a list item's marker fades with its first character; once its fade ended t
 });
 
 test('a table row fades whole with its first character; text of the row is not faded twice', () => {
-  const timeline = new StreamFadeTimeline(0);
+  const timeline = timelineAt(0);
   // Cells at their offsets in "Runtime JS TUI JS".
   const row = (...cells) =>
     element(
@@ -438,7 +445,7 @@ test('a table row fades whole with its first character; text of the row is not f
 });
 
 test('an inline code chip fades as one with its box; code blocks stay whole', () => {
-  const timeline = new StreamFadeTimeline(0);
+  const timeline = timelineAt(0);
   const root = {
     type: 'root',
     children: [
@@ -462,7 +469,7 @@ test('an inline code chip fades as one with its box; code blocks stay whole', ()
 });
 
 test('a re-parse into new elements keeps each stretch its element', () => {
-  const timeline = new StreamFadeTimeline(0);
+  const timeline = timelineAt(0);
   show(timeline, 'a b', 0);
   const before = wrapped(applyStreamFade(paragraph(text('a b')), 0, timeline, 0).root);
   const strong = { type: 'element', tagName: 'strong', properties: {}, children: [text('b', 2)] };
@@ -478,7 +485,7 @@ test('a re-parse into new elements keeps each stretch its element', () => {
 });
 
 test('a chunk split off the reply keeps its characters’ fades: chunks are placed by offset', () => {
-  const timeline = new StreamFadeTimeline(0);
+  const timeline = timelineAt(0);
   show(timeline, 'One two. ', 0);
   show(timeline, 'One two. Three', 200);
   show(timeline, 'One two. Three four', 220);
@@ -490,7 +497,7 @@ test('a chunk split off the reply keeps its characters’ fades: chunks are plac
 });
 
 test('the fades of a reply end with its latest phrase (fadesUntil); unfaded arrivals add none', () => {
-  const timeline = new StreamFadeTimeline(0);
+  const timeline = timelineAt(0);
   assert.equal(timeline.fadesUntil(0), 0, 'nothing faded yet');
   show(timeline, 'Old words here ', 0);
   assert.equal(timeline.fadesUntil(0), 400);
@@ -505,7 +512,7 @@ test('the fades of a reply end with its latest phrase (fadesUntil); unfaded arri
     ],
     'every phrase runs its full fade: nothing is compressed'
   );
-  const fast = new StreamFadeTimeline(0);
+  const fast = timelineAt(0);
   show(fast, x(200), 100);
   assert.equal(fast.fadesUntil(100), 500);
   show(fast, x(400), 200);
@@ -514,7 +521,7 @@ test('the fades of a reply end with its latest phrase (fadesUntil); unfaded arri
 
 test('a primed timeline shows its first text unfaded; text revealed after it fades', () => {
   const first = fours(40);
-  const timeline = new StreamFadeTimeline(0, first);
+  const timeline = timelineAt(0, first);
   show(timeline, first, 0);
   assert.equal(timeline.fadesUntil(0), 0);
   assert.deepEqual(wrapped(applyStreamFade(paragraph(text(first)), 0, timeline, 0).root), [], 'shown at once, unfaded');
@@ -540,7 +547,7 @@ test('reduced motion: a reply gets no timeline, so nothing fades', () => {
 });
 
 test('blank text, math and svg are left whole', () => {
-  const timeline = new StreamFadeTimeline(0);
+  const timeline = timelineAt(0);
   show(timeline, 'a', 0);
   const root = {
     type: 'root',

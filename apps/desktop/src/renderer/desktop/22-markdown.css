@@ -479,11 +479,11 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
    stands in its reply. */
 [data-stream-fade],
 [data-stream-fade-box="box"] {
-  animation: markdown-stream-fade var(--mx-fade-ms, 400ms) linear backwards;
+  animation: markdown-stream-fade var(--mx-fade-ms, 150ms) linear backwards;
   animation-delay: var(--mx-fade-delay, 0ms);
 }
 [data-stream-fade-box="marker"]::marker {
-  animation: markdown-stream-fade-marker var(--mx-fade-ms, 400ms) linear backwards;
+  animation: markdown-stream-fade-marker var(--mx-fade-ms, 150ms) linear backwards;
   animation-delay: var(--mx-fade-delay, 0ms);
 }
 @keyframes markdown-stream-fade {

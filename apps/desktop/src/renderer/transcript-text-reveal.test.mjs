@@ -13,6 +13,8 @@ const { TranscriptResponseFooter, TranscriptRow } = await import('./transcript-r
 const { MarkdownSessionContext } = await import('./MarkdownLink.tsx');
 const { appendLiveTranscriptRows, projectSettledTranscriptRows } = await import('./transcript-rows.ts');
 const { REVEAL_INTERVAL_MS } = await import('./use-transcript-text-reveal.ts');
+const { STREAM_FADE_DURATION_MS } = await import('./markdown-stream-fade.ts');
+const FADE = `${STREAM_FADE_DURATION_MS}ms`;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const BIG = '이어지는 긴 문단입니다. '.repeat(60);
@@ -90,8 +92,8 @@ test('coding: the first text shows as a step and its words fade in', async (t) =
       phrase.style.getPropertyValue('--mx-fade-ms'),
       phrase.style.getPropertyValue('--mx-fade-delay'),
     ]),
-    [['Hello there friend,', '400ms', '0ms']],
-    'its words fade as one phrase, 400 ms, at once'
+    [['Hello there friend,', FADE, '0ms']],
+    'its words fade as one phrase, at once'
   );
   await view.cleanup();
 });
@@ -124,12 +126,12 @@ test('coding: the part ending shows the rest at once as one last phrase from the
   const tail = fading(view.host).at(-1);
   assert.deepEqual(
     [tail.textContent, tail.style.getPropertyValue('--mx-fade-delay'), tail.style.getPropertyValue('--mx-fade-ms')],
-    [full.trim().slice(3), '0ms', '400ms'],
+    [full.trim().slice(3), '0ms', FADE],
     'the rest is one element fading from the moment the part ended'
   );
   const paragraph = view.host.querySelector('.markdown p');
   // The fade timers run in real time.
-  tick(400);
+  tick(STREAM_FADE_DURATION_MS);
   await act(async () => sleep(500));
   assert.ok(article().classList.contains('settled'), 'settled as its last fade ended');
   assert.deepEqual(fading(view.host), [], 'no wrapper outlives its fade');
@@ -142,9 +144,9 @@ test('coding: a still-streaming reply drops its fade wrappers even when the time
   const { view, tick } = await pane(t, 'early');
   await view.render([prompt('u1'), live('early', 'e1', 'Hi there')]);
   assert.equal(fading(view.host).length, 1, 'its words fade in');
-  // The timer set for the fade's end (400 ms) runs while the clock still reads just short of it, as Chromium may run a
+  // The timer set for the fade's end runs while the clock still reads just short of it, as Chromium may run a
   // long timer early and setTimeout drops the fraction of its delay.
-  tick(399.5);
+  tick(STREAM_FADE_DURATION_MS - 0.5);
   await act(async () => sleep(500));
   tick(1000);
   await act(async () => sleep(50));
@@ -192,7 +194,7 @@ test('coding: a part ending with a tail past the parse cap shows it in the commi
   );
   const tail = fading(host).at(-1);
   assert.match(tail.textContent, /word word[\s\S]*end$/);
-  assert.equal(tail.style.getPropertyValue('--mx-fade-ms'), '400ms');
+  assert.equal(tail.style.getPropertyValue('--mx-fade-ms'), FADE);
   assert.equal(tail.style.getPropertyValue('--mx-fade-delay'), '0ms', 'its fade starts as it shows');
   assert.ok(article().classList.contains('streaming'), 'still live while it fades');
   await view.cleanup();
@@ -278,7 +280,7 @@ test('coding: a settled render React never commits leaves the committed reveal w
   for (let i = 0; i < 5 && painted(view.host) === cursor; i += 1) await step(view, tick, 200);
   const next = painted(view.host);
   assert.ok(next > cursor && next < full.trim().length, `it goes on in steps (${next})`);
-  assert.equal(fading(view.host).at(-1).style.getPropertyValue('--mx-fade-ms'), '400ms', 'still fading in');
+  assert.equal(fading(view.host).at(-1).style.getPropertyValue('--mx-fade-ms'), FADE, 'still fading in');
   await view.cleanup();
 });
 

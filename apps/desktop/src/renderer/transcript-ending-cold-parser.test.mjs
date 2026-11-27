@@ -12,6 +12,7 @@ installTestDom(null, {
 const { TranscriptRow } = await import('./transcript-row.tsx');
 const { MarkdownSessionContext } = await import('./MarkdownLink.tsx');
 const { syncMarkdownParser } = await import('./markdown-worker-client.ts');
+const { STREAM_FADE_DURATION_MS } = await import('./markdown-stream-fade.ts');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -56,7 +57,7 @@ test('a reply ending before the parser loaded keeps streaming, then ends with it
   );
   const tail = [...host.querySelectorAll('[data-stream-fade]')].at(-1);
   assert.match(tail.textContent, /word word[\s\S]*end$/);
-  assert.equal(tail.style.getPropertyValue('--mx-fade-ms'), '400ms');
+  assert.equal(tail.style.getPropertyValue('--mx-fade-ms'), `${STREAM_FADE_DURATION_MS}ms`);
   // Real time: the fade is stamped as the ending render runs, so its delay is
   // that commit's own render-to-commit time (a long tail parses in it).
   const delay = Number.parseInt(tail.style.getPropertyValue('--mx-fade-delay'), 10);
