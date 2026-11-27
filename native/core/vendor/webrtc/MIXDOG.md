@@ -59,6 +59,10 @@ TURN relay candidates are gathered over TCP and TLS as well as UDP. Upstream's r
   general runtime went on refreshing its TURN allocations, which then never expired on the server. The stop is the
   `closing` flag with a wake on a queue of its own (`close_wake`); `close()` no longer awaits room on the application's
   queue, which could not come when it was called from a callback, on the driver's own task.
+- `src/peer_connection/transport/stun_gatherer.rs`: the Binding request carries a random transaction id
+  (`TransactionId::new()`), as RFC 8489 §5 requires. Upstream's `TransactionId::default()` is all zeros; the path to
+  Mixdog's STUN/TURN server never answers a Binding that carries it and then drops the flow it came on, so no
+  server-reflexive candidate was gathered, and no UDP TURN allocation either, its client sharing that socket and server.
 - `src/peer_connection/transport/mod.rs`: the new module.
 - `Cargo.toml`: `rustls` (the version `rtc` asks for) is a dependency; the examples, tests and dev-dependencies are
   dropped (their files are not copied).
@@ -74,12 +78,15 @@ raised it for the stream writer; Mixdog builds this crate on Tokio only (`runtim
 Tokio's, so the copy stays as upstream there.
 
 The crate's tests are not built here. `mixdog-remote` covers the change against a stand-in TURN server with UDP, TCP and
-TLS listeners (`src/webrtc/turn_tests.rs`), each case a data-channel exchange through relay candidates.
+TLS listeners (`src/webrtc/turn_tests.rs`), each case a data-channel exchange through relay candidates, and the
+Binding request against a stand-in STUN server that answers only a random transaction id (`src/webrtc/tests.rs`).
 
 ## When to remove
 
 When the pinned release gathers `turn:…?transport=tcp` and `turns:` itself, with caller-supplied TLS verification, the
 relay protocol on the candidate, a release on the owning connection, a candidate taken back when its connection is
-lost and a dropped connection that releases its allocations (check: `turn_tests` pass against the unpatched crate,
-with `with_turn_tls_config` replaced by its API), delete this directory, its `[patch.crates-io]` and `exclude` entries
+lost, a dropped connection that releases its allocations and a Binding request with a random transaction id (check:
+`turn_tests` and `a_stun_server_that_answers_only_random_transaction_ids_yields_a_server_reflexive_candidate` pass
+against the unpatched crate, with `with_turn_tls_config` replaced by its API), delete this directory, its
+`[patch.crates-io]` and `exclude` entries
 and its entry in `../audit-bases.lock`, then `../rtc`, `../rtc-ice` and `../rtc-turn` under their own conditions.

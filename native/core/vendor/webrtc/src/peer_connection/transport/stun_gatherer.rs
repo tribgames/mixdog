@@ -311,8 +311,10 @@ impl RTCStunGatherer {
         )?;
 
         // Create STUN binding request
+        // mixdog: random, as RFC 8489 §5 requires. `TransactionId::default()` is all zeros, and the
+        // path to Mixdog's server answers no such Binding and drops the flow it came on.
         let mut msg = StunMessage::new();
-        msg.build(&[Box::<TransactionId>::default(), Box::new(BINDING_REQUEST)])?;
+        msg.build(&[Box::new(TransactionId::new()), Box::new(BINDING_REQUEST)])?;
 
         // Send the request
         stun_client.handle_write(TaggedMessage { now, message: msg })?;

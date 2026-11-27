@@ -1,6 +1,7 @@
 //! End-to-end checks over loopback UDP: the desktop side is this module's code, the phone side is
 //! a plain `webrtc` peer built here (answerer).
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,6 +20,12 @@ use rtc::rtp::packetizer::Depacketizer;
 use rtc::rtp_transceiver::rtp_sender::RTCRtpCodec;
 use rtc::rtp_transceiver::rtp_sender::RTCRtpCodecParameters;
 use rtc::rtp_transceiver::rtp_sender::RtpCodecKind;
+use rtc::stun::message::BINDING_REQUEST;
+use rtc::stun::message::BINDING_SUCCESS;
+use rtc::stun::message::Message as StunMessage;
+use rtc::stun::message::Setter;
+use rtc::stun::message::TRANSACTION_ID_SIZE;
+use rtc::stun::xoraddr::XorMappedAddress;
 use tokio::sync::mpsc;
 use webrtc::data_channel::DataChannel;
 use webrtc::data_channel::DataChannelEvent;
@@ -41,6 +48,7 @@ use super::carrier::CarrierEvent;
 use super::carrier::CarrierItem;
 use super::config::Candidate;
 use super::config::CandidatePath;
+use super::config::IceServer;
 use super::config::PeerConfig;
 use super::config::PeerFailure;
 use super::liveview::LiveViewConnection;
@@ -288,6 +296,60 @@ async fn a_build_that_fails_for_another_reason_fails_once_with_its_own_error() {
     assert!(fault.detail.as_deref().is_some_and(|detail| detail.contains(TRANSPORT_REFUSAL)), "the build's own error: {fault}");
     assert_eq!(*builds.lock().unwrap(), vec![MulticastDnsMode::Disabled], "one build");
     assert_eq!(runtime.refused.load(std::sync::atomic::Ordering::SeqCst), 1, "the transport was refused once");
+}
+
+/// A stand-in STUN server: answers a Binding request with `mapped` as the address it saw, unless the request's
+/// transaction id is all zeros. RFC 8489 §5 requires a random id, and the deployment's path leaves such a request
+/// unanswered.
+async fn answer_bindings(server: tokio::net::UdpSocket, mapped: SocketAddr) {
+    let mut buf = [0u8; 1500];
+    while let Ok((n, from)) = server.recv_from(&mut buf).await {
+        let mut request = StunMessage::new();
+        request.raw = buf[..n].to_vec();
+        if request.decode().is_err() || request.typ != BINDING_REQUEST || request.transaction_id.0 == [0; TRANSACTION_ID_SIZE] {
+            continue;
+        }
+        let response = {
+            let parts: Vec<Box<dyn Setter>> =
+                vec![Box::new(request.transaction_id), Box::new(BINDING_SUCCESS), Box::new(XorMappedAddress { ip: mapped.ip(), port: mapped.port() })];
+            let mut response = StunMessage::new();
+            response.build(&parts).unwrap();
+            response.raw
+        };
+        let _ = server.send_to(&response, from).await;
+    }
+}
+
+/// The desktop signals the address a STUN server saw it at as a server-reflexive candidate. Its Binding request
+/// used to carry the all-zero transaction id, which the stand-in, like the deployment's path, never answers: the
+/// gathering then ended with host candidates only.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stun_server_that_answers_only_random_transaction_ids_yields_a_server_reflexive_candidate() {
+    mixdog_rt::testing::tokens();
+    let server = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("stun:{}", server.local_addr().unwrap());
+    // Not the desktop's own address, as behind a NAT: a candidate equal to its base is redundant (RFC 8445 §5.1.3).
+    let mapped: SocketAddr = "203.0.113.7:40000".parse().unwrap();
+    let responder = tokio::spawn(answer_bindings(server, mapped));
+    let mut config = loopback();
+    config.ice_servers = vec![IceServer { urls: vec![url], username: None, credential: None }];
+    config.hooks.mdns_socket = Some(refused_mdns_join);
+    let (carrier, mut events) = CarrierConnection::spawn(config);
+    carrier.offer(false);
+    let srflx = mixdog_rt::time::timeout(BOUND, async {
+        loop {
+            match events.recv().await.expect("the carrier reports before it ends") {
+                CarrierEvent::Candidate { candidate: Some(candidate), .. } if candidate.candidate.contains(" typ srflx") => break candidate.candidate,
+                CarrierEvent::Candidate { candidate: None, .. } => panic!("the gathering ended without a server-reflexive candidate"),
+                CarrierEvent::Failed(fault) => panic!("carrier failed: {fault}"),
+                _ => {}
+            }
+        }
+    })
+    .await
+    .expect("a server-reflexive candidate within the test bound");
+    responder.abort();
+    assert!(srflx.contains(" 203.0.113.7 40000 typ srflx "), "the address the server saw: {srflx}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
