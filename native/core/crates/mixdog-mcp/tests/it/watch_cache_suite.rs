@@ -302,8 +302,8 @@ async fn a_skill_written_under_a_watched_root_pushes_a_change() {
 
 /// A skills root added ahead of another (plugin A's manifest gains one before plugin B's) leaves B's registration as it was: its
 /// OS watch is never closed and reopened.
-#[test]
-fn a_root_added_ahead_of_another_keeps_the_other_watch() {
+#[tokio::test(flavor = "multi_thread")]
+async fn a_root_added_ahead_of_another_keeps_the_other_watch() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().canonicalize().unwrap();
     let (a, added, b) = (base.join("a"), base.join("a-extra"), base.join("b"));
@@ -311,14 +311,27 @@ fn a_root_added_ahead_of_another_keeps_the_other_watch() {
         std::fs::create_dir_all(folder).unwrap();
     }
     let skills = SkillsWatch::new();
-    let watcher = Arc::new(FolderWatcher::new(skills.sink()).unwrap());
+    let (record, mut seen): (_, Seen) = tokio::sync::mpsc::unbounded_channel();
+    let watcher = Arc::new(FolderWatcher::new(Arc::new(FanOut(skills.sink(), record))).unwrap());
     skills.attach(Arc::clone(&watcher));
     let targets = |deep: Vec<std::path::PathBuf>| mixdog_mcp::skills_watch::WatchTargets { deep, ..Default::default() };
     assert!(skills.set_targets(&targets(vec![a.clone(), b.clone()])));
+    fenced(&mut seen, &b.join("fence")).await;
     let before = watcher.recursive_revision(&b).expect("b is watched");
     assert!(skills.set_targets(&targets(vec![a.clone(), added.clone(), b.clone()])));
     assert!(watcher.recursive_revision(&added).is_some());
     assert!(Arc::ptr_eq(&before, &watcher.recursive_revision(&b).expect("b is watched")), "b's watch was reopened");
+}
+
+/// Creates the folder `fence` and waits until the watcher pushes it. macOS FSEvents may report changes made just before a watch
+/// opened (the fixture's own folders) after it opened, but in order: each of them is applied once the fence is pushed.
+async fn fenced(seen: &mut Seen, fence: &Path) {
+    std::fs::create_dir(fence).unwrap();
+    mixdog_rt::time::timeout(Duration::from_secs(10), async {
+        while !seen.recv().await.unwrap().1.iter().any(|path| Path::new(path) == fence) {}
+    })
+    .await
+    .expect("the fence is pushed");
 }
 
 /// Every folder the skill list watches is also an entry its parent's watch hears: the data folder, watched for `skills`,
