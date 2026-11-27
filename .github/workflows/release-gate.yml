@@ -2104,6 +2104,13 @@ jobs:
             core-deps-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json') }}
             core-deps-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-
       - uses: ./.github/actions/install-nextest
+      # The project's own machine is not thrown away after the run: its build folder stays outside the checkout (which every
+      # run cleans), so the build compiles what changed and not the 941 third-party packages again.
+      - name: Keep the build folder between runs (the project's own machine)
+        if: runner.environment == 'self-hosted'
+        run: |
+          mkdir -p "$HOME/mixdog-ci-target/core-tests"
+          ln -sfn "$HOME/mixdog-ci-target/core-tests" native/core/target
       # The parallel front end for the workspace crates, whose chain (mixdog-core-session, mixdog-core, its test build) is the
       # floor of the build while the other cores wait (scripts/ci/rustc-threads.rs). The test archive only: nothing a release
       # ships, nor core-real's or the dev daemon's mixdogd, is built through it, and core-lint compiles the same selection on
