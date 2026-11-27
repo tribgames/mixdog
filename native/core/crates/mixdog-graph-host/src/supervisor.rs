@@ -1198,6 +1198,8 @@ impl Actor {
         self.deadline = None;
         self.phase = Phase::Closed;
         self.closed = Some(closing.outcome);
+        // A close's caller reads the status once it is answered: it is `Closed` before the answer is.
+        self.publish();
         for waiter in closing.waiters {
             let _ = waiter.send(closing.outcome);
         }
