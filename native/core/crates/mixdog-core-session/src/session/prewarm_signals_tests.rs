@@ -34,9 +34,10 @@ fn speaking_turns(rig: &Rig) {
 }
 
 /// Eager mode: the opened thread's cwd warms after the delay (`applyResolvedCwd` on resume) and its
-/// create settling wakes; every turn wakes on start and end and warms on its first visible output.
+/// create settling wakes; the first turn wakes on start and end and warms on its first visible
+/// output, a later turn only wakes.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn every_turns_first_visible_output_warms_and_every_busy_change_wakes() {
+async fn the_first_turns_visible_output_warms_and_every_busy_change_wakes() {
     let rig = Rig::new();
     speaking_turns(&rig);
     let directory = SessionDirectory::new(rig.deps());
@@ -52,8 +53,8 @@ async fn every_turns_first_visible_output_warms_and_every_busy_change_wakes() {
 
     turn(&handle, "two", "op-2").await;
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    eventually_on!(&[&rig.code_graph.called], || (calls(&rig).len() == 3).then_some(())).await;
-    assert_eq!(take(&rig), ["wake", "schedule:first-visible:0", "wake"], "a later turn warms as the first did");
+    eventually_on!(&[&rig.code_graph.called], || (calls(&rig).len() == 2).then_some(())).await;
+    assert_eq!(take(&rig), ["wake", "wake"], "only the runtime's first turn warms");
 }
 
 /// Every cwd apply warms, the same folder again included (`applyResolvedCwd`): a move at once, a

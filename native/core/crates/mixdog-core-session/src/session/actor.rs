@@ -1722,7 +1722,7 @@ pub(crate) struct SessionActor {
     room_questions_moved: bool,
     /// A room member's approvals resolved in the changes being published.
     room_approvals_resolved: Vec<String>,
-    /// The running turn has not shown visible output yet.
+    /// The running turn is that first turn and has not shown visible output yet.
     turn_prewarm_armed: bool,
     /// The live-workspace reads started; only the latest one's answer is published.
     live_workspace_reads: u64,
@@ -6272,10 +6272,9 @@ impl SessionActor {
         // `onGoalTurnStarted`: the turn takes the Goal's open clock segment.
         let (goals, thread) = (self.deps.goals.clone(), self.id.clone());
         self.goal_call(Box::pin(async move { JobDone::GoalSeen(goals.turn_started(&thread).await.ok()) }));
-        // Every turn arms the warm: the graph's helper ends when it has been idle, so a later turn's first graph call
-        // would wait for its start as the first turn's did. `setActiveTurnCount(+1)` wakes the parked warmups.
-        self.first_turn_prewarm_done = true;
-        self.turn_prewarm_armed = true;
+        // `heavyRuntimeWarmupArm()` (`turn-open.mjs:22`): the runtime's first turn arms the warm;
+        // `setActiveTurnCount(+1)` wakes the parked warmups.
+        self.turn_prewarm_armed = !std::mem::replace(&mut self.first_turn_prewarm_done, true);
         self.deps.code_graph_prewarm.wake();
         // `beginBrowserTurn`: the browser host keeps the session's pages out of reclaim while the turn is live.
         self.deps.snapshots.turn_begun(&self.id);

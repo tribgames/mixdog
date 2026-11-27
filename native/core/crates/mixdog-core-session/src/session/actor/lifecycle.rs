@@ -250,7 +250,7 @@ impl SessionActor {
     }
 
     /// `turn.armHeavyRuntimeWarmup('first-visible')` on visible output (text, reasoning, a tool):
-    /// the turn's warm, once per turn.
+    /// the first turn's warm, once.
     pub(super) fn visible_progress(&mut self) {
         if std::mem::take(&mut self.turn_prewarm_armed) {
             self.deps.code_graph_prewarm.schedule(Some(std::time::Duration::ZERO), "first-visible");

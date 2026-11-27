@@ -249,14 +249,6 @@ impl CodeGraphTool {
     /// project was found and its build ran; a failed build is only a cold first call. `start` is whether the warm may start a
     /// helper ([`Start::IfRunning`]: the background prewarm warms only one that runs).
     pub async fn prewarm_if_project(&self, cwd: &Path, start: Start, cancel: &CancellationToken) -> Result<bool, HostError> {
-        // A warm that may start the helper starts none for a folder of no project.
-        if start == Start::Demand {
-            let dir = cwd.to_path_buf();
-            let project = tokio::task::spawn_blocking(move || roots::find_dir_project_root(&dir, true).is_some()).await.unwrap_or(false);
-            if !project {
-                return Ok(false);
-            }
-        }
         let warmed = self.host.prewarm(wire::Prewarm { cwd: cwd.to_path_buf() }, start, cancel).await?;
         Ok(warmed.built)
     }

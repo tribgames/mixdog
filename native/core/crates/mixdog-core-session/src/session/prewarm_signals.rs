@@ -5,10 +5,9 @@
 //! - **Busy state changes** (`rt.wakeDeferredWarmups`, `boot/config.mjs:101`): a turn starts or
 //!   ends (`setActiveTurnCount`) and a session create settles. A warm parked on a busy runtime
 //!   re-checks then.
-//! - **The first visible output of a turn** (`turn-open.mjs:22-33` `heavyRuntimeWarmupArm`, armed by
-//!   `ask-callbacks.mjs:56` on text, reasoning or tool progress, `stream-progress.mjs:4`):
-//!   `schedule(0, 'first-visible')`, once per turn. Node armed it for the runtime's first turn only;
-//!   the graph's helper is a process that ends when idle, so every turn warms it.
+//! - **The first visible output of the runtime's first turn** (`turn-open.mjs:22-33`
+//!   `heavyRuntimeWarmupArm`, armed by `ask-callbacks.mjs:56` on text, reasoning or tool
+//!   progress, `stream-progress.mjs:4`): `schedule(0, 'first-visible')`, once per runtime.
 //! - **A cwd applied** (`cwd-apply.mjs:85-90` `applyResolvedCwd`, called on resume
 //!   `resume.mjs:158` and on every workspace move): `schedule(changed ? 0 : delay, changed ?
 //!   'cwd-change' : 'cwd')`, except in lazy mode before the runtime's first turn armed its warm.

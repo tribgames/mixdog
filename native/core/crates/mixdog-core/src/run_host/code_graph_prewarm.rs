@@ -24,9 +24,8 @@ pub trait PrewarmWorld: Send + Sync {
     fn busy(&self) -> Option<&'static str>;
     /// `getCurrentCwd()`.
     fn current_cwd(&self) -> String;
-    /// `prewarmCodeGraphIfProject(cwd)`; `Err` is a build that failed to start. `in_turn`: a turn is producing output in
-    /// `cwd`, so its model may ask the graph next and the warm is what that first call would otherwise wait for.
-    async fn prewarm(&self, cwd: &str, in_turn: bool) -> Result<bool, String>;
+    /// `prewarmCodeGraphIfProject(cwd)`; `Err` is a build that failed to start.
+    async fn prewarm(&self, cwd: &str) -> Result<bool, String>;
     /// `bootProfile(event, detail)`.
     fn profile(&self, event: &str, detail: &str);
 }
@@ -137,7 +136,7 @@ impl CodeGraphPrewarm {
         self.world.profile("code-graph:prewarm:start", &format!("{cwd} ({reason})"));
         let this = Arc::clone(self);
         drop(tokio::spawn(async move {
-            match this.world.prewarm(&cwd, reason == "first-visible").await {
+            match this.world.prewarm(&cwd).await {
                 Ok(true) => this.world.profile("code-graph:prewarm:scheduled", &cwd),
                 Ok(false) => this.world.profile("code-graph:prewarm:no-project", &cwd),
                 Err(error) => this.world.profile("code-graph:prewarm:failed", &format!("{cwd}: {error}")),
@@ -188,7 +187,6 @@ mod tests {
         busy: Mutex<Option<&'static str>>,
         cwd: Mutex<String>,
         warmed: Mutex<Vec<String>>,
-        in_turn: Mutex<Vec<bool>>,
         closing: AtomicBool,
         disabled: AtomicBool,
         calls: AtomicUsize,
@@ -211,10 +209,9 @@ mod tests {
         fn current_cwd(&self) -> String {
             self.cwd.lock().unwrap().clone()
         }
-        async fn prewarm(&self, cwd: &str, in_turn: bool) -> Result<bool, String> {
+        async fn prewarm(&self, cwd: &str) -> Result<bool, String> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             self.warmed.lock().unwrap().push(cwd.to_owned());
-            self.in_turn.lock().unwrap().push(in_turn);
             Ok(true)
         }
         fn profile(&self, _: &str, _: &str) {}
@@ -264,15 +261,6 @@ mod tests {
         prewarm.schedule(Some(Duration::ZERO), "first-visible");
         settle().await;
         assert_eq!(world.calls.load(Ordering::SeqCst), 1, "overlaps the active turn");
-        assert_eq!(*world.in_turn.lock().unwrap(), [true], "the warm of a turn's first output is the turn's");
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_warm_no_turn_asked_for_is_not_a_turns() {
-        let (world, prewarm) = rig("/a");
-        prewarm.schedule(Some(Duration::ZERO), "cwd");
-        settle().await;
-        assert_eq!(*world.in_turn.lock().unwrap(), [false]);
     }
 
     #[tokio::test(start_paused = true)]
