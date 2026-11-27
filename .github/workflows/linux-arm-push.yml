@@ -1,0 +1,86 @@
+name: Linux arm64 push check
+
+# The whole core workspace's tests on Linux arm64 after every push to main, on the project's own machine (mixdog-a1).
+# Its build folder stays between runs, so a push compiles what it changed and nothing else; the Release Gate's Linux
+# jobs start from a restored dependency cache and compile the workspace every time. Not a required check: the Release
+# Gate stays the proof a release takes.
+on:
+  push:
+    branches: [main]
+    paths:
+      - native/core/**
+      - rust-toolchain.toml
+      - .github/workflows/linux-arm-push.yml
+  workflow_dispatch:
+
+# The machine runs one build at a time: a newer push replaces the run of an older one.
+concurrency:
+  group: linux-arm-push
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    # A self-hosted machine runs what the repository's own pushes ask for, never a fork's.
+    if: github.repository == 'tribgames/mixdog'
+    runs-on: [self-hosted, mixdog-a1]
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Outside the checkout, which every run cleans.
+      CARGO_TARGET_DIR: /home/ghrunner/cache/core-target
+      # Linux arm64 still links with GNU ld by default, one thread for each of the core's large test binaries (measured on
+      # this machine: over four minutes for one of them); mold links them in parallel.
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=mold
+      GIT_AUTHOR_NAME: mixdog-test
+      GIT_AUTHOR_EMAIL: mixdog-test@example.invalid
+      GIT_COMMITTER_NAME: mixdog-test
+      GIT_COMMITTER_EMAIL: mixdog-test@example.invalid
+      MIXDOG_SKIP_USER_DATA_BACKUP: "1"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - name: Read the repository Rust toolchain
+        id: rust-pin
+        run: echo "version=$(sed -n 's/^channel = "\([^" ]*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ steps.rust-pin.outputs.version }}
+      # The release the gate installs (.github/actions/install-nextest), in its Linux arm64 build; the digest is the one the
+      # upstream release states for the file.
+      - name: Install cargo-nextest
+        run: |
+          set -euo pipefail
+          version=0.9.151
+          dest="${CARGO_HOME:-$HOME/.cargo}/bin"
+          if [[ "$("$dest/cargo-nextest" nextest --version 2>/dev/null)" == *"$version"* ]]; then exit 0; fi
+          tmp=$(mktemp -d)
+          trap 'rm -rf -- "$tmp"' EXIT
+          curl -fsSL --retry 3 --retry-delay 5 --output "$tmp/nextest.tar.gz" \
+            "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-$version/cargo-nextest-$version-aarch64-unknown-linux-gnu.tar.gz"
+          printf '%s  %s\n' 3e35e8f6913af92558ba09d7155f74e35dd1f0024ef3cd891637433ae4eacbdd "$tmp/nextest.tar.gz" | sha256sum -c -
+          mkdir -p "$dest"
+          tar -xzf "$tmp/nextest.tar.gz" -C "$dest" cargo-nextest
+      # As the gate's test legs: mixdog-office's pptx_script.rs passes by returning early without these packages.
+      - name: Install the packages the tests read (pptxgenjs, jszip and @napi-rs/canvas, without scripts)
+        run: |
+          node scripts/ci/lock-subset.mjs ci-node-subset pptxgenjs jszip @napi-rs/canvas
+          npm ci --prefix ci-node-subset --ignore-scripts --prefer-offline --no-audit --no-fund
+          cp -R ci-node-subset/node_modules node_modules
+          test -f node_modules/pptxgenjs/package.json
+          test -f node_modules/jszip/package.json
+          test -f node_modules/@napi-rs/canvas/package.json
+      - name: Build the tests
+        working-directory: native/core
+        run: cargo nextest run --workspace --locked --no-run
+      - name: Run the tests
+        working-directory: native/core
+        env:
+          MIXDOG_TEST_OTHER_VOLUME: ${{ runner.temp }}
+        run: cargo nextest run --workspace --locked --config-file .config/nextest.toml --profile ci --no-fail-fast --no-tests=fail
