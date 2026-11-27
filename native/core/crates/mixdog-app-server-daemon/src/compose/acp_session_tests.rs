@@ -317,9 +317,11 @@ impl World {
         Self { core, desktop, shutdown, preset, thread, data, provider_requests, log: dir.join("daemon.log") }
     }
 
-    /// One prompt of the agent, to the end of its turn and of every turn asked before it; the client answers the cards it is
-    /// shown meanwhile. The thread's items.
+    /// One prompt of the agent, asked once every turn asked before it has ended, to the end of its own turn; the client answers
+    /// the cards it is shown meanwhile. The thread's items.
     async fn turn(&mut self, prompt: &str) -> String {
+        // A prompt queued behind a running turn is taken by that turn at its end and has no turn, nor end, of its own.
+        self.desktop.turns_ended(&self.thread).await;
         self.desktop.ask(&self.thread, prompt).await;
         self.desktop.turns_ended(&self.thread).await;
         self.desktop.call("thread/items/list", json!({ "threadId": self.thread })).await.to_string()
