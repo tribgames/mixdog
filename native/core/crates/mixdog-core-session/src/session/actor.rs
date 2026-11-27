@@ -6834,14 +6834,19 @@ mod provisional_tool_call_tests {
             "uncommitted provisional ToolCallStart must NOT prevent Stop from restoring the user prompt"
         );
         assert_eq!(stop_reply["restoredSubmissionIds"], json!(["sub-restore-1"]));
-        crate::eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
-
-        let frames = rig.feeds.frames(handle.id.as_str());
+        let frames = crate::eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || {
+            let frames = rig.feeds.frames(handle.id.as_str());
+            frames.iter().any(|(_, method, _)| method == "turn/completed").then_some(frames)
+        })
+        .await;
+        let withdrawn = frames.iter().position(|(_, method, params)| {
+            method == "item/completed" && params["item"]["id"] == "call:abort1" && params["item"]["meta"]["ext"]["withdrawn"] == true
+        });
+        let completed = frames.iter().position(|(_, method, _)| method == "turn/completed");
         assert!(
-            frames.iter().any(|(_, method, params)| {
-                method == "item/completed" && params["item"]["id"] == "call:abort1" && params["item"]["meta"]["ext"]["withdrawn"] == true
-            }),
-            "DisplaySettled must emit withdrawn item/completed for aborted provisional tool call"
+            withdrawn.zip(completed).is_some_and(|(withdrawn, completed)| withdrawn < completed),
+            "the stopped turn withdraws its uncommitted provisional tool card before it completes: {:?}",
+            frames.iter().map(|(_, method, _)| method.as_str()).collect::<Vec<_>>()
         );
         drop(directory);
     }
