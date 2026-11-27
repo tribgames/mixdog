@@ -11,6 +11,7 @@ use mixdog_core_session::session::delegation::bot_chain_of;
 use mixdog_core_session::session::heartbeat_host::hidden_session_header;
 use mixdog_core_session::session::heartbeat_host::model_route_fields;
 use mixdog_services::task_reports::send::Origin;
+use mixdog_services::task_reports::send::Submission;
 use mixdog_tools::orch::session::ControlCall;
 use mixdog_tools::orch::session::ProjectRow;
 use serde_json::Map;
@@ -508,10 +509,12 @@ impl SessionSend {
     /// `createTaskSession(args, caller)`: `attended` is the caller's worktree scope.
     pub async fn create(&self, call: &ControlCall, attended: bool) -> Result<Value, String> {
         let (args, caller) = (&call.args, call.caller_thread.as_str());
+        // A bot's conversation owns the task session and gets its result reported back; any other caller (a Lead session, a
+        // delegated worker, a task session, a schedule or webhook run) starts an independent session it follows by reading it.
         let agent_id = call.caller.attended_agent.as_str();
-        if agent_id.is_empty() {
-            return Err("session: create is only for an agent conversation".into());
-        }
+        let owned = !agent_id.is_empty();
+        // Every session a session creates is one step further down its chain, so creates cannot go on without the user.
+        let independent_hop = if owned { 0 } else { super::session_send::chained_hop(self.chains.hop(caller) + 1, (self.hop_limit)())? };
         let brief = args.get("brief").and_then(Value::as_str).map(|b| mixdog_js::js_trim(b).to_owned()).unwrap_or_default();
         if brief.is_empty() {
             return Err("session: brief is required for action=create".into());
@@ -525,7 +528,8 @@ impl SessionSend {
         let request_id = format!("atask_{}", uuid::Uuid::new_v4());
         let title = task_title(args, &brief);
         let notify = args.get("notify") != Some(&Value::Bool(false));
-        let task_origin = json!({ "agentId": agent_id, "sessionId": caller, "requestId": request_id, "title": title, "notify": notify });
+        let task_origin =
+            if owned { json!({ "agentId": agent_id, "sessionId": caller, "requestId": request_id, "title": title, "notify": notify }) } else { Value::Null };
         let route = self.task_route(args).await?;
         let explicit = matches!(location, Location::Worktree(_));
         let in_worktree = explicit
@@ -533,7 +537,7 @@ impl SessionSend {
         let mut params = route;
         params.insert("cwd".into(), json!(place.cwd));
         params.insert("desktopSession".into(), place.desktop_session.clone());
-        params.insert("sessionProfile".into(), json!({ "taskOrigin": task_origin }));
+        params.insert("sessionProfile".into(), json!({ "taskOrigin": task_origin, "title": title }));
         let session_id = self.create.create_session(Value::Object(params)).await?;
         if session_id.is_empty() {
             return Err("session: task session creation returned no session id".into());
@@ -541,8 +545,19 @@ impl SessionSend {
         if in_worktree {
             self.enter_worktree(&session_id, args, &location, &title, &request_id).await?;
         }
-        let (started, ready) = tokio::sync::watch::channel(false);
         let prompt = handoff_content(&brief, &call.attachment_parts);
+        if !owned {
+            // New work from this sender: the session acts as the sender does, as a session it sends to would.
+            self.rebind.rebind(&session_id, caller).await?;
+            let meta = Map::from_iter([("sender".to_owned(), json!("lead"))]);
+            let submission = Submission { hop: independent_hop, bot_chain: Vec::new(), meta, settled: false, follow: None };
+            if self.tasks.intake().submit(&session_id, prompt, &request_id, submission).await?.is_none() {
+                return Err(format!("session: task session {session_id} did not accept the brief"));
+            }
+            let sent = Map::from_iter([("reportsBackReason".to_owned(), json!(super::session_send::NOT_BOT_REASON))]);
+            return Ok(created_answer(&session_id, &title, place.project.as_deref(), &sent, true));
+        }
+        let (started, ready) = tokio::sync::watch::channel(false);
         let bot_chain = bot_chain_of(self.chains.bot_chain(caller).await.iter().map(String::as_str));
         let origin = Origin {
             agent_id: agent_id.to_owned(),
@@ -649,12 +664,15 @@ impl CreateHost for DirectoryCreate {
     async fn create_session(&self, params: Value) -> Result<String, String> {
         let origin = params.pointer("/sessionProfile/taskOrigin").cloned().unwrap_or(Value::Null);
         let now = self.directory.deps().clock.now_ms();
-        let source_name = format!("agent:{}{}", clean(origin.get("agentId")), task_origin_suffix(&origin));
+        // A session no bot owns is a Lead session of its own: no origin, the source name of any other.
+        let source_name = if origin.is_object() { format!("agent:{}{}", clean(origin.get("agentId")), task_origin_suffix(&origin)) } else { String::new() };
         let mut header = hidden_session_header(&params, &json!({ "sourceName": source_name }), now);
         header.insert("cwd".into(), params.get("cwd").cloned().unwrap_or(Value::Null));
         header.insert("desktopSession".into(), params.get("desktopSession").cloned().unwrap_or(Value::Null));
-        header.insert("taskOrigin".into(), origin.clone());
-        header.insert("title".into(), origin.get("title").cloned().unwrap_or(Value::Null));
+        if origin.is_object() {
+            header.insert("taskOrigin".into(), origin.clone());
+        }
+        header.insert("title".into(), params.pointer("/sessionProfile/title").cloned().unwrap_or(Value::Null));
         header.insert("titleLocked".into(), json!(true));
         header.insert("titleSource".into(), json!("ai"));
         header.insert("titleUpdatedAt".into(), json!(now));

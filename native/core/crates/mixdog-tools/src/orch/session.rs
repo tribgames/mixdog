@@ -214,11 +214,6 @@ impl SessionTool {
     async fn control(&self, ctx: &ToolContext, args: &Value, action: &str, target: &str) -> ToolOutcome {
         check_control_arguments(args, action, target)?;
         let caller = self.port.caller(&ctx.thread_id).await;
-        if action == "create" && caller.attended_agent.is_empty() {
-            return Err(denied(
-                "session: create belongs to a bot conversation; delegated workers, agent task sessions and schedule/webhook runs cannot create agent task sessions",
-            ));
-        }
         let resolved = if BOT_TARGET_ACTIONS.contains(&action) && !target.is_empty() { self.port.resolve_target(target).await? } else { target.to_owned() };
         // A task session reaches its agent only through its reported result.
         if action == "send"
@@ -307,7 +302,10 @@ impl Tool for SessionTool {
             return Err(refused("heartbeat", format!("session: {why}")));
         }
         if CONTROL_ACTIONS.contains(&action) || (action == "status" && !target.is_empty()) {
-            require_lead(ctx, action)?;
+            // Any session may start a new one; the other controls act on sessions and stay a top-level conversation's.
+            if action != "create" {
+                require_lead(ctx, action)?;
+            }
             return self.control(ctx, &args, action, &target).await;
         }
         if action == "suggest" {

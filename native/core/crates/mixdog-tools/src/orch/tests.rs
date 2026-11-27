@@ -196,7 +196,7 @@ async fn session_actions_answer_with_their_json_or_their_refusal() {
         (json!({"action":"list","limit":5}), true, "{\"ok\":true,\"action\":\"list\",\"sessionId\":null,\"items\":[]}".to_owned()),
         (json!({"action":"read","session_id":"sess_other"}), true, "{\"ok\":true,\"action\":\"read\",\"sessionId\":\"sess_other\",\"items\":[]}".to_owned()),
         (json!({"action":"send","session_id":"sess_other","attachments":["x"]}), false, "session: prompt is required for action=send".to_owned()),
-        (json!({"action":"create","brief":"x"}), false, "session: create belongs to a bot conversation; delegated workers, agent task sessions and schedule/webhook runs cannot create agent task sessions".to_owned()),
+        (json!({"action":"create"}), false, "session: brief is required for action=create".to_owned()),
         (json!({"action":"favorite"}), false, "session: value (boolean) is required for action=favorite".to_owned()),
         (json!({"action":"compact","session_id":"sess_other"}), false, "session: action=compact only applies to the current session".to_owned()),
         (json!({"action":"zap"}), false, "session: unknown action \"zap\"".to_owned()),

@@ -33,7 +33,7 @@
           "archive",
           "suggest"
         ],
-        "description": "Omit for current status, or set-project if path is present. list pages visible sessions; bots reports bot activity or details for one bot. read pages transcript items. create starts a visible task session from brief in an attended bot conversation. rename/compact/fork/set-project/favorite/archive apply to the current session; compact schedules work after this turn and fork never switches into the copy. suggest records a proposal in Mixy's chat or heartbeat; value:false records a decline."
+        "description": "Omit for current status, or set-project if path is present. list pages visible sessions; bots reports bot activity or details for one bot. read pages transcript items. create starts a visible session from brief: a bot conversation's task session reports its result back, any other caller's is independent (reportsBack:false; follow it with status/read). rename/compact/fork/set-project/favorite/archive apply to the current session; compact schedules work after this turn and fork never switches into the copy. suggest records a proposal in Mixy's chat or heartbeat; value:false records a decline."
       },
       "title": {
         "type": "string",

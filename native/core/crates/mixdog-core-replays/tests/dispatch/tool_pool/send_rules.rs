@@ -472,16 +472,22 @@ async fn the_task_sessions_end_is_reported_to_the_bots_home() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn create_is_refused_without_an_agent_conversation_or_without_a_brief() {
+async fn a_session_that_is_no_bots_starts_an_independent_session_one_hop_further_and_gets_no_report_back() {
     let world = sending(|_| {}).await;
-    assert_eq!(
-        world.call("sess_lead1", SurfaceKind::Lead, json!({ "action": "create", "brief": "x" })).await,
-        (
-            false,
-            "session: create belongs to a bot conversation; delegated workers, agent task sessions and schedule/webhook runs cannot create agent task sessions"
-                .to_owned()
-        )
-    );
+    let (ok, text) = world.call("sess_lead1", SurfaceKind::Lead, json!({ "action": "create", "brief": "Port the parser." })).await;
+    assert!(ok, "{text}");
+    let answer: Value = serde_json::from_str(&text).expect("a JSON answer");
+    assert_eq!((&answer["session_id"], &answer["status"], &answer["reportsBack"]), (&json!(TASK), &json!("started"), &json!(false)));
+    assert_eq!(answer["reportsBackReason"], "only a bot conversation gets session results reported back; check that session for the result");
+    let created = world.host.created.lock().expect("created");
+    assert_eq!(created[0]["sessionProfile"], json!({ "taskOrigin": null, "title": "Port the parser." }), "no bot owns it");
+    let turns = world.turns.0.lock().expect("turns");
+    assert_eq!((turns.len(), turns[0].session.as_str(), &turns[0].prompt, turns[0].hop, turns[0].settled), (1, TASK, &json!("Port the parser."), 1, false));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn create_is_refused_without_a_brief() {
+    let world = sending(|_| {}).await;
     for brief in [json!(null), json!(""), json!("  \n ")] {
         assert_eq!(world.as_bot(json!({ "action": "create", "brief": brief })).await, (false, "session: brief is required for action=create".to_owned()));
     }

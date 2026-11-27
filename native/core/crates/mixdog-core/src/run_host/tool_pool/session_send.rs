@@ -37,7 +37,7 @@ use tokio::sync::oneshot;
 /// `BOT_HOP_LIMIT_ERROR` (`bot-hops.mjs`); the limit itself is the user's `desktop.botHandoffLimit`.
 pub const BOT_HOP_LIMIT_ERROR: &str = "session: Bot-to-bot chain limit reached; ask the user before continuing.";
 /// Why a send from a conversation that is no bot's reports nothing back.
-const NOT_BOT_REASON: &str = "only a bot conversation gets session results reported back; check that session for the result";
+pub(super) const NOT_BOT_REASON: &str = "only a bot conversation gets session results reported back; check that session for the result";
 /// `TITLE_LIMIT` of a report origin's title.
 const TITLE_LIMIT: usize = 60;
 /// Node's answer without a session service (`getSessionService()` null).
