@@ -82,6 +82,39 @@
   bottom: 0;
   background: var(--composer-island-bg, var(--approval-bg));
 }
+/* Decided later, the docked card folds into its chip and the island becomes
+   that chip's pill, resting where the status pill rests: one frame (the
+   island's), not a transcript chip drawn inside the card's box. */
+.composer-island[data-mode="approval"]:has(> .composer-island-approval > .question-chip) {
+  border-radius: var(--mx-radius-pill);
+}
+.composer-island-approval:has(> .question-chip) {
+  width: auto;
+}
+.composer-island-approval > .question-chip {
+  max-width: 100%;
+  min-height: var(--island-pill-height);
+  margin: 0;
+  border-radius: inherit;
+  background: transparent;
+  box-shadow: none;
+}
+.composer-island-approval > .question-chip:hover {
+  background: var(--composer-island-wash);
+}
+/* The island clips: the ring goes inside. */
+.composer-island-approval > .question-chip:focus-visible {
+  outline-offset: -2px;
+}
+.composer-island-approval > .question-chip > span:not(.question-chip-open) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-island-approval > .question-chip > :is(.question-need, .question-chip-open) {
+  flex: none;
+}
 /* Short room (a phone with its keyboard up): the head compacts (no face, no
    grab bar). Should the card still not fit, data-approval-fit (see the end
    of this file) reclaims the rest in order. */

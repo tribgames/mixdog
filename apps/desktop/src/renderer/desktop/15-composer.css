@@ -2046,17 +2046,6 @@ html[data-mixdog-mobile-tabs] .question-meta {
   flex: none;
   color: var(--mx-text-muted);
 }
-/* While the island asks for an approval the input steps back. */
-.composer-region .composer {
-  transition:
-    box-shadow var(--mx-motion-ink),
-    opacity 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    filter 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-.composer-region:has(> .composer-island-slot[data-mode="approval"]) .composer {
-  opacity: 0.4;
-  filter: saturate(0.6);
-}
 html[data-mixdog-mobile-tabs] .composer-island {
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-minor);

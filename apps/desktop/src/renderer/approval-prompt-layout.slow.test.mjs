@@ -21,6 +21,7 @@ const PAGE = `
   import { createRoot } from 'react-dom/client';
   import { ComposerDock } from './ComposerDock.tsx';
   import { ApprovalPrompt, ApprovalPreviewRow } from './approval-prompt.tsx';
+  import { ApprovalPendingChip } from './ApprovalCard.tsx';
   import { PixelIcon } from './pixel-icon.tsx';
   window.mixdogDesktop = new Proxy({}, {
     // No \`sections\`: a window without the section source gets no section store (a function there is read as a source).
@@ -145,6 +146,34 @@ const PAGE = `
         h('div', { key: 'm', className: 'composer-model-line' }, 'model line'),
       ],
     }))));
+  // The sign-in card set aside with ✕: its chip docked over a composer
+  // holding a draft and an image (or empty).
+  window.__renderChip = ({ label, draft = true }) => flushSync(() => root.render(h('section', { className: 'conversation', style: { display: 'flex', flexDirection: 'column', height: '100vh', position: 'relative' } },
+    h('div', { className: 'transcript-shell', style: { flex: '1 1 0', minHeight: 0 } }),
+    h(ComposerDock, {
+      sessionId: 'sess', reviewSessionId: 'sess', goalSubmissionId: '', showProjectSelector: false,
+      reviewItems: [], reviewActive: true, reviewBusy: false, reviewCwd: '',
+      approval: h(ApprovalPendingChip, { label, agentMode: false, onOpen: () => {} }),
+      children: h('form', { className: 'composer' },
+        draft ? h('div', { style: { height: '92px' } }) : null,
+        h('div', { className: 'composer-input-row' }, h('textarea', { 'aria-label': 'Message', defaultValue: draft ? 'one\\ntwo\\nthree' : '' }))),
+    }))));
+  window.__chipMeasure = () => {
+    const r = (selector) => document.querySelector(selector).getBoundingClientRect();
+    const label = document.querySelector('.question-chip > span:not(.question-chip-open)');
+    const open = r('.question-chip-open');
+    const island = r('.composer-island');
+    return {
+      island: { top: island.top, bottom: island.bottom, left: island.left, right: island.right, height: island.height },
+      chip: { top: r('.question-chip').top, bottom: r('.question-chip').bottom, left: r('.question-chip').left, right: r('.question-chip').right },
+      open: { left: open.left, right: open.right },
+      shellBottom: r('.transcript-shell').bottom,
+      composer: { top: r('form.composer').top, left: r('form.composer').left, right: r('form.composer').right },
+      pill: Number.parseFloat(getComputedStyle(document.querySelector('.composer-region')).getPropertyValue('--island-pill-height')),
+      labelCut: label.scrollWidth > label.clientWidth,
+      hit: Boolean(document.elementFromPoint(open.left + open.width / 2, (open.top + open.bottom) / 2)?.closest('.question-chip')),
+    };
+  };
   window.__desktopShortMeasure = () => {
     const r = (node) => node.getBoundingClientRect();
     const pane = r(document.querySelector('.conversation'));
@@ -744,4 +773,56 @@ test('desktop: the composer collapses to one line while a short pane holds an ap
   await tab.evaluate(() => window.__renderDesktopShell(false));
   await settle();
   assert.ok((await input()) > 60, 'the draft shows again once the approval is gone');
+});
+
+test('desktop: a docked approval leaves the composer looking as usable as it is (typing, attaching and sending stay open)', async (t) => {
+  const tab = await page(t);
+  await tab.setViewport({ width: 1200, height: 800 });
+  const look = async (withApproval) => {
+    await tab.evaluate((on) => window.__renderDesktopShell(on), withApproval);
+    await idle(tab);
+    return tab.evaluate(() => {
+      const form = document.querySelector('form.composer');
+      const style = getComputedStyle(form);
+      return { opacity: style.opacity, filter: style.filter, disabled: form.querySelector('textarea').disabled };
+    });
+  };
+  const idleLook = await look(false);
+  const docked = await look(true);
+  assert.deepEqual(docked, idleLook, 'the composer is drawn the same with and without the card');
+});
+
+test('decided later, the chip is the island itself: one pill on the dock floor, clear of the transcript and the composer, at every composer height and width', async (t) => {
+  const tab = await page(t);
+  const label = 'Approval pending · oraclecloud.com sign-in required';
+  for (const [width, height, draft] of [
+    [1200, 800, false],
+    [1200, 800, true],
+    [620, 640, true],
+    [340, 600, true],
+  ]) {
+    await tab.setViewport({ width, height });
+    await tab.evaluate((props) => window.__renderChip(props), { label, draft });
+    await idle(tab);
+    const m = await tab.evaluate(() => window.__chipMeasure());
+    if (process.env.APPROVAL_SHOTS)
+      await tab.screenshot({
+        path: `${process.env.APPROVAL_SHOTS}/chip-${width}x${height}${draft ? '-draft' : ''}.png`,
+      });
+    const at = `${width}×${height}${draft ? ' with a draft' : ''} ${JSON.stringify(m)}`;
+    for (const edge of ['top', 'bottom', 'left', 'right'])
+      assert.ok(
+        near(m.chip[edge], m.island[edge]),
+        `${at}: the chip fills the island (${edge}), no frame drawn around it`
+      );
+    assert.ok(near(m.island.height, m.pill), `${at}: the island rests at the status pill's height`);
+    assert.ok(m.island.top >= m.shellBottom - 0.5, `${at}: the chip does not reach over the transcript`);
+    assert.ok(m.island.bottom <= m.composer.top - 0.5, `${at}: the chip sits clear of the composer`);
+    assert.ok(
+      m.island.left >= m.composer.left - 0.5 && m.island.right <= m.composer.right + 0.5,
+      `${at}: the chip is never wider than the composer's column`
+    );
+    assert.ok(m.open.right <= m.island.right + 0.5 && m.hit, `${at}: Open stays visible and clickable`);
+    if (width === 340) assert.ok(m.labelCut, `${at}: a label too long for the pane is shortened, not wrapped`);
+  }
 });

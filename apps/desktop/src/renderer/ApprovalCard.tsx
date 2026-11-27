@@ -202,7 +202,15 @@ function useApprovalCardEnd(id: string, ended: boolean): void {
   }, [ended, id]);
 }
 
-function ApprovalPendingChip({ label, agentMode, onOpen }: { label: string; agentMode: boolean; onOpen: () => void }) {
+export function ApprovalPendingChip({
+  label,
+  agentMode,
+  onOpen,
+}: {
+  label: string;
+  agentMode: boolean;
+  onOpen: () => void;
+}) {
   return (
     <button
       type="button"
