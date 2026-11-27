@@ -89,7 +89,8 @@ jobs:
           # ten): the hosted Intel Mac compiled mixdogd in 71 minutes and every package waited for it, the hosted Windows runner
           # in 39 (run 46008650381).
           - { target: x86_64-pc-windows-msvc, runner: windows-2022, own: mixdog-pc, exe: ".exe", run_version: true }
-          - { target: aarch64-apple-darwin, runner: macos-15, own: mixdog-m4-build, exe: "", run_version: true }
+          # A runner of its own on the M4, so the two macOS legs build side by side.
+          - { target: aarch64-apple-darwin, runner: macos-15, own: mixdog-m4-build2, exe: "", run_version: true }
           # libvpx has no prebuilt for this target and is built from its source: on an Intel runner for its host, on the M4
           # for the target ("Build the programs").
           - { target: x86_64-apple-darwin, runner: macos-15-intel, own: mixdog-m4-build, exe: "", run_version: true, nasm: true }
