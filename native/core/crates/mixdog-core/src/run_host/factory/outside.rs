@@ -641,7 +641,16 @@ impl History {
             return Ok(None);
         }
         self.unset_agent_session().await?;
-        self.summarize_rows(full, &self.turn_input, budget_tokens, true).await.map(Some)
+        let summary = self.summarize_rows(full, &self.turn_input, budget_tokens, true).await?;
+        // As a compaction before a provider's send gives the request it keeps: the session's Goal and its open step
+        // list, which the summary took the tool results of. The agent that goes on reads them with the summary.
+        Ok(Some(match self.port.compaction_goal_reminder(false).await.ok().flatten() {
+            Some(reminder) => {
+                let _ = self.port.acknowledge_goal_reminder(reminder.revision).await;
+                format!("{summary}\n\n{}", reminder.content)
+            }
+            None => summary,
+        }))
     }
 
     /// Summarizes the stored conversation with the session's own compactor, stores the result as the session's

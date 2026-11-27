@@ -96,16 +96,14 @@ pub trait Conversation: Send + Sync {
     }
 }
 
-/// The token occupancy at which Mixdog compacts an ACP session before the agent compacts itself: the lower of the
-/// session's automatic compaction trigger and the preset's compaction cliff. `None` when automatic compaction is off
-/// or no effective window is known.
-pub(crate) fn effective_compaction_trigger(preset: &AgentPreset, conversation: &dyn Conversation, effective_window: u64) -> Option<u64> {
+/// The token occupancy at which Mixdog compacts an ACP session: the session's own automatic compaction trigger on the
+/// window the agent's context is held in, as for a provider's session. `None` when automatic compaction is off or no
+/// effective window is known.
+pub(crate) fn effective_compaction_trigger(conversation: &dyn Conversation, effective_window: u64) -> Option<u64> {
     if effective_window == 0 {
         return None;
     }
-    let policy_trigger = conversation.auto_compaction_trigger(effective_window)?;
-    let cliff = preset.quirks.mid_turn_compaction_cliff(effective_window);
-    Some(cliff.map_or(policy_trigger, |cliff| policy_trigger.min(cliff)).max(1))
+    conversation.auto_compaction_trigger(effective_window).map(|trigger| trigger.max(1))
 }
 
 fn header_positive_u64(header: &Header, key: &str) -> Option<u64> {
@@ -554,15 +552,13 @@ fn clone_turn_context(base: &TurnContext, record: Option<HeaderChange>, mid_turn
 }
 
 fn mid_turn_compaction_for(
-    preset: &AgentPreset,
     conversation: &Arc<dyn Conversation>,
     after_rollover: bool,
     left_behind: &Arc<std::sync::atomic::AtomicBool>,
 ) -> crate::turn::MidTurnCompaction {
-    let preset = preset.clone();
     let conversation = conversation.clone();
     crate::turn::MidTurnCompaction {
-        trigger: Arc::new(move |effective_window| effective_compaction_trigger(&preset, conversation.as_ref(), effective_window)),
+        trigger: Arc::new(move |effective_window| effective_compaction_trigger(conversation.as_ref(), effective_window)),
         after_rollover,
         left_behind: left_behind.clone(),
     }
@@ -588,7 +584,7 @@ fn pre_turn_compaction_due(
             .or(preset.quirks.default_context_window_cap)?;
         let capped = preset.quirks.effective_context_window_for(&context.model, active_model.as_deref(), raw_window);
         let effective = context.selected_window.map_or(capped, |selected| selected.min(capped));
-        let trigger = effective_compaction_trigger(preset, conversation, effective)?;
+        let trigger = effective_compaction_trigger(conversation, effective)?;
         (used >= trigger).then_some(Due { used, trigger })
     });
     match (policy_due, cliff_due) {
@@ -655,7 +651,7 @@ async fn serve_with_refusal(
     let left_behind = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let end = loop {
         let reports = session.reported_context_reports();
-        let compaction = Some(mid_turn_compaction_for(preset, &conversation, after_rollover, &left_behind));
+        let compaction = Some(mid_turn_compaction_for(&conversation, after_rollover, &left_behind));
         let segment_context = clone_turn_context(&context, record.take(), compaction);
         let segment_end = crate::turn::run(&session, surface.clone(), Ask::Prompt(prompt), segment_context).await;
         // Only a window the agent reported in this turn is the turn's model's.
@@ -890,7 +886,7 @@ async fn begin(
         return Err((TurnEnd::Failed { message: format!("Nothing of this message could be sent to {}.", preset.label), code: None, reported: false }, false));
     }
     // The session compacts where a provider's does: before the request is sent, once the context the last turn left
-    // has reached the session's trigger (or the preset's capped compaction cliff). The agent owns the context, so the
+    // has reached the session's trigger. The agent owns the context, so the
     // compaction is the one a manual Compact makes of an agent's session: Mixdog's summary becomes the stored context,
     // the agent's session is left behind, and this turn opens a new one on the summary. A summary that cannot be made
     // leaves the agent's session as it is.

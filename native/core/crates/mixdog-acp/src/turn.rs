@@ -588,10 +588,6 @@ struct Reply<'a> {
     window: Option<u64>,
     /// The occupancy the session was last told the agent's context holds.
     occupancy: Option<u64>,
-    /// Whether the mid-turn compaction cliff warning has been emitted in this turn.
-    cliff_warned: bool,
-    /// One-shot advisory attached to the next MCP tool answer when context approaches the internal cliff.
-    cliff_advisory: Option<String>,
     /// Mid-turn compaction state once live context occupancy reaches Mixdog's trigger.
     mid_turn_compact: Option<MidTurnCompact>,
     /// Whether this segment has already observed a live `usage_update` with `used > 0`.
@@ -773,22 +769,14 @@ impl Reply<'_> {
                         _ if !self.is_quiet() => MidTurnCompact::Trigger { due, effective_window: effective },
                         _ => MidTurnCompact::Armed { due, effective_window: effective },
                     });
+                } else if is_live
+                    && context.used > 0
+                    && context.used < trigger
+                    && matches!(self.mid_turn_compact, Some(MidTurnCompact::Armed { .. } | MidTurnCompact::Trigger { .. }))
+                {
+                    // The agent compacted its own context before the prompt was cancelled: nothing is left to compact.
+                    self.mid_turn_compact = None;
                 }
-            } else if !self.cliff_warned
-                && let Some(cliff) = self.session.preset.quirks.mid_turn_compaction_cliff(effective)
-                && context.used >= cliff
-            {
-                self.cliff_warned = true;
-                let pct = ((context.used as f64 / effective.max(1) as f64) * 100.0).round() as u64;
-                let notice = format!(
-                    "{} context reached ~{pct}% ({} / {} tokens): approaching the agent's internal compaction cliff.",
-                    self.session.preset.label, context.used, effective
-                );
-                let _ = self.surface.notice(notice, true).await;
-                self.cliff_advisory = Some(format!(
-                    "[mixdog-runtime] Context usage is high ({} / {} tokens, ~{pct}%). Wrap up the current step concisely or hand off cleanly before the agent compacts mid-turn.",
-                    context.used, effective
-                ));
             }
         } else if cost_changed {
             let usage = TurnUsage { cost: self.cost, model: self.context.model.clone(), started_at_ms: (self.context.now_ms)(), ..TurnUsage::default() };
@@ -1234,22 +1222,11 @@ impl Reply<'_> {
     /// atomically claimed and committed BEFORE `ask.answer.send` so a concurrently stopped submission is never
     /// delivered to the agent without being recorded, while a racing Stop or `due` expiration during attachment
     /// resolution leaves queued entries untouched.
-    async fn deliver_answer(&mut self, ask: ToolAsk, mut base: Value, due: Due, handed_off: bool) -> Result<(), RunError> {
+    async fn deliver_answer(&mut self, ask: ToolAsk, base: Value, due: Due, handed_off: bool) -> Result<(), RunError> {
         let name = ask.name;
         let base_len = base.get("content").and_then(Value::as_array).map_or(0, Vec::len);
         let max_inline_text_bytes = self.session.preset.quirks.max_inline_text_bytes;
         let artifacts = self.context.calls.as_ref().and_then(|calls| calls.artifacts());
-        if !handed_off
-            && !ask.answer.is_closed()
-            && let Some(advisory) = self.cliff_advisory.take()
-        {
-            let block = json!({ "type": "text", "text": advisory });
-            if let Some(blocks) = base.get_mut("content").and_then(Value::as_array_mut) {
-                blocks.push(block);
-            } else {
-                base["content"] = Value::Array(vec![block]);
-            }
-        }
         let expired = || due.answer.is_some_and(|deadline| tokio::time::Instant::now() >= deadline);
         if self.running > 0 || handed_off || expired() || ask.answer.is_closed() || self.context.cancel.is_cancelled() || self.session.gone().is_cancelled() {
             self.send_answer(ask.answer, &name, base, base_len, max_inline_text_bytes, artifacts.as_deref()).await;
@@ -2074,8 +2051,6 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
         seen_context: None,
         window: None,
         occupancy: None,
-        cliff_warned: false,
-        cliff_advisory: None,
         mid_turn_compact: None,
         saw_live_usage: false,
         mid_turn_disabled: false,
@@ -2282,7 +2257,12 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
         let step = match incoming {
             Incoming::Notification { method, params } if method == "session/update" => {
                 let update = params.get("update").unwrap_or(&Value::Null);
-                reply.update(update, !backlog).await
+                // What the agent says once its prompt is cancelled for a compaction is its answer to the cancel
+                // ("The request was cancelled by the client."), no part of the turn: it is neither shown nor stored,
+                // or the summary would read it as the work having been interrupted.
+                let acknowledges_cancel = matches!(reply.mid_turn_compact, Some(MidTurnCompact::Cancelling { .. }))
+                    && matches!(update.get("sessionUpdate").and_then(Value::as_str), Some("agent_message_chunk" | "agent_thought_chunk"));
+                if acknowledges_cancel { Ok(()) } else { reply.update(update, !backlog).await }
             }
             Incoming::Request { id, params, .. } => match reply.mid_turn_compact {
                 Some(MidTurnCompact::Cancelling { .. }) => {
@@ -3201,8 +3181,6 @@ mod tests {
             seen_context: None,
             window: None,
             occupancy: None,
-            cliff_warned: false,
-            cliff_advisory: None,
             mid_turn_compact: None,
             saw_live_usage: false,
             mid_turn_disabled: false,

@@ -1469,6 +1469,10 @@ async fn outside_turn_mid_turn_compaction_compacts_live_context_and_clamps_stale
         "contextWindow": 1_048_576,
         "compactBoundaryTokens": 1_048_576,
         "lastContextTokens": 210_000,
+        "todo": { "phases": [{ "name": "Work", "tasks": [
+            { "content": "map the modules", "status": "completed" },
+            { "content": "write the report", "status": "in_progress" },
+        ] }], "updatedAt": 1 },
         HELD: { "agent": "outside", "sessionId": "s-mid" },
     });
     OUTSIDE.with(|slot| *slot.borrow_mut() = Some(agent.clone()));
@@ -1498,6 +1502,12 @@ async fn outside_turn_mid_turn_compaction_compacts_live_context_and_clamps_stale
 
     let compacted = lock(&agent.mid_turn_compacted).clone();
     assert!(matches!(compacted.as_slice(), [Ok(Some(summary))] if summary.contains("mid-turn summary body")), "expected mid-turn summary, got {compacted:?}");
+    // The agent that goes on is told where the work stands, as a provider's request is after a compaction: without
+    // the step list it plans the task anew after every rollover.
+    assert!(
+        matches!(compacted.as_slice(), [Ok(Some(summary))] if summary.contains("<todo_state>") && summary.contains("write the report")),
+        "the summary carries the open step list: {compacted:?}"
+    );
     let live_header = handle.live_header().header();
     assert!(!live_header.contains_key(HELD), "agentSession must be unset on mid-turn compaction");
     assert_eq!(live_header.get("lastContextTokens"), Some(&json!(0)), "lastContextTokens must be reset to 0");

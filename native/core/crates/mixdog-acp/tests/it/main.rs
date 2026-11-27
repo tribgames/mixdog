@@ -7827,11 +7827,11 @@ async fn cold_reopen_adding_rules_without_prior_digest_opens_fresh_session() {
 }
 
 /// Live User Bug #1: Built-in official Antigravity (Neon) preset enforces real context window caps (256k for
-/// Gemini/Claude and the `default` route, 128k for gpt-oss) and surfaces the 76% mid-turn compaction cliff warning
-/// when reported usage reaches ~195k/256k on the real `default` route.
+/// Gemini/Claude and the `default` route, 128k for gpt-oss), and a reading below the session's trigger raises no
+/// notice.
 #[tokio::test]
-async fn antigravity_context_window_cap_and_mid_turn_compaction_cliff_enforced() {
-    // Verify built-in Antigravity preset caps and cliff math directly.
+async fn antigravity_context_window_cap_enforced() {
+    // Verify built-in Antigravity preset caps directly.
     let presets = mixdog_acp::preset::builtin();
     let neon = presets.iter().find(|p| p.id == "antigravity").expect("official antigravity preset");
     assert!(!neon.quirks.fs_read_text_file, "official Neon preset must disable fs.readTextFile");
@@ -7839,11 +7839,9 @@ async fn antigravity_context_window_cap_and_mid_turn_compaction_cliff_enforced()
     assert_eq!(neon.quirks.effective_context_window("claude-opus-4-6", 1_000_000), 256_000);
     assert_eq!(neon.quirks.effective_context_window("gpt-oss-120b", 1_048_576), 128_000);
     assert_eq!(neon.quirks.effective_context_window_for("default", None, 1_048_576), 256_000);
-    let cliff = neon.quirks.mid_turn_compaction_cliff(256_000).expect("antigravity cliff");
-    assert!((190_000..=200_000).contains(&cliff), "expected ~195k compaction cliff, got {cliff}");
 
     // End-to-end turn check on the real built-in official Neon preset (`World::official`) and `"default"` route:
-    // fake agent reports used=196_000, size=1_048_576; the real preset caps 1M -> 256_000 and fires the 76% cliff notice.
+    // fake agent reports used=196_000, size=1_048_576; the real preset caps 1M -> 256_000.
     let world = World::official(&[]);
     let surface = Surface::default();
     let end = world.ask(&surface, "cliff 196000 1048576", Turns::default()).await;
@@ -7858,11 +7856,7 @@ async fn antigravity_context_window_cap_and_mid_turn_compaction_cliff_enforced()
         .collect();
     assert_eq!(windows.len(), 1, "{:?}", surface.events());
     assert_eq!(windows[0].set.get("contextWindow"), Some(&json!(256_000)), "reported 1M window capped to 256k on official default route");
-    assert!(
-        surface.notices().iter().any(|n| n.contains("compaction cliff") && n.contains("196000 / 256000")),
-        "expected mid-turn compaction cliff notice: {:?}",
-        surface.notices()
-    );
+    assert!(surface.notices().is_empty(), "a reading below the trigger is no notice: {:?}", surface.notices());
 }
 
 /// Neon `SharedServer` (`World::official`) initializes with `fs.readTextFile: false`, and `Agents::release_all` clears
@@ -7948,7 +7942,7 @@ async fn shutdown_ends_idle_per_session_and_shared_acp_processes_without_orphans
     }
 }
 
-/// When an ACP session crosses the capped compaction cliff (76% of 256k = 194,560) mid-turn, Mixdog cancels the old
+/// When an ACP session passes the session's compaction trigger on its capped 256k window mid-turn, Mixdog cancels the old
 /// session before the next tool round runs, summarizes via Mixdog compaction, opens a fresh session with Mixdog's
 /// rules and summary, records the fresh session id, and completes the turn with zero agent self-compaction.
 #[tokio::test]
@@ -7964,7 +7958,7 @@ async fn mid_turn_compaction_rolls_over_to_fresh_session_before_next_tool_round(
         ..Turns::default()
     };
 
-    let end = world.ask(&surface, "midcompact 200687 1048576 read shell", turns).await;
+    let end = world.ask(&surface, "midcompact 260687 1048576 read shell", turns).await;
     let (text, tool_calls) = match &end {
         TurnEnd::Completed { text, tool_calls, .. } => (text.as_str(), *tool_calls),
         other => panic!("expected TurnEnd::Completed after mid-turn rollover, got {other:?}"),
@@ -7988,9 +7982,8 @@ async fn mid_turn_compaction_rolls_over_to_fresh_session_before_next_tool_round(
     assert!(events.iter().any(|e| matches!(e, Event::Stage(s) if s == "compacting")), "compacting stage emitted: {events:?}");
     assert!(events.iter().any(|e| matches!(e, Event::Compact(CompactStatus::Compacted))), "Compacted event emitted: {events:?}");
     assert!(
-        !surface.notices().iter().any(|n| n.contains("compaction cliff")),
-        "auto mid-turn compaction replaces advisory-only cliff notice: {:?}",
-        surface.notices()
+        !format!("{text} {events:?}").contains("cancelled by the client"),
+        "the agent's answer to Mixdog's own cancel is no part of the turn: {text} {events:?}"
     );
     let recorded_sessions: Vec<String> = events
         .iter()
@@ -8013,7 +8006,7 @@ async fn mid_turn_rollover_opens_on_a_newly_started_shared_server_however_long_i
     let surface = Surface::default();
     let turns = Turns { summary: Some(Ok("ROLLOVER_SUMMARY")), calls: Some(tools.calls(&surface)), auto_compact: true, ..Turns::default() };
 
-    let end = world.ask(&surface, "midcompact 200687 1048576 read shell", turns).await;
+    let end = world.ask(&surface, "midcompact 260687 1048576 read shell", turns).await;
     let text = completed_text(&end);
     assert!(text.contains("resumed=false") && text.contains("ROLLOVER_SUMMARY"), "the turn goes on in a fresh session on the summary: {text}");
     assert_eq!(world.logged("start acp"), 2, "the fresh session runs on a newly started server: {:?}", world.log());
@@ -8041,7 +8034,7 @@ async fn mid_turn_compaction_waits_for_in_flight_tool_to_commit_before_rolling_o
         tokio::time::sleep(Duration::from_millis(120)).await;
         release.add_permits(1);
     });
-    let end = world.ask(&surface, "inflightcompact 200687 1048576 slow", turns).await;
+    let end = world.ask(&surface, "inflightcompact 260687 1048576 slow", turns).await;
     releaser.await.expect("releaser task");
 
     let text = completed_text(&end);
@@ -8072,16 +8065,16 @@ async fn high_usage_at_turn_end_does_not_roll_over_mid_turn_and_compacts_before_
     let mid_compacts = Arc::new(AtomicUsize::new(0));
     let surface1 = Surface::default();
     let turns1 = Turns { summary: Some(Ok("SHOULD_NOT_RUN_MID_TURN")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
-    let end1 = world.ask(&surface1, "cliff 200687 1048576", turns1).await;
+    let end1 = world.ask(&surface1, "cliff 260687 1048576", turns1).await;
     assert!(matches!(end1, TurnEnd::Completed { .. }), "{end1:?}");
     assert_eq!(mid_compacts.load(Ordering::SeqCst), 0, "turn ending right after usage_update must not roll over mid-turn");
 
-    // Next turn arrives with persisted lastContextTokens=200_687 and stale 1M contextWindow: pre-turn compaction fires.
+    // Next turn arrives with persisted lastContextTokens=260_687 and stale 1M contextWindow: pre-turn compaction fires.
     let surface2 = Surface::default();
     let turns2 = Turns {
         summary: Some(Ok("PRE_TURN_MIXDOG_SUMMARY")),
         auto_compact: true,
-        last_context_tokens: Some(200_687),
+        last_context_tokens: Some(260_687),
         context_window: Some(1_048_576),
         ..Turns::default()
     };
@@ -8125,7 +8118,7 @@ async fn mid_turn_compaction_failure_and_cancellation_stop_cleanly() {
         progress: Some(progress1),
         ..Turns::default()
     };
-    let end = world.ask(&surface, "midcompact 200687 1048576 read shell", turns).await;
+    let end = world.ask(&surface, "midcompact 260687 1048576 read shell", turns).await;
     match &end {
         TurnEnd::Failed { message, .. } => assert!(message.contains("compactor unavailable"), "{message}"),
         other => panic!("expected TurnEnd::Failed on mid-turn compaction error, got {other:?}"),
@@ -8153,7 +8146,7 @@ async fn mid_turn_compaction_failure_and_cancellation_stop_cleanly() {
         "cancelled mid-turn compaction",
         world2.serve_with(
             &surface2,
-            json!({ "role": "user", "content": "midcompact 200687 1048576 read shell" }),
+            json!({ "role": "user", "content": "midcompact 260687 1048576 read shell" }),
             None,
             Some("RULES"),
             "default",
@@ -8174,7 +8167,7 @@ async fn mid_turn_compaction_failure_and_cancellation_stop_cleanly() {
 async fn mid_turn_compaction_no_progress_guard_prevents_infinite_rollover() {
     // 1. Fresh session's first usage_update is already >= trigger -> disabled for remainder of turn (1 rollover).
     {
-        let (world, tools) = handing_in(World::official(&[("FAKE_AGENT_RECOMPACT", "200687 1048576")]));
+        let (world, tools) = handing_in(World::official(&[("FAKE_AGENT_RECOMPACT", "260687 1048576")]));
         let surface = Surface::default();
         // The fresh session's `shell` call runs, and the session's gate asks the user about every `shell`.
         surface.0.answers.lock().unwrap().push_back(decided(json!({ "approved": true })));
@@ -8187,7 +8180,7 @@ async fn mid_turn_compaction_no_progress_guard_prevents_infinite_rollover() {
             ..Turns::default()
         };
 
-        let end = world.ask(&surface, "midcompact 200687 1048576 read shell", turns).await;
+        let end = world.ask(&surface, "midcompact 260687 1048576 read shell", turns).await;
         let text = completed_text(&end);
         assert!(text.contains("continued-after-guard"), "fresh session must finish without second rollover: {text}");
         assert_eq!(world.logged("start acp"), 2, "first rollover retired old !closes server: {:?}", world.log());
@@ -8196,9 +8189,9 @@ async fn mid_turn_compaction_no_progress_guard_prevents_infinite_rollover() {
         assert!(log.iter().any(|line| line == "recompact-continued"), "fresh session's tool must run once rollover is disabled: {log:?}");
     }
 
-    // 2. Fresh session starts below trigger (50_000), then crosses trigger (200_687) -> rolls over a second time.
+    // 2. Fresh session starts below trigger (50_000), then crosses trigger (260_687) -> rolls over a second time.
     {
-        let (world, tools) = handing_in(World::official(&[("FAKE_AGENT_RECOMPACT", "50000 200687 1048576")]));
+        let (world, tools) = handing_in(World::official(&[("FAKE_AGENT_RECOMPACT", "50000 260687 1048576")]));
         let surface = Surface::default();
         let mid_compacts = Arc::new(AtomicUsize::new(0));
         let turns = Turns {
@@ -8209,7 +8202,7 @@ async fn mid_turn_compaction_no_progress_guard_prevents_infinite_rollover() {
             ..Turns::default()
         };
 
-        let end = world.ask(&surface, "midcompact 200687 1048576 read shell", turns).await;
+        let end = world.ask(&surface, "midcompact 260687 1048576 read shell", turns).await;
         let text = completed_text(&end);
         assert!(text.contains("SECOND_ROLLOVER_SUMMARY"), "fresh session starting below trigger must roll over again on later crossing: {text}");
         assert_eq!(world.logged("start acp"), 3, "each rollover retires the old !closes server: {:?}", world.log());
@@ -8233,7 +8226,7 @@ async fn mid_turn_compaction_waits_for_open_agent_tool_call_before_rolling_over(
         ..Turns::default()
     };
 
-    let end = world.ask(&surface, "openagentcompact 200687 1048576 read", turns).await;
+    let end = world.ask(&surface, "openagentcompact 260687 1048576 read", turns).await;
     let text = completed_text(&end);
     assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction must fire once after open agent call finishes");
     assert!(text.contains("resumed=false"), "fresh session continued turn: {text}");
@@ -8271,7 +8264,7 @@ async fn mid_turn_compaction_records_in_progress_agent_tool_call_started_after_u
     let mid_compacts = Arc::new(AtomicUsize::new(0));
     let turns = Turns { summary: Some(Ok("LATE_AGENT_SUMMARY")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
 
-    let end = world.ask(&surface, "lateagentcall 200687 1048576", turns).await;
+    let end = world.ask(&surface, "lateagentcall 260687 1048576", turns).await;
     let text = completed_text(&end);
     assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after late in-progress call finishes");
     assert!(text.contains("resumed=false"), "fresh session continued turn: {text}");
@@ -8305,7 +8298,7 @@ async fn mid_turn_compaction_opens_card_for_permission_without_prior_tool_call()
     let mid_compacts = Arc::new(AtomicUsize::new(0));
     let turns = Turns { summary: Some(Ok("CANCEL_ORDER_SUMMARY")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
 
-    let end = world.ask(&surface, "cancelorder 200687 1048576", turns).await;
+    let end = world.ask(&surface, "cancelorder 260687 1048576", turns).await;
     let text = completed_text(&end);
     assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once");
     assert!(text.contains("resumed=false"), "fresh session continued turn: {text}");
@@ -8347,7 +8340,7 @@ async fn mid_turn_compaction_cancel_ending_in_agent_error_leaves_old_session_beh
         ..Turns::default()
     };
 
-    let end = world.ask(&surface, "cancelerror 200687 1048576", turns).await;
+    let end = world.ask(&surface, "cancelerror 260687 1048576", turns).await;
     assert!(matches!(end, TurnEnd::Failed { .. }), "the agent's error fails the turn: {end:?}");
     assert_eq!(mid_compacts.load(Ordering::SeqCst), 0, "no rollover without the cancel's answer");
     let log = world.log();
@@ -8398,7 +8391,7 @@ async fn mid_turn_compaction_waits_for_call_kept_running_from_earlier_turn() {
         "the rollover turn",
         world.serve_with(
             &surface,
-            json!({ "role": "user", "content": "keptcompact 200687 1048576" }),
+            json!({ "role": "user", "content": "keptcompact 260687 1048576" }),
             Some(held("sess-1")),
             Some("RULES"),
             "default",
@@ -8428,7 +8421,7 @@ async fn mid_turn_compaction_reports_cancelled_segment_usage() {
     let surface = Surface::default();
     let turns = Turns { summary: Some(Ok("USAGE_SUMMARY")), calls: Some(tools.calls(&surface)), auto_compact: true, ..Turns::default() };
 
-    let end = world.ask(&surface, "midcompact 200687 1048576 read shell", turns).await;
+    let end = world.ask(&surface, "midcompact 260687 1048576 read shell", turns).await;
     completed_text(&end);
     let usages: Vec<TurnUsage> = surface
         .events()
@@ -8439,7 +8432,7 @@ async fn mid_turn_compaction_reports_cancelled_segment_usage() {
         })
         .collect();
     assert_eq!(usages.len(), 2, "one usage report per segment: {usages:?}");
-    assert_eq!(usages[0].context.map(|context| context.used), Some(200_687), "the cancelled segment reports its context: {usages:?}");
+    assert_eq!(usages[0].context.map(|context| context.used), Some(260_687), "the cancelled segment reports its context: {usages:?}");
     assert_eq!(usages[0].tool_calls, 1, "the cancelled segment reports its tool call: {usages:?}");
 }
 
@@ -8454,7 +8447,7 @@ async fn mid_turn_compaction_resends_turn_image_and_file_attachments_to_fresh_se
                 { "type": "image", "mimeType": "image/png", "attachmentRef": "stored" },
                 { "type": "text", "attachmentRef": "note", "filename": "note.md" },
                 { "type": "file", "mimeType": "application/pdf", "attachmentRef": "paper", "filename": "paper.pdf" },
-                { "type": "text", "text": "midcompact 200687 1048576 read shell" },
+                { "type": "text", "text": "midcompact 260687 1048576 read shell" },
             ]
         })
     };
@@ -8520,7 +8513,7 @@ async fn mid_turn_compaction_does_not_freeze_on_pending_or_permission_held_agent
         let mid_compacts = Arc::new(AtomicUsize::new(0));
         let turns = Turns { summary: Some(Ok("P1_SUMMARY")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
 
-        let end = world.ask(&surface, &format!("pendingpermcompact {mode} 200687 1048576"), turns).await;
+        let end = world.ask(&surface, &format!("pendingpermcompact {mode} 260687 1048576"), turns).await;
         let text = completed_text(&end);
         assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mode={mode}: mid-turn compaction fires once after p1 completes");
         assert!(text.contains("resumed=false"), "mode={mode}: fresh session continued: {text}");
@@ -8558,7 +8551,7 @@ async fn mid_turn_compaction_waits_for_approved_permission_call_without_in_progr
     let mid_compacts = Arc::new(AtomicUsize::new(0));
     let turns = Turns { summary: Some(Ok("APPROVED_PERM_SUMMARY")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
 
-    let end = world.ask(&surface, "approvedpermcompact 200687 1048576", turns).await;
+    let end = world.ask(&surface, "approvedpermcompact 260687 1048576", turns).await;
     let text = completed_text(&end);
     assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after approved call completes");
     assert!(text.contains("resumed=false"), "fresh session continued: {text}");
@@ -8588,7 +8581,7 @@ async fn mid_turn_compaction_waits_when_pending_call_starts_in_progress_after_us
     let mid_compacts = Arc::new(AtomicUsize::new(0));
     let turns = Turns { summary: Some(Ok("PENDING_STARTED_SUMMARY")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
 
-    let end = world.ask(&surface, "pendingstartscompact 200687 1048576", turns).await;
+    let end = world.ask(&surface, "pendingstartscompact 260687 1048576", turns).await;
     let text = completed_text(&end);
     assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after call finishes");
     assert!(text.contains("resumed=false"), "fresh session continued: {text}");
@@ -8619,7 +8612,7 @@ async fn mid_turn_compaction_waits_for_pending_call_without_in_progress_when_sib
     let mid_compacts = Arc::new(AtomicUsize::new(0));
     let turns = Turns { summary: Some(Ok("PENDING_PARALLEL_SUMMARY")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
 
-    let end = world.ask(&surface, "pendingparallelcompact 200687 1048576", turns).await;
+    let end = world.ask(&surface, "pendingparallelcompact 260687 1048576", turns).await;
     let text = completed_text(&end);
     assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after both a1 and b1 complete");
     assert!(text.contains("resumed=false") && text.contains("PENDING_PARALLEL_SUMMARY"), "fresh session continued: {text}");
@@ -8665,7 +8658,7 @@ async fn mid_turn_compaction_does_not_freeze_when_in_flight_call_issues_child_pe
         ..Turns::default()
     };
 
-    let end = world.ask(&surface, "subagentchildcompact 200687 1048576", turns).await;
+    let end = world.ask(&surface, "subagentchildcompact 260687 1048576", turns).await;
     let text = completed_text(&end);
     assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after parent a1 completes");
     assert!(text.contains("resumed=false") && text.contains("SUBAGENT_CHILD_SUMMARY"), "fresh session continued: {text}");
@@ -8706,7 +8699,7 @@ async fn mid_turn_compaction_waits_for_open_call_across_text_thought_plan_child_
     let mid_compacts = Arc::new(AtomicUsize::new(0));
     let turns = Turns { summary: Some(Ok("SUBAGENT_ACTIVITY_SUMMARY")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
 
-    let end = world.ask(&surface, "subagentactivitycompact 200687 1048576", turns).await;
+    let end = world.ask(&surface, "subagentactivitycompact 260687 1048576", turns).await;
     let text = completed_text(&end);
     assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after a1 completes");
     assert!(text.contains("resumed=false") && text.contains("SUBAGENT_ACTIVITY_SUMMARY"), "fresh session continued: {text}");
@@ -8746,7 +8739,7 @@ async fn mid_turn_compaction_skips_rollover_when_open_call_never_reaches_quiet_p
     let turns1 =
         Turns { summary: Some(Ok("SHOULD_NOT_ROLL_OVER_MID_TURN")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
 
-    let end1 = world.ask(&surface1, "bgneverquietcompact 200687 1048576", turns1).await;
+    let end1 = world.ask(&surface1, "bgneverquietcompact 260687 1048576", turns1).await;
     assert!(matches!(end1, TurnEnd::Completed { .. }), "turn must complete normally without mid-turn rollover: {end1:?}");
     assert_eq!(mid_compacts.load(Ordering::SeqCst), 0, "no mid-turn rollover without a quiet point");
 
@@ -8774,7 +8767,7 @@ async fn mid_turn_compaction_skips_rollover_when_open_call_never_reaches_quiet_p
     let turns2 = Turns {
         summary: Some(Ok("NEXT_TURN_PRE_COMPACT_SUMMARY")),
         auto_compact: true,
-        last_context_tokens: Some(200_687),
+        last_context_tokens: Some(260_687),
         context_window: Some(1_048_576),
         ..Turns::default()
     };
@@ -8818,7 +8811,7 @@ async fn mid_turn_compaction_waits_for_parallel_mixdog_and_agent_calls_to_both_c
         tokio::time::sleep(Duration::from_millis(60)).await;
         release.add_permits(1);
     });
-    let end = world.ask(&surface, "parallelcompact 200687 1048576 slow", turns).await;
+    let end = world.ask(&surface, "parallelcompact 260687 1048576 slow", turns).await;
     releaser.await.expect("releaser task");
 
     let text = completed_text(&end);
@@ -8881,7 +8874,7 @@ async fn cancel_during_mid_turn_compaction_drain_stops_cleanly() {
     });
     let end = within(
         "cancel while waiting for quiet point",
-        world.serve_with(&surface, json!({ "role": "user", "content": "canceldraincompact 200687 1048576" }), None, Some("RULES"), "default", cancel, turns),
+        world.serve_with(&surface, json!({ "role": "user", "content": "canceldraincompact 260687 1048576" }), None, Some("RULES"), "default", cancel, turns),
     )
     .await;
     stopper.await.expect("stopper task");

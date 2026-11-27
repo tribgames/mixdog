@@ -587,7 +587,7 @@ impl Agent {
             // If Mixdog compacts mid-turn, tool2 is refused and the turn ends cancelled without self-compaction.
             "midcompact" => {
                 let mut parts = rest.split_whitespace();
-                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(260_687);
                 let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
                 let tool1 = parts.next().unwrap_or("read").to_owned();
                 let tool2 = parts.next().unwrap_or("shell").to_owned();
@@ -604,7 +604,7 @@ impl Agent {
             // refused its answer after letting the tool finish and commit.
             "inflightcompact" => {
                 let mut parts = rest.split_whitespace();
-                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(260_687);
                 let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
                 let tool = parts.next().unwrap_or("slow").to_owned();
                 let server = self.held().servers[0].clone();
@@ -638,7 +638,7 @@ impl Agent {
             // completes the agent call with its real result and waits for `session/cancel` at the quiet point.
             "openagentcompact" => {
                 let mut parts = rest.split_whitespace();
-                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(260_687);
                 let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
                 let tool = parts.next().unwrap_or("read").to_owned();
                 self.update(json!({
@@ -671,7 +671,7 @@ impl Agent {
             // tool call and completes it before waiting for `session/cancel`.
             "lateagentcall" => {
                 let mut parts = rest.split_whitespace();
-                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(260_687);
                 let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
                 self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
                 self.update(json!({
@@ -691,7 +691,7 @@ impl Agent {
             // before the agent waits for `session/cancel`.
             "cancelorder" => {
                 let mut parts = rest.split_whitespace();
-                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(260_687);
                 let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
                 self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
                 let call = json!({
@@ -705,7 +705,7 @@ impl Agent {
             // `session/cancel`; the agent then fails the prompt instead of answering it cancelled.
             "cancelerror" => {
                 let mut parts = rest.split_whitespace();
-                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(260_687);
                 let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
                 self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
                 self.update(mcp_call("tool_call", "e1", "read", "in_progress", &json!({})));
@@ -724,7 +724,7 @@ impl Agent {
             // Mixdog tool, then ends the kept call and waits for `session/cancel`.
             "keptcompact" => {
                 let mut parts = rest.split_whitespace();
-                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(260_687);
                 let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
                 let kept = self.session().kept.take().unwrap_or_default();
                 self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
@@ -748,7 +748,7 @@ impl Agent {
             "pendingpermcompact" => {
                 let mut parts = rest.split_whitespace();
                 let mode = parts.next().unwrap_or("pending");
-                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(260_687);
                 let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
                 let call = match mode {
                     "nostatus" | "after_nostatus" => json!({
@@ -778,7 +778,7 @@ impl Agent {
             // usage_update while running, and completes with its real result before rollover.
             "approvedpermcompact" => {
                 let mut parts = rest.split_whitespace();
-                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(260_687);
                 let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
                 let call = json!({
                     "sessionUpdate": "tool_call", "toolCallId": "p1", "name": "run_command", "title": "Approved cmd", "kind": "execute", "status": "pending",
@@ -791,7 +791,7 @@ impl Agent {
             // Pending tool_call before usage_update that starts (`in_progress`) without asking permission and completes.
             "pendingstartscompact" => {
                 let mut parts = rest.split_whitespace();
-                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(260_687);
                 let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
                 self.update(json!({
                     "sessionUpdate": "tool_call", "toolCallId": "g1", "name": "run_command", "title": "Auto run", "kind": "execute", "status": "pending",
@@ -812,7 +812,7 @@ impl Agent {
             // usage_update crosses trigger, `b1` completes first; rollover must wait for `a1` too.
             "pendingparallelcompact" => {
                 let mut parts = rest.split_whitespace();
-                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(260_687);
                 let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
                 self.update(json!({
                     "sessionUpdate": "tool_call", "toolCallId": "a1", "name": "edit_file", "title": "Edit A", "kind": "edit", "status": "pending",
@@ -839,7 +839,7 @@ impl Agent {
             // MCP `tools/call` after usage_update crosses trigger; both must be answered normally so `a1` finishes.
             "subagentchildcompact" => {
                 let mut parts = rest.split_whitespace();
-                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(260_687);
                 let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
                 self.update(json!({
                     "sessionUpdate": "tool_call", "toolCallId": "a1", "name": "task", "title": "Subagent task", "kind": "other", "status": "in_progress",
@@ -858,7 +858,7 @@ impl Agent {
             // completion, and multiple usage_updates arrive; none may demote or kill `a1`.
             "subagentactivitycompact" => {
                 let mut parts = rest.split_whitespace();
-                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(260_687);
                 let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
                 self.update(json!({
                     "sessionUpdate": "tool_call", "toolCallId": "a1", "name": "task", "title": "Long task", "kind": "other", "status": "in_progress",
@@ -890,7 +890,7 @@ impl Agent {
             // crosses trigger and `c1` completes; no mid-turn rollover occurs and `bg1` is handed off normally.
             "bgneverquietcompact" => {
                 let mut parts = rest.split_whitespace();
-                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(260_687);
                 let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
                 self.update(json!({
                     "sessionUpdate": "tool_call", "toolCallId": "bg1", "name": "run_command", "title": "Dev server", "kind": "execute", "status": "in_progress",
@@ -913,7 +913,7 @@ impl Agent {
             // occurs at the quiet point with both real results committed.
             "parallelcompact" => {
                 let mut parts = rest.split_whitespace();
-                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(260_687);
                 let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
                 let tool = parts.next().unwrap_or("slow").to_owned();
                 self.update(json!({
@@ -952,7 +952,7 @@ impl Agent {
             // Opens an in-progress agent call and crosses usage_update; the test cancels while waiting for quiet point.
             "canceldraincompact" => {
                 let mut parts = rest.split_whitespace();
-                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(260_687);
                 let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
                 self.update(json!({
                     "sessionUpdate": "tool_call", "toolCallId": "a1", "name": "run_command", "title": "Long build", "kind": "execute", "status": "in_progress",
@@ -980,7 +980,7 @@ impl Agent {
                     let (first_used, second_used, size) = match nums.as_slice() {
                         [first, second, size] => (*first, Some(*second), *size),
                         [used, size] => (*used, None, *size),
-                        _ => (200_687, None, 1_048_576),
+                        _ => (260_687, None, 1_048_576),
                     };
                     self.update(json!({ "sessionUpdate": "usage_update", "used": first_used, "size": size }));
                     if let Some(second) = second_used {
@@ -1350,6 +1350,8 @@ impl Agent {
                 };
                 if refused {
                     log("round2-refused");
+                    // As the official server answers a cancel: in the agent's own voice, before the prompt closes.
+                    self.say("The request was cancelled by the client.");
                     answer(&prompt, json!({ "stopReason": "cancelled" }));
                     return;
                 }
