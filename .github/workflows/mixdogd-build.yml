@@ -15,7 +15,7 @@
 # Windows on Arm has no leg: the x64 programs run there (scripts/npm-platforms.mjs).
 # Linux is built inside manylinux_2_28 (glibc 2.28) like the other Linux native tools, so the package's glibc floor does not
 # follow the runner's. Mixdog's Google OAuth client is embedded by the crate's build script from the two secrets (both or
-# neither). The release profile (native/core/Cargo.toml) strips and thin-LTO links. Compiled crates are cached with sccache
+# neither). The release profile (native/core/Cargo.toml) strips the symbols and does not LTO link. Compiled crates are cached with sccache
 # (GitHub cache backend), per target and toolchain; the cache is not keyed on Cargo.lock, which Deploy rewrites on every
 # release, and a crate whose inputs did not change is a hit whatever the workspace version is.
 # Each program starts once on its own OS before it is uploaded (the x86_64 macOS leg cannot run its own binary).

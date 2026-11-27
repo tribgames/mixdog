@@ -562,9 +562,8 @@ $coreBuildRoot = if ($CoreBuildRoot) { $CoreBuildRoot } elseif ($env:MIXDOG_FAST
 # cargo runs as it is and builds in the checkout.
 $cargoGate = if ($env:MIXDOG_CARGO_GATE) { $env:MIXDOG_CARGO_GATE } else { 'C:\mixdog-build\tools\cargo-gate.ps1' }
 
-# `release-local` (native\core\Cargo.toml) is release without LTO and with more codegen units: the fast deploy's
-# installed app is this PC's own, so it skips the thin-LTO link (4+ minutes). Every other mode, and every published
-# build, builds `release`. PROFILE in a build script is `release` for both, so dev_only.rs refuses dev-only features in each.
+# `release-local` (native\core\Cargo.toml) is release with more codegen units, for a shorter build: the fast deploy's
+# installed app is this PC's own. Every other mode, and every published build, builds `release`. PROFILE in a build script is `release` for both, so dev_only.rs refuses dev-only features in each.
 $coreProfile = if ($FastDirect) { 'release-local' } else { 'release' }
 
 # Where the build of $coreBuildRoot lands: the gate's folder for that checkout (cargo-gate.ps1 names it by the
