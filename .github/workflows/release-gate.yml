@@ -307,6 +307,8 @@ jobs:
           set -euo pipefail
           args=(--changed /tmp/changed-core --mixdogd-dev "$MIXDOGD_DEV" --mixdogd-windows "$MIXDOGD_WINDOWS")
           if [[ "$FULL" == true ]]; then args+=(--all); fi
+          # The nightly run builds on hosted runners: the project's own machines may be off.
+          if [[ "$GITHUB_EVENT_NAME" != schedule ]]; then args+=(--own-machines); fi
           node scripts/ci/core-select.mjs "${args[@]}" | tee -a "$GITHUB_OUTPUT"
       # A partial selection (a push's or a pull request's crates) is resolved here, once, against the whole build: each round of
       # scripts/ci/core-align.mjs selects the workspace crates the last tree resolved otherwise, in either role (built for the host

@@ -118,8 +118,10 @@ mod tests {
 
     #[test]
     fn the_running_checkout_is_found_from_the_test_environment() {
-        // cargo and nextest run a test with its package's manifest directory in the environment.
-        assert_eq!(run_root(), built_root(Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))));
-        assert_eq!(text(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")), crate::read_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")));
+        // cargo and nextest run a test with its package's manifest directory in the environment: of the checkout the test
+        // runs in, which an archived build was not built in.
+        let root = run_root().expect("the checkout the test runs in");
+        assert!(root.join(SELF_MANIFEST).is_file(), "{}", root.display());
+        assert_eq!(text(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")), crate::read_string(root.join(SELF_MANIFEST)));
     }
 }

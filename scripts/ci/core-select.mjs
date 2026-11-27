@@ -288,7 +288,7 @@ const REAL = {
   macos: { runner: 'macos-15', unix: true, target: 'aarch64-apple-darwin' },
   windows: { runner: 'windows-2022', unix: false, target: 'x86_64-pc-windows-msvc' },
 };
-function jobMatrices({ scope, tests, entry, mixdogdDev, mixdogdWindows, systems }) {
+function jobMatrices({ scope, tests, entry, mixdogdDev, mixdogdWindows, systems, ownMachines }) {
   // The dev daemon is its own job per system (`mixdogd-linux`, `mixdogd-windows`), beside the archive build rather than after it. The Linux entry scenarios
   // (core-entry) drive it even when no Node lane needs it. The Windows hidden-window app boot (desktop-computer) starts the
   // app against this run's Windows dev daemon.
@@ -303,7 +303,7 @@ function jobMatrices({ scope, tests, entry, mixdogdDev, mixdogdWindows, systems 
     const legs = on ? Math.min(maxLegs, Math.max(1, Math.ceil(tests / testsPerLeg))) : 0;
     test[system.os] = Array.from({ length: legs }, (_, index) => ({ ...system, part: index + 1, of: legs }));
     // One build of the selection per system, on one runner.
-    build[system.os] = on ? [{ os: system.os, runner: buildRunner ?? system.runner }] : [];
+    build[system.os] = on ? [{ os: system.os, runner: (ownMachines && buildRunner) || system.runner }] : [];
   }
   return { mixdogd, test, build };
 }
@@ -446,11 +446,14 @@ function storeKey(options) {
  * @param {boolean} [options.all] the full gate: every crate on the three systems, whatever changed (otherwise a push or a pull
  *   request: the crates the change can affect, on Linux)
  * @param {string[]} [options.stage] the tracked files (`git ls-files -s`), for the store keys
+ * @param {boolean} [options.ownMachines] a run a person started (a release, a manual run): its archives are built on the
+ *   project's own machines (SYSTEMS `buildRunner`). The nightly run builds on hosted runners, whether those machines are on or not.
  */
 export function selectCore({
   root,
   changed,
   all = false,
+  ownMachines = false,
   mixdogdDev = false,
   mixdogdWindows = false,
   metadata,
@@ -491,7 +494,7 @@ export function selectCore({
   const systems = all ? SYSTEMS.map((system) => system.os) : ['linux'];
   const pgMacos = all ? pgProfiles : [];
   const entry = selected.some((crate) => crate.name === 'mixdog-entry');
-  const { mixdogd, test, build } = jobMatrices({ scope, tests, entry, mixdogdDev, mixdogdWindows, systems });
+  const { mixdogd, test, build } = jobMatrices({ scope, tests, entry, mixdogdDev, mixdogdWindows, systems, ownMachines });
   const real = systems.map((os) => ({ os, ...REAL[os] }));
   // Clippy and the plain stable compile on the systems the archive is built for (the full gate's three, Linux otherwise).
   const lint =
@@ -546,6 +549,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--all') out.all = true;
+    else if (arg === '--own-machines') out.ownMachines = true;
     else if (arg === '--changed') out.changed = argv[++i];
     else if (arg === '--mixdogd-dev') out.mixdogdDev = argv[++i] === 'true';
     else if (arg === '--mixdogd-windows') out.mixdogdWindows = argv[++i] === 'true';
@@ -564,6 +568,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     root,
     changed,
     all: args.all,
+    ownMachines: args.ownMachines,
     mixdogdDev: args.mixdogdDev,
     mixdogdWindows: args.mixdogdWindows,
     metadata: args.metadata ? JSON.parse(readFileSync(args.metadata, 'utf8')) : undefined,
