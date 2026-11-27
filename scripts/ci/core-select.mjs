@@ -68,7 +68,7 @@ const NODE_TEST = /(?:\.test|-test)\.(?:mjs|ts)$|^benchmarks\/.*(?:\/tests\/|\/t
 // `path = "../../../mixdog-spawn/src/lib.rs"` and so on); their own tests are not compiled by the core.
 const STANDALONE = /^native\/(mixdog-(?:spawn|patch|graph|secure-desktop))\/(?:src\/|Cargo\.(?:toml|lock)$|build\.rs$)/;
 
-// Reader text classification only. Test filenames never suppress reverse-dependency propagation.
+// Reader text classification only: a changed file propagates whatever its name; a reader in these files reaches its tests alone.
 const TEST_ONLY = /(^|\/)(tests|benches|examples)\/|_tests?\.rs$|\/tests\.rs$/;
 // The folders of a crate (relative to it) that only its test, bench and example targets compile.
 const TARGET_ONLY = /^(tests|benches|examples)\//;
@@ -132,7 +132,8 @@ function crateTexts(root) {
       for (const file of walkRust(join(root, crate.dir))) {
         const text = readFileSync(file, 'utf8');
         const inside = slash(relative(join(root, crate.dir), file));
-        (TEST_ONLY.test(inside) ? tests : product).push(text);
+        // A path named in a comment is prose, not a read.
+        (TEST_ONLY.test(inside) ? tests : product).push(text.replace(/^[ \t]*\/\/.*$/gm, ''));
         count += (text.match(/#\[\s*(?:[A-Za-z0-9_]+::)*(?:test|rstest|test_case)\b/g) ?? []).length;
       }
       texts.set(crate.name, { product: product.join('\n'), tests: tests.join('\n'), count });
@@ -142,7 +143,7 @@ function crateTexts(root) {
 }
 
 // A crate names a path when its sources spell a prefix of it two or more segments deep (`fixtures/agent`) or join its first
-// two segments one after the other (`.join("fixtures").join("agent")`).
+// two segments one after the other (`.join("fixtures").join("agent")`), or spell a crate's folder as a path segment.
 function pathNames(path) {
   const parts = path.split('/');
   const forms = [parts];
@@ -153,7 +154,8 @@ function pathNames(path) {
   for (const form of forms) {
     const minimum = form[0] === 'native' && form[1] === 'core' ? 4 : 2;
     for (let end = form.length; end >= minimum; end -= 1) plain.add(form.slice(0, end).join('/'));
-    if (form.length === 1) plain.add(form[0]);
+    // A crate's own name counts only as a path segment (`mixdog-store/src`, `.join("mixdog-store")`): prose names crates freely.
+    if (form.length === 1) joined.push(new RegExp(`${escapeRegExp(form[0])}["'/\\\\]`));
     if (form.length >= 2 && minimum === 2)
       joined.push(new RegExp(`"${escapeRegExp(form[0])}"[\\s\\S]{0,160}?"${escapeRegExp(form[1])}"`));
   }
@@ -214,12 +216,15 @@ function classifyChanges({ changed, all, owner, readers }) {
       direct.add(crate.name);
       // A tests/ filename is not ownership proof: other crates use #[path]
       // to compile those very modules (app-server-daemon reads app-server tests).
-      // Propagate all owned changes and include every visible source reader.
+      // Propagate all owned changes; a reader propagates when its product sources read the path.
       propagate.add(crate.name);
-      const found = readers(path);
-      for (const name of [...found.product, ...found.testOnly]) {
-        direct.add(name);
-        propagate.add(name);
+      // Readers of the file by its path, and of the crate's folder by name (a test that walks the crate's sources).
+      for (const found of [readers(path), readers(crate.dir)]) {
+        for (const name of found.product) {
+          direct.add(name);
+          propagate.add(name);
+        }
+        for (const name of found.testOnly) direct.add(name);
       }
       continue;
     }
@@ -235,30 +240,22 @@ function classifyChanges({ changed, all, owner, readers }) {
   return { whole, direct, propagate, reasons };
 }
 
-function affectedPackages({ crates, byName, direct, propagate, readers }) {
-  // Reverse dependencies of every changed or reading crate, including dev dependencies.
+function affectedPackages({ crates, byName, direct, propagate }) {
+  // What compiles a changed or reading crate into its own build: reverse normal and build dependencies. A dev dependency
+  // reaches only that crate's tests, so it is added once at the end and carries no further. Source readers are settled
+  // by classifyChanges: a crate reached through a dependency has no changed file for another crate to read.
   const reached = new Set(propagate);
   for (let grew = true; grew; ) {
     grew = false;
-    for (const name of [...reached]) {
-      const source = byName.get(name);
-      if (!source) continue;
-      const found = readers(source.dir);
-      for (const reader of [...found.product, ...found.testOnly]) {
-        if (!reached.has(reader)) {
-          reached.add(reader);
-          grew = true;
-        }
-      }
-    }
     for (const crate of crates) {
-      if (!reached.has(crate.name) && crate.deps.some((dep) => reached.has(dep))) {
+      if (!reached.has(crate.name) && crate.buildDeps.some((dep) => reached.has(dep))) {
         reached.add(crate.name);
         grew = true;
       }
     }
   }
-  const affected = new Set([...direct, ...reached]);
+  const tested = crates.filter((crate) => crate.deps.some((dep) => reached.has(dep))).map((crate) => crate.name);
+  const affected = new Set([...direct, ...reached, ...tested]);
   // Core media replays spawn this binary beside deps; include its package so
   // nextest archives the non-test executable and its CARGO_BIN_EXE metadata.
   if (affected.size && byName.has('mixdog-exthost-worker')) affected.add('mixdog-exthost-worker');
@@ -468,7 +465,7 @@ export function selectCore({
     scope = 'all';
     packages = crates.map((crate) => crate.name).sort();
   } else {
-    packages = affectedPackages({ crates, byName, direct, propagate, readers });
+    packages = affectedPackages({ crates, byName, direct, propagate });
     if (packages.length) scope = 'packages';
   }
 

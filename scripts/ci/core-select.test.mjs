@@ -409,6 +409,35 @@ test('a crate that includes another crate test module is selected without a Carg
   ]);
 });
 
+test('a dev dependency, a test-only reader and a prose mention do not carry a change to further crates', () => {
+  const dev = (name, deps, devDeps) => ({
+    ...crate(name, deps),
+    dependencies: [...deps.map((dep) => ({ name: dep })), ...devDeps.map((dep) => ({ name: dep, kind: 'dev' }))],
+  });
+  // base <- user (normal); base <- probe (dev only) <- above (normal); walker's tests walk base's folder; walker <- top
+  const graph = {
+    packages: [
+      crate('base'),
+      crate('user', ['base']),
+      dev('probe', [], ['base']),
+      crate('above', ['probe']),
+      crate('walker'),
+      crate('top', ['walker']),
+      crate('prose'),
+    ],
+  };
+  for (const name of ['base', 'user', 'probe', 'above', 'walker', 'top'])
+    file(`native/core/crates/${name}/src/lib.rs`, '');
+  file('native/core/crates/walker/tests/guard.rs', 'const LIBRARIES: &[&str] = &["base"];\n');
+  file('native/core/crates/prose/src/lib.rs', '// see base/src/lib.rs\n/// (`base` owns it)\nfn f() {}\n');
+  assert.deepEqual(packages(select(['native/core/crates/base/src/lib.rs'], { metadata: graph })), [
+    'base',
+    'probe',
+    'user',
+    'walker',
+  ]);
+});
+
 test('gated target features and the real worker binary travel with the archive', () => {
   const worker = crate('mixdog-exthost-worker');
   worker.targets = [{ kind: ['bin'], 'required-features': ['test-support'] }];
