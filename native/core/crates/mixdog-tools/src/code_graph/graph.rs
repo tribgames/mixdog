@@ -81,6 +81,9 @@ pub(super) struct Record {
     pub fingerprint: Option<(u64, u64)>,
     /// SHA-256 of the exact bytes this record was parsed from.
     pub digest: [u8; 32],
+    /// The wall clock (ms since the epoch) just before those bytes were read; 0: unknown. A file whose modification time
+    /// is well before it was not rewritten since without its stamp changing ([`settled`]).
+    pub read_at_ms: u64,
     /// Estimated heap bytes of the record (no source text is held).
     pub weight: u64,
     /// The word table `tokens` index into: a record gives its tokens back when the last generation holding it is gone.
@@ -656,7 +659,7 @@ fn signature_of<'a>(files: impl Iterator<Item = (&'a str, Option<(u64, u64)>)>) 
 }
 
 /// A record rebuilt from the cache's copy of the file.
-fn record_from_cache(file: CachedFile, digest: [u8; 32], path: &Path, lang: &'static str, origin: &Origin) -> Record {
+fn record_from_cache(file: CachedFile, digest: [u8; 32], read_at_ms: u64, path: &Path, lang: &'static str, origin: &Origin) -> Record {
     Record {
         rel: file.rel,
         lang,
@@ -672,6 +675,7 @@ fn record_from_cache(file: CachedFile, digest: [u8; 32], path: &Path, lang: &'st
         calls_bytes: file.calls_bytes,
         fingerprint: Some((file.size, file.mtime_ns)),
         digest,
+        read_at_ms,
         weight: 0,
         words: origin.words.clone(),
     }
@@ -1083,7 +1087,7 @@ impl Graph {
                 }
             });
             let record = match hit {
-                Some(file) if foreign => {
+                Some(file) if foreign && !settled(&file) => {
                     verified.fetch_add(1, Ordering::Relaxed);
                     let digest = digest_from_hex(&file.digest).expect("checked above");
                     match verified_from_cache(root, entry, file, digest, &origin)? {
@@ -1101,7 +1105,8 @@ impl Graph {
                 Some(file) => {
                     from_disk.fetch_add(1, Ordering::Relaxed);
                     let digest = digest_from_hex(&file.digest).expect("checked above");
-                    record_from_cache(file, digest, &entry.path, entry.lang, &origin)
+                    let read_at_ms = file.read_at_ms;
+                    record_from_cache(file, digest, read_at_ms, &entry.path, entry.lang, &origin)
                 }
                 None => {
                     parsed.fetch_add(1, Ordering::Relaxed);
@@ -1661,31 +1666,57 @@ fn parse_record(root: &Path, path: &Path, lang: &'static str, origin: &Origin) -
     #[cfg(test)]
     PARSED.with(|n| n.set(n.get() + 1));
     let relative = relative_to(root, path)?;
+    let read_at_ms = wall_ms();
     let Some((bytes, fingerprint)) = read_observed(root, relative) else { return Ok(None) };
     let digest = digest_of(&bytes);
-    Ok(Some(record_of(relative, path, bytes, digest, fingerprint, lang, origin)))
+    Ok(Some(record_of(relative, path, bytes, digest, fingerprint, read_at_ms, lang, origin)))
 }
 
-/// The record of a cached file another lifetime of the ledger wrote: its stamp may be the stamp of other bytes (a rewrite
-/// inside the clock's granularity that no notice of this lifetime covers), so the source is read once, and the record stands
+/// The coarsest step a file system's modification time takes (FAT's two seconds).
+const STAMP_STEP_MS: u64 = 2_000;
+
+fn wall_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(0))
+}
+
+/// The cached file's stamp can only be the stamp of the bytes it was parsed from: it was last modified more than a step
+/// of the file system's clock before those bytes were read, so any rewrite since moved the modification time on. A
+/// record another lifetime wrote then stands on its stamp alone, as an index of git's does.
+fn settled(file: &CachedFile) -> bool {
+    file.read_at_ms > 0 && (file.mtime_ns / 1_000_000).saturating_add(STAMP_STEP_MS) < file.read_at_ms
+}
+
+/// The record of a cached file another lifetime of the ledger wrote, whose stamp may be the stamp of other bytes (a rewrite
+/// inside the clock's granularity that no notice of this lifetime covers): the source is read once, and the record stands
 /// when those bytes are the ones it was parsed from; otherwise the bytes read are parsed (`false`). `None`: the source could
 /// not be verified.
 fn verified_from_cache(root: &Path, entry: &Entry, file: CachedFile, digest: [u8; 32], origin: &Origin) -> Result<Option<(Record, bool)>, String> {
     #[cfg(test)]
     VERIFIED_READS.with(|n| n.set(n.get() + 1));
     let relative = relative_to(root, &entry.path)?;
+    let read_at_ms = wall_ms();
     let Some((bytes, fingerprint)) = read_observed(root, relative) else { return Ok(None) };
     let read = digest_of(&bytes);
     if read == digest && Some(fingerprint) == entry.stamp {
-        return Ok(Some((record_from_cache(file, digest, &entry.path, entry.lang, origin), true)));
+        return Ok(Some((record_from_cache(file, digest, read_at_ms, &entry.path, entry.lang, origin), true)));
     }
     #[cfg(test)]
     PARSED.with(|n| n.set(n.get() + 1));
-    Ok(Some((record_of(relative, &entry.path, bytes, read, fingerprint, entry.lang, origin), false)))
+    Ok(Some((record_of(relative, &entry.path, bytes, read, fingerprint, read_at_ms, entry.lang, origin), false)))
 }
 
 /// The record of `bytes`, read from `path` at `fingerprint`.
-fn record_of(relative: &Path, path: &Path, bytes: Vec<u8>, digest: [u8; 32], fingerprint: (u64, u64), lang: &'static str, origin: &Origin) -> Record {
+#[allow(clippy::too_many_arguments, reason = "one file's observation and where its record goes")]
+fn record_of(
+    relative: &Path,
+    path: &Path,
+    bytes: Vec<u8>,
+    digest: [u8; 32],
+    fingerprint: (u64, u64),
+    read_at_ms: u64,
+    lang: &'static str,
+    origin: &Origin,
+) -> Record {
     let rel = relative.to_string_lossy().replace('\\', "/");
     let (text, parse_error) = match String::from_utf8(bytes) {
         Ok(text) => (text, String::new()),
@@ -1713,6 +1744,7 @@ fn record_of(relative: &Path, path: &Path, bytes: Vec<u8>, digest: [u8; 32], fin
         calls_bytes: calls.as_ref().map(|calls| 24 + calls.iter().map(|c| 8 + call_bytes(c)).sum::<u64>()),
         fingerprint: Some(fingerprint),
         digest,
+        read_at_ms,
         weight: 0,
         words: origin.words.clone(),
     }

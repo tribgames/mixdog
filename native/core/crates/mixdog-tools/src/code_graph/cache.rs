@@ -33,7 +33,7 @@ use super::graph::{Graph, Node, WordTable, inventory_signature};
 use super::roots::{identity_key, path_key};
 use super::symbols::Sym;
 
-const FORMAT_VERSION: u32 = 5;
+const FORMAT_VERSION: u32 = 6;
 /// `CODE_GRAPH_DISK_MAX_ENTRIES`.
 const MAX_ENTRIES: usize = 24;
 const DEFAULT_MAX_MB: f64 = 80.0;
@@ -119,6 +119,9 @@ pub(super) struct CachedFile {
     /// SHA-256 (hex) of the bytes the record was parsed from; a record without one (an older schema) is parsed again.
     #[serde(default)]
     pub(super) digest: String,
+    /// The wall clock (ms since the epoch) just before the parsed bytes were read; 0: unknown.
+    #[serde(default)]
+    pub(super) read_at_ms: u64,
 }
 
 /// A [`CachedFile`] written straight from a graph node: the token lists are borrowed, so persisting a graph copies
@@ -138,6 +141,7 @@ struct FileRef<'a> {
     tokens: Vec<&'a str>,
     calls_bytes: Option<u64>,
     digest: String,
+    read_at_ms: u64,
 }
 
 impl<'a> FileRef<'a> {
@@ -158,6 +162,7 @@ impl<'a> FileRef<'a> {
             tokens: node.tokens.iter().map(|id| words.get(*id)).collect(),
             calls_bytes: node.calls_bytes,
             digest: super::graph::digest_hex(&node.digest),
+            read_at_ms: node.read_at_ms,
         })
     }
 }
@@ -735,6 +740,7 @@ mod tests {
             tokens: vec!["a".to_owned()],
             calls_bytes: None,
             digest: String::new(),
+            read_at_ms: 0,
         }
     }
 
@@ -1425,9 +1431,9 @@ impl GraphCache {
         if !is_cache_hash(&row.hash) {
             return None;
         }
-        // Streamed: the payload's bytes are never held next to the files parsed out of them.
-        let file = std::fs::File::open(self.catalog.dir.join(format!("{}.json", row.hash))).ok()?;
-        let payload: Payload<Vec<CachedFile>> = serde_json::from_reader(io::BufReader::new(file)).ok()?;
+        let bytes = std::fs::read(self.catalog.dir.join(format!("{}.json", row.hash))).ok()?;
+        let payload: Payload<Vec<CachedFile>> = serde_json::from_slice(&bytes).ok()?;
+        drop(bytes);
         (payload.version == FORMAT_VERSION && payload.key == key).then(|| {
             let foreign = payload.epoch != self.ledger.epoch();
             let receipts = if foreign { Receipts::new() } else { payload.receipts };

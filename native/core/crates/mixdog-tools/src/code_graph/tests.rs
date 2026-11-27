@@ -1163,6 +1163,28 @@ fn more_than_4096_same_stamp_writes_before_the_first_query_are_all_refreshed() {
     drop(tmp);
 }
 
+/// A record another lifetime wrote stands on its stamp alone where the file was last modified well before its bytes were
+/// read, so a restart does not read every source again; a file modified just before it was indexed is read once more.
+#[test]
+fn a_restart_reads_again_only_the_files_modified_just_before_they_were_indexed() {
+    let (tmp, root) = project_with_sentinel();
+    let (dir, first) = no_cache();
+    fs::write(root.join("src/old.mjs"), "export const old = 1;\n").unwrap();
+    fs::write(root.join("src/fresh.mjs"), "export const fresh = 1;\n").unwrap();
+    let long_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    fs::File::options().write(true).open(root.join("src/old.mjs")).unwrap().set_modified(long_ago).unwrap();
+    first.graph(&root, &[]).unwrap();
+    first.flush().unwrap();
+    let files = first.load(&root).map(|files| files.len()).expect("the disk holds the records");
+    let later = super::GraphCache::new(dir.path().join("cache"));
+    let before = super::graph::VERIFIED_READS.with(std::cell::Cell::get);
+    let graph = later.graph(&root, &[]).unwrap();
+    let read_again = super::graph::VERIFIED_READS.with(std::cell::Cell::get) - before;
+    assert_eq!(read_again, files - 1, "every file but the one modified an hour before it was indexed");
+    assert!(symbols_of(&graph, "src/old.mjs").contains(&"old".to_owned()) && symbols_of(&graph, "src/fresh.mjs").contains(&"fresh".to_owned()));
+    drop(tmp);
+}
+
 /// A notification made before either root is queried, whether the parent is already registered or not, reaches the parent
 /// and, after the parent has been queried, persisted and evicted, the nested root too.
 fn a_notification_reaches_a_parent_and_its_nested_root(parent_registered: bool) {
