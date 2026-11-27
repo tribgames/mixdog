@@ -1,5 +1,5 @@
 //! The helper processes a core starts as its own executable run with a subcommand (`current_exe`): the extension-host
-//! worker, the code graph helper, the effort judge's and the embedding model's hosts, Office automation, an ACP agent's tool
+//! worker, the code graph helper, the search helper, the effort judge's and the embedding model's hosts, Office automation, an ACP agent's tool
 //! server and a skill script. Started by a core, never by a user. Both programs a core runs in serve every one of them: `mixdogd`, and
 //! `mixdog`, whose `exec` composes its core in its own process.
 
@@ -45,6 +45,10 @@ pub enum Helper {
         #[arg(long)]
         cache_dir: PathBuf,
     },
+    /// The search helper the core's `SearchHost` starts: it runs the core's walks and text searches and streams their
+    /// results as frames on its standard pipes, writing nothing else there, until the core closes its input.
+    #[command(name = "search-worker", hide = true)]
+    SearchWorker,
     /// The process Microsoft Office automation runs in.
     #[command(name = "office-com-host", hide = true, trailing_var_arg = true, allow_hyphen_values = true, disable_help_flag = true)]
     OfficeComHost {
@@ -96,6 +100,7 @@ pub fn run(helper: Helper) -> ExitCode {
             ExitCode::from(mixdog_app_server_daemon::embedding_host::run(cache_dir, model_id, ort_library, dtype) as u8)
         }
         Helper::GraphWorker { cache_dir } => ExitCode::from(mixdog_tools::code_graph::engine::serve_worker(cache_dir) as u8),
+        Helper::SearchWorker => ExitCode::from(mixdog_search_host::worker::serve_stdio() as u8),
         Helper::OfficeComHost { args } => ExitCode::from(mixdog_office_com::host::run(&args) as u8),
         Helper::AcpMcpBridge => ExitCode::from(mixdog_app_server_daemon::acp_tools::run_bridge() as u8),
         Helper::ExtWorker => {

@@ -47,7 +47,7 @@ impl Client {
                 }
             }
         })?;
-        std::thread::Builder::new().name("graph-host-log".to_owned()).spawn(move || relay_log(pid, errors))?;
+        std::thread::Builder::new().name("graph-host-log".to_owned()).spawn(move || relay_log("code graph", pid, errors))?;
         let reader_events = events.clone();
         std::thread::Builder::new().name("graph-host-read".to_owned()).spawn(move || {
             let mut reader = FrameReader::new(BufReader::with_capacity(64 * 1024, output));
@@ -76,17 +76,18 @@ impl Client {
     }
 }
 
-/// Carries each line of the helper's standard error into this process's log until the helper's end closes it.
-fn relay_log(pid: u32, errors: PipeReader) {
+/// Carries each line of the standard error of the helper named `helper` into this process's log until the helper's end
+/// closes it.
+pub fn relay_log(helper: &'static str, pid: u32, errors: PipeReader) {
     let mut errors = BufReader::new(errors);
     let mut line = Vec::new();
     loop {
         line.clear();
         match errors.read_until(b'\n', &mut line) {
             Ok(0) => return,
-            Ok(_) => relay(pid, String::from_utf8_lossy(&line).trim_end()),
+            Ok(_) => relay(helper, pid, String::from_utf8_lossy(&line).trim_end()),
             Err(error) => {
-                tracing::warn!(target: "code_graph", helper_pid = pid, %error, "the code graph helper's standard error could not be read");
+                tracing::warn!(target: "helper", helper, helper_pid = pid, %error, "the helper's standard error could not be read");
                 return;
             }
         }
@@ -95,14 +96,14 @@ fn relay_log(pid: u32, errors: PipeReader) {
 
 /// One line of the helper's standard error, logged at the level its subscriber wrote first ([`crate::worker::log_to_stderr`]).
 /// Any other line is the runtime's report of a panic or an abort: an error.
-fn relay(pid: u32, line: &str) {
+fn relay(helper: &'static str, pid: u32, line: &str) {
     match line.trim_start().split_once(' ') {
-        Some(("TRACE", text)) => tracing::trace!(target: "code_graph", helper_pid = pid, "{text}"),
-        Some(("DEBUG", text)) => tracing::debug!(target: "code_graph", helper_pid = pid, "{text}"),
-        Some(("INFO", text)) => tracing::info!(target: "code_graph", helper_pid = pid, "{text}"),
-        Some(("WARN", text)) => tracing::warn!(target: "code_graph", helper_pid = pid, "{text}"),
-        Some(("ERROR", text)) => tracing::error!(target: "code_graph", helper_pid = pid, "{text}"),
+        Some(("TRACE", text)) => tracing::trace!(target: "helper", helper, helper_pid = pid, "{text}"),
+        Some(("DEBUG", text)) => tracing::debug!(target: "helper", helper, helper_pid = pid, "{text}"),
+        Some(("INFO", text)) => tracing::info!(target: "helper", helper, helper_pid = pid, "{text}"),
+        Some(("WARN", text)) => tracing::warn!(target: "helper", helper, helper_pid = pid, "{text}"),
+        Some(("ERROR", text)) => tracing::error!(target: "helper", helper, helper_pid = pid, "{text}"),
         _ if line.trim().is_empty() => {}
-        _ => tracing::error!(target: "code_graph", helper_pid = pid, "{line}"),
+        _ => tracing::error!(target: "helper", helper, helper_pid = pid, "{line}"),
     }
 }

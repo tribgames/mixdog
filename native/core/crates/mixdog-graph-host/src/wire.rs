@@ -261,14 +261,15 @@ fn os_string(raw: Vec<Unit>) -> OsString {
     OsString::from_wide(&raw)
 }
 
-mod path {
+/// A path across the wire, lossless (`#[serde(with = "path")]`): also the search helper's (`mixdog-search-host`).
+pub mod path {
     use super::*;
 
-    pub(super) fn serialize<S: Serializer>(path: &Path, serializer: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(path: &Path, serializer: S) -> Result<S::Ok, S::Error> {
         path_out(path).serialize(serializer)
     }
 
-    pub(super) fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<PathBuf, D::Error> {
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<PathBuf, D::Error> {
         PathIn::deserialize(deserializer).map(path_in)
     }
 }

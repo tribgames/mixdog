@@ -75,7 +75,7 @@ mixdog-core-run = { workspace = true, features = ["replay-controls", "test-suppo
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
-mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
+mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls", "test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-scm = { workspace = true, features = ["write-queue-hook"] }

@@ -79,6 +79,7 @@ pub mod testing {
     }
 }
 
+pub use client::relay_log;
 pub use clock::Clock;
 pub use clock::RuntimeClock;
 pub use mixdog_spawn::owned::OwnedCommand;

@@ -47,6 +47,8 @@ mixdog-remote = { workspace = true }
 mixdog-tools = { workspace = true }
 # The code graph helper's host: the composition's one, shared by the tool, the prewarm, the worktree cleanup and the stop.
 mixdog-graph-host = { workspace = true }
+# The search helper's host: the file service's walks and text searches, and the last stop step.
+mixdog-search-host = { workspace = true }
 mixdog-workspace = { workspace = true }
 mixdog-ssh = { workspace = true }
 mixdog-fsio = { workspace = true }
@@ -113,7 +115,7 @@ mixdog-ai = { workspace = true, features = ["count-work", "replay-bytes", "test-
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 # The unpair replay drives the downloads' clock by file, which only a build with this feature reads.
-mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
+mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls", "test-support"] }
 # The real session directory (real threads and connections).
 mixdog-core-session = { workspace = true, features = ["crash-gates", "replay-settled", "test-support", "virtual-clock"] }
 # The core's turn review, as the composition holds it (`compose_flip.rs`, `turn_review`).

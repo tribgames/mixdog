@@ -41,7 +41,7 @@ mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 mixdog-js = { workspace = true, features = ["prefilter-probe"] }
 mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
-mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
+mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls", "test-support"] }
 mixdog-ai = { workspace = true, features = ["count-work", "replay-bytes", "test-support", "virtual-clock"] }
 mixdog-app-server-client = { workspace = true, features = ["test-support"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }

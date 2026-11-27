@@ -13,6 +13,9 @@ count-jobs = []
 # The clock, hold points and open-file count a replay of the download recording drives a spawned core with (`replay_controls.rs`). Never in an
 # ordinary build: the replay builds `mixdogd` with `--features mixdog-workspace/replay-controls`.
 replay-controls = []
+# `LocalFileService::new`: a test's file service, whose walks and searches run in the test's process. The core's runs them in
+# the search helper (`mixdog-search-host`).
+test-support = []
 
 [dependencies]
 mixdog-rt = { workspace = true }
@@ -57,7 +60,7 @@ windows-sys = { workspace = true, features = ["Win32_Security"] }
 
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
-mixdog-workspace = { path = ".", features = ["kill-points", "count-jobs", "replay-controls"] }
+mixdog-workspace = { path = ".", features = ["kill-points", "count-jobs", "replay-controls", "test-support"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }

@@ -1035,7 +1035,15 @@ async fn compose_inner(
     let local_processes = LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default());
     let process_manager: Arc<dyn ProcessManager> = Arc::new(local_processes.clone());
     let tidy_processes = Processes::new(process_manager.clone(), tokens.durability_io);
-    let file_service: Arc<dyn FileService> = Arc::new(LocalFileService::new());
+    // The search helper (this executable run as `search-worker`) runs every walk and text search of the file service, so what a broad
+    // search holds is never the core's. Nothing but a search starts it; the last stop step closes it.
+    let (search_host, search_driver) = mixdog_search_host::SearchHost::new(mixdog_search_host::HostConfig::new(
+        mixdog_search_host::OwnedCommand::new(js.core_program.clone()).arg("search-worker"),
+        search_exit_limit(),
+    ));
+    drop(mixdog_rt::spawn("search-host", mixdog_rt::TaskClass::Work, search_driver));
+    let search_host = Arc::new(search_host);
+    let file_service: Arc<dyn FileService> = Arc::new(LocalFileService::with_searches(search_host.clone()));
     log.boot_mark("ext-host-ready");
     let models = build_models(tokens, data_dir, ort_library, &tidy_processes)?;
     log.boot_mark("models-built");
@@ -1214,7 +1222,19 @@ async fn compose_inner(
     for (name, step) in later {
         core.on_stop(name, step);
     }
+    // After every session and runtime has stopped searching.
+    core.on_stop("the search helper's close", async move {
+        if search_host.close(search_exit_limit()).await == mixdog_search_host::CloseOutcome::Killed {
+            tracing::warn!("[search] the helper did not exit at stop and was killed");
+        }
+    });
     Ok(core)
+}
+
+/// How long the search helper may take to exit once its input is closed, when it retires idle and at the stop: the budget the
+/// stop steps run under, as the code graph helper's drain.
+fn search_exit_limit() -> std::time::Duration {
+    crate::lifecycle::ReleaseBudgets::default().close_data_handles
 }
 
 async fn open_core_state(
