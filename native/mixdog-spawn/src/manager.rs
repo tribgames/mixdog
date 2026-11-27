@@ -1024,8 +1024,11 @@ impl Drop for Reading {
     }
 }
 
+/// The most one read of a process's output takes: what one unfiltered push into its feed holds.
+pub const OUTPUT_READ_BYTES: usize = 64 * 1024;
+
 fn read_loop(mut reader: Box<dyn Read + Send>, stream: OutputStream, feed: Weak<Feed>, mut filter: Option<Box<dyn OutputFilter>>, _reading: Reading) {
-    let mut buffer = vec![0u8; 64 * 1024];
+    let mut buffer = vec![0u8; OUTPUT_READ_BYTES];
     loop {
         match reader.read(&mut buffer) {
             Ok(0) => break,
@@ -1720,6 +1723,15 @@ impl LocalProcessManager {
     pub async fn output_blocked(&self, handle: &ProcessHandle) -> Result<u64, ProcessError> {
         let feed = Arc::clone(&self.inner.lookup(handle)?.feed);
         Ok(feed.blocked_pushed().await)
+    }
+
+    /// [`ProcessManager::subscribe`] with the output offset where the subscription's first event starts: the bytes pushed before it,
+    /// which it does not trail. Tests only.
+    #[cfg(feature = "core-test")]
+    pub fn subscribe_with_start(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<(Box<dyn EventSource<ProcessEvent>>, u64), ProcessError> {
+        let subscription = self.inner.lookup(handle)?.feed.subscribe(from_seq)?;
+        let start = subscription.start();
+        Ok((Box::new(subscription), start))
     }
 
     /// Output bytes the process's reader has put into its feed so far.

@@ -20,6 +20,7 @@ use mixdog_core_api::domain::process::PtySize;
 use mixdog_core_api::domain::process::SpawnRequest;
 use mixdog_spawn::ProcessConfig;
 use mixdog_spawn::ShutdownOutcome;
+use mixdog_spawn::manager::OUTPUT_READ_BYTES;
 use mixdog_spawn::tasks::TaskOutcome;
 use mixdog_spawn::tasks::TaskStatus;
 
@@ -298,9 +299,9 @@ fn flood_command(path: &str) -> CommandSpec {
 async fn pushed_when_blocked(m: &mixdog_spawn::LocalProcessManager, h: &mixdog_protocol::ProcessHandle) -> u64 {
     mixdog_rt::time::timeout(Duration::from_secs(60), m.output_blocked(h)).await.expect("the reader never parked at its feed's gate within 60 s").unwrap()
 }
-/// DS-PROC-4: a 10 MB flood to a client that does not read stalls the PTY reader at the ring
-/// bound, a second client's keystrokes still pass, another process is not slowed, and reading
-/// again lets the flood finish.
+/// DS-PROC-4: a 10 MB flood to a client that does not read stalls the PTY reader once that client
+/// trails by the ring bound, a second client's keystrokes still pass, another process is not slowed,
+/// and reading again lets the flood finish.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn flood_to_a_stalled_client_stops_at_the_ring_bound() {
     const RING: usize = 1024 * 1024;
@@ -309,10 +310,14 @@ async fn flood_to_a_stalled_client_stops_at_the_ring_bound() {
     let h = handle("flood");
     let cmd = flood_command(&path);
     m.spawn(pty_request(&h, cmd, PtySize { cols: 120, rows: 40 })).await.unwrap();
-    // The client that never reads: subscribed, never polled.
-    let mut client = m.subscribe(&h, None).unwrap();
-    let stalled_at = pushed_when_blocked(&m, &h).await;
-    assert!(stalled_at as usize <= RING && stalled_at as usize + 192 * 1024 >= RING, "reader stalled at {stalled_at}, ring bound {RING}");
+    // The client that never reads: subscribed, never polled. Until it subscribed nothing held the reader back, so the bound
+    // counts from where it subscribed, and the reader parks with one read that would take it past the bound.
+    let (mut client, start) = m.subscribe_with_start(&h, None).unwrap();
+    let trailing = (pushed_when_blocked(&m, &h).await - start) as usize;
+    assert!(
+        trailing <= RING && trailing + OUTPUT_READ_BYTES > RING,
+        "the stalled client trails by {trailing} (subscribed at {start}), ring bound {RING}, one read {OUTPUT_READ_BYTES}"
+    );
     assert!(m.info(&h).unwrap().exit.is_none(), "the flood is held back, not finished");
 
     // A second client's keystrokes pass while the output is stalled.
