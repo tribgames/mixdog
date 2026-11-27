@@ -324,6 +324,8 @@ pub struct Agents {
     /// The threads whose Mixdog session unloaded while their agent's session stayed: a retired server does not reopen
     /// theirs before their next turn.
     unloaded: Mutex<std::collections::HashSet<ThreadId>>,
+    /// The shared servers each loaded thread had started ahead of its sub-agents' sessions, by preset id.
+    ahead: Mutex<HashMap<ThreadId, HashMap<String, AheadSlot>>>,
     /// What the user approved for the rest of each thread's session.
     pub(crate) grants: Mutex<HashMap<ThreadId, Arc<Mutex<std::collections::HashSet<mixdog_tools::policy::GrantKey>>>>>,
     /// What each agent said when it refused the signed-in account, by preset id; `None` until it is read from where it is kept.
@@ -400,6 +402,7 @@ impl Agents {
             resuming: Mutex::default(),
             carried: Mutex::default(),
             unloaded: Mutex::default(),
+            ahead: Mutex::default(),
             grants: Mutex::default(),
             refused: Mutex::default(),
             logins: Mutex::default(),
@@ -1180,6 +1183,7 @@ impl Agents {
     /// one that is not idle (a turn, a cancel, or a call left running in the agent's background) stays. Neither is
     /// reopened on a new server before the thread's next turn.
     pub fn release_idle(&self, thread: &ThreadId) {
+        self.end_ahead(thread);
         let session = {
             let mut sessions = lock(&self.sessions);
             self.stop_resuming(thread);
@@ -1203,6 +1207,7 @@ impl Agents {
     /// `thread`'s Mixdog session unloaded while its agent's session stays: a retired server does not reopen it before
     /// the thread's next turn.
     pub fn unloaded(&self, thread: &ThreadId) {
+        self.end_ahead(thread);
         let _sessions = lock(&self.sessions);
         self.stop_resuming(thread);
         lock(&self.unloaded).insert(thread.clone());
@@ -1267,10 +1272,56 @@ impl Agents {
         }
     }
 
+    /// Has `preset`'s shared server running before a sub-agent of `thread` opens a session on it: a turn of the thread
+    /// is under way, and its sub-agents run on the preset. The server stays, serving no session, until the thread is
+    /// let go of ([`Self::release`], [`Self::release_idle`], [`Self::unloaded`]). An agent that cannot run now starts
+    /// nothing, and one whose server retired since is started again.
+    pub fn start_ahead(self: &Arc<Self>, thread: &ThreadId, preset: &AgentPreset) {
+        if preset.scope != ProcessScope::Shared || self.selectable(preset).is_err() || self.stopping.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let id = self.next_check.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        {
+            let mut ahead = lock(&self.ahead);
+            let slots = ahead.entry(thread.clone()).or_default();
+            match slots.get(&preset.id) {
+                Some(AheadSlot::Starting(_)) => return,
+                Some(AheadSlot::Held(held)) if held.serves() => return,
+                _ => slots.insert(preset.id.clone(), AheadSlot::Starting(id)),
+            };
+        }
+        let (agents, thread, preset) = (self.clone(), thread.clone(), preset.clone());
+        drop(mixdog_rt::spawn("acp.shared.ahead", mixdog_rt::TaskClass::Work, async move {
+            let started = async {
+                let (program, _starting) = agents.ready_program(&preset).await.ok()?;
+                let (lease, _) = agents.shared_server_bounded(&preset, &program, None).await.ok()?;
+                lease.server().ahead()
+            }
+            .await;
+            // The thread let go of meanwhile keeps nothing: the hold ends here, and a server serving none retires.
+            let mut ahead = lock(&agents.ahead);
+            let Some(slots) = ahead.get_mut(&thread) else { return };
+            if !matches!(slots.get(&preset.id), Some(AheadSlot::Starting(slot)) if *slot == id) {
+                return;
+            }
+            match started {
+                Some(held) => slots.insert(preset.id.clone(), AheadSlot::Held(held)),
+                None => slots.remove(&preset.id),
+            };
+        }));
+    }
+
+    /// `thread` holds no server started ahead any more.
+    fn end_ahead(&self, thread: &ThreadId) {
+        let held = lock(&self.ahead).remove(thread);
+        drop(held);
+    }
+
     /// Ends the agent of `thread` with its whole process tree, or takes its session alone off the shared server, one
     /// that is still starting included: the thread closed, was cleaned up, parked, or deleted. What the user approved
     /// for the session goes with it.
     pub fn release(&self, thread: &ThreadId) {
+        self.end_ahead(thread);
         let session = {
             let mut sessions = lock(&self.sessions);
             lock(&self.unloaded).remove(thread);
@@ -1287,6 +1338,8 @@ impl Agents {
 
     /// Ends every agent, shared server, check and sign-in: the feature was turned off.
     pub fn release_all(&self) {
+        let held = std::mem::take(&mut *lock(&self.ahead));
+        drop(held);
         let sessions: Vec<_> = {
             let mut sessions = lock(&self.sessions);
             lock(&self.unloaded).clear();
@@ -1312,6 +1365,13 @@ impl Agents {
     pub fn running(&self, thread: &ThreadId) -> Option<Arc<AgentSession>> {
         lock(&self.sessions).get(thread).cloned()
     }
+}
+
+/// A thread's hold on a shared server it had started ahead.
+enum AheadSlot {
+    /// The start under way, by its id: one the thread let go of meanwhile is not kept.
+    Starting(u64),
+    Held(crate::shared::Ahead),
 }
 
 impl mixdog_core_session::session::purge::SessionAgentProcesses for Agents {

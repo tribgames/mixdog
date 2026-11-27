@@ -254,6 +254,10 @@ impl SessionActor {
     pub(super) fn visible_progress(&mut self) {
         if std::mem::take(&mut self.turn_prewarm_armed) {
             self.deps.code_graph_prewarm.schedule(Some(std::time::Duration::ZERO), "first-visible");
+            // A worker starts no sub-agents of its own.
+            if !super::super::close::is_worker(&self.acked.header) {
+                self.deps.deletion.agent_turn_under_way(self.id.as_str());
+            }
         }
     }
 

@@ -136,6 +136,8 @@ struct State {
     opening: usize,
     /// Active turn/RPC uses of sessions on this server (e.g. handover, `select_model`, prompt turn).
     active_uses: usize,
+    /// The threads that had it started ahead of the sessions their sub-agents open: it serves none yet and stays.
+    ahead: usize,
     /// The sessions it opened or reopened.
     opened: usize,
     /// At least one session left this server without `session/close`: retire the server as soon as it is quiescent so
@@ -199,6 +201,25 @@ impl Drop for SessionUse {
             let mut state = lock(&self.0.state);
             state.active_uses -= 1;
         }
+        self.0.settle();
+    }
+}
+
+/// Keeps a shared server that serves no session yet running: a thread whose sub-agents run on it had it started ahead.
+/// Unlike a [`Lease`] it is no open under way, so nothing the server sends is kept for it, and a server that leaked a
+/// session still retires under it.
+pub(crate) struct Ahead(Arc<SharedServer>);
+
+impl Ahead {
+    /// The server still takes sessions.
+    pub(crate) fn serves(&self) -> bool {
+        !lock(&self.0.state).retired && !self.0.connection.exited().is_cancelled()
+    }
+}
+
+impl Drop for Ahead {
+    fn drop(&mut self) {
+        lock(&self.0.state).ahead -= 1;
         self.0.settle();
     }
 }
@@ -289,6 +310,16 @@ impl SharedServer {
         }
         state.opening += 1;
         Some(Lease(self.clone()))
+    }
+
+    /// Keeps the server running while it serves no session; `None` once it takes no more.
+    pub(crate) fn ahead(self: &Arc<Self>) -> Option<Ahead> {
+        let mut state = lock(&self.state);
+        if state.retired || self.connection.exited().is_cancelled() {
+            return None;
+        }
+        state.ahead += 1;
+        Some(Ahead(self.clone()))
     }
 
     /// Marks a session on this server as actively in use by a turn or RPC; `None` once the server is retiring or exited.
@@ -383,7 +414,8 @@ impl SharedServer {
 
     fn take_retirement(state: &mut State) -> Option<Vec<Arc<AgentSession>>> {
         state.sessions.retain(|_, weak| weak.strong_count() > 0);
-        let retire = !state.retired && state.opening == 0 && (state.sessions.is_empty() || (state.leaked && is_quiescent(state)));
+        let unused = state.sessions.is_empty() && state.ahead == 0;
+        let retire = !state.retired && state.opening == 0 && (unused || (state.leaked && is_quiescent(state)));
         if !retire {
             return None;
         }
@@ -1291,6 +1323,46 @@ mod tests {
         .await
         .expect("detach must send session/cancel for dropped in-flight prompt");
         assert!(!killed.load(Ordering::SeqCst), "sibling keeps shared server alive");
+    }
+
+    /// A server started ahead of the sessions it will serve stays while it serves none, and retires once the hold on
+    /// it ends.
+    #[tokio::test]
+    async fn a_server_held_ahead_stays_with_no_session_and_retires_with_the_hold() {
+        let _ = mixdog_rt::testing::tokens();
+        let processes: Arc<dyn mixdog_core_api::domain::process::ProcessManager> = Arc::new(SharedTestProcesses {
+            killed: Arc::default(),
+            gate_prompts: false,
+            prompt_started: Arc::new(tokio::sync::Notify::new()),
+            drain_gate: Arc::new(tokio::sync::Notify::new()),
+            delivered: Arc::new(Mutex::new(Vec::new())),
+            delivered_notify: Arc::new(tokio::sync::Notify::new()),
+        });
+        let cwd = AbsPath::new(std::env::current_dir().expect("cwd")).expect("abs cwd");
+        let (connection, _rx) = Connection::start(
+            processes.clone(),
+            crate::connection::Launch { program: "fake".into(), args: Vec::new(), env: Vec::new(), env_remove: Vec::new(), cwd },
+        )
+        .await
+        .expect("connection");
+        let agents = test_agents(processes);
+        let server = Arc::new(SharedServer {
+            connection,
+            capabilities: json!({}),
+            preset: "antigravity".into(),
+            epoch: 0,
+            agents: Arc::downgrade(&agents),
+            files: Arc::new(DummyFiles),
+            retiring: CancellationToken::new(),
+            state: Mutex::default(),
+        });
+        let ahead = server.ahead().expect("a running server is held");
+        // The start's own lease ends with no session registered: that alone retires a server nobody holds ahead.
+        drop(server.lease().expect("the start's lease"));
+        assert!(ahead.serves(), "the server held ahead serves on with no session on it");
+        drop(ahead);
+        assert!(lock(&server.state).retired, "the hold's end retires a server that serves none");
+        assert!(server.ahead().is_none(), "a retired server is held by nobody");
     }
 
     /// `retire_wedged_shared` targets only sessions belonging to the specific wedged server instance

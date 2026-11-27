@@ -3785,7 +3785,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             let agents = agents.clone();
             // A warm of a session that is not loaded leaves its book's evidence in the warmer's touch file, which the next load reads.
             let kept_books = warm_touches.clone();
-            let acp_processes: Arc<dyn mixdog_core_session::session::purge::SessionAgentProcesses> = acp_agents.clone();
+            let acp_processes: Arc<dyn mixdog_core_session::session::purge::SessionAgentProcesses> =
+                Arc::new(crate::acp_tools::SessionAgents { agents: acp_agents.clone(), config: config.clone() });
             let forget_shell_strip = crate::exec::forget_thread_for(&b.exec);
             move |runs| mixdog_core_session::session::SessionDeps {
                 archive: archive.clone(),

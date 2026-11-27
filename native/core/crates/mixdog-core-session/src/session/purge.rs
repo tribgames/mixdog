@@ -425,6 +425,9 @@ pub trait SessionAgentProcesses: Send + Sync {
     /// The session's runtime unloaded while its agent process stays: the agent is not reopened before the session's
     /// next turn.
     fn unloaded(&self, session_id: &str);
+    /// A turn of the session, one that can start sub-agents, is producing output: what the agents its sub-agents run
+    /// on need before a session opens is started now, and held until the session is let go of.
+    fn turn_under_way(&self, _session_id: &str) {}
 }
 
 /// `purgeAgentDefinition(agentId)` over the process's agent definitions.
@@ -470,6 +473,12 @@ impl DeleteSeams for SessionDeletion {
     fn agent_process_unloaded(&self, session_id: &str) {
         if let Some(agents) = &self.agent_processes {
             agents.unloaded(session_id);
+        }
+    }
+
+    fn agent_turn_under_way(&self, session_id: &str) {
+        if let Some(agents) = &self.agent_processes {
+            agents.turn_under_way(session_id);
         }
     }
 

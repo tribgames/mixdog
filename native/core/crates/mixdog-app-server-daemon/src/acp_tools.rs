@@ -411,6 +411,41 @@ impl Attachments for Stored {
     }
 }
 
+/// The sessions' side of the ACP agents: a session's own agent process, and the agents its sub-agents run on.
+pub struct SessionAgents {
+    pub agents: Arc<Agents>,
+    pub config: mixdog_core_config::config::Config,
+}
+
+impl mixdog_core_session::session::purge::SessionAgentProcesses for SessionAgents {
+    fn release(&self, session_id: &str) {
+        self.agents.release(&ThreadId::from(session_id));
+    }
+
+    fn release_idle(&self, session_id: &str) {
+        self.agents.release_idle(&ThreadId::from(session_id));
+    }
+
+    fn unloaded(&self, session_id: &str) {
+        self.agents.unloaded(&ThreadId::from(session_id));
+    }
+
+    /// The agent roles whose route is an ACP agent's have that agent's shared server started now: the first sub-agent
+    /// the turn starts then opens its session on a server that runs.
+    fn turn_under_way(&self, session_id: &str) {
+        let agent = self.config.agent();
+        let Some(roles) = agent.get("agents").and_then(Value::as_object) else { return };
+        let thread = ThreadId::from(session_id);
+        for candidate in roles.values() {
+            let route = mixdog_core_config::config::agent_routes::route_of(&agent, candidate);
+            let provider = route.as_ref().and_then(|route| route.get("provider")).and_then(Value::as_str);
+            if let Some(preset) = provider.and_then(|provider| self.agents.preset_of_route(provider)) {
+                self.agents.start_ahead(&thread, preset);
+            }
+        }
+    }
+}
+
 #[async_trait]
 impl OutsideAgents for AgentTurns {
     fn serves(&self, header: &Header) -> bool {
