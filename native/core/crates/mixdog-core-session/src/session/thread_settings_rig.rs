@@ -55,6 +55,8 @@ pub struct Projects {
     pub registered: Vec<String>,
     pub task: String,
     pub touched: Mutex<Vec<String>>,
+    /// The real folder of a registered Project that is a link to it, by registered path.
+    pub real: Mutex<HashMap<String, String>>,
 }
 
 #[async_trait]
@@ -67,7 +69,7 @@ impl ProjectFolders for Projects {
         self.registered.iter().find(|p| project_identity(Some(p)) == key).cloned().ok_or_else(|| "Project is not available.".to_owned())
     }
     async fn canonical_directory(&self, path: &str) -> Result<String, String> {
-        Ok(path.to_owned())
+        Ok(lock(&self.real).get(path).cloned().unwrap_or_else(|| path.to_owned()))
     }
     async fn task_workspace(&self) -> Result<String, String> {
         Ok(self.task.clone())
@@ -175,7 +177,7 @@ pub async fn build_with(
     registered: Vec<String>,
     task: String,
 ) -> Built {
-    let projects = Arc::new(Projects { registered, task, touched: Mutex::default() });
+    let projects = Arc::new(Projects { registered, task, touched: Mutex::default(), real: Mutex::default() });
     let (effort, agent_only) = (Arc::new(Effort::default()), Arc::new(AgentOnly(Mutex::default(), directory.clone())));
     let live: super::worktree::LiveSessions = Arc::new(HashSet::new);
     let worktrees = WorktreeMaintenance::new(worktrees, Arc::new(NoSessions), live, Arc::new(|_: Option<&str>| {}));

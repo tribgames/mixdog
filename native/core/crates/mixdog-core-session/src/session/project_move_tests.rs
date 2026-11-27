@@ -102,12 +102,15 @@ impl Retention for Keep {
     }
 }
 
-/// `a`, the repository the session starts in, and the plain folders `b` and `c`: the registered Projects.
+/// `a`, the repository the session starts in, the plain folders `b` and `c`, and `link`, which no test creates: the registered
+/// Projects. `real` is a folder outside all of them.
 struct Folders {
     _dir: tempfile::TempDir,
     a: String,
     b: String,
     c: String,
+    link: String,
+    real: String,
     task: String,
 }
 
@@ -119,7 +122,8 @@ fn folders() -> Folders {
         path.to_string_lossy().into_owned()
     };
     let (b, c, task) = (text(dir.path().join("b")), text(dir.path().join("c")), text(dir.path().join("tasks")));
-    Folders { a: a.to_string_lossy().into_owned(), b, c, task, _dir: dir }
+    let (link, real) = (dir.path().join("link").to_string_lossy().into_owned(), text(dir.path().join("real")));
+    Folders { a: a.to_string_lossy().into_owned(), b, c, link, real, task, _dir: dir }
 }
 
 struct Served {
@@ -137,7 +141,7 @@ async fn served(rig: &Rig, folders: &Folders) -> Arc<Served> {
     let directory = Arc::new(SessionDirectory::new(Arc::new(parts)));
     let hosted = crate::session::thread_settings_rig::hosted(&directory, Arc::new(SessionThreads::new(directory.clone())));
     assert!(late.workspaces.set(hosted.workspaces.clone()).is_ok());
-    let registered = vec![folders.a.clone(), folders.b.clone(), folders.c.clone()];
+    let registered = vec![folders.a.clone(), folders.b.clone(), folders.c.clone(), folders.link.clone()];
     let built =
         crate::session::thread_settings_rig::build(directory.clone(), hosted.workspaces.clone(), hosted.worktrees.clone(), registered, folders.task.clone())
             .await;
@@ -514,6 +518,22 @@ async fn a_held_start_waits_for_every_recorded_move_and_runs_after_them() {
     assert_eq!(pending(&handle), None);
     gate.notify_one();
     next.await.expect("joined");
+}
+
+/// A registered Project that is a link to a folder elsewhere: the session runs in the real folder and stays a session of the
+/// Project as it is registered.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_move_to_a_linked_project_keeps_the_session_in_that_project() {
+    let (rig, folders) = (Rig::new(), folders());
+    let served = served(&rig, &folders).await;
+    locked(&served.built.projects.real).insert(folders.link.clone(), folders.real.clone());
+    let handle = create(&rig, &served.directory, &folders, json!({})).await;
+    eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
+
+    assert_eq!(move_to(&served, &folders.link, 1).await.expect("moved"), json!({}));
+    assert!(same(&cwd(&handle), &folders.real), "{}", cwd(&handle));
+    let header = handle.header_snapshot();
+    assert_eq!(header.get("desktopSession"), Some(&json!({ "classification": "project", "projectPath": folders.link })));
 }
 
 /// From an idle managed worktree, the return and the switch are one transition: a prompt from a second window sent while the

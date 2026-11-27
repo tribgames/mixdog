@@ -523,6 +523,12 @@ struct ProjectMoves {
     surface: mixdog_core_base::surface::SurfaceGeneration,
 }
 
+/// The recorded move a switch carries out, and the registered Project it asks for (`None`: the task workspace).
+struct Carried<'a> {
+    pending: &'a Value,
+    project: Option<String>,
+}
+
 impl SettledMoves for ProjectMoves {
     fn settled_move(&self, thread: &str, pending: Value) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
         let (me, thread) = (self.me.upgrade(), ThreadId::from(thread));
@@ -671,21 +677,28 @@ impl ProjectMoves {
     async fn carry(&self, thread: &ThreadId, pending: &Value) -> Result<(), CoreError> {
         let projects = &self.projects;
         let target = pending.get("projectPath").and_then(Value::as_str);
-        let cwd = match target {
+        let (cwd, project) = match target {
             Some(target) => match projects.registered(target).await {
-                Ok(registered) => projects.canonical_directory(&registered).await,
+                Ok(registered) => projects.canonical_directory(&registered).await.map(|cwd| (cwd, Some(registered))),
                 Err(message) => Err(message),
             },
-            None => projects.task_workspace().await,
+            None => projects.task_workspace().await.map(|cwd| (cwd, None)),
         }
         .map_err(|message| failed(DOMAIN, message))?;
-        self.move_to(thread, &cwd, &CancellationToken::new(), false, Some(pending)).await.map(drop)
+        self.move_to(thread, &cwd, &CancellationToken::new(), false, Some(Carried { pending, project })).await.map(drop)
     }
 
-    /// `pending`: the recorded move this carries out. A session in a managed worktree returns to the project folder first, as
+    /// `carried`: the recorded move this carries out. A session in a managed worktree returns to the project folder first, as
     /// the `git` tool's `return` does (the worktree kept), in the same transition as the switch
     /// ([`SessionWorkspaces::move_to_project`]).
-    async fn move_to(&self, thread: &ThreadId, path: &str, cancel: &CancellationToken, own_turn: bool, pending: Option<&Value>) -> Result<Value, CoreError> {
+    async fn move_to(
+        &self,
+        thread: &ThreadId,
+        path: &str,
+        cancel: &CancellationToken,
+        own_turn: bool,
+        carried: Option<Carried<'_>>,
+    ) -> Result<Value, CoreError> {
         let handle = self.directory.open_handle(thread, &CallContext::internal("thread-settings")).await?;
         let header = handle.cell.header.load_full();
         let raw = mixdog_js::js_trim(path);
@@ -711,20 +724,26 @@ impl ProjectMoves {
         // a session is a task again. A session without a desktop record keeps having none.
         let desktop = match header.get("desktopSession") {
             Some(Value::Object(_)) => {
-                let member = own_turn || {
-                    let projects = self.projects.projects().await.map_err(|message| failed(DOMAIN, message))?;
-                    projects.iter().any(|project| is_within(project, &resolved))
+                // A carried move names its Project: the folder is that Project's real path, which a linked Project does not contain.
+                let project = match &carried {
+                    Some(carried) => carried.project.clone(),
+                    None => {
+                        let member = own_turn || {
+                            let projects = self.projects.projects().await.map_err(|message| failed(DOMAIN, message))?;
+                            projects.iter().any(|project| is_within(project, &resolved))
+                        };
+                        member.then(|| resolved.clone())
+                    }
                 };
-                Some(if member {
-                    json!({ "classification": "project", "projectPath": resolved })
-                } else {
-                    json!({ "classification": "task", "projectPath": null })
+                Some(match project {
+                    Some(path) => json!({ "classification": "project", "projectPath": path }),
+                    None => json!({ "classification": "task", "projectPath": null }),
                 })
             }
             _ => None,
         };
-        let switched = match pending {
-            Some(pending) => self.workspaces.move_to_project(thread.as_str(), &resolved, desktop, pending.clone(), cancel).await,
+        let switched = match carried {
+            Some(carried) => self.workspaces.move_to_project(thread.as_str(), &resolved, desktop, carried.pending.clone(), cancel).await,
             None => self.workspaces.switch_project(thread.as_str(), &resolved, desktop, own_turn, cancel).await,
         };
         // The switch ends in invalidating the caches (the context cache and the pre-session
