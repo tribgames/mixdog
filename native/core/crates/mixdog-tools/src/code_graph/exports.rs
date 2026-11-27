@@ -91,6 +91,10 @@ impl ImportRecord for Spec {
 
 /// The files each specifier of `node`'s re-exports names, in the order given.
 fn resolve_specs(graph: &Graph, files: &HashSet<String>, node: &Node, specs: &[&str]) -> Vec<Vec<String>> {
+    // Resolving loads the project's manifests from disk: a file with no re-export has nothing to resolve.
+    if specs.is_empty() {
+        return Vec::new();
+    }
     let mut records: Vec<Spec> = specs
         .iter()
         .map(|spec| Spec {

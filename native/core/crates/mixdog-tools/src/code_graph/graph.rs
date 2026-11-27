@@ -1208,7 +1208,8 @@ impl Graph {
             }
         });
         let started = std::time::Instant::now();
-        let stale: Vec<PathBuf> = self.inputs.iter().filter(|input| !input.is_current()).map(|input| input.path().to_path_buf()).collect();
+        // Each input is a read of a manifest or a directory on disk, independent of the others.
+        let stale: Vec<PathBuf> = self.inputs.par_iter().filter(|input| !input.is_current()).map(|input| input.path().to_path_buf()).collect();
         super::cache::note(|t| t.resolver_check_ms += super::cache::elapsed_ms(started));
         stale
     }

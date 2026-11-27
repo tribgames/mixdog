@@ -242,16 +242,34 @@ pub(super) fn find_hits(graph: &Graph, symbol: &str, language: Option<&str>) -> 
 /// The declaration a callee name resolves to: the same file's, else the best-ranked.
 pub(super) fn callee_declaration(graph: &Graph, name: &str, language: Option<&str>, prefer_rel: &str) -> Option<Hit> {
     let clean = name.trim();
-    let hits: Vec<Hit> = if clean.is_empty() || clean.contains('/') {
-        find_hits(graph, name, language)
-    } else {
+    if clean.is_empty() || clean.contains('/') {
+        return pick_declaration(&find_hits(graph, name, language), Some(prefer_rel));
+    }
+    let hits_of = |node: &Node| {
         let mut hits = Vec::new();
-        for node in graph.token_candidates(clean, language).filter(|n| n.symbols.iter().any(|s| s.name == clean)) {
-            hits_on_node(node, clean, &mut hits);
-        }
-        sorted(hits)
+        hits_on_node(node, clean, &mut hits);
+        hits
     };
-    pick_declaration(&hits, Some(prefer_rel))
+    let best = |hits: &[Hit]| hits.iter().min_by(|a, b| compare_hits(a, b)).cloned();
+    let mut declaring: Vec<&Node> = graph.token_candidates(clean, language).filter(|n| n.symbols.iter().any(|s| s.name == clean)).collect();
+    if let Some(node) = declaring.iter().find(|n| n.rel == prefer_rel) {
+        let own: Vec<Hit> = hits_of(node).into_iter().filter(|h| h.declaration_like).collect();
+        if !own.is_empty() {
+            return best(&own);
+        }
+    }
+    // A hit costs a parse of its file, and a common name is declared in thousands: the files are taken in the order
+    // the ranking puts them (a declaration, then its path's rank), and the first rank that holds a declaration decides.
+    declaring.sort_by(|a, b| compare_rel_rank(&a.rel, &b.rel));
+    let mut mentions: Vec<Hit> = Vec::new();
+    for ranked in declaring.chunk_by(|a, b| compare_rel_rank(&a.rel, &b.rel).is_eq()) {
+        let hits: Vec<Hit> = ranked.iter().flat_map(|node| hits_of(node)).collect();
+        if hits.iter().any(|h| h.declaration_like) {
+            return best(&hits);
+        }
+        mentions.extend(hits);
+    }
+    best(&mentions)
 }
 
 pub(super) fn pick_declaration(hits: &[Hit], prefer_rel: Option<&str>) -> Option<Hit> {
