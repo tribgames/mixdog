@@ -290,6 +290,12 @@ test('the full gate (a call, the nightly run, a manual full run) selects every c
       JSON.parse(result[`build_matrix_${os}`]).include.map((entry) => entry.os),
       [os]
     );
+  // the macOS archive is built on the project's own machine and run on the hosted legs
+  assert.deepEqual(
+    ['linux', 'macos', 'windows'].map((os) => JSON.parse(result[`build_matrix_${os}`]).include[0].runner),
+    ['ubuntu-22.04', 'mixdog-m4-gate', 'windows-2022']
+  );
+  assert.deepEqual([...new Set(JSON.parse(result.test_matrix_macos).include.map((leg) => leg.runner))], ['macos-15']);
   assert.deepEqual(
     JSON.parse(result.core_real_matrix).include.map((entry) => `${entry.os}:${entry.target}`),
     ['linux:x86_64-unknown-linux-gnu', 'macos:aarch64-apple-darwin', 'windows:x86_64-pc-windows-msvc']

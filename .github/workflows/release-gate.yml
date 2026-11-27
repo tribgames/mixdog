@@ -2086,8 +2086,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: ${{ steps.rust-pin.outputs.version }}
+      # A hosted runner's entry only: the project's own machine (the macOS archive) keeps its registry and compiles the
+      # dependencies in less time than the entry takes to arrive, and an entry holds the home folder of the runner that wrote it.
       - name: Restore the compiled dependencies
         id: deps
+        if: runner.environment == 'github-hosted'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -2142,10 +2145,10 @@ jobs:
       # Only a build of every crate writes the entry: a push's selection compiles the dependencies of its crates alone, and an
       # entry of those would be an exact hit that every later build compiles the rest after.
       - name: Keep only the third-party dependencies in the cache
-        if: github.ref == 'refs/heads/main' && steps.deps.outputs.cache-hit != 'true' && needs.changes.outputs.core_scope == 'all'
+        if: runner.environment == 'github-hosted' && github.ref == 'refs/heads/main' && steps.deps.outputs.cache-hit != 'true' && needs.changes.outputs.core_scope == 'all'
         run: node scripts/ci/prune-core-target.mjs --target native/core/target --profile debug --manifest-path native/core/Cargo.toml
       - name: Save the compiled dependencies
-        if: github.ref == 'refs/heads/main' && steps.deps.outputs.cache-hit != 'true' && needs.changes.outputs.core_scope == 'all'
+        if: runner.environment == 'github-hosted' && github.ref == 'refs/heads/main' && steps.deps.outputs.cache-hit != 'true' && needs.changes.outputs.core_scope == 'all'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -2383,6 +2386,15 @@ jobs:
         with:
           toolchain: ${{ steps.rust-pin.outputs.version }}
       - uses: ./.github/actions/install-nextest
+      # The macOS archive is built on the project's own machine, whose checkout is at /Users/Shared/mixdog-ci/mixdog/mixdog
+      # (core-select.mjs SYSTEMS), and its test binaries hold that path (env!("CARGO_MANIFEST_DIR")): this checkout answers at it.
+      - &macos-build-path
+        name: Give the checkout the path the macOS archive was built at
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p /Users/Shared/mixdog-ci/mixdog
+          ln -s "$GITHUB_WORKSPACE" /Users/Shared/mixdog-ci/mixdog/mixdog
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: core-tests-${{ env.GATE_KEY }}-${{ matrix.os }}
@@ -2484,6 +2496,7 @@ jobs:
         with:
           node-version: "22"
       - uses: ./.github/actions/install-nextest
+      - *macos-build-path
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: core-tests-${{ env.GATE_KEY }}-${{ matrix.os }}
@@ -2790,6 +2803,7 @@ jobs:
         with:
           toolchain: ${{ steps.rust-pin.outputs.version }}
       - uses: ./.github/actions/install-nextest
+      - *macos-build-path
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: core-tests-${{ env.GATE_KEY }}-macos

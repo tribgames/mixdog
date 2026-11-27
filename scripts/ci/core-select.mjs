@@ -33,7 +33,11 @@ export const TESTS_PER_LEG = 4000;
 // tests ran partitions of 116-199 s (run 45068609184), so six bring the slowest near two minutes of tests beside that minute.
 export const SYSTEMS = [
   { os: 'linux', runner: 'ubuntu-22.04', nextest: 'linux', exe: '', maxLegs: 6, testsPerLeg: 3000 },
-  { os: 'macos', runner: 'macos-15', nextest: 'mac', exe: '', maxLegs: 3 },
+  // The macOS archive is built on the project's own M4 (ten cores; the hosted runner's three took 36-40 minutes, run
+  // 46049828800) and run on the hosted legs, which answer at the path that runner checks out at (release-gate.yml, "Give the
+  // checkout the path the macOS archive was built at"). It builds only: the Office tests' LibreOffice instances hung the
+  // window server of a logged-in Mac.
+  { os: 'macos', runner: 'macos-15', buildRunner: 'mixdog-m4-gate', nextest: 'mac', exe: '', maxLegs: 3 },
   { os: 'windows', runner: 'windows-2022', nextest: 'windows-tar', exe: '.exe', maxLegs: 6, testsPerLeg: 3000 },
 ];
 
@@ -290,16 +294,16 @@ function jobMatrices({ scope, tests, entry, mixdogdDev, mixdogdWindows, systems 
   // app against this run's Windows dev daemon.
   const wantsDaemon = (system) =>
     ((mixdogdDev || entry) && system.os === 'linux') || (mixdogdWindows && system.os === 'windows');
-  const mixdogd = SYSTEMS.filter(wantsDaemon).map(({ maxLegs, testsPerLeg, ...system }) => system);
+  const mixdogd = SYSTEMS.filter(wantsDaemon).map(({ maxLegs, testsPerLeg, buildRunner, ...system }) => system);
   // One test job per system, each needing only its own system's archive.
   const test = {};
   const build = {};
-  for (const { maxLegs, testsPerLeg = TESTS_PER_LEG, ...system } of SYSTEMS) {
+  for (const { maxLegs, testsPerLeg = TESTS_PER_LEG, buildRunner, ...system } of SYSTEMS) {
     const on = scope !== 'none' && systems.includes(system.os);
     const legs = on ? Math.min(maxLegs, Math.max(1, Math.ceil(tests / testsPerLeg))) : 0;
     test[system.os] = Array.from({ length: legs }, (_, index) => ({ ...system, part: index + 1, of: legs }));
     // One build of the selection per system, on one runner.
-    build[system.os] = on ? [{ os: system.os, runner: system.runner }] : [];
+    build[system.os] = on ? [{ os: system.os, runner: buildRunner ?? system.runner }] : [];
   }
   return { mixdogd, test, build };
 }
