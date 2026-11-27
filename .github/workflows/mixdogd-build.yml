@@ -113,9 +113,12 @@ jobs:
           key: mixdogd-cargo-${{ matrix.target }}-${{ steps.cargo-lock.outputs.key }}
           restore-keys: mixdogd-cargo-${{ matrix.target }}-
       # libvpx's x86 assembly.
-      - name: Install nasm
+      # libvpx built from its source: nasm assembles it, and the crate's build script reads the archive with llvm-nm.
+      - name: Install nasm and llvm-tools
         if: ${{ matrix.nasm }}
-        run: brew install nasm
+        run: |
+          brew install nasm
+          rustup component add llvm-tools
       # One cargo invocation per program, one target directory: the crates they share compile once, and the features
       # each binary is built with stay its own.
       - name: Build the programs
