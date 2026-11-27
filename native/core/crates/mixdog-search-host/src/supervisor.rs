@@ -816,6 +816,8 @@ impl Actor {
     fn finish_close(&mut self) {
         let Some(closing) = self.closing.take() else { return };
         self.closed = Some(closing.outcome);
+        // Before the answer: a caller that hears the close reads a status that says it.
+        self.publish();
         for waiter in closing.waiters {
             let _ = waiter.send(closing.outcome);
         }
