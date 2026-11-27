@@ -565,6 +565,9 @@ impl AcpSearchBackend for AgentWebSearch {
                 mapped
             }
             TurnEnd::Interrupted => Err(AcpSearchError::cancelled("This operation was aborted").with_usage(usage, excludes_cache)),
+            TurnEnd::CompactNeeded { .. } => {
+                Err(AcpSearchError::failed("ACP web search unexpectedly requested mid-turn compaction").with_usage(usage, excludes_cache))
+            }
             TurnEnd::Refused { message } => {
                 self.agents.refused(preset, &message).await;
                 Err(AcpSearchError::refusal(message).with_usage(usage, excludes_cache))
@@ -1820,6 +1823,9 @@ pub(crate) fn map_turn_outcome(
             Ok(AcpSearchReply { answer: text, model, citations, calls, usage, input_excludes_cache })
         }
         TurnEnd::Interrupted => Err(AcpSearchError::cancelled("This operation was aborted").with_usage(usage, input_excludes_cache)),
+        TurnEnd::CompactNeeded { .. } => {
+            Err(AcpSearchError::failed("ACP web search unexpectedly requested mid-turn compaction").with_usage(usage, input_excludes_cache))
+        }
         TurnEnd::Refused { message } => Err(AcpSearchError::refusal(message).with_usage(usage, input_excludes_cache)),
         TurnEnd::Failed { message, code, .. } => {
             if code == Some(AUTH_REQUIRED) {

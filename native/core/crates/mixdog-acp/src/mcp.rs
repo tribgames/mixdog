@@ -814,7 +814,7 @@ async fn enforce_inline_text_budget(blocks: &mut Vec<Value>, tool_name: &str, pr
 }
 
 /// Applies [`enforce_inline_text_budget`] to a finished MCP `tools/call` reply right before delivery (after any
-/// mid-turn user steers have been appended to `answer["content"]`).
+/// `cliff_advisory` or mid-turn user steers have been appended to `answer["content"]`).
 pub(crate) async fn enforce_answer_text_budget(
     answer: &mut Value,
     tool_name: &str,

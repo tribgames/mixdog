@@ -854,6 +854,7 @@ impl AgentImageGen {
                 }
             }
             TurnEnd::Interrupted => Err(AcpImageError::cancelled("canceled").with_usage(usage)),
+            TurnEnd::CompactNeeded { .. } => Err(AcpImageError::failed("Antigravity image generation unexpectedly requested compaction.").with_usage(usage)),
             TurnEnd::Refused { message } => {
                 self.agents.refused(preset, &message).await;
                 Err(AcpImageError::refusal(message).with_usage(usage))

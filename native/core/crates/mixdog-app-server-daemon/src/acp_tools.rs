@@ -349,6 +349,10 @@ impl Conversation for Held {
     async fn compact(&self) -> Result<Option<String>, String> {
         self.0.compact().await
     }
+
+    async fn compact_mid_turn(&self, effective_window: Option<u64>) -> Result<Option<String>, String> {
+        self.0.compact_mid_turn(effective_window).await
+    }
 }
 
 struct Stored {

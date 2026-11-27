@@ -57,9 +57,10 @@ struct Agent {
     seen_due: Mutex<Vec<Option<(u64, u64)>>>,
     /// When set, writes `(contextWindow, lastContextTokens)` to the header on round 1.
     round1_header_usage: Option<(u64, u64)>,
-    /// When set, records `turn.history.auto_compaction_trigger(window)` on each turn.
-    auto_trigger_window: Option<u64>,
+    /// When set, calls `turn.history.auto_compaction_trigger(window)` and `turn.history.compact_mid_turn(Some(window))`.
+    mid_turn_compact_window: Option<u64>,
     seen_auto_triggers: Mutex<Vec<Option<u64>>>,
+    mid_turn_compacted: Mutex<Vec<Result<Option<String>, String>>>,
 }
 
 /// The header key the stand-in agent's own session is kept under.
@@ -149,8 +150,10 @@ impl OutsideAgents for Agent {
             set.insert("lastContextTokensStaleAfterCompact".into(), json!(false));
             let _ = turn.port.save_header(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new(), patch: Default::default() }).await;
         }
-        if let Some(window) = self.auto_trigger_window {
+        if let Some(window) = self.mid_turn_compact_window {
             lock(&self.seen_auto_triggers).push(turn.history.auto_compaction_trigger(window));
+            let made = turn.history.compact_mid_turn(Some(window)).await;
+            lock(&self.mid_turn_compacted).push(made);
         }
         if self.hands_over {
             let handed = turn.history.hand_over().await;
@@ -1453,11 +1456,13 @@ async fn outside_turn_continuation_round_computes_compaction_due_from_refreshed_
     assert_eq!(seen_due[1], Some((256_000, 256_000)), "round 2 must receive compaction_due from refreshed header");
 }
 
-/// `History::auto_compaction_trigger` clamps a stale 1M `compactBoundaryTokens` to the live capped `effective_window`.
+/// `History::auto_compaction_trigger` clamps a stale 1M `compactBoundaryTokens` to the live capped `effective_window`,
+/// and `History::compact_mid_turn` summarizes live `ModelContext` rows, leaves `agentSession` behind first, stores the
+/// compaction replacement, and resets `lastContextTokens` to 0.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn outside_turn_auto_compaction_trigger_clamps_a_stale_boundary_to_the_effective_window() {
+async fn outside_turn_mid_turn_compaction_compacts_live_context_and_clamps_stale_boundary() {
     const HELD: &str = mixdog_core_session::session::turn_ops::AGENT_SESSION;
-    let agent = Arc::new(Agent { auto_trigger_window: Some(256_000), ..Agent::default() });
+    let agent = Arc::new(Agent { mid_turn_compact_window: Some(256_000), ..Agent::default() });
     let header = json!({
         "provider": "outside",
         "model": "default",
@@ -1483,10 +1488,25 @@ async fn outside_turn_auto_compaction_trigger_clamps_a_stale_boundary_to_the_eff
     )
     .await;
     let (id, handle) = started_thread(&world, header).await;
+    *lock(&world.rig.compaction.heir_rows) = Some(vec![json!({ "role": "user", "content": "mid-turn summary body" })]);
 
     start_turn(&id, &handle, "long turn work").await;
-    until(&world, &handle, "the agent's turn", || !lock(&agent.seen_auto_triggers).is_empty()).await;
+    until(&world, &handle, "mid-turn compaction", || !lock(&agent.mid_turn_compacted).is_empty()).await;
 
     let triggers = lock(&agent.seen_auto_triggers).clone();
     assert_eq!(triggers, vec![Some(256_000)], "stale 1M explicit boundary must be clamped to effective_window=256k");
+
+    let compacted = lock(&agent.mid_turn_compacted).clone();
+    assert!(matches!(compacted.as_slice(), [Ok(Some(summary))] if summary.contains("mid-turn summary body")), "expected mid-turn summary, got {compacted:?}");
+    let live_header = handle.live_header().header();
+    assert!(!live_header.contains_key(HELD), "agentSession must be unset on mid-turn compaction");
+    assert_eq!(live_header.get("lastContextTokens"), Some(&json!(0)), "lastContextTokens must be reset to 0");
+
+    let records = world.rig.store.records(&id);
+    let left = records.iter().position(
+        |(_, record)| matches!(record, Record::Meta(meta) if matches!(&meta.change, Slot::Inline(change) if change.unset.iter().any(|key| key == HELD))),
+    );
+    let stored = records.iter().position(|(_, record)| matches!(record, Record::Compacted(_)));
+    let (left, stored) = (left.expect("agentSession unset write"), stored.expect("Record::Compacted write"));
+    assert!(left < stored, "agentSession must be unset before Record::Compacted is committed");
 }

@@ -161,6 +161,8 @@ struct Turns {
     /// The summary the session's compaction makes of the conversation before the turn: none for a session that holds
     /// none, the reason for one that cannot be made.
     summary: Option<Result<&'static str, &'static str>>,
+    /// Optional override summary returned by `compact_mid_turn`; falls back to `summary` when `None`.
+    mid_turn_summary: Option<Result<&'static str, &'static str>>,
     /// The session's tools, each call run by the loop's own execution of one.
     calls: Option<Arc<HandedCalls>>,
     /// The agent's context reached the session's compaction trigger.
@@ -177,6 +179,8 @@ struct Turns {
     selected_window: Option<u64>,
     /// The turn is stopped with this token while the summary is being made, which then never comes.
     stops_summary: Option<CancellationToken>,
+    /// The turn is stopped with this token while `compact_mid_turn` is running, which then never comes.
+    stops_mid_turn_summary: Option<CancellationToken>,
     /// The turn is stopped with this token as the attachment `stop` is read for the prompt, before the prompt is sent.
     stops_sending: Option<CancellationToken>,
     /// Hook invoked while resolving an attachment reference (e.g. to simulate a concurrent `stop_submissions`).
@@ -185,6 +189,8 @@ struct Turns {
     hold_attachment: Option<Arc<Notify>>,
     /// Optional counter incremented each time `Conversation::hand_over` runs.
     hand_over_calls: Option<Arc<AtomicUsize>>,
+    /// Optional counter incremented each time `Conversation::compact_mid_turn` runs.
+    mid_turn_compacts: Option<Arc<AtomicUsize>>,
     /// Optional progress watch sender passed into `TurnContext::progress`.
     progress: Option<tokio::sync::watch::Sender<mixdog_core_run::run_host::progress::RunProgress>>,
     /// Extra attachment reference -> filesystem path mappings for attachment read tests.
@@ -219,6 +225,17 @@ impl Conversation for Turns {
             return Some(trigger);
         }
         self.auto_compact.then_some(effective_window)
+    }
+
+    async fn compact_mid_turn(&self, _effective_window: Option<u64>) -> Result<Option<String>, String> {
+        if let Some(calls) = &self.mid_turn_compacts {
+            calls.fetch_add(1, Ordering::SeqCst);
+        }
+        if let Some(stop) = &self.stops_mid_turn_summary {
+            stop.cancel();
+            std::future::pending::<()>().await;
+        }
+        self.mid_turn_summary.or(self.summary).map(|summary| summary.map(str::to_owned).map_err(str::to_owned)).transpose()
     }
 }
 
@@ -898,6 +915,7 @@ impl World {
             pictures: None,
             transcript: None,
             output_produced: None,
+            mid_turn_compaction: None,
             fit: mixdog_acp::mcp::in_process_fit(),
         }
     }
@@ -7809,9 +7827,11 @@ async fn cold_reopen_adding_rules_without_prior_digest_opens_fresh_session() {
 }
 
 /// Live User Bug #1: Built-in official Antigravity (Neon) preset enforces real context window caps (256k for
-/// Gemini/Claude and the `default` route, 128k for gpt-oss) on the window the agent reports.
+/// Gemini/Claude and the `default` route, 128k for gpt-oss) and surfaces the 76% mid-turn compaction cliff warning
+/// when reported usage reaches ~195k/256k on the real `default` route.
 #[tokio::test]
-async fn antigravity_context_window_cap_enforced() {
+async fn antigravity_context_window_cap_and_mid_turn_compaction_cliff_enforced() {
+    // Verify built-in Antigravity preset caps and cliff math directly.
     let presets = mixdog_acp::preset::builtin();
     let neon = presets.iter().find(|p| p.id == "antigravity").expect("official antigravity preset");
     assert!(!neon.quirks.fs_read_text_file, "official Neon preset must disable fs.readTextFile");
@@ -7819,12 +7839,14 @@ async fn antigravity_context_window_cap_enforced() {
     assert_eq!(neon.quirks.effective_context_window("claude-opus-4-6", 1_000_000), 256_000);
     assert_eq!(neon.quirks.effective_context_window("gpt-oss-120b", 1_048_576), 128_000);
     assert_eq!(neon.quirks.effective_context_window_for("default", None, 1_048_576), 256_000);
+    let cliff = neon.quirks.mid_turn_compaction_cliff(256_000).expect("antigravity cliff");
+    assert!((190_000..=200_000).contains(&cliff), "expected ~195k compaction cliff, got {cliff}");
 
     // End-to-end turn check on the real built-in official Neon preset (`World::official`) and `"default"` route:
-    // fake agent reports used=196_000, size=1_048_576; the real preset caps 1M -> 256_000.
+    // fake agent reports used=196_000, size=1_048_576; the real preset caps 1M -> 256_000 and fires the 76% cliff notice.
     let world = World::official(&[]);
     let surface = Surface::default();
-    let end = world.ask(&surface, "reading 196000 1048576", Turns::default()).await;
+    let end = world.ask(&surface, "cliff 196000 1048576", Turns::default()).await;
     assert!(matches!(end, TurnEnd::Completed { .. }), "{end:?}");
     let windows: Vec<HeaderChange> = surface
         .events()
@@ -7836,6 +7858,11 @@ async fn antigravity_context_window_cap_enforced() {
         .collect();
     assert_eq!(windows.len(), 1, "{:?}", surface.events());
     assert_eq!(windows[0].set.get("contextWindow"), Some(&json!(256_000)), "reported 1M window capped to 256k on official default route");
+    assert!(
+        surface.notices().iter().any(|n| n.contains("compaction cliff") && n.contains("196000 / 256000")),
+        "expected mid-turn compaction cliff notice: {:?}",
+        surface.notices()
+    );
 }
 
 /// Neon `SharedServer` (`World::official`) initializes with `fs.readTextFile: false`, and `Agents::release_all` clears
@@ -7921,75 +7948,140 @@ async fn shutdown_ends_idle_per_session_and_shared_acp_processes_without_orphans
     }
 }
 
-/// A turn whose agent's context passes the session's compaction trigger goes on in the agent's own session: the agent
-/// compacts its context itself, as Antigravity's harness does, so the prompt is never cancelled, nothing is summarized
-/// and no fresh session is opened mid-turn; the next tool round runs and the turn ends, and the reading the agent's own
-/// compaction leaves is the session's.
+/// When an ACP session crosses the capped compaction cliff (76% of 256k = 194,560) mid-turn, Mixdog cancels the old
+/// session before the next tool round runs, summarizes via Mixdog compaction, opens a fresh session with Mixdog's
+/// rules and summary, records the fresh session id, and completes the turn with zero agent self-compaction.
 #[tokio::test]
-async fn a_turn_whose_context_passes_the_trigger_goes_on_in_its_session_through_the_agents_own_compaction() {
-    let (world, tools) = handing_in(World::official(&[]));
+async fn mid_turn_compaction_rolls_over_to_fresh_session_before_next_tool_round() {
+    let (world, tools) = handing_in(World::official(&[("FAKE_AGENT_CONTINUE_TOOL", "read")]));
     let surface = Surface::default();
-    let turns = Turns { calls: Some(tools.calls(&surface)), auto_compact: true, auto_trigger: Some(200_000), ..Turns::default() };
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns {
+        summary: Some(Ok("MIXDOG_MID_TURN_SUMMARY")),
+        calls: Some(tools.calls(&surface)),
+        auto_compact: true,
+        mid_turn_compacts: Some(mid_compacts.clone()),
+        ..Turns::default()
+    };
 
-    let end = world.ask(&surface, "selfcompact 211884 1048576 30608 read read", turns).await;
-    let text = completed_text(&end);
-    assert!(text.starts_with("session=sess-1 round2=result:read ran with {}"), "the second round runs in the turn's session and is answered: {text}");
-    let ran: Vec<String> = tools.ran.lock().unwrap().iter().map(|(_, name, _)| name.clone()).collect();
-    assert_eq!(ran, ["read", "read"], "both rounds run");
-    assert_eq!(world.logged("session/cancel"), 0, "the prompt is never cancelled: {:?}", world.log());
-    assert_eq!((world.logged("start acp"), world.logged("session/new")), (1, 1), "no fresh session or server: {:?}", world.log());
+    let end = world.ask(&surface, "midcompact 200687 1048576 read shell", turns).await;
+    let (text, tool_calls) = match &end {
+        TurnEnd::Completed { text, tool_calls, .. } => (text.as_str(), *tool_calls),
+        other => panic!("expected TurnEnd::Completed after mid-turn rollover, got {other:?}"),
+    };
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "Mixdog mid-turn compaction must fire once");
+    assert_eq!(tool_calls, 2, "accumulated tool_calls across old (read) + fresh (read) sessions");
+    assert!(text.contains("session=sess-1"), "fresh session on retired-and-restarted server must answer continuation: {text}");
+    assert!(text.contains("resumed=false"), "rollover must open a fresh session, not resume: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover on !closes server must retire old server instead of leaking its harness: {:?}", world.log());
+    assert!(text.contains("append=RULES"), "fresh session must receive session-start rules: {text}");
+    assert!(text.contains("MIXDOG_MID_TURN_SUMMARY"), "fresh session lead must carry Mixdog's summary: {text}");
+
+    let ran_tools: Vec<String> = tools.ran.lock().unwrap().iter().map(|(_, name, _)| name.clone()).collect();
+    assert_eq!(ran_tools, vec!["read".to_owned(), "read".to_owned()], "round-2 shell tool on old session must never run");
+
+    let log = world.log();
+    assert!(log.iter().any(|line| line == "round2-refused"), "old session round-2 tool call must be refused: {log:?}");
+    assert!(!log.iter().any(|line| line == "self-compact"), "agent self-compaction must never occur: {log:?}");
 
     let events = surface.events();
+    assert!(events.iter().any(|e| matches!(e, Event::Stage(s) if s == "compacting")), "compacting stage emitted: {events:?}");
+    assert!(events.iter().any(|e| matches!(e, Event::Compact(CompactStatus::Compacted))), "Compacted event emitted: {events:?}");
     assert!(
-        !events.iter().any(|e| matches!(e, Event::Stage(stage) if stage == "compacting") || matches!(e, Event::Compact(_))),
-        "Mixdog compacts nothing mid-turn: {events:?}"
+        !surface.notices().iter().any(|n| n.contains("compaction cliff")),
+        "auto mid-turn compaction replaces advisory-only cliff notice: {:?}",
+        surface.notices()
     );
-    let recorded: Vec<&HeaderChange> = events
+    let recorded_sessions: Vec<String> = events
         .iter()
         .filter_map(|e| match e {
-            Event::Header(change) if change.set.contains_key(SESSION_KEY) || change.unset.iter().any(|key| key == SESSION_KEY) => Some(change),
+            Event::Header(change) => change.set.get(SESSION_KEY)?.get("sessionId")?.as_str().map(str::to_owned),
             _ => None,
         })
         .collect();
-    assert!(matches!(recorded.as_slice(), [change] if change.set.contains_key(SESSION_KEY)), "the turn's one session is recorded once and kept: {recorded:?}");
-    let last_reading = events.iter().rev().find_map(|e| match e {
-        Event::Context(usage) => usage.context.map(|context| context.used),
-        _ => None,
-    });
-    assert_eq!(last_reading, Some(30_608), "the agent's own compaction leaves the session's reading: {events:?}");
+    assert_eq!(recorded_sessions.len(), 2, "SESSION_KEY updated for fresh rollover session: {recorded_sessions:?}");
 }
 
-/// A turn whose agent's context crosses three quarters of its capped window is told nothing of it: no notice is shown,
-/// and the answers of its tool calls carry the tools' own text only.
+/// The official server retires once the session a mid-turn rollover leaves behind is off it, so the fresh session opens
+/// on a server started for it: that start and open take as long as they take, as a first open's do, and the turn goes on
+/// in the fresh session instead of failing on the bound of an open on a server already running.
 #[tokio::test]
-async fn a_turn_crossing_three_quarters_of_its_window_gets_no_notice_and_no_text_in_its_tool_answers() {
+async fn mid_turn_rollover_opens_on_a_newly_started_shared_server_however_long_its_start_takes() {
+    let (world, tools) = handing_in(World::official(&[("FAKE_AGENT_CONTINUE_TOOL", "read")]));
+    // Every start of a server outlasts this bound.
+    world.agents.set_shared_open_timeout(Duration::ZERO);
+    let surface = Surface::default();
+    let turns = Turns { summary: Some(Ok("ROLLOVER_SUMMARY")), calls: Some(tools.calls(&surface)), auto_compact: true, ..Turns::default() };
+
+    let end = world.ask(&surface, "midcompact 200687 1048576 read shell", turns).await;
+    let text = completed_text(&end);
+    assert!(text.contains("resumed=false") && text.contains("ROLLOVER_SUMMARY"), "the turn goes on in a fresh session on the summary: {text}");
+    assert_eq!(world.logged("start acp"), 2, "the fresh session runs on a newly started server: {:?}", world.log());
+}
+
+/// If `usage_update` crosses the trigger while a Mixdog tool call is already in flight, Mixdog lets the in-flight tool
+/// finish and commit its result row to the transcript, then refuses its MCP answer after `session/cancel` so the old
+/// session cannot start another LLM round, compacts, and continues on a fresh session.
+#[tokio::test]
+async fn mid_turn_compaction_waits_for_in_flight_tool_to_commit_before_rolling_over() {
     let (world, tools) = handing_in(World::official(&[]));
     let surface = Surface::default();
-    let turns = Turns { calls: Some(tools.calls(&surface)), auto_compact: true, ..Turns::default() };
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns {
+        summary: Some(Ok("INFLIGHT_SUMMARY")),
+        calls: Some(tools.calls(&surface)),
+        auto_compact: true,
+        mid_turn_compacts: Some(mid_compacts.clone()),
+        ..Turns::default()
+    };
 
-    let end = world.ask(&surface, "selfcompact 200000 1048576 210000 read read", turns).await;
-    assert_eq!(completed_text(&end), "session=sess-1 round2=result:read ran with {}", "the second call's answer is the tool's text alone");
-    assert!(surface.notices().is_empty(), "{:?}", surface.notices());
+    let release = tools.release.clone();
+    let releaser = tokio::spawn(async move {
+        // Give the fake agent time to emit usage_update while `slow` is actively blocked inside Mixdog.
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        release.add_permits(1);
+    });
+    let end = world.ask(&surface, "inflightcompact 200687 1048576 slow", turns).await;
+    releaser.await.expect("releaser task");
+
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after in-flight tool commits");
+    assert!(text.contains("resumed=false"), "fresh session continued turn: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+    assert!(text.contains("INFLIGHT_SUMMARY"), "fresh session received Mixdog summary: {text}");
+
+    let ran_tools: Vec<String> = tools.ran.lock().unwrap().iter().map(|(_, name, _)| name.clone()).collect();
+    assert_eq!(ran_tools, vec![SLOW.to_owned()], "in-flight slow tool ran to completion");
+    let committed_tool = surface.events().into_iter().any(|e| match e {
+        Event::Commit(item) => item.body.get("role").and_then(Value::as_str) == Some("tool"),
+        _ => false,
+    });
+    assert!(committed_tool, "in-flight tool result row must be committed before rollover");
+
+    let log = world.log();
+    assert!(log.iter().any(|line| line == "inflight-refused"), "old session must receive refused MCP answer after cancel: {log:?}");
+    assert!(!log.iter().any(|line| line == "self-compact"), "old session must not self-compact: {log:?}");
 }
 
-/// A high `usage_update` followed immediately by `end_turn` ends the turn as it is, and the very next turn compacts via
-/// Mixdog pre-turn (reading the session's policy on the capped window even with a persisted 1M header window) instead
-/// of resuming the bloated session.
+/// A high `usage_update` followed immediately by `end_turn` does not trigger a spurious mid-turn rollover, and the
+/// very next turn compacts via Mixdog pre-turn (using the capped window cliff even with a persisted 1M header window)
+/// instead of resuming the bloated session.
 #[tokio::test]
 async fn high_usage_at_turn_end_does_not_roll_over_mid_turn_and_compacts_before_next_turn() {
     let world = World::official(&[]);
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
     let surface1 = Surface::default();
-    let turns1 = Turns { summary: Some(Ok("SHOULD_NOT_RUN_MID_TURN")), auto_compact: true, ..Turns::default() };
-    let end1 = world.ask(&surface1, "reading 300000 1048576", turns1).await;
+    let turns1 = Turns { summary: Some(Ok("SHOULD_NOT_RUN_MID_TURN")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
+    let end1 = world.ask(&surface1, "cliff 200687 1048576", turns1).await;
     assert!(matches!(end1, TurnEnd::Completed { .. }), "{end1:?}");
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 0, "turn ending right after usage_update must not roll over mid-turn");
 
-    // Next turn arrives with persisted lastContextTokens=300_000, past the capped 256k window's trigger but not the stale
-    // 1M contextWindow's: pre-turn compaction fires.
+    // Next turn arrives with persisted lastContextTokens=200_687 and stale 1M contextWindow: pre-turn compaction fires.
     let surface2 = Surface::default();
     let turns2 = Turns {
         summary: Some(Ok("PRE_TURN_MIXDOG_SUMMARY")),
         auto_compact: true,
-        last_context_tokens: Some(300_000),
+        last_context_tokens: Some(200_687),
         context_window: Some(1_048_576),
         ..Turns::default()
     };
@@ -8014,6 +8106,801 @@ async fn high_usage_at_turn_end_does_not_roll_over_mid_turn_and_compacts_before_
         surface2.events().iter().any(|e| matches!(e, Event::Compact(CompactStatus::Compacted))),
         "pre-turn Compacted event emitted: {:?}",
         surface2.events()
+    );
+}
+
+/// Mid-turn compaction failure emits `CompactStatus::Failed`, fails cleanly, and settles progress to `"error"`;
+/// user cancellation during mid-turn compaction returns `TurnEnd::Interrupted`, ends the old session, and settles
+/// progress to `"done"`.
+#[tokio::test]
+async fn mid_turn_compaction_failure_and_cancellation_stop_cleanly() {
+    // 1. Compactor error during mid-turn rollover.
+    let (world, tools) = handing_in(World::official(&[]));
+    let surface = Surface::default();
+    let (progress1, watched1) = tokio::sync::watch::channel(mixdog_core_run::run_host::progress::RunProgress::default());
+    let turns = Turns {
+        mid_turn_summary: Some(Err("compactor unavailable")),
+        calls: Some(tools.calls(&surface)),
+        auto_compact: true,
+        progress: Some(progress1),
+        ..Turns::default()
+    };
+    let end = world.ask(&surface, "midcompact 200687 1048576 read shell", turns).await;
+    match &end {
+        TurnEnd::Failed { message, .. } => assert!(message.contains("compactor unavailable"), "{message}"),
+        other => panic!("expected TurnEnd::Failed on mid-turn compaction error, got {other:?}"),
+    }
+    assert!(
+        surface.events().iter().any(|e| matches!(e, Event::Compact(CompactStatus::Failed))),
+        "CompactStatus::Failed emitted on error: {:?}",
+        surface.events()
+    );
+    assert_eq!(watched1.borrow().stage().as_deref(), Some("error"), "progress must settle to error on mid-turn compaction failure");
+
+    // 2. Cancellation while `compact_mid_turn` is running.
+    let (world2, tools2) = handing_in(World::official(&[]));
+    let surface2 = Surface::default();
+    let cancel = CancellationToken::new();
+    let (progress2, watched2) = tokio::sync::watch::channel(mixdog_core_run::run_host::progress::RunProgress::default());
+    let turns2 = Turns {
+        stops_mid_turn_summary: Some(cancel.clone()),
+        calls: Some(tools2.calls(&surface2)),
+        auto_compact: true,
+        progress: Some(progress2),
+        ..Turns::default()
+    };
+    let end2 = within(
+        "cancelled mid-turn compaction",
+        world2.serve_with(
+            &surface2,
+            json!({ "role": "user", "content": "midcompact 200687 1048576 read shell" }),
+            None,
+            Some("RULES"),
+            "default",
+            cancel,
+            turns2,
+        ),
+    )
+    .await;
+    assert!(matches!(end2, TurnEnd::Interrupted), "expected TurnEnd::Interrupted, got {end2:?}");
+    assert!(world2.agents.running(&thread()).is_none(), "old agent session must be ended when cancelled mid-compaction");
+    assert_eq!(watched2.borrow().stage().as_deref(), Some("done"), "progress must settle to done on cancel during compaction");
+}
+
+/// Deterministic rollover guard: a fresh session whose first live `usage_update` is already at or over the trigger
+/// does not roll over again in that turn; whereas a fresh session that starts below the trigger and later crosses it
+/// still rolls over normally.
+#[tokio::test]
+async fn mid_turn_compaction_no_progress_guard_prevents_infinite_rollover() {
+    // 1. Fresh session's first usage_update is already >= trigger -> disabled for remainder of turn (1 rollover).
+    {
+        let (world, tools) = handing_in(World::official(&[("FAKE_AGENT_RECOMPACT", "200687 1048576")]));
+        let surface = Surface::default();
+        // The fresh session's `shell` call runs, and the session's gate asks the user about every `shell`.
+        surface.0.answers.lock().unwrap().push_back(decided(json!({ "approved": true })));
+        let mid_compacts = Arc::new(AtomicUsize::new(0));
+        let turns = Turns {
+            summary: Some(Ok("GUARDED_SUMMARY")),
+            calls: Some(tools.calls(&surface)),
+            auto_compact: true,
+            mid_turn_compacts: Some(mid_compacts.clone()),
+            ..Turns::default()
+        };
+
+        let end = world.ask(&surface, "midcompact 200687 1048576 read shell", turns).await;
+        let text = completed_text(&end);
+        assert!(text.contains("continued-after-guard"), "fresh session must finish without second rollover: {text}");
+        assert_eq!(world.logged("start acp"), 2, "first rollover retired old !closes server: {:?}", world.log());
+        assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "fresh session already over trigger must not roll over again");
+        let log = world.log();
+        assert!(log.iter().any(|line| line == "recompact-continued"), "fresh session's tool must run once rollover is disabled: {log:?}");
+    }
+
+    // 2. Fresh session starts below trigger (50_000), then crosses trigger (200_687) -> rolls over a second time.
+    {
+        let (world, tools) = handing_in(World::official(&[("FAKE_AGENT_RECOMPACT", "50000 200687 1048576")]));
+        let surface = Surface::default();
+        let mid_compacts = Arc::new(AtomicUsize::new(0));
+        let turns = Turns {
+            summary: Some(Ok("SECOND_ROLLOVER_SUMMARY")),
+            calls: Some(tools.calls(&surface)),
+            auto_compact: true,
+            mid_turn_compacts: Some(mid_compacts.clone()),
+            ..Turns::default()
+        };
+
+        let end = world.ask(&surface, "midcompact 200687 1048576 read shell", turns).await;
+        let text = completed_text(&end);
+        assert!(text.contains("SECOND_ROLLOVER_SUMMARY"), "fresh session starting below trigger must roll over again on later crossing: {text}");
+        assert_eq!(world.logged("start acp"), 3, "each rollover retires the old !closes server: {:?}", world.log());
+        assert_eq!(mid_compacts.load(Ordering::SeqCst), 2, "must roll over twice when fresh session started below trigger");
+    }
+}
+
+/// Review 1: an open agent-owned tool call prevents rollover until it completes; while waiting for that quiet point,
+/// a Mixdog tool request is answered normally (never deferred/refused), and once the agent call closes with its real
+/// result Mixdog sends `session/cancel`, observes the prompt response, and rolls over cleanly.
+#[tokio::test]
+async fn mid_turn_compaction_waits_for_open_agent_tool_call_before_rolling_over() {
+    let (world, tools) = handing_in(World::official(&[]));
+    let surface = Surface::default();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns {
+        summary: Some(Ok("OPEN_AGENT_SUMMARY")),
+        calls: Some(tools.calls(&surface)),
+        auto_compact: true,
+        mid_turn_compacts: Some(mid_compacts.clone()),
+        ..Turns::default()
+    };
+
+    let end = world.ask(&surface, "openagentcompact 200687 1048576 read", turns).await;
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction must fire once after open agent call finishes");
+    assert!(text.contains("resumed=false"), "fresh session continued turn: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+    assert!(text.contains("OPEN_AGENT_SUMMARY"), "fresh session received Mixdog summary: {text}");
+
+    let tool_results: Vec<String> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body.to_string()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        tool_results.iter().any(|row| row.contains("BUILD_OK_REAL_RESULT")),
+        "open agent call must commit its real result before rollover: {tool_results:?}"
+    );
+    let ran_tools: Vec<String> = tools.ran.lock().unwrap().iter().map(|(_, name, _)| name.clone()).collect();
+    assert_eq!(ran_tools, vec!["read".to_owned()], "Mixdog tool requested while agent call is open must run normally");
+
+    let log = world.log();
+    assert!(log.iter().any(|line| line == "open-agent-mixdog-ok"), "Mixdog tool must be answered while agent call is open: {log:?}");
+    let done_idx = log.iter().position(|line| line == "open-agent-a1-completed").expect("a1 completed logged");
+    let cancel_idx = log.iter().position(|line| line == "session/cancel").expect("session/cancel logged");
+    assert!(done_idx < cancel_idx, "session/cancel ({cancel_idx}) must wait until a1 completes ({done_idx}): {log:?}");
+}
+
+/// An already-running (`in_progress`) agent-owned `tool_call` arriving after `usage_update` armed mid-turn compaction
+/// is recorded (not dropped), allowed to finish and commit its real result, and then rolled over cleanly.
+#[tokio::test]
+async fn mid_turn_compaction_records_in_progress_agent_tool_call_started_after_usage_update() {
+    let world = World::official(&[]);
+    let surface = Surface::default();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns { summary: Some(Ok("LATE_AGENT_SUMMARY")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
+
+    let end = world.ask(&surface, "lateagentcall 200687 1048576", turns).await;
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after late in-progress call finishes");
+    assert!(text.contains("resumed=false"), "fresh session continued turn: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+    assert!(text.contains("LATE_AGENT_SUMMARY"), "fresh session received Mixdog summary: {text}");
+
+    let commits: Vec<Value> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) => Some(item.body),
+            _ => None,
+        })
+        .collect();
+    let has_call = commits.iter().any(|row| row.get("role").and_then(Value::as_str) == Some("assistant") && row.to_string().contains("echo late"));
+    let has_real_result = commits.iter().any(|row| row.get("role").and_then(Value::as_str) == Some("tool") && row.to_string().contains("LATE_CALL_OUTPUT"));
+    let has_placeholder = commits.iter().any(|row| row.to_string().contains("Context compacted; continuing in a fresh session."));
+    assert!(has_call, "in-progress agent tool_call must be recorded, not dropped: {commits:?}");
+    assert!(has_real_result, "in-progress agent tool_call must commit its real output before rollover: {commits:?}");
+    assert!(!has_placeholder, "late in-progress agent call must not be closed with a placeholder: {commits:?}");
+}
+
+/// A permission request with no earlier `tool_call`, arriving after the context crossed the trigger at a quiet point,
+/// opens its call's card as in any turn: the user answers it, the call commits its real result, and only then is
+/// `session/cancel` sent and the turn rolled over.
+#[tokio::test]
+async fn mid_turn_compaction_opens_card_for_permission_without_prior_tool_call() {
+    let world = World::official(&[]);
+    let surface = Surface::default();
+    surface.0.answers.lock().unwrap().push_back(decided(json!({ "approved": true })));
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns { summary: Some(Ok("CANCEL_ORDER_SUMMARY")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
+
+    let end = world.ask(&surface, "cancelorder 200687 1048576", turns).await;
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once");
+    assert!(text.contains("resumed=false"), "fresh session continued turn: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+
+    let log = world.log();
+    assert!(log.iter().any(|line| line == "permission answered sess-1 selected"), "the user's approval must answer the permission: {log:?}");
+    let done_idx = log.iter().position(|line| line == "pending-perm-p1-completed").unwrap_or_else(|| panic!("p1 must complete: {log:?}"));
+    let cancel_idx = log.iter().position(|line| line == "session/cancel").unwrap_or_else(|| panic!("missing session/cancel in log: {log:?}"));
+    assert!(done_idx < cancel_idx, "session/cancel ({cancel_idx}) must follow p1's completion ({done_idx}): {log:?}");
+
+    let tool_rows: Vec<Value> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("P1_APPROVED_RESULT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "p1 keeps its real result: {tool_rows:?}"
+    );
+}
+
+/// A rollover whose `session/cancel` the agent answers with an error leaves the agent's session behind: the header
+/// stops naming it, its process ends, and the next turn opens a fresh session instead of resuming the one that holds
+/// the refusal "Context compacted".
+#[tokio::test]
+async fn mid_turn_compaction_cancel_ending_in_agent_error_leaves_old_session_behind() {
+    let (world, tools) = handing_in(World::official(&[]));
+    let surface = Surface::default();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns {
+        summary: Some(Ok("SHOULD_NOT_COMPACT")),
+        calls: Some(tools.calls(&surface)),
+        auto_compact: true,
+        mid_turn_compacts: Some(mid_compacts.clone()),
+        ..Turns::default()
+    };
+
+    let end = world.ask(&surface, "cancelerror 200687 1048576", turns).await;
+    assert!(matches!(end, TurnEnd::Failed { .. }), "the agent's error fails the turn: {end:?}");
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 0, "no rollover without the cancel's answer");
+    let log = world.log();
+    assert!(log.iter().any(|line| line == "cancel-error-refused"), "the Mixdog tool is refused as compacted after session/cancel: {log:?}");
+    assert!(world.agents.running(&thread()).is_none(), "the left-behind session's process ended");
+
+    let stored = surface.events().into_iter().fold(None, |stored, event| match event {
+        Event::Header(change) if change.unset.iter().any(|key| key == SESSION_KEY) => None,
+        Event::Header(change) => change.set.get(SESSION_KEY).and_then(|value| value["sessionId"].as_str()).map(held).or(stored),
+        _ => stored,
+    });
+    assert_eq!(stored, None, "the header no longer names the left-behind session: {:?}", surface.events());
+
+    let next = Surface::default();
+    let end2 = within(
+        "the next turn",
+        world.serve_with(&next, json!({ "role": "user", "content": "whoami" }), stored, Some("RULES"), "default", CancellationToken::new(), Turns::default()),
+    )
+    .await;
+    let text2 = completed_text(&end2);
+    assert!(text2.contains("resumed=false") && text2.contains("loaded=false"), "the next turn opens a fresh session: {text2}");
+    assert_eq!(world.logged("session/new"), 2, "the next turn opens a new session instead of reusing the left-behind one: {:?}", world.log());
+}
+
+/// A call the agent kept running from an earlier turn counts as open: crossing the trigger while it runs answers a
+/// Mixdog tool as in any turn, and `session/cancel` waits until that call ends.
+#[tokio::test]
+async fn mid_turn_compaction_waits_for_call_kept_running_from_earlier_turn() {
+    let (world, tools) = handing_in(World::official(&[]));
+    let first = Surface::default();
+    let end1 = within(
+        "the first turn",
+        world.serve_with(&first, json!({ "role": "user", "content": "keep" }), None, Some("RULES"), "default", CancellationToken::new(), Turns::default()),
+    )
+    .await;
+    assert!(completed_text(&end1).contains("kept"), "{end1:?}");
+
+    let surface = Surface::default();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns {
+        summary: Some(Ok("KEPT_SUMMARY")),
+        calls: Some(tools.calls(&surface)),
+        auto_compact: true,
+        mid_turn_compacts: Some(mid_compacts.clone()),
+        ..Turns::default()
+    };
+    let end = within(
+        "the rollover turn",
+        world.serve_with(
+            &surface,
+            json!({ "role": "user", "content": "keptcompact 200687 1048576" }),
+            Some(held("sess-1")),
+            Some("RULES"),
+            "default",
+            CancellationToken::new(),
+            turns,
+        ),
+    )
+    .await;
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once the kept call ends");
+    assert!(text.contains("resumed=false") && text.contains("KEPT_SUMMARY"), "fresh session continued turn: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+
+    let log = world.log();
+    assert!(log.iter().any(|line| line == "kept-mixdog-ok"), "the Mixdog tool runs while the kept call is open: {log:?}");
+    let done_idx = log.iter().position(|line| line == "kept-call-completed").unwrap_or_else(|| panic!("kept call must complete: {log:?}"));
+    let cancel_idx = log.iter().position(|line| line == "session/cancel").unwrap_or_else(|| panic!("missing session/cancel in log: {log:?}"));
+    assert!(done_idx < cancel_idx, "session/cancel ({cancel_idx}) must wait for the kept call ({done_idx}): {log:?}");
+    let ran_tools: Vec<String> = tools.ran.lock().unwrap().iter().map(|(_, name, _)| name.clone()).collect();
+    assert_eq!(ran_tools, vec!["read".to_owned()], "the Mixdog tool ran");
+}
+
+/// The segment a rollover cancels reports its usage, as every other end of a segment does.
+#[tokio::test]
+async fn mid_turn_compaction_reports_cancelled_segment_usage() {
+    let (world, tools) = handing_in(World::official(&[]));
+    let surface = Surface::default();
+    let turns = Turns { summary: Some(Ok("USAGE_SUMMARY")), calls: Some(tools.calls(&surface)), auto_compact: true, ..Turns::default() };
+
+    let end = world.ask(&surface, "midcompact 200687 1048576 read shell", turns).await;
+    completed_text(&end);
+    let usages: Vec<TurnUsage> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Usage(u) => Some(u),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(usages.len(), 2, "one usage report per segment: {usages:?}");
+    assert_eq!(usages[0].context.map(|context| context.used), Some(200_687), "the cancelled segment reports its context: {usages:?}");
+    assert_eq!(usages[0].tool_calls, 1, "the cancelled segment reports its tool call: {usages:?}");
+}
+
+/// On mid-turn rollover, the fresh session still receives the turn's image and file attachments (both when the agent
+/// supports embedded resources and when text files are sent as inline text blocks).
+#[tokio::test]
+async fn mid_turn_compaction_resends_turn_image_and_file_attachments_to_fresh_session() {
+    let input = || {
+        json!({
+            "role": "user",
+            "content": [
+                { "type": "image", "mimeType": "image/png", "attachmentRef": "stored" },
+                { "type": "text", "attachmentRef": "note", "filename": "note.md" },
+                { "type": "file", "mimeType": "application/pdf", "attachmentRef": "paper", "filename": "paper.pdf" },
+                { "type": "text", "text": "midcompact 200687 1048576 read shell" },
+            ]
+        })
+    };
+
+    // 1. Agent with embeddedContext enabled: image block + embedded `resource` (note) + `resource_link` (paper).
+    let (embedded_world, embedded_tools) = handing_in(World::official(&[("FAKE_AGENT_EMBEDDED", "1")]));
+    let embedded_surface = Surface::default();
+    let embedded_turns =
+        Turns { summary: Some(Ok("ATTACH_EMBEDDED_SUMMARY")), calls: Some(embedded_tools.calls(&embedded_surface)), auto_compact: true, ..Turns::default() };
+    let embedded_end = within(
+        "embedded mid-turn rollover with attachments",
+        embedded_world.serve_with(&embedded_surface, input(), None, Some("RULES"), "default", CancellationToken::new(), embedded_turns),
+    )
+    .await;
+    let embedded_text = completed_text(&embedded_end);
+    assert!(embedded_text.contains("resumed=false"), "fresh session answered: {embedded_text}");
+    assert_eq!(embedded_world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", embedded_world.log());
+    assert!(embedded_text.contains("images=1"), "fresh session must receive turn image block: {embedded_text}");
+    let (_, embedded_files_raw) = embedded_text.rsplit_once(" files=").expect("files suffix");
+    let embedded_files: Value = serde_json::from_str(embedded_files_raw).expect("files json");
+    let expected_note = json!({
+        "type": "resource",
+        "resource": { "uri": "file:///C:/data%20dir/blobs/note", "mimeType": "text/plain", "text": "# Notes\nplover" }
+    });
+    let expected_paper = json!({
+        "type": "resource_link",
+        "uri": "file:///C:/data%20dir/blobs/paper",
+        "name": "paper.pdf",
+        "mimeType": "application/pdf"
+    });
+    assert_eq!(embedded_files, json!([expected_note, expected_paper]), "fresh session must receive embedded + linked file blocks");
+
+    // 2. Agent without embeddedContext: image block + `[Attached file: note.md]` text block + `resource_link` (paper).
+    let (plain_world, plain_tools) = handing_in(World::official(&[]));
+    let plain_surface = Surface::default();
+    let plain_turns =
+        Turns { summary: Some(Ok("ATTACH_PLAIN_SUMMARY")), calls: Some(plain_tools.calls(&plain_surface)), auto_compact: true, ..Turns::default() };
+    let plain_end = within(
+        "plain mid-turn rollover with attachments",
+        plain_world.serve_with(&plain_surface, input(), None, Some("RULES"), "default", CancellationToken::new(), plain_turns),
+    )
+    .await;
+    let plain_text = completed_text(&plain_end);
+    assert!(plain_text.contains("resumed=false"), "fresh session answered: {plain_text}");
+    assert_eq!(plain_world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", plain_world.log());
+    assert!(plain_text.contains("images=1"), "fresh session must receive turn image block: {plain_text}");
+    assert!(plain_text.contains("[Attached file: note.md]\n# Notes\nplover"), "fresh session must receive inline text attachment: {plain_text}");
+    let (_, plain_files_raw) = plain_text.rsplit_once(" files=").expect("files suffix");
+    let plain_files: Value = serde_json::from_str(plain_files_raw).expect("files json");
+    assert_eq!(plain_files, json!([expected_paper]), "fresh session must receive resource_link file block");
+}
+
+/// Review 2 P1: a `tool_call` with status `pending`, omitted status (ACP default `pending`), or `in_progress` counts
+/// as open; when `session/request_permission` arrives after crossing the compaction trigger, Mixdog answers it
+/// normally (never deferring or freezing), lets the call finish with its real result, and rolls over at the quiet
+/// point after it completes.
+#[tokio::test]
+async fn mid_turn_compaction_does_not_freeze_on_pending_or_permission_held_agent_call() {
+    for mode in ["pending", "nostatus", "inprogress", "after_nostatus"] {
+        let world = World::official(&[]);
+        let surface = Surface::default();
+        surface.0.answers.lock().unwrap().push_back(decided(json!({ "approved": true })));
+        let mid_compacts = Arc::new(AtomicUsize::new(0));
+        let turns = Turns { summary: Some(Ok("P1_SUMMARY")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
+
+        let end = world.ask(&surface, &format!("pendingpermcompact {mode} 200687 1048576"), turns).await;
+        let text = completed_text(&end);
+        assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mode={mode}: mid-turn compaction fires once after p1 completes");
+        assert!(text.contains("resumed=false"), "mode={mode}: fresh session continued: {text}");
+        assert_eq!(world.logged("start acp"), 2, "mode={mode}: rollover retires old !closes server: {:?}", world.log());
+        assert!(text.contains("P1_SUMMARY"), "mode={mode}: fresh session received summary: {text}");
+
+        let log = world.log();
+        let done_idx =
+            log.iter().position(|line| line == "pending-perm-p1-completed").unwrap_or_else(|| panic!("mode={mode}: p1 must complete before cancel: {log:?}"));
+        let cancel_idx = log.iter().position(|line| line == "session/cancel").unwrap_or_else(|| panic!("mode={mode}: missing session/cancel: {log:?}"));
+        assert!(done_idx < cancel_idx, "mode={mode}: session/cancel ({cancel_idx}) must follow p1 completion ({done_idx}): {log:?}");
+
+        let tool_rows: Vec<Value> = surface
+            .events()
+            .into_iter()
+            .filter_map(|e| match e {
+                Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tool_rows.len(), 1, "mode={mode}: p1 committed once: {tool_rows:?}");
+        assert_eq!(tool_rows[0].get("toolKind").and_then(Value::as_str), Some("normal"), "mode={mode}: p1 keeps its real normal result: {:?}", tool_rows[0]);
+        assert!(tool_rows[0].to_string().contains("P1_APPROVED_RESULT"), "mode={mode}: p1 keeps its real output: {:?}", tool_rows[0]);
+    }
+}
+
+/// If a permission request was approved before `usage_update` crossed the trigger, the agent may execute the tool
+/// without emitting an intermediate `in_progress` update: Mixdog waits for its completion so its real result commits
+/// before rolling over.
+#[tokio::test]
+async fn mid_turn_compaction_waits_for_approved_permission_call_without_in_progress_update() {
+    let world = World::official(&[]);
+    let surface = Surface::default();
+    surface.0.answers.lock().unwrap().push_back(decided(json!({ "approved": true })));
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns { summary: Some(Ok("APPROVED_PERM_SUMMARY")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
+
+    let end = world.ask(&surface, "approvedpermcompact 200687 1048576", turns).await;
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after approved call completes");
+    assert!(text.contains("resumed=false"), "fresh session continued: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+    assert!(text.contains("APPROVED_PERM_SUMMARY"), "fresh session received summary: {text}");
+
+    let tool_rows: Vec<Value> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("APPROVED_CMD_OUTPUT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "approved call must keep its real completed result: {tool_rows:?}"
+    );
+}
+
+/// A `pending` agent call opened before `usage_update` that transitions to `in_progress` without requesting permission
+/// is waited on until completion so its real result commits before rollover.
+#[tokio::test]
+async fn mid_turn_compaction_waits_when_pending_call_starts_in_progress_after_usage_update() {
+    let world = World::official(&[]);
+    let surface = Surface::default();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns { summary: Some(Ok("PENDING_STARTED_SUMMARY")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
+
+    let end = world.ask(&surface, "pendingstartscompact 200687 1048576", turns).await;
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after call finishes");
+    assert!(text.contains("resumed=false"), "fresh session continued: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+    assert!(text.contains("PENDING_STARTED_SUMMARY"), "fresh session received summary: {text}");
+
+    let tool_rows: Vec<Value> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("AUTO_STARTED_OUTPUT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "auto-started call must keep its real result: {tool_rows:?}"
+    );
+}
+
+/// Review 3 P1 #1: an auto-allowed call `a1` that stays `pending` (no `in_progress` update) alongside sibling `b1`
+/// must not be killed or recorded as unstarted when `b1` completes after `usage_update` crosses the trigger; rollover
+/// waits until `a1` completes too and keeps both real results.
+#[tokio::test]
+async fn mid_turn_compaction_waits_for_pending_call_without_in_progress_when_sibling_completes() {
+    let world = World::official(&[]);
+    let surface = Surface::default();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns { summary: Some(Ok("PENDING_PARALLEL_SUMMARY")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
+
+    let end = world.ask(&surface, "pendingparallelcompact 200687 1048576", turns).await;
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after both a1 and b1 complete");
+    assert!(text.contains("resumed=false") && text.contains("PENDING_PARALLEL_SUMMARY"), "fresh session continued: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+
+    let log = world.log();
+    let done_idx = log.iter().position(|line| line == "pending-parallel-a1-completed").expect("a1 completed logged");
+    let cancel_idx = log.iter().position(|line| line == "session/cancel").expect("session/cancel logged");
+    assert!(done_idx < cancel_idx, "session/cancel ({cancel_idx}) must wait for pending a1 ({done_idx}): {log:?}");
+
+    let tool_rows: Vec<Value> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("B1_REAL_RESULT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "b1 keeps its real result: {tool_rows:?}"
+    );
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("A1_PENDING_REAL_RESULT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "pending a1 keeps its real result: {tool_rows:?}"
+    );
+}
+
+/// Review 3 P1 #2: when an in-flight parent call `a1` issues a child `session/request_permission` and a Mixdog MCP
+/// `tools/call` after `usage_update` crosses the trigger, neither is deferred or refused so `a1` cannot freeze; all
+/// calls keep their real results and rollover happens once `a1` completes.
+#[tokio::test]
+async fn mid_turn_compaction_does_not_freeze_when_in_flight_call_issues_child_permission_and_mixdog_tool() {
+    let (world, tools) = handing_in(World::official(&[]));
+    let surface = Surface::default();
+    surface.0.answers.lock().unwrap().push_back(decided(json!({ "approved": true })));
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns {
+        summary: Some(Ok("SUBAGENT_CHILD_SUMMARY")),
+        calls: Some(tools.calls(&surface)),
+        auto_compact: true,
+        mid_turn_compacts: Some(mid_compacts.clone()),
+        ..Turns::default()
+    };
+
+    let end = world.ask(&surface, "subagentchildcompact 200687 1048576", turns).await;
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after parent a1 completes");
+    assert!(text.contains("resumed=false") && text.contains("SUBAGENT_CHILD_SUMMARY"), "fresh session continued: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+
+    let log = world.log();
+    assert!(log.iter().any(|line| line == "subagent-read-ok"), "Mixdog child tool must be answered normally while a1 is open: {log:?}");
+    let done_idx = log.iter().position(|line| line == "parent-a1-completed").expect("parent a1 completed logged");
+    let cancel_idx = log.iter().position(|line| line == "session/cancel").expect("session/cancel logged");
+    assert!(done_idx < cancel_idx, "session/cancel ({cancel_idx}) must wait for parent a1 ({done_idx}): {log:?}");
+
+    let tool_rows: Vec<Value> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("CHILD1_REAL_RESULT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "child permission call keeps its real result: {tool_rows:?}"
+    );
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("PARENT_A1_REAL_RESULT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "parent a1 keeps its real result: {tool_rows:?}"
+    );
+    let ran_tools: Vec<String> = tools.ran.lock().unwrap().iter().map(|(_, name, _)| name.clone()).collect();
+    assert_eq!(ran_tools, vec!["read".to_owned()], "Mixdog child tool ran normally while a1 was open");
+}
+
+/// Review 3 P1 #3: forwarded text, thought, plan, child call completion, and multiple `usage_update`s never demote an
+/// open call `a1`; rollover waits until `a1` completes and preserves every call's real result.
+#[tokio::test]
+async fn mid_turn_compaction_waits_for_open_call_across_text_thought_plan_child_calls_and_multiple_usage_updates() {
+    let world = World::official(&[]);
+    let surface = Surface::default();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns { summary: Some(Ok("SUBAGENT_ACTIVITY_SUMMARY")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
+
+    let end = world.ask(&surface, "subagentactivitycompact 200687 1048576", turns).await;
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after a1 completes");
+    assert!(text.contains("resumed=false") && text.contains("SUBAGENT_ACTIVITY_SUMMARY"), "fresh session continued: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+
+    let log = world.log();
+    let done_idx = log.iter().position(|line| line == "subagent-activity-a1-completed").expect("a1 completed logged");
+    let cancel_idx = log.iter().position(|line| line == "session/cancel").expect("session/cancel logged");
+    assert!(done_idx < cancel_idx, "session/cancel ({cancel_idx}) must wait for a1 ({done_idx}): {log:?}");
+
+    let tool_rows: Vec<Value> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("C1_REAL_RESULT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "child call c1 keeps its real result: {tool_rows:?}"
+    );
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("A1_AFTER_ACTIVITY_RESULT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "open call a1 keeps its real result: {tool_rows:?}"
+    );
+}
+
+/// Review 2 P2 / no quiet point before turn end: when an open call `bg1` remains open until `end_turn`, no mid-turn
+/// rollover occurs, nothing is killed or falsely recorded as error/interrupted, `bg1` is handed off as a normal
+/// background call, and the next turn compacts pre-turn.
+#[tokio::test]
+async fn mid_turn_compaction_skips_rollover_when_open_call_never_reaches_quiet_point_before_turn_end() {
+    let world = World::official(&[]);
+    let surface1 = Surface::default();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns1 =
+        Turns { summary: Some(Ok("SHOULD_NOT_ROLL_OVER_MID_TURN")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
+
+    let end1 = world.ask(&surface1, "bgneverquietcompact 200687 1048576", turns1).await;
+    assert!(matches!(end1, TurnEnd::Completed { .. }), "turn must complete normally without mid-turn rollover: {end1:?}");
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 0, "no mid-turn rollover without a quiet point");
+
+    let tool_rows: Vec<Value> = surface1
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("C1_REAL_RESULT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "completed call c1 keeps its real result: {tool_rows:?}"
+    );
+    assert!(
+        tool_rows
+            .iter()
+            .any(|row| row.to_string().contains("Still running in the agent's background.") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "open call bg1 handed off normally as background, never error: {tool_rows:?}"
+    );
+
+    // Next turn compacts pre-turn onto a fresh session.
+    let surface2 = Surface::default();
+    let turns2 = Turns {
+        summary: Some(Ok("NEXT_TURN_PRE_COMPACT_SUMMARY")),
+        auto_compact: true,
+        last_context_tokens: Some(200_687),
+        context_window: Some(1_048_576),
+        ..Turns::default()
+    };
+    let end2 = within(
+        "pre-turn compaction after non-quiet turn",
+        world.serve_with(
+            &surface2,
+            json!({ "role": "user", "content": "whoami" }),
+            Some(held("sess-1")),
+            Some("RULES"),
+            "default",
+            CancellationToken::new(),
+            turns2,
+        ),
+    )
+    .await;
+    let text2 = completed_text(&end2);
+    assert!(text2.contains("resumed=false") && text2.contains("NEXT_TURN_PRE_COMPACT_SUMMARY"), "next turn compacted pre-turn: {text2}");
+    assert_eq!(world.logged("start acp"), 2, "pre-turn compaction retires old !closes server: {:?}", world.log());
+}
+
+/// When a Mixdog tool and an agent-owned tool are both in flight as `usage_update` crosses the trigger, `slow`
+/// finishing first while `a1` is still open delivers its real answer normally (nothing deferred/refused), and rollover
+/// occurs at the quiet point once `a1` completes too with both real results committed.
+#[tokio::test]
+async fn mid_turn_compaction_waits_for_parallel_mixdog_and_agent_calls_to_both_commit() {
+    let (world, tools) = handing_in(World::official(&[]));
+    let surface = Surface::default();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns {
+        summary: Some(Ok("PARALLEL_SUMMARY")),
+        calls: Some(tools.calls(&surface)),
+        auto_compact: true,
+        mid_turn_compacts: Some(mid_compacts.clone()),
+        ..Turns::default()
+    };
+
+    let release = tools.release.clone();
+    let releaser = tokio::spawn(async move {
+        // Release `slow` before the agent finishes `a1` so Mixdog finishes first and delivers normally while waiting for `a1`.
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        release.add_permits(1);
+    });
+    let end = world.ask(&surface, "parallelcompact 200687 1048576 slow", turns).await;
+    releaser.await.expect("releaser task");
+
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after both parallel calls finish");
+    assert!(text.contains("resumed=false") && text.contains("PARALLEL_SUMMARY"), "fresh session continued: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+
+    let log = world.log();
+    assert!(log.iter().any(|line| line == "parallel-slow-answered"), "slow answer must be delivered while a1 is still open: {log:?}");
+    let done_idx = log.iter().position(|line| line == "parallel-a1-completed").expect("a1 completed logged");
+    let cancel_idx = log.iter().position(|line| line == "session/cancel").expect("session/cancel logged");
+    assert!(done_idx < cancel_idx, "session/cancel ({cancel_idx}) must wait for a1 ({done_idx}): {log:?}");
+
+    let tool_rows: Vec<Value> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(tool_rows.len(), 2, "both slow and a1 committed their tool result rows: {tool_rows:?}");
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("PARALLEL_A1_RESULT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "parallel agent call keeps its real result: {tool_rows:?}"
+    );
+}
+
+/// Cancelling a turn while waiting for a quiet point closes the open call as cancelled error, settles progress, and
+/// returns `TurnEnd::Interrupted` without rolling over.
+#[tokio::test]
+async fn cancel_during_mid_turn_compaction_drain_stops_cleanly() {
+    let world = World::official(&[]);
+    let surface = Surface::default();
+    let cancel = CancellationToken::new();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let (progress, watched) = tokio::sync::watch::channel(mixdog_core_run::run_host::progress::RunProgress::default());
+    let turns = Turns {
+        summary: Some(Ok("SHOULD_NOT_COMPACT")),
+        auto_compact: true,
+        mid_turn_compacts: Some(mid_compacts.clone()),
+        progress: Some(progress),
+        ..Turns::default()
+    };
+
+    let cancel_trigger = cancel.clone();
+    let log_path = world.dir.path().join("agent.log");
+    let stopper = tokio::spawn(async move {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while tokio::time::Instant::now() < deadline {
+            #[allow(clippy::disallowed_methods, reason = "a test reads the fake agent's own log")]
+            let ready = std::fs::read_to_string(&log_path).is_ok_and(|body| body.lines().any(|line| line == "canceldrain-sent"));
+            if ready {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        cancel_trigger.cancel();
+    });
+    let end = within(
+        "cancel while waiting for quiet point",
+        world.serve_with(&surface, json!({ "role": "user", "content": "canceldraincompact 200687 1048576" }), None, Some("RULES"), "default", cancel, turns),
+    )
+    .await;
+    stopper.await.expect("stopper task");
+
+    assert!(matches!(end, TurnEnd::Interrupted), "expected TurnEnd::Interrupted, got {end:?}");
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 0, "user cancel must not trigger mid-turn rollover");
+    assert_eq!(watched.borrow().stage().as_deref(), Some("done"), "progress must settle to done on cancel");
+
+    let tool_rows: Vec<Value> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("Cancelled") && row.get("toolKind").and_then(Value::as_str) == Some("error")),
+        "open call closed as cancelled error: {tool_rows:?}"
     );
 }
 

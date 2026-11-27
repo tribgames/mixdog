@@ -107,6 +107,8 @@ pub struct Quirks {
     /// Fallback context window cap used on the `"default"` route when the active model id does not match a specific
     /// prefix in [`Self::context_window_caps`].
     pub default_context_window_cap: Option<u64>,
+    /// Percentage of the effective context window where a mid-turn compaction cliff warning/advisory fires.
+    pub compaction_cliff_percent: Option<u8>,
 }
 
 /// Which of the models an agent lists a preset runs, by the start of a model's id.
@@ -167,6 +169,12 @@ impl Quirks {
             .or_else(|| self.context_window_cap(route_model))
             .or_else(|| route_model.trim().eq_ignore_ascii_case(crate::agents::DEFAULT_MODEL).then_some(self.default_context_window_cap).flatten());
         cap.map_or(reported, |cap| reported.min(cap))
+    }
+
+    /// Token threshold within `effective_window` where the agent hits its mid-turn compaction cliff.
+    pub fn mid_turn_compaction_cliff(&self, effective_window: u64) -> Option<u64> {
+        let pct = self.compaction_cliff_percent.filter(|pct| *pct > 0 && *pct <= 100)?;
+        (effective_window > 0).then(|| effective_window.saturating_mul(u64::from(pct)) / 100)
     }
 }
 
@@ -458,6 +466,7 @@ fn antigravity_quirks() -> Quirks {
         fs_read_text_file: true,
         context_window_caps: vec![("gpt-oss".into(), 128_000), ("gemini-4-".into(), 256_000), ("gemini-".into(), 256_000), ("claude-".into(), 256_000)],
         default_context_window_cap: None,
+        compaction_cliff_percent: Some(76),
     }
 }
 

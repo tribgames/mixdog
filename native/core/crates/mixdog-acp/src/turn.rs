@@ -77,6 +77,13 @@ pub enum TurnEnd {
         stop_reason: Option<String>,
         tool_calls: u64,
     },
+    /// The agent's context reached Mixdog's compaction trigger mid-turn at a quiet point; the old prompt was cancelled
+    /// and its response observed so the caller can compact Mixdog's transcript and continue on a fresh session.
+    CompactNeeded {
+        due: crate::runs::Due,
+        effective_window: u64,
+        tool_calls: u64,
+    },
     Interrupted,
     Failed {
         message: String,
@@ -89,6 +96,22 @@ pub enum TurnEnd {
     Refused {
         message: String,
     },
+}
+
+/// Callback returning Mixdog's mid-turn automatic compaction trigger (in tokens) for a live effective context window.
+pub type MidTurnCompactionTrigger = Arc<dyn Fn(u64) -> Option<u64> + Send + Sync>;
+
+/// Mid-turn automatic compaction configuration for a single ACP turn segment.
+#[derive(Clone)]
+pub struct MidTurnCompaction {
+    pub trigger: MidTurnCompactionTrigger,
+    /// Set on fresh sessions opened after a mid-turn rollover: if the session's first live `usage_update` is already
+    /// at or over the trigger, mid-turn rollover is disabled for the rest of the turn.
+    pub after_rollover: bool,
+    /// Set by a turn that sent the rollover's `session/cancel` and then ended without rolling over (the agent failed or
+    /// answered otherwise, its process ended, or the user stopped the turn): the agent's session holds answers Mixdog
+    /// gave only to move it to a fresh session, and is not to be continued.
+    pub left_behind: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// What a turn is told besides its prompt.
@@ -120,6 +143,8 @@ pub struct TurnContext {
     pub transcript: Option<TurnTranscript>,
     /// Set once the turn emits any visible output (text, reasoning, tool call, image card, or visible row).
     pub output_produced: Option<Arc<std::sync::atomic::AtomicBool>>,
+    /// Live automatic compaction policy for mid-turn `usage_update` readings; `None` when mid-turn compaction is off.
+    pub mid_turn_compaction: Option<MidTurnCompaction>,
     /// The lane the images of the turn's tool results are fitted on.
     pub fit: Arc<dyn mixdog_core_api::domain::ext::ToolImageFitter>,
 }
@@ -499,10 +524,22 @@ struct Call {
     opened_as_media: bool,
 }
 
+/// State of mid-turn compaction when a live `usage_update` reaches Mixdog's trigger.
+#[derive(Clone, Copy, Debug)]
+enum MidTurnCompact {
+    /// Context crossed the trigger while quiet; wait to see whether the agent finishes (`Incoming::Response`) or starts new work.
+    Armed { due: crate::runs::Due, effective_window: u64 },
+    /// Work was open when the trigger was crossed, or new work began after arming; roll over at the next provably quiet point.
+    Trigger { due: crate::runs::Due, effective_window: u64 },
+    /// Quiet point reached: `session/cancel` was sent and the loop is observing updates until the agent answers the prompt.
+    Cancelling { due: crate::runs::Due, effective_window: u64 },
+}
+
 struct Reply<'a> {
     session: &'a Arc<AgentSession>,
     surface: Arc<dyn TurnSurface>,
     context: &'a TurnContext,
+    replying: bool,
     cwd: String,
     /// How many times calls have left the session's model context, as the session counted at the turn's start.
     epoch: u64,
@@ -551,6 +588,16 @@ struct Reply<'a> {
     window: Option<u64>,
     /// The occupancy the session was last told the agent's context holds.
     occupancy: Option<u64>,
+    /// Whether the mid-turn compaction cliff warning has been emitted in this turn.
+    cliff_warned: bool,
+    /// One-shot advisory attached to the next MCP tool answer when context approaches the internal cliff.
+    cliff_advisory: Option<String>,
+    /// Mid-turn compaction state once live context occupancy reaches Mixdog's trigger.
+    mid_turn_compact: Option<MidTurnCompact>,
+    /// Whether this segment has already observed a live `usage_update` with `used > 0`.
+    saw_live_usage: bool,
+    /// Set when a fresh post-rollover session's first live `usage_update` is already at or over the trigger.
+    mid_turn_disabled: bool,
     /// The cost the agent reported in `usage_update` during this turn.
     cost: Option<UsdTicks>,
     /// The last text chunk, held back while it has the form of the agent's notice of a failure of its own: the prompt's
@@ -670,7 +717,7 @@ impl Reply<'_> {
     }
 
     /// The agent reported its context or cost: the window it names is the session's, and any reported cost is kept.
-    async fn context_reported(&mut self, update: &Value) -> Result<(), RunError> {
+    async fn context_reported(&mut self, update: &Value, is_live: bool) -> Result<(), RunError> {
         let cost_changed = match cost_of(update) {
             Some(cost) => {
                 let changed = self.cost != Some(cost);
@@ -702,6 +749,46 @@ impl Reply<'_> {
                     ..TurnUsage::default()
                 };
                 self.surface.context_update(usage).await?;
+            }
+            let effective = self.context.selected_window.map_or(context.size, |selected| selected.min(context.size));
+            let auto_config = (!self.replying)
+                .then(|| self.context.mid_turn_compaction.as_ref().and_then(|cfg| (cfg.trigger)(effective).map(|trigger| (trigger, cfg.after_rollover))))
+                .flatten();
+            if let Some((trigger, after_rollover)) = auto_config {
+                if is_live && context.used > 0 {
+                    let first_live = !self.saw_live_usage;
+                    self.saw_live_usage = true;
+                    if first_live && after_rollover && context.used >= trigger {
+                        self.mid_turn_disabled = true;
+                        if matches!(self.mid_turn_compact, Some(MidTurnCompact::Armed { .. } | MidTurnCompact::Trigger { .. })) {
+                            self.mid_turn_compact = None;
+                        }
+                    }
+                }
+                if is_live && !self.mid_turn_disabled && context.used >= trigger {
+                    let due = crate::runs::Due { used: context.used, trigger };
+                    self.mid_turn_compact = Some(match self.mid_turn_compact {
+                        Some(MidTurnCompact::Cancelling { .. }) => MidTurnCompact::Cancelling { due, effective_window: effective },
+                        Some(MidTurnCompact::Trigger { .. }) => MidTurnCompact::Trigger { due, effective_window: effective },
+                        _ if !self.is_quiet() => MidTurnCompact::Trigger { due, effective_window: effective },
+                        _ => MidTurnCompact::Armed { due, effective_window: effective },
+                    });
+                }
+            } else if !self.cliff_warned
+                && let Some(cliff) = self.session.preset.quirks.mid_turn_compaction_cliff(effective)
+                && context.used >= cliff
+            {
+                self.cliff_warned = true;
+                let pct = ((context.used as f64 / effective.max(1) as f64) * 100.0).round() as u64;
+                let notice = format!(
+                    "{} context reached ~{pct}% ({} / {} tokens): approaching the agent's internal compaction cliff.",
+                    self.session.preset.label, context.used, effective
+                );
+                let _ = self.surface.notice(notice, true).await;
+                self.cliff_advisory = Some(format!(
+                    "[mixdog-runtime] Context usage is high ({} / {} tokens, ~{pct}%). Wrap up the current step concisely or hand off cleanly before the agent compacts mid-turn.",
+                    context.used, effective
+                ));
             }
         } else if cost_changed {
             let usage = TurnUsage { cost: self.cost, model: self.context.model.clone(), started_at_ms: (self.context.now_ms)(), ..TurnUsage::default() };
@@ -891,13 +978,22 @@ impl Reply<'_> {
         let Some(agent_id) = update.get("toolCallId").and_then(Value::as_str).map(str::to_owned) else { return Ok(None) };
         self.context.mark(|progress, now| progress.stream_delta(StreamKind::Tool, now));
         if self.reports.contains(&agent_id) {
+            if update.get("sessionUpdate").and_then(Value::as_str) == Some("tool_call") {
+                self.arm_mid_turn_trigger();
+            }
             return Ok(None);
         }
         if !self.calls.contains_key(&agent_id) && self.is_mixdog_call(update).await {
             self.reports.insert(agent_id);
+            self.arm_mid_turn_trigger();
             return Ok(None);
         }
-        self.call_card(update).await
+        let was_closed = self.calls.get(&agent_id).is_some_and(|call| call.closed);
+        let handled = self.call_card(update).await?;
+        if handled.is_some() && !was_closed {
+            self.arm_mid_turn_trigger();
+        }
+        Ok(handled)
     }
 
     /// [`Self::call`] for a call that is shown as the agent's own, whatever it is a call of.
@@ -1138,11 +1234,22 @@ impl Reply<'_> {
     /// atomically claimed and committed BEFORE `ask.answer.send` so a concurrently stopped submission is never
     /// delivered to the agent without being recorded, while a racing Stop or `due` expiration during attachment
     /// resolution leaves queued entries untouched.
-    async fn deliver_answer(&mut self, ask: ToolAsk, base: Value, due: Due, handed_off: bool) -> Result<(), RunError> {
+    async fn deliver_answer(&mut self, ask: ToolAsk, mut base: Value, due: Due, handed_off: bool) -> Result<(), RunError> {
         let name = ask.name;
         let base_len = base.get("content").and_then(Value::as_array).map_or(0, Vec::len);
         let max_inline_text_bytes = self.session.preset.quirks.max_inline_text_bytes;
         let artifacts = self.context.calls.as_ref().and_then(|calls| calls.artifacts());
+        if !handed_off
+            && !ask.answer.is_closed()
+            && let Some(advisory) = self.cliff_advisory.take()
+        {
+            let block = json!({ "type": "text", "text": advisory });
+            if let Some(blocks) = base.get_mut("content").and_then(Value::as_array_mut) {
+                blocks.push(block);
+            } else {
+                base["content"] = Value::Array(vec![block]);
+            }
+        }
         let expired = || due.answer.is_some_and(|deadline| tokio::time::Instant::now() >= deadline);
         if self.running > 0 || handed_off || expired() || ask.answer.is_closed() || self.context.cancel.is_cancelled() || self.session.gone().is_cancelled() {
             self.send_answer(ask.answer, &name, base, base_len, max_inline_text_bytes, artifacts.as_deref()).await;
@@ -1359,8 +1466,9 @@ impl Reply<'_> {
     }
 
     /// A call of a Mixdog tool ended: store its result row and deliver its answer (with ready steers once no sibling
-    /// calls remain in flight).
-    async fn launch_ended(&mut self, finished: LaunchedResult) -> Result<(), RunError> {
+    /// calls remain in flight), or return the ask when this completion reaches a quiet mid-turn compaction point so
+    /// the caller can send `session/cancel` before refusing the MCP answer.
+    async fn launch_ended(&mut self, finished: LaunchedResult) -> Result<Option<ToolAsk>, RunError> {
         self.running -= 1;
         self.context.mark(|progress, now| progress.tool_call(None, now));
         let mut stored = self.commit_result(finished.row).await;
@@ -1374,15 +1482,32 @@ impl Reply<'_> {
         }
         self.mark_after_call().await;
         let Some(reply) = finished.reply else {
-            return stored;
+            return stored.map(|()| None);
         };
         if stored.is_err() || reply.aborted {
             if reply.ask.answer.send(reply.answer).is_err() {
                 tracing::warn!("[acp] {} gave up its call of {} before it was answered; the call's row holds its answer", self.agent(), reply.ask.name);
             }
-            return stored;
+            return stored.map(|()| None);
         }
-        self.deliver_answer(reply.ask, reply.answer, reply.due, reply.handed_off).await
+        if self.is_quiet() && matches!(self.mid_turn_compact, Some(MidTurnCompact::Trigger { .. })) {
+            return Ok(Some(reply.ask));
+        }
+        self.deliver_answer(reply.ask, reply.answer, reply.due, reply.handed_off).await.map(|()| None)
+    }
+
+    fn arm_mid_turn_trigger(&mut self) {
+        if let Some(MidTurnCompact::Armed { due, effective_window }) = self.mid_turn_compact {
+            self.mid_turn_compact = Some(MidTurnCompact::Trigger { due, effective_window });
+        }
+    }
+
+    fn has_open_agent_calls(&self) -> bool {
+        self.calls.values().any(|call| !call.closed) || self.session.has_open_background_calls()
+    }
+
+    fn is_quiet(&self) -> bool {
+        self.running == 0 && !self.has_open_agent_calls()
     }
 
     /// Ends the calls of Mixdog tools still running as `end` tells them to (the turn's stop, or its release of them),
@@ -1531,7 +1656,7 @@ impl Reply<'_> {
         }
     }
 
-    async fn update(&mut self, update: &Value) -> Result<(), RunError> {
+    async fn update(&mut self, update: &Value, is_live: bool) -> Result<(), RunError> {
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or_default();
         let chunk = || update.pointer("/content/text").and_then(Value::as_str).filter(|text| !text.is_empty());
         if matches!(kind, "agent_message_chunk" | "agent_thought_chunk" | "tool_call" | "tool_call_update" | "plan") {
@@ -1554,7 +1679,7 @@ impl Reply<'_> {
             }
             "tool_call" | "tool_call_update" => self.call(update).await.map(drop),
             "plan" => self.plan(update).await,
-            "usage_update" => self.context_reported(update).await,
+            "usage_update" => self.context_reported(update, is_live).await,
             _ => Ok(()),
         }
     }
@@ -1579,7 +1704,11 @@ impl Reply<'_> {
             // The question is the user's to answer: the call gets its card.
             self.reports.remove(id);
         }
+        let was_closed = request.get("toolCallId").and_then(Value::as_str).and_then(|id| self.calls.get(id)).is_some_and(|call| call.closed);
         let Some(agent_id) = self.call_card(&request).await? else { return Ok(outcome(None)) };
+        if !was_closed {
+            self.arm_mid_turn_trigger();
+        }
         let call = &self.calls[&agent_id];
         let name = call.tool.name(self.cards());
         let key = call.tool.grant_key(self.agent());
@@ -1711,6 +1840,8 @@ impl Reply<'_> {
 enum Ended {
     /// The agent closed the prompt, or what had arrived of a reply it began on its own is shown (`None`).
     Agent(Option<Result<Value, RpcError>>),
+    /// Mid-turn compaction triggered before the agent could start another round; the agent's answer of the cancel.
+    Compact(crate::runs::Due, u64, Value),
     Stopped,
     /// The agent's process ended.
     Gone,
@@ -1914,6 +2045,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
         session,
         surface: surface.clone(),
         context: &context,
+        replying,
         cwd: session.cwd.as_path().to_string_lossy().into_owned(),
         epoch: surface.call_epoch(),
         text: None,
@@ -1942,6 +2074,11 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
         seen_context: None,
         window: None,
         occupancy: None,
+        cliff_warned: false,
+        cliff_advisory: None,
+        mid_turn_compact: None,
+        saw_live_usage: false,
+        mid_turn_disabled: false,
         cost: None,
         held: None,
         draft: Draft::default(),
@@ -1991,7 +2128,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
         Ask::Reply => None,
     };
     // Deliver any late context report that arrived while the session was detached between turns.
-    if !context.cancel.is_cancelled() && reply.context_reported(&Value::Null).await.is_err() {
+    if !context.cancel.is_cancelled() && reply.context_reported(&Value::Null, false).await.is_err() {
         session.cancel(prompt);
         let closing = surface.closing();
         reply.launches_ended(closing.as_ref(), &stop, &mut launched_rows).await;
@@ -2006,13 +2143,29 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
     let ended = loop {
         let mut surface_failed = false;
         while let Ok(row) = launched_rows.try_recv() {
-            if reply.launch_ended(row).await.is_err() {
-                surface_failed = true;
-                break;
+            match reply.launch_ended(row).await {
+                Ok(Some(ask)) => {
+                    if let Some(MidTurnCompact::Trigger { due, effective_window }) = reply.mid_turn_compact {
+                        reply.mid_turn_compact = Some(MidTurnCompact::Cancelling { due, effective_window });
+                        refuse_budget.notify(session, "session/cancel", json!({ "sessionId": session.session_id })).await;
+                    }
+                    ask.refuse("Context compacted; continuing in a fresh session.");
+                }
+                Ok(None) => {}
+                Err(_) => {
+                    surface_failed = true;
+                    break;
+                }
             }
         }
         if surface_failed {
             break Ended::Surface;
+        }
+        if reply.is_quiet()
+            && let Some(MidTurnCompact::Trigger { due, effective_window }) = reply.mid_turn_compact
+        {
+            reply.mid_turn_compact = Some(MidTurnCompact::Cancelling { due, effective_window });
+            refuse_budget.notify(session, "session/cancel", json!({ "sessionId": session.session_id })).await;
         }
         if backlog && queued.is_empty() {
             backlog = false;
@@ -2089,8 +2242,16 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
                         biased;
                         () = context.cancel.cancelled() => break Ended::Stopped,
                         Some(row) = launched_rows.recv() => {
-                            if reply.launch_ended(row).await.is_err() {
-                                break Ended::Surface;
+                            match reply.launch_ended(row).await {
+                                Ok(Some(ask)) => {
+                                    if let Some(MidTurnCompact::Trigger { due, effective_window }) = reply.mid_turn_compact {
+                                        reply.mid_turn_compact = Some(MidTurnCompact::Cancelling { due, effective_window });
+                                        refuse_budget.notify(session, "session/cancel", json!({ "sessionId": session.session_id })).await;
+                                    }
+                                    ask.refuse("Context compacted; continuing in a fresh session.");
+                                }
+                                Ok(None) => {}
+                                Err(_) => break Ended::Surface,
                             }
                             continue;
                         }
@@ -2119,24 +2280,53 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             }
         };
         let step = match incoming {
-            Incoming::Notification { method, params } if method == "session/update" => reply.update(params.get("update").unwrap_or(&Value::Null)).await,
-            Incoming::Request { id, params, .. } => match handle_permission_request(&mut reply, session, &context, &mut refuse_budget, id, params).await {
-                Ok(Some(ended)) => break ended,
-                Ok(None) => Ok(()),
-                Err(error) => Err(error),
+            Incoming::Notification { method, params } if method == "session/update" => {
+                let update = params.get("update").unwrap_or(&Value::Null);
+                reply.update(update, !backlog).await
+            }
+            Incoming::Request { id, params, .. } => match reply.mid_turn_compact {
+                Some(MidTurnCompact::Cancelling { .. }) => {
+                    refuse_budget.refuse(session, id).await;
+                    Ok(())
+                }
+                _ => match handle_permission_request(&mut reply, session, &context, &mut refuse_budget, id, params).await {
+                    Ok(Some(ended)) => break ended,
+                    Ok(None) => Ok(()),
+                    Err(error) => Err(error),
+                },
             },
-            Incoming::Response { id, result } if Some(id) == prompt => break Ended::Agent(Some(result)),
+            Incoming::Response { id, result } if Some(id) == prompt => match reply.mid_turn_compact {
+                Some(MidTurnCompact::Cancelling { due, effective_window }) if matches!(&result, Ok(answer) if answer.get("stopReason").and_then(Value::as_str) == Some("cancelled")) =>
+                {
+                    break Ended::Compact(due, effective_window, result.unwrap_or_default());
+                }
+                _ => break Ended::Agent(Some(result)),
+            },
             Incoming::Tool(ask) => {
                 if context.cancel.is_cancelled() {
                     ask.refuse("Cancelled");
                     break Ended::Stopped;
                 }
-                let handed = reply.handed(ask).await;
-                // A call the session's loss ended ends the turn with it.
-                if session.gone().is_cancelled() {
-                    break Ended::Gone;
+                match reply.mid_turn_compact {
+                    Some(MidTurnCompact::Cancelling { .. }) => {
+                        ask.refuse("Context compacted; continuing in a fresh session.");
+                        Ok(())
+                    }
+                    Some(MidTurnCompact::Armed { due, effective_window } | MidTurnCompact::Trigger { due, effective_window }) if reply.is_quiet() => {
+                        reply.mid_turn_compact = Some(MidTurnCompact::Cancelling { due, effective_window });
+                        refuse_budget.notify(session, "session/cancel", json!({ "sessionId": session.session_id })).await;
+                        ask.refuse("Context compacted; continuing in a fresh session.");
+                        Ok(())
+                    }
+                    _ => {
+                        let handed = reply.handed(ask).await;
+                        // A call the session's loss ended ends the turn with it.
+                        if session.gone().is_cancelled() {
+                            break Ended::Gone;
+                        }
+                        handed
+                    }
                 }
-                handed
             }
             _ => Ok(()),
         };
@@ -2144,13 +2334,18 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             break Ended::Surface;
         }
     };
+    let refuse_reason = if matches!(ended, Ended::Compact(..)) { "Context compacted; continuing in a fresh session." } else { "Cancelled" };
+    let left_behind = matches!(reply.mid_turn_compact, Some(MidTurnCompact::Cancelling { .. })) && !matches!(ended, Ended::Compact(..));
+    if left_behind && let Some(compaction) = &context.mid_turn_compaction {
+        compaction.left_behind.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
     for leftover in queued.drain(..) {
         match leftover {
             Incoming::Request { id, .. } => {
                 refuse_budget.refuse(session, id).await;
             }
             Incoming::Tool(ask) => {
-                ask.refuse("Cancelled");
+                ask.refuse(refuse_reason);
             }
             _ => {}
         }
@@ -2235,6 +2430,17 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
                 }
             }
         }
+        Ended::Compact(due, effective_window, answer) => {
+            reply.launches_ended(surface.as_ref(), &stop, &mut launched_rows).await;
+            let _ = reply.show_held().await;
+            let _ = reply.close(surface.as_ref(), ("Cancelled", true)).await;
+            session.detach_with_budget(stream, Vec::new(), &mut refuse_budget).await;
+            let timing = timing_of(started_at_ms, &reply.model_time, (context.now_ms)());
+            if let Some(usage) = usage_of(&answer, reported, reply.cost, &context, timing, tool_calls) {
+                let _ = surface.usage(usage).await;
+            }
+            TurnEnd::CompactNeeded { due, effective_window, tool_calls }
+        }
         Ended::Gone => {
             reply.launches_ended(surface.as_ref(), &stop, &mut launched_rows).await;
             let _ = reply.show_held().await;
@@ -2270,7 +2476,9 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             TurnEnd::Interrupted
         }
     };
-    context.settle_progress(&end);
+    if !matches!(end, TurnEnd::CompactNeeded { .. }) {
+        context.settle_progress(&end);
+    }
     end
 }
 
@@ -2664,6 +2872,7 @@ mod tests {
             pictures: None,
             transcript: None,
             output_produced: None,
+            mid_turn_compaction: None,
             fit: crate::mcp::in_process_fit(),
         }
     }
@@ -2963,6 +3172,7 @@ mod tests {
             session: &session,
             surface,
             context: &context,
+            replying: false,
             cwd: String::new(),
             epoch: 0,
             text: None,
@@ -2991,6 +3201,11 @@ mod tests {
             seen_context: None,
             window: None,
             occupancy: None,
+            cliff_warned: false,
+            cliff_advisory: None,
+            mid_turn_compact: None,
+            saw_live_usage: false,
+            mid_turn_disabled: false,
             cost: None,
             held: None,
             draft: Draft::default(),

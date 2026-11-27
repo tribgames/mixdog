@@ -34,10 +34,14 @@ use serde_json::json;
 #[derive(Clone, PartialEq, Eq)]
 enum Asked {
     Permission,
+    ApprovedThenCompact { used: u64, size: u64 },
+    PendingPermComplete,
+    SubagentChildPerm,
     ImageGen { mode: ImageGenMode },
     Read,
     AfterLeftover,
-    SelfCompactCall { tool: String, after: u64, size: u64 },
+    MidCompactCall { tool: String },
+    RecompactCall,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -570,8 +574,8 @@ impl Agent {
                 self.say(&format!(" first={first_text}"));
                 self.end(&id);
             }
-            // Emits a usage_update with caller-specified `<used> <size>` to test real preset caps.
-            "reading" => {
+            // Emits a usage_update with caller-specified `<used> <size>` to test real preset caps and compaction cliff.
+            "cliff" => {
                 let mut parts = rest.split_whitespace();
                 let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(196_000);
                 let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
@@ -579,22 +583,435 @@ impl Agent {
                 self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
                 self.end(&id);
             }
-            // `selfcompact <used> <size> <after> <tool1> <tool2>`: a turn whose context fills and that the agent compacts
-            // itself, as Antigravity's harness does: a call of `tool1`, a reading of `used` of `size`, a call of `tool2`,
-            // the reading its own compaction leaves (`after`), and the turn's end.
-            "selfcompact" => {
+            // Multi-round turn: runs tool1, reports high usage_update, then attempts tool2.
+            // If Mixdog compacts mid-turn, tool2 is refused and the turn ends cancelled without self-compaction.
+            "midcompact" => {
                 let mut parts = rest.split_whitespace();
-                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(211_884);
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
                 let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
-                let after: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(30_608);
                 let tool1 = parts.next().unwrap_or("read").to_owned();
-                let tool2 = parts.next().unwrap_or("read").to_owned();
-                self.call_tool("m1", &tool1, json!({}));
+                let tool2 = parts.next().unwrap_or("shell").to_owned();
+                let (said1, _) = self.call_tool("m1", &tool1, json!({}));
+                self.say(&format!("round1={said1}"));
                 self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
+                self.update(mcp_call("tool_call", "m2", &tool2, "in_progress", &json!({})));
                 // The MCP call does not travel behind what was said: the client's answer to a request behind it tells
-                // that the client has read the reading before the call.
-                self.request("fs/read_text_file", json!({ "path": "" }), Asked::SelfCompactCall { tool: tool2, after, size }, true);
+                // that the client has read all of it before the call.
+                self.request("fs/read_text_file", json!({ "path": "" }), Asked::MidCompactCall { tool: tool2 }, true);
                 self.session().asked = Some(id);
+            }
+            // Starts an MCP tool call in flight, emits usage_update while it is running, then checks whether Mixdog
+            // refused its answer after letting the tool finish and commit.
+            "inflightcompact" => {
+                let mut parts = rest.split_whitespace();
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
+                let tool = parts.next().unwrap_or("slow").to_owned();
+                let server = self.held().servers[0].clone();
+                let ready = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ready listener");
+                let port = ready.local_addr().expect("ready addr").port();
+                let tool_name = tool.clone();
+                let handle = std::thread::spawn(move || {
+                    mcp_try(
+                        &server,
+                        &json!({ "jsonrpc": "2.0", "id": 12, "method": "tools/call", "params": { "name": tool_name, "arguments": { "readyPort": port } } }),
+                    )
+                });
+                let _ = ready.accept().expect("in-flight tool ready");
+                self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
+                let resp = handle.join().unwrap();
+                let refused = match &resp {
+                    Err(_) => true,
+                    Ok(resp) => resp.get("error").is_some() || resp["result"]["isError"] == true,
+                };
+                if refused {
+                    log("inflight-refused");
+                    answer(&id, json!({ "stopReason": "cancelled" }));
+                } else {
+                    log("self-compact");
+                    self.say("self-compacted");
+                    self.end(&id);
+                }
+            }
+            // Opens an agent-owned tool call, reports high usage_update while it is running, calls a Mixdog MCP tool
+            // while the agent call is still open (which must run and answer normally, never freeze/defer), then
+            // completes the agent call with its real result and waits for `session/cancel` at the quiet point.
+            "openagentcompact" => {
+                let mut parts = rest.split_whitespace();
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
+                let tool = parts.next().unwrap_or("read").to_owned();
+                self.update(json!({
+                    "sessionUpdate": "tool_call", "toolCallId": "a1", "name": "run_command", "title": "Run build", "kind": "execute", "status": "in_progress",
+                    "rawInput": { "command": "cargo build" },
+                }));
+                self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
+                let resp = mcp_try(
+                    &self.held().servers[0],
+                    &json!({ "jsonrpc": "2.0", "id": 13, "method": "tools/call", "params": { "name": tool, "arguments": {} } }),
+                );
+                let refused = match &resp {
+                    Err(_) => true,
+                    Ok(resp) => resp.get("error").is_some() || resp["result"]["isError"] == true,
+                };
+                if refused {
+                    log("open-agent-mixdog-refused");
+                } else {
+                    log("open-agent-mixdog-ok");
+                }
+                std::thread::sleep(std::time::Duration::from_millis(60));
+                log("open-agent-a1-completed");
+                self.update(json!({
+                    "sessionUpdate": "tool_call_update", "toolCallId": "a1", "status": "completed",
+                    "content": [{ "type": "content", "content": { "type": "text", "text": "BUILD_OK_REAL_RESULT" } }],
+                }));
+                self.session().muted = Some(id);
+            }
+            // Reports high usage_update with no calls open, then starts an already-running (`in_progress`) agent-owned
+            // tool call and completes it before waiting for `session/cancel`.
+            "lateagentcall" => {
+                let mut parts = rest.split_whitespace();
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
+                self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
+                self.update(json!({
+                    "sessionUpdate": "tool_call", "toolCallId": "a2", "name": "run_command", "title": "Late command", "kind": "execute", "status": "in_progress",
+                    "rawInput": { "command": "echo late" },
+                }));
+                std::thread::sleep(std::time::Duration::from_millis(60));
+                log("late-agent-a2-completed");
+                self.update(json!({
+                    "sessionUpdate": "tool_call_update", "toolCallId": "a2", "status": "completed",
+                    "content": [{ "type": "content", "content": { "type": "text", "text": "LATE_CALL_OUTPUT" } }],
+                }));
+                self.session().muted = Some(id);
+            }
+            // Reports high usage_update while quiet then sends a permission request directly (no preceding `tool_call`
+            // update): the request opens its call's card, and once approved the call completes with its real result
+            // before the agent waits for `session/cancel`.
+            "cancelorder" => {
+                let mut parts = rest.split_whitespace();
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
+                self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
+                let call = json!({
+                    "sessionUpdate": "tool_call", "toolCallId": "p1", "name": "run_command", "title": "Order check", "kind": "execute", "status": "pending",
+                    "rawInput": { "command": "echo hi" },
+                });
+                self.request("session/request_permission", json!({ "toolCall": call, "options": once_or_no }), Asked::PendingPermComplete, true);
+                self.session().asked = Some(id);
+            }
+            // Reports high usage_update while quiet and calls a Mixdog tool, which Mixdog refuses as compacted after
+            // `session/cancel`; the agent then fails the prompt instead of answering it cancelled.
+            "cancelerror" => {
+                let mut parts = rest.split_whitespace();
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
+                self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
+                self.update(mcp_call("tool_call", "e1", "read", "in_progress", &json!({})));
+                let resp = mcp_try(
+                    &self.held().servers[0],
+                    &json!({ "jsonrpc": "2.0", "id": 19, "method": "tools/call", "params": { "name": "read", "arguments": {} } }),
+                );
+                let refused = match &resp {
+                    Err(_) => true,
+                    Ok(resp) => resp.get("error").is_some() || resp["result"]["isError"] == true,
+                };
+                log(if refused { "cancel-error-refused" } else { "cancel-error-ok" });
+                send(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32603, "message": "Internal error" } }));
+            }
+            // With the call an earlier turn left running (`keep`) still open, reports high usage_update and calls a
+            // Mixdog tool, then ends the kept call and waits for `session/cancel`.
+            "keptcompact" => {
+                let mut parts = rest.split_whitespace();
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
+                let kept = self.session().kept.take().unwrap_or_default();
+                self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
+                self.update(mcp_call("tool_call", "m1", "read", "in_progress", &json!({})));
+                let resp = mcp_try(
+                    &self.held().servers[0],
+                    &json!({ "jsonrpc": "2.0", "id": 20, "method": "tools/call", "params": { "name": "read", "arguments": {} } }),
+                );
+                let refused = match &resp {
+                    Err(_) => true,
+                    Ok(resp) => resp.get("error").is_some() || resp["result"]["isError"] == true,
+                };
+                log(if refused { "kept-mixdog-refused" } else { "kept-mixdog-ok" });
+                log("kept-call-completed");
+                self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": kept, "status": "completed" }));
+                self.session().muted = Some(id);
+            }
+            // Review 2 P1 orderings: pending (or omitted status, or in_progress) tool_call + usage_update + permission
+            // request. Because the call is open, permission is answered normally, the call finishes with its real
+            // result, and rollover happens at the quiet point after it completes.
+            "pendingpermcompact" => {
+                let mut parts = rest.split_whitespace();
+                let mode = parts.next().unwrap_or("pending");
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
+                let call = match mode {
+                    "nostatus" | "after_nostatus" => json!({
+                        "sessionUpdate": "tool_call", "toolCallId": "p1", "name": "run_command", "title": "Need permission", "kind": "execute",
+                        "rawInput": { "command": "echo perm" },
+                    }),
+                    "inprogress" => json!({
+                        "sessionUpdate": "tool_call", "toolCallId": "p1", "name": "run_command", "title": "Need permission", "kind": "execute", "status": "in_progress",
+                        "rawInput": { "command": "echo perm" },
+                    }),
+                    _ => json!({
+                        "sessionUpdate": "tool_call", "toolCallId": "p1", "name": "run_command", "title": "Need permission", "kind": "execute", "status": "pending",
+                        "rawInput": { "command": "echo perm" },
+                    }),
+                };
+                if mode == "after_nostatus" {
+                    self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
+                    self.update(call.clone());
+                } else {
+                    self.update(call.clone());
+                    self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
+                }
+                self.request("session/request_permission", json!({ "toolCall": call, "options": once_or_no }), Asked::PendingPermComplete, true);
+                self.session().asked = Some(id);
+            }
+            // Permission approved before usage_update: call runs without an intermediate `in_progress` update, crosses
+            // usage_update while running, and completes with its real result before rollover.
+            "approvedpermcompact" => {
+                let mut parts = rest.split_whitespace();
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
+                let call = json!({
+                    "sessionUpdate": "tool_call", "toolCallId": "p1", "name": "run_command", "title": "Approved cmd", "kind": "execute", "status": "pending",
+                    "rawInput": { "command": "echo approved" },
+                });
+                self.update(call.clone());
+                self.request("session/request_permission", json!({ "toolCall": call, "options": once_or_no }), Asked::ApprovedThenCompact { used, size }, true);
+                self.session().asked = Some(id);
+            }
+            // Pending tool_call before usage_update that starts (`in_progress`) without asking permission and completes.
+            "pendingstartscompact" => {
+                let mut parts = rest.split_whitespace();
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
+                self.update(json!({
+                    "sessionUpdate": "tool_call", "toolCallId": "g1", "name": "run_command", "title": "Auto run", "kind": "execute", "status": "pending",
+                    "rawInput": { "command": "echo auto" },
+                }));
+                self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
+                std::thread::sleep(std::time::Duration::from_millis(30));
+                self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "g1", "status": "in_progress" }));
+                std::thread::sleep(std::time::Duration::from_millis(60));
+                log("pending-starts-g1-completed");
+                self.update(json!({
+                    "sessionUpdate": "tool_call_update", "toolCallId": "g1", "status": "completed",
+                    "content": [{ "type": "content", "content": { "type": "text", "text": "AUTO_STARTED_OUTPUT" } }],
+                }));
+                self.session().muted = Some(id);
+            }
+            // Review 3 P1 #1: auto-allowed call `a1` stays `pending` (no `in_progress` update) alongside sibling `b1`;
+            // usage_update crosses trigger, `b1` completes first; rollover must wait for `a1` too.
+            "pendingparallelcompact" => {
+                let mut parts = rest.split_whitespace();
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
+                self.update(json!({
+                    "sessionUpdate": "tool_call", "toolCallId": "a1", "name": "edit_file", "title": "Edit A", "kind": "edit", "status": "pending",
+                    "rawInput": { "path": "a.rs" },
+                }));
+                self.update(json!({
+                    "sessionUpdate": "tool_call", "toolCallId": "b1", "name": "read_file", "title": "Read B", "kind": "read", "status": "pending",
+                    "rawInput": { "path": "b.rs" },
+                }));
+                self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
+                self.update(json!({
+                    "sessionUpdate": "tool_call_update", "toolCallId": "b1", "status": "completed",
+                    "content": [{ "type": "content", "content": { "type": "text", "text": "B1_REAL_RESULT" } }],
+                }));
+                std::thread::sleep(std::time::Duration::from_millis(80));
+                log("pending-parallel-a1-completed");
+                self.update(json!({
+                    "sessionUpdate": "tool_call_update", "toolCallId": "a1", "status": "completed",
+                    "content": [{ "type": "content", "content": { "type": "text", "text": "A1_PENDING_REAL_RESULT" } }],
+                }));
+                self.session().muted = Some(id);
+            }
+            // Review 3 P1 #2: in-flight parent call `a1` issues both a child `session/request_permission` and a Mixdog
+            // MCP `tools/call` after usage_update crosses trigger; both must be answered normally so `a1` finishes.
+            "subagentchildcompact" => {
+                let mut parts = rest.split_whitespace();
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
+                self.update(json!({
+                    "sessionUpdate": "tool_call", "toolCallId": "a1", "name": "task", "title": "Subagent task", "kind": "other", "status": "in_progress",
+                    "rawInput": { "prompt": "check repo" },
+                }));
+                self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
+                let child = json!({
+                    "sessionUpdate": "tool_call", "toolCallId": "child1", "name": "run_command", "title": "Child cmd", "kind": "execute", "status": "pending",
+                    "rawInput": { "command": "echo child" },
+                });
+                self.update(child.clone());
+                self.request("session/request_permission", json!({ "toolCall": child, "options": once_or_no }), Asked::SubagentChildPerm, true);
+                self.session().asked = Some(id);
+            }
+            // Review 3 P1 #3: parent call `a1` stays open while forwarded subagent text, thought, plan, child call
+            // completion, and multiple usage_updates arrive; none may demote or kill `a1`.
+            "subagentactivitycompact" => {
+                let mut parts = rest.split_whitespace();
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
+                self.update(json!({
+                    "sessionUpdate": "tool_call", "toolCallId": "a1", "name": "task", "title": "Long task", "kind": "other", "status": "in_progress",
+                    "rawInput": { "prompt": "analyze" },
+                }));
+                self.say("Forwarded subagent progress text.");
+                self.update(json!({ "sessionUpdate": "agent_thought_chunk", "content": { "type": "text", "text": "subagent thinking" } }));
+                self.update(json!({ "sessionUpdate": "plan", "entries": [{ "content": "Inspect", "status": "in_progress" }] }));
+                self.update(json!({
+                    "sessionUpdate": "tool_call", "toolCallId": "c1", "name": "read_file", "title": "Child read", "kind": "read", "status": "in_progress",
+                    "rawInput": { "path": "src/lib.rs" },
+                }));
+                self.update(json!({
+                    "sessionUpdate": "tool_call_update", "toolCallId": "c1", "status": "completed",
+                    "content": [{ "type": "content", "content": { "type": "text", "text": "C1_REAL_RESULT" } }],
+                }));
+                self.update(json!({ "sessionUpdate": "usage_update", "used": 150_000, "size": size }));
+                self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
+                self.update(json!({ "sessionUpdate": "usage_update", "used": used + 1000, "size": size }));
+                std::thread::sleep(std::time::Duration::from_millis(80));
+                log("subagent-activity-a1-completed");
+                self.update(json!({
+                    "sessionUpdate": "tool_call_update", "toolCallId": "a1", "status": "completed",
+                    "content": [{ "type": "content", "content": { "type": "text", "text": "A1_AFTER_ACTIVITY_RESULT" } }],
+                }));
+                self.session().muted = Some(id);
+            }
+            // Review 2 P2 / no quiet point before turn end: `bg1` remains open until `end_turn` while `usage_update`
+            // crosses trigger and `c1` completes; no mid-turn rollover occurs and `bg1` is handed off normally.
+            "bgneverquietcompact" => {
+                let mut parts = rest.split_whitespace();
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
+                self.update(json!({
+                    "sessionUpdate": "tool_call", "toolCallId": "bg1", "name": "run_command", "title": "Dev server", "kind": "execute", "status": "in_progress",
+                    "rawInput": { "command": "npm run dev" },
+                }));
+                self.say("Started dev server in background.");
+                self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
+                self.update(json!({
+                    "sessionUpdate": "tool_call", "toolCallId": "c1", "name": "run_command", "title": "Step 1", "kind": "execute", "status": "in_progress",
+                    "rawInput": { "command": "echo step1" },
+                }));
+                self.update(json!({
+                    "sessionUpdate": "tool_call_update", "toolCallId": "c1", "status": "completed",
+                    "content": [{ "type": "content", "content": { "type": "text", "text": "C1_REAL_RESULT" } }],
+                }));
+                self.end(&id);
+            }
+            // Agent call + Mixdog tool both in flight when usage_update crosses trigger; Mixdog tool finishes first
+            // while `a1` is still open (so its MCP answer is delivered normally), then `a1` finishes and rollover
+            // occurs at the quiet point with both real results committed.
+            "parallelcompact" => {
+                let mut parts = rest.split_whitespace();
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
+                let tool = parts.next().unwrap_or("slow").to_owned();
+                self.update(json!({
+                    "sessionUpdate": "tool_call", "toolCallId": "a1", "name": "run_command", "title": "Parallel cmd", "kind": "execute", "status": "in_progress",
+                    "rawInput": { "command": "cargo check" },
+                }));
+                let server = self.held().servers[0].clone();
+                let ready = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ready listener");
+                let port = ready.local_addr().expect("ready addr").port();
+                let handle = std::thread::spawn(move || {
+                    mcp_try(
+                        &server,
+                        &json!({ "jsonrpc": "2.0", "id": 16, "method": "tools/call", "params": { "name": tool, "arguments": { "readyPort": port } } }),
+                    )
+                });
+                let _ = ready.accept().expect("in-flight tool ready");
+                self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
+                let resp = handle.join().unwrap();
+                let refused = match &resp {
+                    Err(_) => true,
+                    Ok(resp) => resp.get("error").is_some() || resp["result"]["isError"] == true,
+                };
+                if refused {
+                    log("parallel-slow-refused");
+                } else {
+                    log("parallel-slow-answered");
+                }
+                std::thread::sleep(std::time::Duration::from_millis(60));
+                log("parallel-a1-completed");
+                self.update(json!({
+                    "sessionUpdate": "tool_call_update", "toolCallId": "a1", "status": "completed",
+                    "content": [{ "type": "content", "content": { "type": "text", "text": "PARALLEL_A1_RESULT" } }],
+                }));
+                self.session().muted = Some(id);
+            }
+            // Opens an in-progress agent call and crosses usage_update; the test cancels while waiting for quiet point.
+            "canceldraincompact" => {
+                let mut parts = rest.split_whitespace();
+                let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(200_687);
+                let size: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1_048_576);
+                self.update(json!({
+                    "sessionUpdate": "tool_call", "toolCallId": "a1", "name": "run_command", "title": "Long build", "kind": "execute", "status": "in_progress",
+                    "rawInput": { "command": "cargo build" },
+                }));
+                self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
+                log("canceldrain-sent");
+                self.session().muted = Some(id);
+            }
+            // Mid-turn continuation prompt sent by Mixdog on a fresh session after rollover.
+            "[mixdog-runtime]" => {
+                let should_recompact = setting("FAKE_AGENT_RECOMPACT").filter(|recompact| {
+                    if recompact.split_whitespace().count() == 2 {
+                        return true;
+                    }
+                    let marker = home_file("recompact-fired");
+                    if marker.exists() {
+                        return false;
+                    }
+                    let _ = std::fs::write(&marker, "1");
+                    true
+                });
+                if let Some(recompact) = should_recompact {
+                    let nums: Vec<u64> = recompact.split_whitespace().filter_map(|s| s.parse().ok()).collect();
+                    let (first_used, second_used, size) = match nums.as_slice() {
+                        [first, second, size] => (*first, Some(*second), *size),
+                        [used, size] => (*used, None, *size),
+                        _ => (200_687, None, 1_048_576),
+                    };
+                    self.update(json!({ "sessionUpdate": "usage_update", "used": first_used, "size": size }));
+                    if let Some(second) = second_used {
+                        self.update(json!({ "sessionUpdate": "usage_update", "used": second, "size": size }));
+                    }
+                    self.update(mcp_call("tool_call", "r2", "shell", "in_progress", &json!({})));
+                    self.request("fs/read_text_file", json!({ "path": "" }), Asked::RecompactCall, true);
+                    self.session().asked = Some(id);
+                } else {
+                    if let Some(tool) = setting("FAKE_AGENT_CONTINUE_TOOL") {
+                        let _ = self.call_tool("c1", &tool, json!({}));
+                    }
+                    let files: Vec<Value> =
+                        blocks.iter().filter(|block| block["type"] == "resource" || block["type"] == "resource_link").map(|block| (*block).clone()).collect();
+                    let fs = &self.client["fs"];
+                    let session = self.held();
+                    self.say(&format!(
+                        "session={} resumed={} loaded={} append={} model={} read={} write={} terminal={} lead={} images={images} files={}",
+                        session.id,
+                        session.resumed,
+                        session.loaded,
+                        session.append,
+                        session.model,
+                        fs["readTextFile"],
+                        fs["writeTextFile"],
+                        self.client["terminal"],
+                        lead.join("|"),
+                        Value::Array(files)
+                    ));
+                    self.end(&id);
+                }
             }
             // A question that offers no answer for one call.
             "lasting" => {
@@ -860,7 +1277,7 @@ impl Agent {
             return;
         }
         self.current = session;
-        if what == Asked::Permission {
+        if matches!(what, Asked::Permission | Asked::ApprovedThenCompact { .. } | Asked::PendingPermComplete | Asked::SubagentChildPerm) {
             let outcome = &message["result"]["outcome"];
             log(&format!("permission answered {} {}", self.current, outcome["outcome"].as_str().unwrap_or_default()));
         }
@@ -872,11 +1289,92 @@ impl Agent {
                 self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "p1", "status": if selected { "completed" } else { "failed" } }));
                 self.say(&if selected { format!("option:{}", outcome["optionId"].as_str().unwrap_or_default()) } else { "cancelled".to_owned() });
             }
-            Asked::SelfCompactCall { tool, after, size } => {
-                let (said, _) = self.call_tool("m2", &tool, json!({}));
-                self.update(json!({ "sessionUpdate": "usage_update", "used": after, "size": size }));
+            Asked::PendingPermComplete => {
+                let outcome = &message["result"]["outcome"];
+                if outcome["outcome"] == "selected" {
+                    std::thread::sleep(std::time::Duration::from_millis(40));
+                    log("pending-perm-p1-completed");
+                    self.update(json!({
+                        "sessionUpdate": "tool_call_update", "toolCallId": "p1", "status": "completed",
+                        "content": [{ "type": "content", "content": { "type": "text", "text": "P1_APPROVED_RESULT" } }],
+                    }));
+                    self.session().muted = Some(prompt);
+                    return;
+                }
+                self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "p1", "status": "failed" }));
+                answer(&prompt, json!({ "stopReason": "cancelled" }));
+                return;
+            }
+            Asked::SubagentChildPerm => {
+                let outcome = &message["result"]["outcome"];
+                if outcome["outcome"] == "selected" {
+                    self.update(json!({
+                        "sessionUpdate": "tool_call_update", "toolCallId": "child1", "status": "completed",
+                        "content": [{ "type": "content", "content": { "type": "text", "text": "CHILD1_REAL_RESULT" } }],
+                    }));
+                    let resp = mcp_try(
+                        &self.held().servers[0],
+                        &json!({ "jsonrpc": "2.0", "id": 18, "method": "tools/call", "params": { "name": "read", "arguments": {} } }),
+                    );
+                    let refused = match &resp {
+                        Err(_) => true,
+                        Ok(resp) => resp.get("error").is_some() || resp["result"]["isError"] == true,
+                    };
+                    if refused {
+                        log("subagent-read-refused");
+                    } else {
+                        log("subagent-read-ok");
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(40));
+                    log("parent-a1-completed");
+                    self.update(json!({
+                        "sessionUpdate": "tool_call_update", "toolCallId": "a1", "status": "completed",
+                        "content": [{ "type": "content", "content": { "type": "text", "text": "PARENT_A1_REAL_RESULT" } }],
+                    }));
+                    self.session().muted = Some(prompt);
+                    return;
+                }
+                self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "child1", "status": "failed" }));
+                self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "a1", "status": "failed" }));
+                answer(&prompt, json!({ "stopReason": "cancelled" }));
+                return;
+            }
+            Asked::MidCompactCall { tool } => {
+                let resp = mcp_try(
+                    &self.held().servers[0],
+                    &json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": { "name": tool, "arguments": {} } }),
+                );
+                let refused = match &resp {
+                    Err(_) => true,
+                    Ok(resp) => resp.get("error").is_some() || resp["result"]["isError"] == true,
+                };
+                if refused {
+                    log("round2-refused");
+                    answer(&prompt, json!({ "stopReason": "cancelled" }));
+                    return;
+                }
+                log("self-compact");
+                self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "m2", "status": "completed" }));
+                self.say("self-compacted");
+            }
+            Asked::RecompactCall => {
+                let resp = mcp_try(
+                    &self.held().servers[0],
+                    &json!({ "jsonrpc": "2.0", "id": 19, "method": "tools/call", "params": { "name": "shell", "arguments": {} } }),
+                );
+                let refused = match &resp {
+                    Err(_) => true,
+                    Ok(resp) => resp.get("error").is_some() || resp["result"]["isError"] == true,
+                };
+                if refused {
+                    log("recompact-refused");
+                    answer(&prompt, json!({ "stopReason": "cancelled" }));
+                    return;
+                }
+                log("recompact-continued");
+                self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "r2", "status": "completed" }));
                 let session = self.held().id.clone();
-                self.say(&format!("session={session} round2={said}"));
+                self.say(&format!("session={session} continued-after-guard"));
             }
             Asked::ImageGen { mode } => {
                 let outcome = &message["result"]["outcome"];
@@ -965,6 +1463,22 @@ impl Agent {
                     json!({ "stopReason": "end_turn", "usage": { "inputTokens": 120, "outputTokens": 25, "thoughtTokens": 10, "cachedReadTokens": 40 } }),
                 );
                 return;
+            }
+            Asked::ApprovedThenCompact { used, size } => {
+                let outcome = &message["result"]["outcome"];
+                if outcome["outcome"] == "selected" {
+                    self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size }));
+                    std::thread::sleep(std::time::Duration::from_millis(60));
+                    log("approved-perm-p1-completed");
+                    self.update(json!({
+                        "sessionUpdate": "tool_call_update", "toolCallId": "p1", "status": "completed",
+                        "content": [{ "type": "content", "content": { "type": "text", "text": "APPROVED_CMD_OUTPUT" } }],
+                    }));
+                    self.session().muted = Some(prompt);
+                    return;
+                }
+                self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "p1", "status": "failed" }));
+                self.say("cancelled");
             }
             _ => match message.get("error") {
                 Some(error) => self.say(&format!("error:{}", error["message"].as_str().unwrap_or_default())),
