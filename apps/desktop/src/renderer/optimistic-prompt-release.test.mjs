@@ -161,17 +161,16 @@ test('queued prompt seen in queued then removed without settling (cross-device c
   assert.equal(pane.view.steerItems.length, 1);
   assert.equal(pane.view.steerItems[0].steerLocal, undefined);
 
-  // Another device cancels the queued prompt while the turn is still running:
-  // the single intermediate empty-queue frame holds briefly in drain (matching mid-turn dequeue before user row commit),
-  // then releases cleanly once the turn appends a non-user row (or finishes idle / changes turn / restores).
+  // Another device cancels the queued prompt while the turn is still running: an empty queue reads the same as a
+  // prompt the turn took, whose row lands behind the reply that was streaming. The bubble stands while the turn runs,
+  // a reply settling included, and leaves when the turn ends (or changes, or the session restores).
   await pane.show({ settledItems: baseRunning, busy: true, queued: [] });
   assert.equal(pane.view.optimisticPrompts.length, 1);
 
-  await pane.show({
-    settledItems: [...baseRunning, { kind: 'assistant', id: 'a2', text: 'continuing without cancelled prompt' }],
-    busy: true,
-    queued: [],
-  });
+  const movedOn = [...baseRunning, { kind: 'assistant', id: 'a2', text: 'continuing without cancelled prompt' }];
+  await pane.show({ settledItems: movedOn, busy: true, queued: [] });
+  assert.equal(pane.view.optimisticPrompts.length, 1, 'a reply settling is not the prompt leaving');
+  await pane.show({ settledItems: movedOn, busy: false, queued: [] });
   assert.deepEqual(pane.view.optimisticPrompts, []);
   assert.deepEqual(pane.view.steerItems, []);
 
@@ -805,15 +804,14 @@ test('in-flight submit (accepted: false) seen in queued then dequeued is NOT dro
   assert.equal(pane.view.optimisticPrompts[0].accepted, false);
 
   // Once the RPC resolves accepted: true on the same live busy turn, the prompt enters draining (not dropped prematurely mid-drain)
-  // and releases cleanly as soon as the turn progresses past user-row insertion or finishes idle.
+  // and releases cleanly once the turn finishes idle.
   await pane.accept(sending, true);
   assert.equal(pane.view.optimisticPrompts.length, 1);
 
-  await pane.show({
-    settledItems: [...baseRunning, { kind: 'assistant', id: 'a2', text: 'reply without queued prompt' }],
-    busy: true,
-    queued: [],
-  });
+  const replied = [...baseRunning, { kind: 'assistant', id: 'a2', text: 'reply without queued prompt' }];
+  await pane.show({ settledItems: replied, busy: true, queued: [] });
+  assert.equal(pane.view.optimisticPrompts.length, 1);
+  await pane.show({ settledItems: replied, busy: false, queued: [] });
   assert.deepEqual(pane.view.optimisticPrompts, []);
   assert.deepEqual(pane.view.steerItems, []);
 });
@@ -873,6 +871,43 @@ test('prompt dequeued before idle auto-clear compaction stays visible during com
   assert.deepEqual(pane.view.steerItems, []);
 });
 
+test('prompts read while a reply streams keep their bubbles through that reply settling until their rows land', async (t) => {
+  const pane = await mountPendingHarness(t, { queuedAtSubmit: true });
+  await pane.show({ settledItems: baseRunning, busy: true, turnId: 'turn-1', queued: [] });
+  const first = await pane.submit('first steer', 'sub-s1');
+  await pane.accept(first, true);
+  const second = await pane.submit('second steer', 'sub-s2');
+  await pane.accept(second, true);
+  const queued = [
+    { id: 'sub-s1', displayText: 'first steer', submittedAt: 10 },
+    { id: 'sub-s2', displayText: 'second steer', submittedAt: 11 },
+  ];
+  await pane.show({ settledItems: baseRunning, busy: true, turnId: 'turn-1', queued });
+
+  // The core's order: the queue empties, the reply that was streaming is stored, then the prompts' rows.
+  await pane.show({ settledItems: baseRunning, busy: true, turnId: 'turn-1', queued: [] });
+  const replied = [...baseRunning, { kind: 'assistant', id: 'a2', text: 'the reply that was streaming' }];
+  await pane.show({ settledItems: replied, busy: true, turnId: 'turn-1', queued: [] });
+  assert.deepEqual(
+    pane.view.steerItems.map((item) => item.id),
+    ['sub-s1', 'sub-s2'],
+    'neither bubble leaves the transcript before its row is there'
+  );
+
+  await pane.show({
+    settledItems: [
+      ...replied,
+      { kind: 'user', id: 'sub-s1', text: 'first steer', steered: true },
+      { kind: 'user', id: 'sub-s2', text: 'second steer', steered: true },
+    ],
+    busy: true,
+    turnId: 'turn-1',
+    queued: [],
+  });
+  assert.deepEqual(pane.view.optimisticPrompts, []);
+  assert.deepEqual(pane.view.steerItems, []);
+});
+
 test('two-prompt drain holds second bubble while first settles, and releases if second never lands', async (t) => {
   const pane = await mountPendingHarness(t, { queuedAtSubmit: true });
   await pane.show({ settledItems: baseRunning, busy: true, queued: [] });
@@ -893,12 +928,11 @@ test('two-prompt drain holds second bubble while first settles, and releases if 
   await pane.show({ settledItems: withFirst, busy: true, queued: [] });
   assert.equal(pane.view.optimisticPrompts.length, 1, 'second stays while cohort drains');
 
-  // If the turn moves on to an assistant reply without the second row ever landing, release cleanly (no zombie).
-  await pane.show({
-    settledItems: [...withFirst, { kind: 'assistant', id: 'a2', text: 'reply without second' }],
-    busy: true,
-    queued: [],
-  });
+  // If the turn ends without the second row ever landing, release cleanly (no zombie).
+  const withoutSecond = [...withFirst, { kind: 'assistant', id: 'a2', text: 'reply without second' }];
+  await pane.show({ settledItems: withoutSecond, busy: true, queued: [] });
+  assert.equal(pane.view.optimisticPrompts.length, 1);
+  await pane.show({ settledItems: withoutSecond, busy: false, queued: [] });
   assert.deepEqual(pane.view.optimisticPrompts, []);
   assert.deepEqual(pane.view.steerItems, []);
 });
@@ -1721,15 +1755,15 @@ test('lost RPC reply after queue echo + remote cancel releases instead of sticki
   await pane.accept(sending, false);
   assert.equal(pane.view.optimisticPrompts.length, 1, 'holds briefly during live busy-turn drain window');
 
-  // Once the turn progresses past user rows / finishes idle / restores, the already-seen prompt releases cleanly (NOT permanent Send again).
+  // Once the turn finishes idle / restores, the already-seen prompt releases cleanly (NOT permanent Send again).
   await pane.show({
     settledItems: [...baseRunning, { kind: 'assistant', id: 'a2', text: 'turn moved on' }],
-    busy: true,
+    busy: false,
     turnId: 'turn-1',
     queued: [],
     snapshotRevision: 1,
   });
-  assert.deepEqual(pane.view.optimisticPrompts, [], 'seen-in-queue failed steer releases when turn progresses');
+  assert.deepEqual(pane.view.optimisticPrompts, [], 'seen-in-queue failed steer releases when the turn ends');
   assert.deepEqual(pane.view.steerItems, []);
 
   // Case B: seen in queued, cancelled remotely, authoritative restore arrives before/after RPC failure -> releases immediately.

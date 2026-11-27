@@ -219,30 +219,31 @@ function shouldReleaseDequeuedPrompt(
       });
       return false;
     }
+    // A prompt the running turn took off the queue is shown by its row, which the core stores behind the reply that
+    // was streaming when it was read: that reply settling first says nothing about the prompt. The bubble stands until
+    // its row lands or the turn that took it ends.
     if (!activeDrain) {
       if (frame.currentBusy !== false) {
-        const settledMovedPastUser =
-          baseline !== undefined &&
-          (frame.settledCount !== baseline.settledCount || frame.tailId !== baseline.tailId) &&
-          frame.tailKind !== 'user';
-        if (!settledMovedPastUser) {
-          tracking.draining.set(id, {
-            settledCount: frame.settledCount,
-            tailId: frame.tailId,
-            afterCompaction: false,
-            sawBusySinceDrain: frame.currentBusy === true,
-          });
-          return false;
-        }
+        tracking.draining.set(id, {
+          settledCount: frame.settledCount,
+          tailId: frame.tailId,
+          afterCompaction: false,
+          sawBusySinceDrain: frame.currentBusy === true,
+        });
+        return false;
       }
     } else {
       if (frame.currentBusy === true) activeDrain.sawBusySinceDrain = true;
-      const progressedBeyondUserDrain =
-        (frame.settledCount !== activeDrain.settledCount || frame.tailId !== activeDrain.tailId) &&
-        frame.tailKind !== 'user';
       const turnEndedAfterDrain =
         frame.currentBusy === false && (!activeDrain.afterCompaction || activeDrain.sawBusySinceDrain);
-      if (!progressedBeyondUserDrain && !turnEndedAfterDrain) {
+      // No turn runs behind an idle compaction: a row that is no prompt landing there is the session moving on without
+      // the prompt it took off the queue.
+      const movedOnIdle =
+        activeDrain.afterCompaction &&
+        frame.currentBusy === false &&
+        (frame.settledCount !== activeDrain.settledCount || frame.tailId !== activeDrain.tailId) &&
+        frame.tailKind !== 'user';
+      if (!turnEndedAfterDrain && !movedOnIdle) {
         activeDrain.settledCount = frame.settledCount;
         activeDrain.tailId = frame.tailId;
         return false;
