@@ -82,8 +82,17 @@ fn answer(frame: &Value, revoke_ok: bool, clients: &Value) -> Option<Value> {
     }
 }
 
-/// One leg: the capabilities, without the `binaryFrames` a relay may withhold, then the relay's answers and the test's frames.
-async fn serve(stream: tokio::net::TcpStream, revoke_ok: bool, clients: Value, seen: mpsc::UnboundedSender<Seen>, legs: Legs, stalls: Arc<AtomicUsize>) {
+/// One leg: the capabilities, without the `binaryFrames` a relay may withhold (`ice`: with TURN issuance, whose requests it never
+/// answers), then the relay's answers and the test's frames.
+async fn serve(
+    stream: tokio::net::TcpStream,
+    revoke_ok: bool,
+    ice: bool,
+    clients: Value,
+    seen: mpsc::UnboundedSender<Seen>,
+    legs: Legs,
+    stalls: Arc<AtomicUsize>,
+) {
     let named = Arc::new(Mutex::new(String::new()));
     let name = named.clone();
     let callback = move |request: &Request, response: Response| {
@@ -94,7 +103,10 @@ async fn serve(stream: tokio::net::TcpStream, revoke_ok: bool, clients: Value, s
     let device = lock(&named).clone();
     let (to_leg, mut outbox) = mpsc::unbounded_channel::<Value>();
     lock(&legs).insert(device.clone(), to_leg);
-    let caps = json!({ "type": "relay-capabilities", "textFrames": 1, "maxFrameBytes": 1_048_576 });
+    let mut caps = json!({ "type": "relay-capabilities", "textFrames": 1, "maxFrameBytes": 1_048_576 });
+    if ice {
+        caps["ice"] = json!(1);
+    }
     if ws.send(Message::Text(caps.to_string().into())).await.is_err() {
         return;
     }
@@ -142,6 +154,15 @@ impl Relay {
 
     /// A relay that lists the paired devices `clients`.
     async fn listing(revoke_ok: bool, clients: &[&str]) -> Self {
+        Self::serving(revoke_ok, false, clients).await
+    }
+
+    /// A relay that says it issues TURN credentials and never answers an `ice-servers-request`.
+    async fn withholding_ice() -> Self {
+        Self::serving(true, true, &[]).await
+    }
+
+    async fn serving(revoke_ok: bool, ice: bool, clients: &[&str]) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let (seen_tx, seen) = mpsc::unbounded_channel();
@@ -152,7 +173,7 @@ impl Relay {
         let clients: Value = clients.iter().map(|id| json!({ "id": id })).collect();
         tokio::spawn(async move {
             while let Ok((stream, _)) = listener.accept().await {
-                tokio::spawn(serve(stream, revoke_ok, clients.clone(), seen_tx.clone(), held.clone(), left.clone()));
+                tokio::spawn(serve(stream, revoke_ok, ice, clients.clone(), seen_tx.clone(), held.clone(), left.clone()));
             }
         });
         Self { port, seen, backlog: Vec::new(), legs, stalls }
@@ -329,6 +350,24 @@ async fn a_relay_that_withholds_binary_frames_cannot_alter_the_handshake_unseen(
     relay.send(&device, json!({ "type": "frame", "clientId": "p1", "data": hello.to_string() }));
     let ready: Value = serde_json::from_slice(&phone.open(Wire::Text(&relay.to_client("p1").await.unwrap())).unwrap()).unwrap();
     assert_eq!(phone.confirm_handshake(&ready), Err(E2eeError::TranscriptMismatch));
+    runtime.close().await;
+}
+
+/// The ICE set a relay has not answered for is not in hand, before the request and while it waits: the session the phone opens then
+/// sends its records (`e2ee-ready` first) at once instead of holding them for an offer that needs the relay's answer.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ice_set_the_relay_has_not_answered_is_not_in_hand() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut relay = Relay::withholding_ice().await;
+    let runtime = runtime(dir.path(), relay.port).await;
+    let device = relay.leg().await;
+    assert_eq!(runtime.ice_in_hand(), None, "nothing was issued yet");
+    // The open fetches the set while the phone answers the challenge; the relay reads the request and never answers it.
+    relay.send(&device, json!({ "type": "client-open", "clientId": "p1", "browserClientId": CRED }));
+    // The bound makes a request that never comes a failure, not a hang.
+    let asked = mixdog_rt::time::timeout(Duration::from_secs(30), relay.frame(|_, frame| frame["type"] == "ice-servers-request")).await;
+    asked.expect("the open never asked for the ICE set");
+    assert_eq!(runtime.ice_in_hand(), None, "a request still waiting for the relay put the set in hand");
     runtime.close().await;
 }
 

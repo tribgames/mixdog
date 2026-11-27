@@ -490,7 +490,11 @@ function selectedSessionId(): string | null {
 }
 
 export class DesktopErrorBoundary extends Component<
-  { children: ReactNode },
+  {
+    children: ReactNode;
+    /** Runs in the commit that shows the recovery screen in place of the tree that threw. */
+    onFailureShown?: () => void;
+  },
   { failed: boolean; retryKey: number; sessionId: string | null }
 > {
   state = { failed: false, retryKey: 0, sessionId: null as string | null };
@@ -503,6 +507,7 @@ export class DesktopErrorBoundary extends Component<
   componentDidCatch(error: Error, info: ErrorInfo) {
     reportRendererFailure('boundary', error, { components: info.componentStack, sessionId: this.state.sessionId });
     console.error('Desktop renderer recovered from an uncaught render error.', error);
+    this.props.onFailureShown?.();
   }
 
   private retry = () => {

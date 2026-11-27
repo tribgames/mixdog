@@ -82,6 +82,8 @@ pub trait SessionEnv: Send + Sync + 'static {
     fn ended(&self, client_id: &str, reason: &str);
     /// The ICE/TURN set for a new peer.
     fn resolve_ice(&self) -> BoxFuture<'static, Vec<IceServer>>;
+    /// What `resolve_ice` would yield without asking the network, or `None` when it would ask.
+    fn ice_in_hand(&self) -> Option<Vec<IceServer>>;
     /// Authenticated inbound arrived on this client's session.
     fn live(&self, client_id: &str);
     /// The phone said it is in the background (`close{suspended}`).
@@ -171,7 +173,8 @@ struct SessionHost {
     /// Sends the coordinator settled before their caller registered.
     settled: HashMap<u64, SendResult>,
     session: Weak<TransportSession>,
-    relay_out: mpsc::UnboundedSender<Vec<u8>>,
+    relay_app: mpsc::UnboundedSender<Vec<u8>>,
+    relay_control: mpsc::UnboundedSender<Vec<u8>>,
 }
 
 impl SessionHost {
@@ -201,8 +204,12 @@ impl Host for SessionHost {
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(rand::random::<[u8; 16]>())
     }
 
-    fn relay_send(&mut self, message: &[u8]) -> Settle<bool> {
-        let _ = self.relay_out.send(message.to_vec());
+    fn relay_send(&mut self, channel: PeerChannel, message: &[u8]) -> Settle<bool> {
+        let lane = match channel {
+            PeerChannel::App => &self.relay_app,
+            PeerChannel::Control => &self.relay_control,
+        };
+        let _ = lane.send(message.to_vec());
         Settle::Later
     }
 
@@ -229,8 +236,15 @@ impl Host for SessionHost {
     }
 
     fn resolve_ice(&mut self, connection_id: &str) -> Settle<Result<Value, ()>> {
+        if let Some(servers) = self.env.ice_in_hand() {
+            return Settle::Now(Ok(ice_servers_json(&servers)));
+        }
         self.actions.push(Action::ResolveIce(connection_id.to_owned()));
         Settle::Later
+    }
+
+    fn ice_in_hand(&mut self) -> bool {
+        self.env.ice_in_hand().is_some()
     }
 
     fn peer_host_attached(&mut self) -> bool {
@@ -355,7 +369,8 @@ impl TransportSession {
     /// capability, so an unpair (or a credential already revoked) ends them.
     pub fn open_under(env: Arc<dyn SessionEnv>, client_id: &str, device: String, session_id: &str, channel: Channel, revocation: Revocation) -> Arc<Self> {
         let media_key = channel.media_key().copied();
-        let (relay_out, relay_rx) = mpsc::unbounded_channel();
+        let (relay_app, app_rx) = mpsc::unbounded_channel();
+        let (relay_control, control_rx) = mpsc::unbounded_channel();
         let session = Arc::new_cyclic(|weak: &Weak<TransportSession>| {
             let host = SessionHost {
                 env: env.clone(),
@@ -366,7 +381,8 @@ impl TransportSession {
                 waiters: HashMap::new(),
                 settled: HashMap::new(),
                 session: weak.clone(),
-                relay_out,
+                relay_app,
+                relay_control,
             };
             Self {
                 coordinator: Mutex::new(Coordinator::new(session_id, ChannelAdapter(channel), host, ASSEMBLY_POOL.clone())),
@@ -378,7 +394,7 @@ impl TransportSession {
         let link = Arc::new(SessionLink { session: Arc::downgrade(&session) });
         let media = TransportMedia::under(link, env.media_sources(), media_key, Some(device), revocation);
         lock(&session.coordinator).set_media(Box::new(media));
-        tokio::spawn(relay_writer(Arc::downgrade(&session), relay_rx));
+        tokio::spawn(relay_writer(Arc::downgrade(&session), control_rx, app_rx));
         tokio::spawn(ticker(Arc::downgrade(&session)));
         session
     }
@@ -515,12 +531,19 @@ impl TransportSession {
     }
 }
 
-/// Writes the relay carrier's messages in the order the coordinator produced them.
-async fn relay_writer(session: Weak<TransportSession>, mut messages: mpsc::UnboundedReceiver<Vec<u8>>) {
-    while let Some(message) = messages.recv().await {
+/// Writes the relay carrier's messages one at a time, each lane in the order the coordinator
+/// produced it: a waiting control message goes before any waiting app message.
+async fn relay_writer(session: Weak<TransportSession>, mut control: mpsc::UnboundedReceiver<Vec<u8>>, mut app: mpsc::UnboundedReceiver<Vec<u8>>) {
+    loop {
+        let (channel, message) = tokio::select! {
+            biased;
+            Some(message) = control.recv() => (PeerChannel::Control, message),
+            Some(message) = app.recv() => (PeerChannel::App, message),
+            else => return,
+        };
         let Some(session) = session.upgrade() else { return };
         let ok = session.env.relay_write(&session.client_id, message).await;
-        session.run(|c| c.complete_relay_send(ok));
+        session.run(|c| c.complete_relay_send(channel, ok));
     }
 }
 

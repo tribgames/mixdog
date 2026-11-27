@@ -77,7 +77,8 @@ pub enum Settle<T> {
     Later,
 }
 
-/// The data channels of a direct carrier: `App` carries record kinds 1 and 2, `Control` kind 3.
+/// The lanes of a carrier: a direct carrier's data channels, or the relay's two write queues.
+/// `App` carries record kinds 1 and 2, `Control` kind 3.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PeerChannel {
     App,
@@ -159,8 +160,10 @@ pub trait Host {
     /// 128 random bits as base64url: unguessable, 22 chars, within the signal token limit.
     fn mint_connection_id(&mut self) -> String;
     /// Writes one MXT message as one binary relay frame on the non-droppable path; `Now(ok)` once
-    /// the socket took it (`ok` false: the leg is gone).
-    fn relay_send(&mut self, message: &[u8]) -> Settle<bool>;
+    /// the socket took it (`ok` false: the leg is gone). Each lane is written in the order it was
+    /// handed; a `Control` message goes out ahead of `App` messages still waiting, so signalling
+    /// never queues behind the app backlog.
+    fn relay_send(&mut self, channel: PeerChannel, message: &[u8]) -> Settle<bool>;
     /// The relay socket took `bytes` of a payload that asked to be metered.
     fn relay_meter(&mut self, token: u64, bytes: usize);
     /// One complete application message from the client, in stream order.
@@ -174,6 +177,8 @@ pub trait Host {
     /// The ICE/TURN set for a new peer.
     /// connection_id names the attempt the set is for; a host that answers later reports it back.
     fn resolve_ice(&mut self, connection_id: &str) -> Settle<Result<Value, ()>>;
+    /// Whether the ICE set is in hand: `resolve_ice` would answer `Now`, asking nothing of the network.
+    fn ice_in_hand(&mut self) -> bool;
     /// Whether a peer host is attached; absent, the session stays on the relay.
     fn peer_host_attached(&mut self) -> bool;
     /// Creates the offering peer of one session. `Err`: the host cannot run one now.
@@ -569,6 +574,8 @@ enum Job {
     AnswerFailed {
         connection_id: String,
     },
+    /// The session's first offer was written to the relay.
+    OfferOut,
 }
 
 enum DrainInput {
@@ -602,12 +609,19 @@ pub struct Coordinator<C: StreamChannel, H: Host> {
     attempt_started_at: u64,
     direct_unfit: bool,
     suspended: bool,
+    /// Records wait for the session's first offer to be on the relay. The phone asks for nothing
+    /// before record 1, so every reply is a round trip behind the offer and the host candidates
+    /// gathered with it, in each first-in first-out queue between here and the phone. Only while
+    /// making the offer is local work: set when the ICE set is in hand at the open, cleared as
+    /// soon as the set has to be asked for.
+    offer_first: bool,
     reason: Option<PathReason>,
     turn_allocations: u64,
     fragment_id: u64,
     relay_in_flight: usize,
-    /// Relay writes the host has not settled, oldest first, with their meters.
-    relay_pending: VecDeque<(usize, Option<u64>)>,
+    /// Relay writes the host has not settled, per lane (indexed by `PeerChannel`), oldest first,
+    /// with their meters.
+    relay_pending: [VecDeque<(usize, Option<u64>)>; 2],
     bytes_sent: u64,
     bytes_received: u64,
     direct_bytes_sent: u64,
@@ -671,6 +685,7 @@ fn js_number(value: Option<f64>) -> String {
 impl<C: StreamChannel, H: Host> Coordinator<C, H> {
     pub fn new(session_id: &str, channel: C, mut host: H, pool: AssemblyPool) -> Self {
         let now = host.now();
+        let offer_first = host.peer_host_attached() && host.ice_in_hand();
         let session: String = session_id.chars().take(8).collect();
         Self {
             session_id: session_id.to_owned(),
@@ -693,11 +708,12 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
             attempt_started_at: now,
             direct_unfit: false,
             suspended: false,
+            offer_first,
             reason: None,
             turn_allocations: 0,
             fragment_id: 0,
             relay_in_flight: 0,
-            relay_pending: VecDeque::new(),
+            relay_pending: [VecDeque::new(), VecDeque::new()],
             bytes_sent: 0,
             bytes_received: 0,
             direct_bytes_sent: 0,
@@ -812,14 +828,20 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
                     self.close_direct(&connection_id, CloseReason::ChannelFailed, true, None, None);
                 }
             }
+            Job::OfferOut => self.release_records(),
         }
+    }
+
+    fn release_records(&mut self) {
+        self.offer_first = false;
+        self.wake();
     }
 
     // ---- completions of operations the host reported `Later` -----------------------------------
 
-    /// The relay socket took (or lost) the oldest write the host reported `Later`.
-    pub fn complete_relay_send(&mut self, ok: bool) {
-        if let Some((bytes, meter)) = self.relay_pending.pop_front() {
+    /// The relay socket took (or lost) the oldest write on `channel`'s lane the host reported `Later`.
+    pub fn complete_relay_send(&mut self, channel: PeerChannel, ok: bool) {
+        if let Some((bytes, meter)) = self.relay_pending[channel as usize].pop_front() {
             self.jobs.push_back(Job::RelayDone { bytes, ok, meter });
         }
     }
@@ -916,14 +938,14 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
         self.jobs.push_back(Job::Wake);
     }
 
-    fn write_relay(&mut self, message: Vec<u8>, meter: Option<u64>) {
+    fn write_relay(&mut self, channel: PeerChannel, message: Vec<u8>, meter: Option<u64>) {
         let bytes = message.len();
         self.relay_in_flight += bytes;
         self.bytes_sent += bytes as u64;
         // A failed write means the relay leg is gone; the registry ends every session on it.
-        match self.host.relay_send(&message) {
+        match self.host.relay_send(channel, &message) {
             Settle::Now(ok) => self.jobs.push_back(Job::RelayDone { bytes, ok, meter }),
-            Settle::Later => self.relay_pending.push_back((bytes, meter)),
+            Settle::Later => self.relay_pending[channel as usize].push_back((bytes, meter)),
         }
     }
 
@@ -931,7 +953,7 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
     fn write(&mut self, carrier: &Carrier, channel: PeerChannel, message: Vec<u8>, meter: Option<u64>) -> bool {
         match carrier {
             Carrier::Relay => {
-                self.write_relay(message, meter);
+                self.write_relay(channel, message, meter);
                 true
             }
             Carrier::Direct(connection) => {
@@ -956,7 +978,7 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
     /// records take at most HIGH − CONTROL_RESERVE of the connection's aggregate load, so control
     /// boxes always find room; a record that does not fit whole waits for a drain.
     fn flush_carrier(&mut self) {
-        if self.closed {
+        if self.closed || self.offer_first {
             return;
         }
         let at = self.host.now();
@@ -1048,6 +1070,11 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
         self.reason = Some(PathReason::ChannelOpen);
         let line = format!("{} path={} reason=channel-open generation={generation}", self.label, if relayed { "turn" } else { "direct" });
         self.host.log(&line);
+        // What the relay still holds unacknowledged goes again on the direct path; its relay copies arrive as duplicates the
+        // receiver drops. A TURN path runs through the same host as the relay: a copy there buys nothing.
+        if !relayed {
+            self.sender.carrier_failed(RELAY_ID, at, 0.0);
+        }
         self.receiver.carrier_changed(at);
         self.flush_ack(at);
         self.wake();
@@ -1150,6 +1177,9 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
         if signal {
             let message = self.signal_value(&state, json!({ "t": "close", "reason": close_reason.wire_name() }));
             self.send_control(&message, &Carrier::Relay);
+        }
+        if self.offer_first {
+            self.release_records();
         }
         Some(EndedAttempt { summary, at })
     }
@@ -1261,8 +1291,11 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
             selected_at_open: None,
         });
         self.attempt_started_at = at;
-        if let Settle::Now(result) = self.host.resolve_ice(&connection_id) {
-            self.jobs.push_back(Job::IceResolved { connection_id, result });
+        match self.host.resolve_ice(&connection_id) {
+            Settle::Now(result) => self.jobs.push_back(Job::IceResolved { connection_id, result }),
+            // The set left the hand since the open (expired, or the machine slept): records do not wait on the network.
+            Settle::Later if self.offer_first => self.release_records(),
+            Settle::Later => {}
         }
     }
 
@@ -1326,13 +1359,18 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
         self.previous_offer = self.last_offer.take();
         self.last_offer = Some(OfferRef { connection_id: connection_id.to_owned(), generation, closed_at: None });
         self.send_control(&offer.to_json(), &Carrier::Relay);
+        if self.offer_first {
+            self.jobs.push_back(Job::OfferOut);
+        }
     }
 
     fn maybe_start_peer(&mut self, at: u64) {
-        if self.direct.is_some() || !self.host.peer_host_attached() || self.direct_unfit || self.suspended || at < self.next_attempt_at {
-            return;
+        if self.direct.is_none() && self.host.peer_host_attached() && !self.direct_unfit && !self.suspended && at >= self.next_attempt_at {
+            self.start_peer(at);
         }
-        self.start_peer(at);
+        if self.offer_first && self.direct.is_none() {
+            self.release_records();
+        }
     }
 
     // ---- signals --------------------------------------------------------------------------------

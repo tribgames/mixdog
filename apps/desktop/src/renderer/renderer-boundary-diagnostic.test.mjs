@@ -62,6 +62,23 @@ test('a render failure caught by the boundary records where it failed and the se
   assert.doesNotMatch(text, /[\\/]/, 'no directory of the files is recorded');
 });
 
+// A page whose app threw on its first render never committed it, so nothing said the shell had painted: a visible phone page kept
+// its first direct-path offer held for good. The boundary now tells its owner when the recovery screen took the tree's place.
+test('the boundary tells its owner once, when the recovery screen has replaced a tree that threw', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  function Broken() {
+    throw new Error('first render');
+  }
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host, { onCaughtError() {} });
+  t.after(() => act(() => root.unmount()));
+  const shown = [];
+  const onFailureShown = () => shown.push(Boolean(host.querySelector('.desktop-recovery-screen')));
+  await act(async () => root.render(React.createElement(DesktopErrorBoundary, { onFailureShown }, React.createElement(Broken))));
+  assert.deepEqual(shown, [true], 'once, with the recovery screen in the document');
+});
+
 test('stack frames keep the function, the file name and the position; a component without a location keeps its name', () => {
   const error = new RangeError('Invalid array length');
   error.stack =

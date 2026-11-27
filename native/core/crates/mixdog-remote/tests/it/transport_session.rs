@@ -5,6 +5,8 @@ use async_trait::async_trait;
 use futures::future::BoxFuture;
 use mixdog_remote::e2ee::Challenge;
 use mixdog_remote::e2ee::ClientHandshakeOptions;
+use mixdog_remote::e2ee::ControlLane;
+use mixdog_remote::e2ee::ControlOpen;
 use mixdog_remote::e2ee::Sealed;
 use mixdog_remote::e2ee::ServerIdentity;
 use mixdog_remote::e2ee::Wire;
@@ -13,9 +15,11 @@ use mixdog_remote::e2ee::create_client_handshake;
 use mixdog_remote::media::ByteSource;
 use mixdog_remote::media::MediaSources;
 use mixdog_remote::media::SourceFailure;
+use mixdog_remote::transport::control::ping_json;
 use mixdog_remote::transport::coordinator::EndReason;
 use mixdog_remote::transport::frame::Message;
 use mixdog_remote::transport::frame::decode_message;
+use mixdog_remote::transport::frame::encode_control;
 use mixdog_remote::transport::frame::encode_record;
 use mixdog_remote::transport::receiver::Receiver;
 use mixdog_remote::transport::session::SessionEnv;
@@ -43,15 +47,22 @@ struct Seen {
     delivered: Vec<String>,
     ended: Vec<String>,
     live: usize,
+    /// A relay write recorded while set waits for the release `Env` watches.
+    hold: bool,
 }
 
-struct Env(Arc<Mutex<Seen>>, tokio::sync::watch::Sender<()>);
+struct Env(Arc<Mutex<Seen>>, tokio::sync::watch::Sender<()>, tokio::sync::watch::Receiver<bool>);
 
 impl SessionEnv for Env {
     fn relay_write(&self, _: &str, message: Vec<u8>) -> BoxFuture<'static, bool> {
-        self.0.lock().unwrap().relay.push(message);
+        let held = {
+            let mut seen = self.0.lock().unwrap();
+            seen.relay.push(message);
+            seen.hold
+        };
         self.1.send_replace(());
-        Box::pin(async { true })
+        let mut released = self.2.clone();
+        Box::pin(async move { !held || released.wait_for(|released| *released).await.is_ok() })
     }
 
     fn deliver(&self, _: &str, text: String) -> BoxFuture<'static, ()> {
@@ -66,6 +77,10 @@ impl SessionEnv for Env {
 
     fn resolve_ice(&self) -> BoxFuture<'static, Vec<IceServer>> {
         Box::pin(async { Vec::new() })
+    }
+
+    fn ice_in_hand(&self) -> Option<Vec<IceServer>> {
+        Some(Vec::new())
     }
 
     fn live(&self, _: &str) {
@@ -110,7 +125,8 @@ async fn a_transport_session_carries_ready_and_both_directions_on_the_relay() {
     mixdog_rt::testing::tokens();
     let seen = Arc::new(Mutex::new(Seen::default()));
     let (changed, mut changes) = tokio::sync::watch::channel(());
-    let session = TransportSession::open(Arc::new(Env(seen.clone(), changed)), "client-1", "cred-1".to_owned(), challenge.challenge(), pc);
+    let (_release, released) = tokio::sync::watch::channel(false);
+    let session = TransportSession::open(Arc::new(Env(seen.clone(), changed, released)), "client-1", "cred-1".to_owned(), challenge.challenge(), pc);
     let ready = json!({ "type": "e2ee-ready", "version": 1, "transcript": confirmation });
     session.send(&ready.to_string(), false).await.unwrap();
 
@@ -147,4 +163,80 @@ async fn a_transport_session_carries_ready_and_both_directions_on_the_relay() {
     session.close(EndReason::SessionEnded);
     assert!(session.is_closed());
     assert!(session.send("{}", false).await.is_err(), "nothing is sealed after the end");
+}
+
+/// What the PC wrote on the relay from `from` on, one entry per message: `record <sequence>`, or a control's `<t> <id>`.
+fn written_since(seen: &Mutex<Seen>, phone: &mut mixdog_remote::e2ee::Channel, from: &mut usize, order: &mut Vec<String>) {
+    let relay = seen.lock().unwrap().relay.clone();
+    for raw in &relay[*from..] {
+        order.push(match decode_message(raw).expect("a conforming message") {
+            Message::Record(record) => format!("record {}", record.sequence()),
+            Message::Control { box_bytes } => match phone.open_control(&box_bytes, &ControlLane::Relay).expect("an authentic control box") {
+                ControlOpen::Fresh { value, .. } => {
+                    let value: Value = serde_json::from_slice(&value).unwrap();
+                    format!("{} {}", value["t"].as_str().unwrap_or_default(), value["id"])
+                }
+                ControlOpen::Stale { sequence } => format!("stale {sequence}"),
+            },
+        });
+    }
+    *from = relay.len();
+}
+
+/// A negotiation-time control message never queues behind the app backlog: produced while app records wait for the relay socket,
+/// it is written ahead of them, and the app records still go out once each, in sequence order.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_control_message_goes_out_ahead_of_app_records_waiting_for_the_relay_socket() {
+    let identity = ServerIdentity::generate();
+    let challenge = Challenge::create(&["binaryFrames", "transportWebrtc", "mediaE2ee"]);
+    let (hello, mut phone) =
+        create_client_handshake(&identity.pairing(), &challenge, ClientHandshakeOptions { transport: true, ..Default::default() }).unwrap();
+    let pc = accept_client_hello(&identity, &challenge, &hello).unwrap();
+    let confirmation = pc.handshake_confirmation().unwrap().to_owned();
+
+    mixdog_rt::testing::tokens();
+    let seen = Arc::new(Mutex::new(Seen::default()));
+    let (changed, mut changes) = tokio::sync::watch::channel(());
+    let (release, released) = tokio::sync::watch::channel(false);
+    let session = TransportSession::open(Arc::new(Env(seen.clone(), changed, released)), "client-1", "cred-1".to_owned(), challenge.challenge(), pc);
+    let ready = json!({ "type": "e2ee-ready", "version": 1, "transcript": confirmation });
+    session.send(&ready.to_string(), false).await.unwrap();
+    let (mut receiver, mut taken) = (Receiver::new(), 0);
+    while opened_by_phone(&seen, &mut receiver, &mut phone, &mut taken).is_empty() {
+        changes.changed().await.unwrap();
+    }
+    phone.confirm_handshake(&ready).unwrap();
+
+    // The socket takes the next write and holds it: everything the PC produces after it waits.
+    let mut from = {
+        let mut seen = seen.lock().unwrap();
+        seen.hold = true;
+        seen.relay.len()
+    };
+    for n in 1..=3 {
+        session.send(&json!({ "n": n }).to_string(), false).await.unwrap();
+    }
+    changes.wait_for(|_| seen.lock().unwrap().relay.len() > from).await.unwrap();
+    // The phone's ping: the PC's pong is produced behind the waiting records.
+    let ping = phone.seal_control(ping_json(7, None).as_bytes(), &ControlLane::Relay).unwrap();
+    session.receive_relay(&encode_control(&ping).unwrap());
+
+    seen.lock().unwrap().hold = false;
+    release.send_replace(true);
+    let mut order = Vec::new();
+    let done = |order: &[String]| ["pong 7", "record 2", "record 3", "record 4"].iter().all(|what| order.iter().any(|m| m == what));
+    loop {
+        written_since(&seen, &mut phone, &mut from, &mut order);
+        if done(&order) {
+            break;
+        }
+        changes.changed().await.unwrap();
+    }
+    let at = |what: &str| order.iter().position(|m| m == what).unwrap();
+    // At most the one held write goes before it.
+    assert!(at("pong 7") < at("record 3"), "the pong overtook the waiting app records: {order:?}");
+    let records: Vec<&str> = order.iter().filter(|m| m.starts_with("record")).map(String::as_str).collect();
+    assert_eq!(records, ["record 2", "record 3", "record 4"], "app records once each, in order: {order:?}");
+
+    session.close(EndReason::SessionEnded);
 }

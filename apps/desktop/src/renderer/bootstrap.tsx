@@ -32,6 +32,7 @@ import { installRendererPerfProbe } from './renderer-perf-probe';
 import { scheduleFontWarmup } from './font-warmup';
 import { defaultSessionLaneStore } from './session-lane-store';
 import { holdStartupReads } from './startup-reads';
+import { announceShellPainted } from './remote-first-screen-hold';
 
 markBootStage('renderer-entry');
 if (import.meta.env?.DEV) performance.mark('mixdog:startup:renderer-entry');
@@ -102,8 +103,10 @@ function revealInstalledWebApp(): void {
 const reactCommitted = new Promise<void>((resolve) => {
   window.addEventListener('mixdog:react-committed', () => resolve(), { once: true });
 });
+void reactCommitted.then(() => announceShellPainted());
 createRoot(document.getElementById('root')!).render(
-  <DesktopErrorBoundary>
+  // An app that throws never commits: its recovery screen is then the shell that paints.
+  <DesktopErrorBoundary onFailureShown={() => announceShellPainted()}>
     <App />
     <RemoteClaimPrompt />
     <AppUpdateBanner />

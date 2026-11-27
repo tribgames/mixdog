@@ -179,7 +179,7 @@ export interface RemoteTransportPeerOptions {
   fatal(error: Error): void;
   createPeer(configuration: RTCConfiguration): RTCPeerConnection;
   /** The PC's offer and ICE candidates are kept, in order, until this settles, and then handled as if they had just arrived:
-   *  the first `RTCPeerConnection` of a page blocks its main thread for hundreds of ms, which the first screen should not wait on. */
+   *  the first `RTCPeerConnection` of a page blocks its main thread for hundreds of ms, which the first paint should not wait on. */
   holdSignals?: Promise<unknown>;
   visible(): boolean;
   now?(): number;
@@ -228,7 +228,8 @@ export interface RemoteTransportPeer {
   /** Visible again (`visibilitychange`, `pageshow`, `resume`, `online`):
    *  ping at once on the direct control channel and the relay. */
   wake(): void;
-  /** Background suspension: `close{suspended}` to the PC, then the peer closes. */
+  /** Background suspension: `close{suspended}` to the PC, then the peer closes; a connected direct
+   *  connection is left for the PC to close, so the PC learns the reason before its teardown. */
   suspend(): Promise<void>;
   close(): void;
   diagnostics(): RemoteTransportPeerDiagnostics;
@@ -785,6 +786,9 @@ const promote = (s: PeerState, d: Direct, now: number): void => {
   s.ackPending = true;
   s.reason = 'channel-open';
   s.options.log(`[mixdog-remote-transport] path=${d.turn ? 'turn' : 'direct'} reason=channel-open`);
+  // What the relay still holds unacknowledged goes again on the direct path; its relay copies arrive as duplicates the
+  // receiver drops. A TURN path runs through the same host as the relay: a copy there buys nothing.
+  if (!d.turn) s.sender.carrierFailed(s.relayPath.carrier, now, 0);
   ack(s, now);
   flush(s);
 };
@@ -806,7 +810,32 @@ const toRelay = (s: PeerState, now: number, why: RemoteTransportPathReason): voi
   flush(s);
 };
 
-const closePeer = (s: PeerState, d: Direct, why: RemoteTransportPathReason): void => {
+/** A connected direct connection the PC was told on the relay to drop: the PC closes it, and it ends here once that close (or a
+ *  failure) reaches it. Closed here first, its teardown would reach the PC ahead of the reason. */
+const leaveToPc = (d: Direct): void => {
+  const release = (): void => closeDirectConnection(d);
+  const { pc } = d;
+  pc.onicecandidate = null;
+  pc.ondatachannel = null;
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState !== 'connected') release();
+  };
+  for (const ch of [d.app, d.control]) {
+    if (!ch) continue;
+    ch.onopen = null;
+    ch.onmessage = null;
+    ch.onbufferedamountlow = null;
+    ch.onclose = release;
+    ch.onerror = release;
+  }
+};
+
+const closePeer = (
+  s: PeerState,
+  d: Direct,
+  why: RemoteTransportPathReason,
+  release: (d: Direct) => void = closeDirectConnection
+): void => {
   if (s.direct !== d) return;
   if (s.current === d) toRelay(s, s.clock(), why);
   s.direct = null;
@@ -820,7 +849,7 @@ const closePeer = (s: PeerState, d: Direct, why: RemoteTransportPathReason): voi
   // Nothing can still need this carrier's departure book but its own claims, which fail: its bytes did not leave.
   s.departures.get(d)?.end();
   s.departures.delete(d);
-  closeDirectConnection(d);
+  release(d);
 };
 
 /** A failure this side saw: the PC hears why (on the relay), the peer closes. */
@@ -1264,7 +1293,8 @@ const sendPromptly = (s: PeerState, payload: unknown): Promise<boolean> => {
 
 // --- Lifecycle: confirm, hidden/wake, suspend, close, diagnostics ---
 
-function closeSession(s: PeerState): void {
+/** `told`: the connection the PC was just sent `close{suspended}` for; while still the connected direct one, the PC closes it. */
+function closeSession(s: PeerState, told: RemoteTransportSignalRef | null = null): void {
   if (s.ended) return;
   s.ended = true;
   for (const waiter of s.handWaiters.values()) waiter.fail(new Error('Relay transport session ended.'));
@@ -1272,7 +1302,12 @@ function closeSession(s: PeerState): void {
   for (const carrier of s.departures.values()) carrier.end();
   if (s.timer !== null) s.timers.clearTimeout(s.timer);
   s.timer = null;
-  if (s.direct) closePeer(s, s.direct, 'session-ended');
+  const d = s.direct;
+  if (d) {
+    const leave =
+      told?.connectionId === d.connectionId && told.generation === d.generation && d.pc.connectionState === 'connected';
+    closePeer(s, d, 'session-ended', leave ? leaveToPc : closeDirectConnection);
+  }
   s.assembler.close();
   s.held = null;
   wakeRoom(s);
@@ -1328,10 +1363,13 @@ const suspend = async (s: PeerState): Promise<void> => {
   // The PC takes `close{suspended}` itself as going to the background, so
   // it names the current connection, or the last one offered.
   const target = s.direct ? ref(s, s.direct) : s.lastRef;
+  let told: RemoteTransportSignalRef | null = null;
   if (target && s.confirmed && !s.ended) {
-    await sendControl(s, { ...target, t: 'close', reason: 'suspended' }, s.relayPath).catch(() => {});
+    await sendControl(s, { ...target, t: 'close', reason: 'suspended' }, s.relayPath, () => {
+      told = target;
+    }).catch(() => {});
   }
-  closeSession(s);
+  closeSession(s, told);
 };
 
 const settled = async (s: PeerState): Promise<void> => {

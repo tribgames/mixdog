@@ -361,6 +361,10 @@ struct SessionEnvironment {
     generation: u64,
 }
 
+fn peer_ice_servers(servers: Vec<crate::ice::IceServer>) -> Vec<crate::webrtc::config::IceServer> {
+    servers.into_iter().map(|s| crate::webrtc::config::IceServer { urls: s.urls, username: s.username, credential: s.credential }).collect()
+}
+
 impl crate::transport::session::SessionEnv for SessionEnvironment {
     fn relay_write(&self, client_id: &str, message: Vec<u8>) -> futures::future::BoxFuture<'static, bool> {
         let inner = self.inner.upgrade();
@@ -394,10 +398,12 @@ impl crate::transport::session::SessionEnv for SessionEnvironment {
         let inner = self.inner.upgrade();
         Box::pin(async move {
             let Some(inner) = inner else { return Vec::new() };
-            let runtime = RemoteRuntime { inner };
-            let servers = runtime.resolve_ice().await;
-            servers.into_iter().map(|s| crate::webrtc::config::IceServer { urls: s.urls, username: s.username, credential: s.credential }).collect()
+            peer_ice_servers(RemoteRuntime { inner }.resolve_ice().await)
         })
+    }
+
+    fn ice_in_hand(&self) -> Option<Vec<crate::webrtc::config::IceServer>> {
+        RemoteRuntime { inner: self.inner.upgrade()? }.ice_in_hand().map(peer_ice_servers)
     }
 
     fn live(&self, client_id: &str) {
@@ -886,6 +892,19 @@ impl RemoteRuntime {
                 runtime.control("ice-servers-request", Map::new()).await.map(Some)
             })
             .await
+    }
+
+    /// What [`Self::resolve_ice`] would hand out now without asking the relay; `None` while it would ask, or is asking. The cache
+    /// is read through `resolve` itself, polled once with a request that only records it was made.
+    pub fn ice_in_hand(&self) -> Option<Vec<crate::ice::IceServer>> {
+        use futures::FutureExt;
+        let asked = std::cell::Cell::new(false);
+        let request = || {
+            asked.set(true);
+            std::future::ready(Err::<Option<Value>, ()>(()))
+        };
+        let servers = self.inner.ice.resolve(request).now_or_never()?;
+        (!asked.get()).then_some(servers)
     }
 
     /// Points new bridged phones at another target core (an SSH server core, or back).
@@ -2019,6 +2038,12 @@ impl RemoteRuntime {
         if let Some(challenge) = challenge {
             self.arm_handshake_deadline(client_id, challenge);
         }
+        // Fetched while the phone answers the challenge: a set in hand when the session opens lets its first offer go ahead of
+        // its records.
+        let runtime = self.clone();
+        tokio::spawn(async move {
+            runtime.resolve_ice().await;
+        });
     }
 
     /// Node closes a client whose end-to-end handshake has not finished in 10 s (`remote-relay-clients.ts` `E2EE_HANDSHAKE_TIMEOUT_MS`),

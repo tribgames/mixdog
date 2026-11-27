@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createFirstScreenHold } from './remote-first-screen-hold.ts';
+import { announceShellPainted, createFirstPaintHold } from './remote-first-screen-hold.ts';
 
 const target = (extra = {}) => {
   const bus = new EventTarget();
@@ -18,23 +18,38 @@ const target = (extra = {}) => {
 };
 const settledState = async (promise) => (await Promise.race([promise.then(() => 'settled'), Promise.resolve('pending')]));
 
-test('first screen hold: only the page\'s first peer is held, a reconnect\'s peer never is', async () => {
+/** A window whose frames run only when the test says so. */
+const framedWindow = () => {
+  const frames = [];
+  const win = target({
+    requestAnimationFrame(callback) {
+      frames.push(callback);
+      return frames.length;
+    },
+  });
+  const frame = () => {
+    for (const callback of frames.splice(0)) callback();
+  };
+  return { win, frame };
+};
+
+test('first paint hold: only the page\'s first peer is held, a reconnect\'s peer never is', async () => {
   const win = target();
   const doc = target({ visibilityState: 'visible' });
-  const hold = createFirstScreenHold(win, doc);
+  const hold = createFirstPaintHold(win, doc);
   const first = hold();
   assert.ok(first, 'the first peer is held');
   assert.equal(await settledState(first), 'pending');
   assert.equal(hold(), undefined, 'the second peer (a reconnect) is not held');
-  win.dispatchEvent(new Event('mixdog:startup-settled'));
+  win.dispatchEvent(new Event('mixdog:shell-painted'));
   await first;
   assert.equal(hold(), undefined, 'nor after the first settled');
 });
 
-test('first screen hold: releases at once when the page becomes hidden, and drops its listeners', async () => {
+test('first paint hold: releases at once when the page becomes hidden, and drops its listeners', async () => {
   const win = target();
   const doc = target({ visibilityState: 'visible' });
-  const first = createFirstScreenHold(win, doc)();
+  const first = createFirstPaintHold(win, doc)();
   assert.equal(win.listeners + doc.listeners, 2);
   doc.visibilityState = 'hidden';
   doc.dispatchEvent(new Event('visibilitychange'));
@@ -42,18 +57,22 @@ test('first screen hold: releases at once when the page becomes hidden, and drop
   assert.equal(win.listeners + doc.listeners, 0, 'nothing stays armed after the release');
 });
 
-test('first screen hold: a page already hidden or already settled is not held', async () => {
-  await createFirstScreenHold(target(), target({ visibilityState: 'hidden' }))();
-  await createFirstScreenHold(target({ __mixdogStartupSettled: true }), target({ visibilityState: 'visible' }))();
+test('first paint hold: a page already hidden or already painted is not held', async () => {
+  await createFirstPaintHold(target(), target({ visibilityState: 'hidden' }))();
+  await createFirstPaintHold(target({ __mixdogShellPainted: true }), target({ visibilityState: 'visible' }))();
 });
 
-test('first screen hold: a page that shows its first screen releases through the event, with no timer', async () => {
-  const win = target();
+test('first paint hold: the startup restore does not hold the offer; the shell\'s first painted frame releases it', async () => {
+  const { win, frame } = framedWindow();
   const doc = target({ visibilityState: 'visible' });
-  const first = createFirstScreenHold(win, doc)();
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  assert.equal(await settledState(first), 'pending', 'it waits for the event, not for time');
+  const first = createFirstPaintHold(win, doc)();
+  announceShellPainted(win);
+  frame();
+  assert.equal(await settledState(first), 'pending', 'the frame that paints the committed shell is not past yet');
   win.dispatchEvent(new Event('mixdog:startup-settled'));
-  assert.equal(win.listeners + doc.listeners, 0);
+  assert.equal(await settledState(first), 'pending', 'the first screen\'s data is not what the hold waits for');
+  frame();
   await first;
+  assert.equal(win.__mixdogShellPainted, true, 'a later first peer finds the shell painted');
+  assert.equal(win.listeners + doc.listeners, 0, 'nothing stays armed after the release');
 });

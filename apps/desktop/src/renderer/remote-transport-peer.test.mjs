@@ -80,6 +80,11 @@ class FakeChannel {
   close() {
     this.readyState = 'closed';
   }
+  /** The far end closed the connection. */
+  remoteClose() {
+    this.readyState = 'closed';
+    this.onclose?.();
+  }
 }
 
 class FakePeer {
@@ -106,10 +111,18 @@ class FakePeer {
     this.added.push(candidate);
   }
   async getStats() {
-    return new Map([
+    const report = new Map([
       ['t', { id: 't', type: 'transport', dtlsState: 'connected', remoteCertificateId: 'c' }],
       ['c', { id: 'c', type: 'certificate', fingerprint: this.certificate, fingerprintAlgorithm: 'sha-256' }],
     ]);
+    // A selected pair is reported only when the test names the local candidate's type.
+    if (this.localType) {
+      report.get('t').selectedCandidatePairId = 'p';
+      report.set('p', { id: 'p', type: 'candidate-pair', localCandidateId: 'l', remoteCandidateId: 'r' });
+      report.set('l', { id: 'l', type: 'local-candidate', candidateType: this.localType, protocol: 'udp' });
+      report.set('r', { id: 'r', type: 'remote-candidate', candidateType: 'host', protocol: 'udp' });
+    }
+    return report;
   }
   close() {
     this.closed = true;
@@ -266,7 +279,7 @@ async function session({ confirm = true, holdSignals, createPeer } = {}) {
 }
 
 /** Offers a direct carrier, connects it and opens both channels. */
-async function connectDirect(s, { maxMessageSize = 65_536, certificate = FP } = {}) {
+async function connectDirect(s, { maxMessageSize = 65_536, certificate = FP, localType } = {}) {
   const { desk, feed } = s;
   desk.server.registerControlLane(LANE);
   const previous = FakePeer.last;
@@ -286,6 +299,7 @@ async function connectDirect(s, { maxMessageSize = 65_536, certificate = FP } = 
   const pc = FakePeer.last;
   pc.sctp.maxMessageSize = maxMessageSize;
   pc.certificate = certificate;
+  pc.localType = localType;
   const app = pc.channel('mixdog-transport');
   const control = pc.channel('mixdog-transport-control');
   app.open();
@@ -320,7 +334,7 @@ async function pongDirect(s, link) {
   await s.feed(
     [await s.desk.control({ v: 1, t: 'pong', id: ping.id }, LANE)],
     (raw) => link.control.onmessage({ data: raw }),
-    () => s.peer.diagnostics().path === 'direct'
+    () => s.peer.diagnostics().path !== 'relay'
   );
   // The first promotion acks on the new carrier: that reply is the event that
   // ends the handshake's traffic, so later byte counts start from a quiet link.
@@ -495,6 +509,42 @@ test('answering: ICE from the offer, both ordered channels, threshold first, pat
   await s.desk.drain(link.app.sent, LANE);
   assert.equal(s.desk.apps.at(-1).id, 9);
   assert.equal(link.app.thresholdAtFirstSend, REMOTE_TRANSPORT_BUFFER_LOW_BYTES);
+});
+
+/** The record sequences on `wire`, in order. */
+const recordSequences = (wire) =>
+  wire
+    .map((raw) => decodeRemoteTransportMessage(raw))
+    .filter((message) => message.kind !== 'control')
+    .map((message) => message.sequence);
+
+test('promotion: a record the relay still holds goes again on the direct path, and the PC delivers it once', async () => {
+  const s = await session();
+  const link = await connectDirect(s);
+  const relayBefore = s.relay.sent.length;
+  await s.peer.send({ id: 70 });
+  await until(() => recordSequences(s.relay.sent.slice(relayBefore)).length > 0, 'the record on the relay');
+  const [sequence] = recordSequences(s.relay.sent.slice(relayBefore));
+  await pongDirect(s, link);
+  // The relay is the slower path: the PC reads the direct one first.
+  await expectOn(s, link.app.sent, LANE, (d) => d.apps.some((app) => app.id === 70), 'the record on the direct path');
+  assert.ok(recordSequences(link.app.sent).includes(sequence));
+  await s.desk.drain(s.relay.sent, relayLane);
+  assert.equal(s.desk.apps.filter((app) => app.id === 70).length, 1, 'the relay copy is dropped');
+});
+
+test('promotion to a TURN path sends nothing again: that path runs through the same host as the relay', async () => {
+  const s = await session();
+  const link = await connectDirect(s, { localType: 'relay' });
+  const relayBefore = s.relay.sent.length;
+  await s.peer.send({ id: 71 });
+  await expectOn(s, s.relay.sent, relayLane, (d) => d.apps.some((app) => app.id === 71), 'the record on the relay');
+  const [sequence] = recordSequences(s.relay.sent.slice(relayBefore));
+  await pongDirect(s, link);
+  assert.equal(s.peer.diagnostics().path, 'turn');
+  await s.peer.send({ id: 72 });
+  await expectOn(s, link.app.sent, LANE, (d) => d.apps.some((app) => app.id === 72), 'a later record on the TURN path');
+  assert.ok(!recordSequences(link.app.sent).includes(sequence), 'the record the relay carried is not sent again');
 });
 
 test('the message-size gate and the fingerprint keep a carrier off', async () => {
@@ -772,13 +822,50 @@ test('wake: ping at once on both carriers; an open channel is unproven until ans
   assert.equal(s.peer.diagnostics().path, 'direct');
 });
 
-test('suspension tells the PC and closes the peer', async () => {
+test('suspension tells the PC, and the connected peer closes only once the PC closes it', async () => {
   const s = await session();
   const link = await connectDirect(s);
+  await pongDirect(s, link);
+  await s.peer.suspend();
+  await s.desk.drain(s.relay.sent, RELAY_E2EE_RELAY_LANE);
+  const close = s.desk.controls.at(-1);
+  assert.equal(close.t, 'close');
+  assert.equal(close.reason, 'suspended');
+  assert.equal(close.connectionId, CONN);
+  // Nothing of the direct connection closes here first: its teardown would reach the PC before the
+  // relay's close{suspended}, and the PC would record the drop as a channel failure.
+  assert.equal(link.pc.closed, false);
+  assert.equal(link.app.readyState, 'open');
+  assert.equal(link.control.readyState, 'open');
+  const sent = link.app.sent.length + link.control.sent.length;
+  link.control.remoteClose();
+  assert.equal(link.pc.closed, true, 'the PC closed its side: the connection ends here too');
+  assert.equal(link.app.readyState, 'closed');
+  assert.equal(link.app.sent.length + link.control.sent.length, sent, 'nothing more went on the direct carrier');
+});
+
+test('suspension before the direct connection connected closes it at once', async () => {
+  const s = await session();
+  s.desk.server.registerControlLane(LANE);
+  const previous = FakePeer.last;
+  await s.feed(
+    [
+      await s.desk.control({
+        ...s.desk.ref(),
+        t: 'offer',
+        sdp: sdpWith(FP),
+        fingerprints: [{ algorithm: 'sha-256', value: FP }],
+        iceServers: [],
+      }),
+    ],
+    undefined,
+    () => FakePeer.last !== previous
+  );
+  const pc = FakePeer.last;
   await s.peer.suspend();
   await s.desk.drain(s.relay.sent, RELAY_E2EE_RELAY_LANE);
   assert.equal(s.desk.controls.at(-1).reason, 'suspended');
-  assert.equal(link.pc.closed, true);
+  assert.equal(pc.closed, true, 'nothing of it can reach the PC first');
 });
 
 test('assembler: wait holds the payload without losing it; a stalled message ends the session', async () => {

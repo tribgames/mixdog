@@ -227,9 +227,10 @@ impl Sender {
         through
     }
 
-    /// A carrier was demoted or closed: what was last handed to it becomes a re-send for the next
-    /// carrier, held for `hold_ms` (one PTO of the surviving carrier) or until an ack newer than
-    /// every control message observed before this point arrives.
+    /// A carrier was demoted or closed, or a faster one took over: what was last handed to it and
+    /// not acknowledged becomes a re-send for the next carrier, held for `hold_ms` (one PTO of the
+    /// surviving carrier; 0 for a take-over) or until an ack newer than every control message
+    /// observed before this point arrives.
     pub fn carrier_failed(&mut self, carrier: &str, now: u64, hold_ms: f64) -> usize {
         let mut count = 0;
         for entry in self.retained.values_mut() {

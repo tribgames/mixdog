@@ -118,6 +118,8 @@ struct Shared {
     minted: u8,
     /// Every relay message, as written.
     relay_raw: Vec<Vec<u8>>,
+    /// Every message written to a direct app channel.
+    direct_raw: Vec<Vec<u8>>,
 }
 
 /// The shared state behind a lock, so the stand-ins can ride in a Send coordinator.
@@ -243,7 +245,7 @@ impl Host for HostFake {
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([shared.minted; 16])
     }
 
-    fn relay_send(&mut self, message: &[u8]) -> Settle<bool> {
+    fn relay_send(&mut self, _channel: PeerChannel, message: &[u8]) -> Settle<bool> {
         let held = self.log.borrow().options["relay"] == "held";
         self.log.borrow_mut().effects.push(with(json!({ "e": "relay" }), bytes_record(message)));
         self.log.borrow_mut().relay_raw.push(message.to_vec());
@@ -282,11 +284,18 @@ impl Host for HostFake {
     fn resolve_ice(&mut self, _connection_id: &str) -> Settle<Result<Value, ()>> {
         self.log.borrow_mut().effects.push(json!({ "e": "ice" }));
         let mode = self.log.borrow().options["ice"].as_str().map(str::to_owned);
+        if mode.as_deref() == Some("held") {
+            return Settle::Later;
+        }
         Settle::Now(match mode.as_deref() {
             Some("reject") => Err(()),
             Some("invalid") => Ok(json!([{ "urls": "http://not-ice" }])),
             _ => Ok(json!([{ "urls": ["turn:turn.example.org:3478"], "username": "user-secret-name", "credential": "credential-secret" }])),
         })
+    }
+
+    fn ice_in_hand(&mut self) -> bool {
+        self.log.borrow().options["ice"] != "held"
     }
 
     fn peer_host_attached(&mut self) -> bool {
@@ -332,6 +341,9 @@ impl Host for HostFake {
             return false;
         }
         self.log.borrow_mut().effects.push(with(json!({ "e": "peer-send", "channel": channel.name() }), bytes_record(message)));
+        if channel == PeerChannel::App {
+            self.log.borrow_mut().direct_raw.push(message.to_vec());
+        }
         true
     }
 
@@ -487,6 +499,277 @@ fn an_attempt_ended_by_a_client_restart_logs_the_retry_the_restart_left() {
     assert!(last.ends_with("failures=0 next-attempt-ms=29000"), "{last}");
 }
 
+/// The relay as one first-in first-out pipe under the test's clock: whatever the desktop hands it (the leg takes every write at once)
+/// leaves in that order at `RELAY_BYTES_PER_MS` and reaches the phone `ONE_WAY_MS` later, as the leg queue, the sockets and the
+/// relay's per-phone queue keep order.
+#[derive(Default)]
+struct SlowRelay {
+    /// Per message handed so far: when it reaches the phone, and what it is.
+    queue: Vec<(f64, String)>,
+    /// When the pipe has sent everything handed so far.
+    free_at: f64,
+    taken: usize,
+}
+
+const RELAY_BYTES_PER_MS: f64 = 75.0;
+const ONE_WAY_MS: u64 = 150;
+
+impl SlowRelay {
+    /// Takes the writes made since the last call, at `at`; returns what they are.
+    fn hand(&mut self, log: &Log, at: u64) -> Vec<String> {
+        let written: Vec<Vec<u8>> = log.borrow().relay_raw[self.queue.len()..].to_vec();
+        let mut kinds = Vec::new();
+        for raw in &written {
+            self.free_at = self.free_at.max(at as f64) + raw.len() as f64 / RELAY_BYTES_PER_MS;
+            let kind = relay_message_kind(raw);
+            self.queue.push((self.free_at + ONE_WAY_MS as f64, kind.clone()));
+            kinds.push(kind);
+        }
+        kinds
+    }
+
+    /// What reached the phone by `at`, in order: each message's index among the relay writes, and what it is.
+    fn arrived(&mut self, at: u64) -> Vec<(usize, String)> {
+        let mut out = Vec::new();
+        while let Some((when, kind)) = self.queue.get(self.taken) {
+            if *when > at as f64 {
+                break;
+            }
+            out.push((self.taken, kind.clone()));
+            self.taken += 1;
+        }
+        out
+    }
+}
+
+/// The phone's receiving half: one receiver for both carriers, so a record's second copy, on either, is a duplicate it drops.
+struct PhoneStream {
+    receiver: mixdog_remote::transport::receiver::Receiver,
+    assembler: mixdog_remote::transport::split::MessageAssembler,
+    /// Each message the phone delivered: when, the carrier of the record that completed it, and the message.
+    delivered: Vec<(u64, &'static str, String)>,
+    /// Each record copy the phone dropped as a duplicate: its carrier and sequence.
+    dropped: Vec<(&'static str, u64)>,
+}
+
+impl PhoneStream {
+    fn new() -> Self {
+        Self {
+            receiver: mixdog_remote::transport::receiver::Receiver::new(),
+            assembler: mixdog_remote::transport::split::MessageAssembler::new(AssemblyPool::default()),
+            delivered: Vec::new(),
+            dropped: Vec::new(),
+        }
+    }
+
+    fn take(&mut self, raw: &[u8], carrier: &'static str, at: u64) {
+        let mixdog_remote::transport::frame::Message::Record(record) = mixdog_remote::transport::frame::decode_message(raw).expect("a conforming message")
+        else {
+            panic!("an application record")
+        };
+        if self.receiver.accept(&record, at) == mixdog_remote::transport::receiver::AcceptResult::Duplicate {
+            self.dropped.push((carrier, record.sequence()));
+        }
+        while let Some((sequence, box_bytes)) = self.receiver.next().map(|(sequence, bytes)| (sequence, bytes.to_vec())) {
+            let (_, plaintext) = open_box(&box_bytes, APP_MAGIC).expect("an application box");
+            self.receiver.commit(sequence, at).expect("in order");
+            if let mixdog_remote::transport::split::Assembly::Complete(bytes) = self.assembler.accept(&plaintext, at).expect("the phone's reassembly takes it")
+            {
+                self.delivered.push((at, carrier, String::from_utf8(bytes).expect("text")));
+            }
+        }
+    }
+}
+
+/// `record <sequence>` for an application record, the `t` of a control message.
+fn relay_message_kind(raw: &[u8]) -> String {
+    match mixdog_remote::transport::frame::decode_message(raw).expect("a conforming message") {
+        mixdog_remote::transport::frame::Message::Record(record) => format!("record {}", record.sequence()),
+        mixdog_remote::transport::frame::Message::Control { box_bytes } => {
+            let (_, text) = open_box(&box_bytes, CONTROL_MAGIC).expect("a control box");
+            let value: Value = serde_json::from_slice(&text).expect("JSON");
+            value["t"].as_str().unwrap_or_default().to_owned()
+        }
+    }
+}
+
+/// What the phone, the LAN and the desktop's gatherer do, each when its time comes.
+enum Step {
+    HostCandidate,
+    Replies,
+    Answer,
+    Open,
+    Pong(u64),
+}
+
+/// The direct path opens while a slow relay (75 KB/s, 150 ms each way) still holds the session's first replies: with the ICE set
+/// in hand when the session opens, the phone has the offer and the desktop's host candidate ahead of every reply. The phone answers
+/// the offer and asks for its first screen once it reads them; the LAN connects at once and carries the phone's acks. The replies
+/// the relay still holds go again on the direct path, so the first screen is complete before the relay delivers its first reply;
+/// the relay's copies, arriving later, are dropped, and each message is delivered once, in order.
+#[test]
+fn the_direct_path_opens_without_waiting_for_the_backlog_a_slow_relay_drains() {
+    const LAN_MS: u64 = 10;
+    let log = gated_log();
+    log.borrow_mut().options = json!({ "peerHost": true });
+    let now = Rc::new(Cell::new(0));
+    let channel = ChannelFake { log: log.clone(), encrypt_sequence: 0, control_sequence: 0, lanes: HashMap::new(), on_seal: None };
+    let session_id = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([7u8; 32]);
+    let mut pc = Coordinator::new(&session_id, channel, HostFake { log: log.clone(), now: now.clone() }, AssemblyPool::default());
+    let connection = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([1u8; 16]);
+    let send = |pc: &mut Coordinator<ChannelFake, HostFake>, text: &str| {
+        let _ = pc.send(text, SendOptions { droppable: false, stream: None, meter: None, gate: None });
+        pc.settle();
+    };
+    let control =
+        |sequence: u64, text: &str| mixdog_remote::transport::frame::encode_control(&make_box(CONTROL_MAGIC, sequence, text)).expect("a control message");
+    send(&mut pc, r#"{"type":"e2ee-ready","version":1}"#);
+
+    let direct = format!("direct:{connection}");
+    let mut phone = PhoneStream::new();
+    let (mut relay, mut read, mut steps, mut scanned, mut promoted_at) = (SlowRelay::default(), Vec::new(), Vec::new(), 0, None);
+    let (mut direct_sequence, mut direct_taken) = (0, 0);
+    for at in 0..=12_000 {
+        now.set(at);
+        if at % 25 == 0 {
+            pc.tick();
+            pc.settle();
+        }
+        let due: Vec<(u64, Step)>;
+        (due, steps) = steps.into_iter().partition(|(when, _)| *when <= at);
+        for (_, step) in due {
+            match step {
+                Step::HostCandidate => {
+                    let host = Candidate {
+                        candidate: "candidate:1 1 udp 2122260223 192.168.1.10 50000 typ host".to_owned(),
+                        sdp_mid: Some("0".to_owned()),
+                        sdp_mline_index: Some(0),
+                        username_fragment: None,
+                    };
+                    pc.peer_candidate_event(&connection, Some(host), None);
+                }
+                Step::Replies => {
+                    for id in 0..12 {
+                        send(&mut pc, &format!(r#"{{"id":{id},"result":"{}"}}"#, "r".repeat(50_000)));
+                    }
+                }
+                Step::Answer => {
+                    let prints: Vec<Value> = fingerprints().iter().map(Fingerprint::to_json).collect();
+                    let answer = json!({ "v": 1, "sessionId": session_id, "connectionId": connection, "generation": 1, "t": "answer", "sdp": sdp(), "fingerprints": prints });
+                    pc.receive("relay", &control(1, &canon(&answer)));
+                    steps.push((at + LAN_MS, Step::Open));
+                }
+                Step::Open => pc.peer_open(&connection, Some(262_144.0), None),
+                Step::Pong(id) => {
+                    direct_sequence += 1;
+                    pc.receive(&direct, &control(direct_sequence, &mixdog_remote::transport::control::pong_json(id)));
+                }
+            }
+            pc.settle();
+        }
+        for kind in relay.hand(&log, at) {
+            // The gatherer's host candidates follow the offer at once.
+            if kind == "offer" {
+                steps.push((at + 1, Step::HostCandidate));
+            }
+        }
+        for (index, kind) in relay.arrived(at) {
+            match kind.as_str() {
+                // Record 1 confirms the session: the phone asks for its first screen.
+                "record 1" => steps.push((at + ONE_WAY_MS, Step::Replies)),
+                "offer" => steps.push((at + ONE_WAY_MS, Step::Answer)),
+                _ => {}
+            }
+            if kind.starts_with("record ") {
+                let raw = log.borrow().relay_raw[index].clone();
+                phone.take(&raw, "relay", at);
+            }
+            read.push((at, kind));
+        }
+        let effects: Vec<Value> = log.borrow().effects[scanned..].to_vec();
+        scanned += effects.len();
+        for effect in effects {
+            if effect["e"] == "seal-control" && effect["lane"].as_str().is_some_and(|lane| lane.starts_with("direct:")) && effect["message"]["t"] == "ping" {
+                steps.push((at + 1, Step::Pong(effect["message"]["id"].as_u64().expect("a ping id"))));
+            }
+            if effect["line"].as_str().is_some_and(|line| line.contains("path=direct reason=channel-open")) {
+                promoted_at.get_or_insert(at);
+            }
+        }
+        // The LAN delivers at once.
+        let written: Vec<Vec<u8>> = log.borrow().direct_raw[direct_taken..].to_vec();
+        direct_taken += written.len();
+        for raw in &written {
+            phone.take(raw, "direct", at);
+        }
+        if promoted_at.is_some()
+            && let Some(due) = phone.receiver.ack_due(at)
+        {
+            phone.receiver.ack_sent(due.through);
+            direct_sequence += 1;
+            pc.receive(&direct, &control(direct_sequence, &mixdog_remote::transport::control::ack_json(due.through, &due.ranges)));
+            pc.settle();
+        }
+    }
+
+    let first = |kind: &str| read.iter().position(|(_, read)| read == kind).unwrap_or_else(|| panic!("no {kind} reached the phone: {read:?}"));
+    let first_reply = first("record 2");
+    assert!(first("offer") < first_reply, "the offer reached the phone behind a reply: {read:?}");
+    assert!(first("candidate") < first_reply, "the host candidate reached the phone behind a reply: {read:?}");
+    let promoted_at = promoted_at.expect("the direct path opened");
+    let reply_at = read[first_reply].0;
+    assert!(promoted_at < reply_at, "the direct path opened at {promoted_at} ms, after the first reply reached the phone at {reply_at} ms");
+
+    let delivered: Vec<(u64, &str, String)> = phone.delivered.iter().map(|(at, carrier, text)| (*at, *carrier, text.chars().take(16).collect())).collect();
+    let mut expected = vec![r#"{"type":"e2ee-ready","version":1}"#.to_owned()];
+    expected.extend((0..12).map(|id| format!(r#"{{"id":{id},"result":"{}"}}"#, "r".repeat(50_000))));
+    assert!(phone.delivered.iter().map(|(_, _, text)| text).eq(expected.iter()), "each message once, in order: {delivered:?}");
+    assert!(phone.delivered[1..].iter().all(|(_, carrier, _)| *carrier == "direct"), "a reply came over the relay: {delivered:?}");
+    let complete_at = phone.delivered.last().expect("the first screen").0;
+    let drained_at = read.iter().rev().find(|(_, kind)| kind == "record 13").expect("the relay's last reply").0;
+    assert!(
+        complete_at < reply_at,
+        "the first screen was complete at {complete_at} ms; the relay delivered its first reply at {reply_at} ms and its last at {drained_at} ms"
+    );
+    // Record 1 reached the phone on the relay before the direct path opened; every reply came direct first.
+    let mut dropped = vec![("direct", 1)];
+    dropped.extend((2..=13).map(|sequence| ("relay", sequence)));
+    assert_eq!(phone.dropped, dropped, "the second copy of each record is dropped");
+}
+
+/// A relay that never answers the ICE request holds back no record: the set is not in hand when the session opens, so `e2ee-ready`
+/// and the first replies go on the relay the moment each is sent, and only the offer waits for the set.
+#[test]
+fn records_go_out_at_once_when_the_relay_never_answers_the_ice_request() {
+    let log = gated_log();
+    log.borrow_mut().options = json!({ "peerHost": true, "ice": "held" });
+    let now = Rc::new(Cell::new(1_000));
+    let channel = ChannelFake { log: log.clone(), encrypt_sequence: 0, control_sequence: 0, lanes: HashMap::new(), on_seal: None };
+    let session_id = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([7u8; 32]);
+    let mut pc = Coordinator::new(&session_id, channel, HostFake { log: log.clone(), now: now.clone() }, AssemblyPool::default());
+    let send = |pc: &mut Coordinator<ChannelFake, HostFake>, text: &str| {
+        let _ = pc.send(text, SendOptions { droppable: false, stream: None, meter: None, gate: None });
+        pc.settle();
+    };
+    let written = |log: &Log| log.borrow().relay_raw.iter().map(|raw| relay_message_kind(raw)).collect::<Vec<String>>();
+    let records = |log: &Log| written(log).into_iter().filter(|kind| kind.starts_with("record ")).collect::<Vec<String>>();
+
+    send(&mut pc, r#"{"type":"e2ee-ready","version":1}"#);
+    assert_eq!(records(&log), ["record 1"], "e2ee-ready waited");
+    // The attempt asks for the set, which never comes.
+    for at in (1_000..=1_300).step_by(25) {
+        now.set(at);
+        pc.tick();
+        pc.settle();
+    }
+    assert!(log.borrow().effects.iter().any(|effect| effect["e"] == "ice"), "the attempt asked for the ICE set");
+    for id in 0..3 {
+        send(&mut pc, &format!(r#"{{"id":{id},"result":[]}}"#));
+        assert_eq!(records(&log).len(), id + 2, "reply {id} waited");
+    }
+    assert!(!written(&log).iter().any(|kind| kind == "offer"), "an offer without the ICE set: {:?}", written(&log));
+}
+
 fn gated_log() -> Log {
     std::sync::Arc::new(Guarded(std::sync::Mutex::new(Shared {
         effects: Vec::new(),
@@ -503,6 +786,7 @@ fn gated_log() -> Log {
         creates: 0,
         minted: 0,
         relay_raw: Vec::new(),
+        direct_raw: Vec::new(),
     })))
 }
 
