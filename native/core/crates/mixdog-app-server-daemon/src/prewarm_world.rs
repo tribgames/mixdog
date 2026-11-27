@@ -112,9 +112,11 @@ impl PrewarmWorld for DaemonPrewarmWorld {
         self.cwd.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
-    /// Warms a helper that runs: a background warm is no demand, so it never starts one.
-    async fn prewarm(&self, cwd: &str) -> Result<bool, String> {
-        self.tool.prewarm_if_project(std::path::Path::new(cwd), mixdog_graph_host::Start::IfRunning, &self.cancel).await.map_err(|error| error.to_string())
+    /// A turn producing output in a project starts the helper, so the model's first graph call does not wait for its start
+    /// and its load of the graph; any other background warm is no demand and only warms a helper that runs.
+    async fn prewarm(&self, cwd: &str, in_turn: bool) -> Result<bool, String> {
+        let start = if in_turn { mixdog_graph_host::Start::Demand } else { mixdog_graph_host::Start::IfRunning };
+        self.tool.prewarm_if_project(std::path::Path::new(cwd), start, &self.cancel).await.map_err(|error| error.to_string())
     }
 
     /// `bootProfile(event, detail)`.
