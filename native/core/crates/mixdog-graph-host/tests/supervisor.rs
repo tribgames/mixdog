@@ -202,7 +202,9 @@ async fn harness(flags: &[&str], queue_capacity: usize) -> Harness {
 /// A harness whose helper is started with `command` applied to its command.
 async fn harness_with(flags: &[&str], queue_capacity: usize, command: impl FnOnce(OwnedCommand) -> OwnedCommand) -> Harness {
     let barrier = Barrier::bind().await;
-    let command = command(OwnedCommand::new(env!("CARGO_BIN_EXE_graph_host_fixture")).arg("--barrier").arg(&barrier.address).args(flags.iter().copied()));
+    // A build reused from an archive runs elsewhere than it was compiled: the run names the moved fixture.
+    let fixture = std::env::var("CARGO_BIN_EXE_graph_host_fixture").unwrap_or_else(|_| env!("CARGO_BIN_EXE_graph_host_fixture").to_owned());
+    let command = command(OwnedCommand::new(fixture).arg("--barrier").arg(&barrier.address).args(flags.iter().copied()));
     let clock = Arc::new(ManualClock::new());
     let events = Arc::new(Recorder::default());
     let config = HostConfig { command, queue_capacity, idle: IDLE, drain_limit: DRAIN, clock: clock.clone(), observer: Some(events.observer()) };
