@@ -1357,12 +1357,27 @@ jobs:
         shell: bash
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/desktop-slow.json
-        run: npm run test:slow --prefix apps/desktop -- --test-shard=${{ matrix.shard }}/3
+        run: npm run test:slow --prefix apps/desktop -- --test-shard=${{ matrix.shard }}/3 --exclude-path src/main/web-push-electron-runtime.slow.test.mjs
+      # web-push-electron-runtime.slow.test.mjs runs apps/relay/lib/web-push.test.mjs under Electron, whose receipt is a child slot of
+      # the plan's: a shard gets its files by their place in the lane's list, which any new slow file moves, so it runs here, in shard 1.
+      - name: Run the Electron Web Push check by itself
+        if: matrix.shard == 1
+        shell: bash
+        env:
+          MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/desktop-slow-web-push.json
+          MIXDOG_SLOT: desktop-slow-web-push
+        run: npm run test:slow --prefix apps/desktop -- src/main/web-push-electron-runtime.slow.test.mjs
       # A skipped or todo test outside scripts/ci/coverage/exceptions.json fails the job (check-skips.mjs).
       - name: Check that no test of the desktop slow lane skipped outside the reviewed list
         shell: bash
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/desktop-slow.json
+        run: node scripts/ci/check-skips.mjs receipts "$MIXDOG_RECEIPT"
+      - name: Check that the Electron Web Push check skipped nothing outside the reviewed list
+        if: matrix.shard == 1
+        shell: bash
+        env:
+          MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/desktop-slow-web-push.json
         run: node scripts/ci/check-skips.mjs receipts "$MIXDOG_RECEIPT"
       # Locale catalogs are checked once, here, not during feature work.
       - name: Check locale catalogs

@@ -226,8 +226,8 @@ path. The handoff downloads the worker's manifest by artifact ID and stages the 
   text, owner, reason and replacement. Unknown fields are rejected. An exception on Linux does not excuse Windows. A tuple whose
   skip was not reported by any leg (a deleted file, crate or method, or a skip that became a pass) is stale and fails.
   The replacement is structured and enforced: `{kind: "runs", in: [leg#slot, ...]}` needs a pass of the same case in one of
-  those slots, `{kind: "parent", parents: [identity, ...]}` a pass of every test that starts it in the same invocation that reported
-  the child; an ignored Rust test a profile leg runs is not credited by the listing: the same case must pass on that profile leg; `{kind: "none", reason}` states
+  those slots, `{kind: "parent", parents: [identity, ...]}` a pass of every test that starts it in a leg that ran the
+  child's build (a partition or a profile leg of the same archive: every partition reports an ignored child, and its starter runs in one); an ignored Rust test a profile leg runs is not credited by the listing: the same case must pass on that profile leg; `{kind: "none", reason}` states
   that nothing replaces it. A replacement in a join leg is checked by `cli.mjs join` in `release.yml` `prepared-runtime-join`
   against the gate's manifest of the same commit, before `publish`.
 - **Wiring.** `cli.mjs wiring` parses the workflows against closed lists, not by recognising commands: in every workflow that

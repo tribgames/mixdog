@@ -15,7 +15,7 @@ import { buildInventory } from './inventory.mjs';
 import { loadPlan, planProblems } from './plan.mjs';
 import { reconcile, reconcileJoin } from './reconcile.mjs';
 import { loadWorkflows, matrixSize, wiringProblems } from './wiring.mjs';
-import { parseJunit, targetOfBinaryId, junitRecords } from './adapters.mjs';
+import { packagesByName, parseJunit, targetOfBinaryId, junitRecords } from './adapters.mjs';
 import { invocationRecords, runIgnoredMode } from '../run-nextest.mjs';
 import { shellRecords } from '../run-shell-suite.mjs';
 import { doctestRecords } from '../run-doctest.mjs';
@@ -2361,6 +2361,63 @@ test('a child-process case needs the test that starts it to have passed in the i
         text.includes(`because ${idKey(a.id)} starts it, which did not pass in linux/node/1of1#root`)
     ),
     parentElsewhere.join('\n')
+  );
+});
+
+test("a child-process case every partition reports ignored is replaced by its starter passing in a leg of that variant's archive", () => {
+  const w = rustWorld();
+  const [child, starter] = [rustId('child'), rustId('starter')];
+  const ack = { kind: 'case', id: child, status: 'ignored', reasonCode: 'nextest-ignored', reasonText: '' };
+  const exceptions = {
+    v: 1,
+    exceptions: [
+      ...rustExceptions.exceptions,
+      { ...ignoredTuple(child, 'linux'), replacement: { kind: 'parent', parents: [starter] } },
+    ],
+  };
+  const withRecords = (extra) =>
+    rustRun(
+      {
+        ...w,
+        receipts: w.receipts.map((entry) => {
+          const leg = entry.receipt.envelope.leg;
+          return extra[leg] ? receiptOf(w.plan, leg, 'root', [...entry.receipt.records, ...extra[leg]]) : entry;
+        }),
+      },
+      { exceptions }
+    ).filter((text) => text.startsWith('no replacement'));
+  assert.deepEqual(withRecords({ 'linux/core/1of2': [ack], 'linux/core/2of2': [ack, pass(starter)] }), []);
+  // the starter is itself an ignored test the pg profile leg runs, from the same archive
+  assert.deepEqual(
+    withRecords({ 'linux/core/1of2': [ack], 'linux/core/2of2': [ack], 'linux/core-pg/pg': [pass(starter)] }),
+    []
+  );
+  // a pass on another build variant did not start the child this one reported
+  assert.deepEqual(
+    withRecords({ 'linux/core/1of2': [ack], 'linux/core/2of2': [ack], 'windows/core/1of1': [pass(starter)] }),
+    [
+      `no replacement: ${idKey(child)} is excepted on linux because ${idKey(starter)} starts it, which did not pass in linux/core/1of2#root or linux/core/2of2#root or linux/core-pg/pg#root`,
+    ]
+  );
+});
+
+test('a package with no test target shares its name without an error; two with test targets do not', () => {
+  const files = {
+    'core/crates/tool/Cargo.toml': '[package]\nname = "tool"\n\n[lib]\npath = "../../../tool/src/lib.rs"\ntest = false\n',
+    'tool/Cargo.toml': '[package]\nname = "tool"\n',
+    'tool/src/lib.rs': '',
+  };
+  const of = (given) => packagesByName(Object.keys(given).sort(), (path) => given[path]);
+  const mirrored = of(files);
+  assert.deepEqual([mirrored.errors, mirrored.byName.get('tool').manifest], [[], 'tool/Cargo.toml']);
+  const twice = of({
+    ...files,
+    'core/crates/tool/Cargo.toml': '[package]\nname = "tool"\n',
+    'core/crates/tool/src/lib.rs': '',
+  });
+  assert.deepEqual(
+    twice.errors.map((error) => error.code),
+    ['duplicate-package']
   );
 });
 

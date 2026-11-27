@@ -5,11 +5,14 @@ import { readFileSync } from 'node:fs';
 
 import { readPackages } from './inventory-rust.mjs';
 
-/** Packages by name from the tracked sources: { manifest, dir, targets }. A name two manifests share is an error. */
+/**
+ * Packages by name from the tracked sources: { manifest, dir, targets }. A name two manifests with test targets share is an error;
+ * a package without one (the core's build of a standalone crate's library, `test = false`) names no nextest binary.
+ */
 export function packagesByName(tracked, read) {
   const { packages, errors } = readPackages(tracked, read);
   const byName = new Map();
-  for (const pkg of packages) {
+  for (const pkg of packages.filter((entry) => entry.targets.length > 0)) {
     if (byName.has(pkg.name))
       errors.push({
         code: 'duplicate-package',

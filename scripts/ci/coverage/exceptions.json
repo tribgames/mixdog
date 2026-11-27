@@ -4270,6 +4270,276 @@
         "native/core/crates/mixdog-app-server-daemon/Cargo.toml",
         "lib",
         "mixdog_app_server_daemon",
+        "compose::acp_session_tests::a_handed_call_and_a_call_tool_each_run_once_through_the_sessions_own_gate_and_hooks"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/pg", "macos/core-pg/1of1#pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-app-server-daemon/Cargo.toml",
+        "lib",
+        "mixdog_app_server_daemon",
+        "compose::acp_session_tests::a_route_pick_held_for_the_turn_that_leaves_the_agent_runs_the_turn_on_the_route_the_header_then_names"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/pg", "macos/core-pg/1of1#pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-app-server-daemon/Cargo.toml",
+        "lib",
+        "mixdog_app_server_daemon",
+        "compose::acp_session_tests::a_session_on_an_agents_route_is_a_bridge_session_and_its_agent_is_handed_that_sessions_tools_and_prompt"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/pg", "macos/core-pg/1of1#pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-app-server-daemon/Cargo.toml",
+        "lib",
+        "mixdog_app_server_daemon",
+        "compose::acp_session_tests::a_session_on_an_agents_route_is_titled_through_the_maintainers_route"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/pg", "macos/core-pg/1of1#pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-app-server-daemon/Cargo.toml",
+        "lib",
+        "mixdog_app_server_daemon",
+        "compose::acp_session_tests::a_worker_whose_saved_route_is_an_agents_model_runs_its_turn_in_the_agent"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/pg", "macos/core-pg/1of1#pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-app-server-daemon/Cargo.toml",
+        "lib",
+        "mixdog_app_server_daemon",
+        "compose::session_project_flow_tests::an_agent_session_may_not_switch_its_project_through_the_session_tool"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/pg", "macos/core-pg/1of1#pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-app-server-daemon/Cargo.toml",
+        "lib",
+        "mixdog_app_server_daemon",
+        "compose::session_project_flow_tests::the_lead_switches_its_own_project_through_the_session_tool"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/pg", "macos/core-pg/1of1#pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-app-server-daemon/Cargo.toml",
+        "lib",
+        "mixdog_app_server_daemon",
+        "compose::session_project_flow_tests::the_session_tool_flags_a_thread_through_the_thread_settings_service"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/pg", "macos/core-pg/1of1#pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-app-server-daemon/Cargo.toml",
+        "lib",
+        "mixdog_app_server_daemon",
+        "compose::unconverted_delete_tests::the_time_the_deletes_of_the_sessions_removed_unconverted_take"
+      ],
+      "platform": "linux",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "measurement: consumes the folder MIXDOG_TAIL_DIR names",
+      "replacement": {
+        "kind": "none",
+        "reason": "local: a prepared MIXDOG_TAIL_DIR folder, run by hand with --run-ignored only"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-app-server-daemon/Cargo.toml",
+        "lib",
+        "mixdog_app_server_daemon",
+        "compose::unconverted_delete_tests::the_time_the_deletes_of_the_sessions_removed_unconverted_take"
+      ],
+      "platform": "macos",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "measurement: consumes the folder MIXDOG_TAIL_DIR names",
+      "replacement": {
+        "kind": "none",
+        "reason": "local: a prepared MIXDOG_TAIL_DIR folder, run by hand with --run-ignored only"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-app-server-daemon/Cargo.toml",
+        "lib",
+        "mixdog_app_server_daemon",
+        "compose::unconverted_delete_tests::the_time_the_deletes_of_the_sessions_removed_unconverted_take"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "measurement: consumes the folder MIXDOG_TAIL_DIR names",
+      "replacement": {
+        "kind": "none",
+        "reason": "local: a prepared MIXDOG_TAIL_DIR folder, run by hand with --run-ignored only"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-app-server-daemon/Cargo.toml",
+        "lib",
+        "mixdog_app_server_daemon",
+        "exec::tests::pwsh_50_mib_command"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "the 50 MiB PowerShell command measurement (53 s, 414 MiB)",
+      "replacement": {
+        "kind": "none",
+        "reason": "local Windows run: nextest run --profile pwsh-50-mib --run-ignored only -p mixdog-app-server-daemon"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-app-server-daemon/Cargo.toml",
+        "lib",
+        "mixdog_app_server_daemon",
+        "model_proxy_client_tests::a_client_mode_server_runs_its_turns_on_the_pc_and_fails_them_without_one"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/pg", "macos/core-pg/1of1#pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-app-server-daemon/Cargo.toml",
+        "lib",
+        "mixdog_app_server_daemon",
+        "ssh_origin_tests::an_ordinary_loopback_desktop_leaving_ends_the_core_on_the_local_grace"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/pg", "macos/core-pg/1of1#pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-app-server-daemon/Cargo.toml",
+        "lib",
+        "mixdog_app_server_daemon",
+        "ssh_origin_tests::an_ssh_attached_session_survives_the_disconnect_and_the_core_ends_itself_only_after_the_remote_grace"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/pg", "macos/core-pg/1of1#pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-app-server-daemon/Cargo.toml",
+        "lib",
+        "mixdog_app_server_daemon",
         "verdict::tests::idle_child"
       ],
       "platform": "linux",
@@ -5273,6 +5543,132 @@
       }
     },
     {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-office-com/Cargo.toml",
+        "test",
+        "it",
+        "switch_excel_live::a_busy_excel_is_retried_and_then_answered_with_the_busy_text"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "starts and shows Microsoft Excel and sends it a key; MIXDOG_TEST_LIVE_OFFICE=1",
+      "replacement": {
+        "kind": "none",
+        "reason": "manual before release: a Windows machine with Microsoft Office (MIXDOG_TEST_LIVE_OFFICE=1)"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-office-com/Cargo.toml",
+        "test",
+        "it",
+        "switch_excel_live::an_attach_session_leaves_the_users_excel_and_workbook_open"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "starts and shows Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1",
+      "replacement": {
+        "kind": "none",
+        "reason": "manual before release: a Windows machine with Microsoft Office (MIXDOG_TEST_LIVE_OFFICE=1)"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-office-com/Cargo.toml",
+        "test",
+        "it",
+        "switch_excel_live::every_excel_scenario_through_the_transport_meets_what_it_expects_and_leaves_no_process"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "starts Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1",
+      "replacement": {
+        "kind": "none",
+        "reason": "manual before release: a Windows machine with Microsoft Office (MIXDOG_TEST_LIVE_OFFICE=1)"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-office-com/Cargo.toml",
+        "test",
+        "it",
+        "switch_powerpoint_live::cancelling_a_chart_creation_leaves_no_visible_window_and_the_host_cleans_up_by_itself"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "starts Microsoft PowerPoint and Excel; MIXDOG_TEST_LIVE_OFFICE=1",
+      "replacement": {
+        "kind": "none",
+        "reason": "manual before release: a Windows machine with Microsoft Office (MIXDOG_TEST_LIVE_OFFICE=1)"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-office-com/Cargo.toml",
+        "test",
+        "it",
+        "switch_powerpoint_live::every_powerpoint_scenario_through_the_transport_meets_what_it_expects_and_leaves_no_process"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "starts Microsoft PowerPoint; MIXDOG_TEST_LIVE_OFFICE=1",
+      "replacement": {
+        "kind": "none",
+        "reason": "manual before release: a Windows machine with Microsoft Office (MIXDOG_TEST_LIVE_OFFICE=1)"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-office-com/Cargo.toml",
+        "test",
+        "it",
+        "switch_powerpoint_live::the_authoring_flow_of_the_extension_host_runs_on_the_rust_host"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "starts Microsoft PowerPoint; MIXDOG_TEST_LIVE_OFFICE=1",
+      "replacement": {
+        "kind": "none",
+        "reason": "manual before release: a Windows machine with Microsoft Office (MIXDOG_TEST_LIVE_OFFICE=1)"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-office-com/Cargo.toml",
+        "test",
+        "it",
+        "switch_powerpoint_live::the_read_only_preview_of_a_deck_with_a_password_given_renders_and_writes_nothing_back"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "starts Microsoft PowerPoint; MIXDOG_TEST_LIVE_OFFICE=1",
+      "replacement": {
+        "kind": "none",
+        "reason": "manual before release: a Windows machine with Microsoft Office (MIXDOG_TEST_LIVE_OFFICE=1)"
+      }
+    },
+    {
       "id": ["rust", "native/core/crates/mixdog-office-com/Cargo.toml", "test", "it", "containment_live::stand_in"],
       "platform": "windows",
       "kind": "ignored",
@@ -5848,7 +6244,133 @@
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
         "features",
-        "live_com::excel::persistent_excel_sessions_own_one_document_and_preserve_utf8_text"
+        "live_com::excel::excel_a_background_session_opens_no_window_and_preserves_utf8_text"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "starts Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1",
+      "replacement": {
+        "kind": "none",
+        "reason": "manual before release: a Windows machine with Microsoft Office (MIXDOG_TEST_LIVE_OFFICE=1)"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-office/Cargo.toml",
+        "test",
+        "features",
+        "live_com::excel::excel_a_failed_batch_leaves_the_document_as_it_was"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "starts Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1",
+      "replacement": {
+        "kind": "none",
+        "reason": "manual before release: a Windows machine with Microsoft Office (MIXDOG_TEST_LIVE_OFFICE=1)"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-office/Cargo.toml",
+        "test",
+        "features",
+        "live_com::excel::excel_a_rolled_back_transaction_restores_the_cell_it_changed"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "starts Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1",
+      "replacement": {
+        "kind": "none",
+        "reason": "manual before release: a Windows machine with Microsoft Office (MIXDOG_TEST_LIVE_OFFICE=1)"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-office/Cargo.toml",
+        "test",
+        "features",
+        "live_com::excel::excel_a_snapshot_over_the_size_asked_for_comes_back_in_pages_not_as_a_text_preview"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "starts Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1",
+      "replacement": {
+        "kind": "none",
+        "reason": "manual before release: a Windows machine with Microsoft Office (MIXDOG_TEST_LIVE_OFFICE=1)"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-office/Cargo.toml",
+        "test",
+        "features",
+        "live_com::excel::excel_a_visible_session_is_reused_by_a_second_open_and_ends_with_its_process"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "starts Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1",
+      "replacement": {
+        "kind": "none",
+        "reason": "manual before release: a Windows machine with Microsoft Office (MIXDOG_TEST_LIVE_OFFICE=1)"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-office/Cargo.toml",
+        "test",
+        "features",
+        "live_com::excel::excel_attach_refuses_a_workbook_no_application_has_open"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "starts Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1",
+      "replacement": {
+        "kind": "none",
+        "reason": "manual before release: a Windows machine with Microsoft Office (MIXDOG_TEST_LIVE_OFFICE=1)"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-office/Cargo.toml",
+        "test",
+        "features",
+        "live_com::excel::excel_inserting_a_row_moves_the_formula_references_below_it"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "starts Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1",
+      "replacement": {
+        "kind": "none",
+        "reason": "manual before release: a Windows machine with Microsoft Office (MIXDOG_TEST_LIVE_OFFICE=1)"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-office/Cargo.toml",
+        "test",
+        "features",
+        "live_com::excel::excel_issues_report_a_formula_error_and_the_financial_model_audit_covers_every_cell"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5873,6 +6395,24 @@
       "reasonCode": "nextest-ignored",
       "owner": "release-engineering",
       "reason": "starts and shows Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1",
+      "replacement": {
+        "kind": "none",
+        "reason": "manual before release: a Windows machine with Microsoft Office (MIXDOG_TEST_LIVE_OFFICE=1)"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-office/Cargo.toml",
+        "test",
+        "features",
+        "live_com::other::author_a_failed_script_leaves_the_open_deck_alone_and_no_staging_file_behind"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "starts Microsoft PowerPoint and a headless browser; MIXDOG_TEST_LIVE_OFFICE=1",
       "replacement": {
         "kind": "none",
         "reason": "manual before release: a Windows machine with Microsoft Office (MIXDOG_TEST_LIVE_OFFICE=1)"
@@ -5938,13 +6478,49 @@
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
         "features",
-        "live_com::other::contract_both_backends_satisfy_one_snapshot_contract_and_agree_on_the_same_document"
+        "live_com::other::contract_both_backends_satisfy_one_snapshot_contract_and_agree_on_the_same_deck"
       ],
       "platform": "windows",
       "kind": "ignored",
       "reasonCode": "nextest-ignored",
       "owner": "release-engineering",
-      "reason": "starts Microsoft Excel, Word and PowerPoint; MIXDOG_TEST_LIVE_OFFICE=1",
+      "reason": "starts Microsoft PowerPoint; MIXDOG_TEST_LIVE_OFFICE=1",
+      "replacement": {
+        "kind": "none",
+        "reason": "manual before release: a Windows machine with Microsoft Office (MIXDOG_TEST_LIVE_OFFICE=1)"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-office/Cargo.toml",
+        "test",
+        "features",
+        "live_com::other::contract_both_backends_satisfy_one_snapshot_contract_and_agree_on_the_same_word_document"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "starts Microsoft Word; MIXDOG_TEST_LIVE_OFFICE=1",
+      "replacement": {
+        "kind": "none",
+        "reason": "manual before release: a Windows machine with Microsoft Office (MIXDOG_TEST_LIVE_OFFICE=1)"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-office/Cargo.toml",
+        "test",
+        "features",
+        "live_com::other::contract_both_backends_satisfy_one_snapshot_contract_and_agree_on_the_same_workbook"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "starts Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1",
       "replacement": {
         "kind": "none",
         "reason": "manual before release: a Windows machine with Microsoft Office (MIXDOG_TEST_LIVE_OFFICE=1)"
@@ -6885,6 +7461,30 @@
     },
     {
       "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "it", "soffice_lifecycle::fake_launcher"],
+      "platform": "linux",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "the fake LibreOffice of the lifecycle tests (the `launch` job): returns at once unless MIXDOG_FAKE_SOFFICE_JOB names it, which only the Windows-only a_cancelled_run_on_windows_stops_what_the_launcher_started_with_it does",
+      "replacement": {
+        "kind": "none",
+        "reason": "no test of this platform starts it; its Windows tuple requires the test that starts it there to pass"
+      }
+    },
+    {
+      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "it", "soffice_lifecycle::fake_launcher"],
+      "platform": "macos",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "the fake LibreOffice of the lifecycle tests (the `launch` job): returns at once unless MIXDOG_FAKE_SOFFICE_JOB names it, which only the Windows-only a_cancelled_run_on_windows_stops_what_the_launcher_started_with_it does",
+      "replacement": {
+        "kind": "none",
+        "reason": "no test of this platform starts it; its Windows tuple requires the test that starts it there to pass"
+      }
+    },
+    {
+      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "it", "soffice_lifecycle::fake_launcher"],
       "platform": "windows",
       "kind": "ignored",
       "reasonCode": "nextest-ignored",
@@ -7143,16 +7743,8 @@
       "owner": "release-engineering",
       "reason": "integration: the child process of a_core_after_a_killed_one_attaches_to_its_postmaster_and_stops_it",
       "replacement": {
-        "kind": "parent",
-        "parents": [
-          [
-            "rust",
-            "native/core/crates/mixdog-services/Cargo.toml",
-            "lib",
-            "mixdog_services",
-            "memory::tests::boot::a_core_after_a_killed_one_attaches_to_its_postmaster_and_stops_it"
-          ]
-        ]
+        "kind": "none",
+        "reason": "its parent needs PostgreSQL, which no Windows leg has: the parent runs in the Linux and macOS services-pg legs, where the Linux and macOS tuples of this case require it to pass"
       }
     },
     {
@@ -8188,52 +8780,556 @@
         "native/core/crates/mixdog-services/Cargo.toml",
         "lib",
         "mixdog_services",
-        "model_install::trigger_tests::a_session_start_prewarm_installs_and_loads_in_the_background_and_repeats_are_free"
-      ],
-      "platform": "linux",
-      "kind": "ignored",
-      "reasonCode": "nextest-ignored",
-      "owner": "release-engineering",
-      "reason": "integration: real inference needs the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)",
-      "replacement": {
-        "kind": "none",
-        "reason": "local: nextest profile services-models (real models, network)"
-      }
-    },
-    {
-      "id": [
-        "rust",
-        "native/core/crates/mixdog-services/Cargo.toml",
-        "lib",
-        "mixdog_services",
-        "model_install::trigger_tests::a_session_start_prewarm_installs_and_loads_in_the_background_and_repeats_are_free"
-      ],
-      "platform": "macos",
-      "kind": "ignored",
-      "reasonCode": "nextest-ignored",
-      "owner": "release-engineering",
-      "reason": "integration: real inference needs the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)",
-      "replacement": {
-        "kind": "none",
-        "reason": "local: nextest profile services-models (real models, network)"
-      }
-    },
-    {
-      "id": [
-        "rust",
-        "native/core/crates/mixdog-services/Cargo.toml",
-        "lib",
-        "mixdog_services",
-        "model_install::trigger_tests::a_session_start_prewarm_installs_and_loads_in_the_background_and_repeats_are_free"
+        "memory::tests::core_memory::a_cancelled_delete_waiting_on_a_row_lock_does_not_commit"
       ],
       "platform": "windows",
       "kind": "ignored",
       "reasonCode": "nextest-ignored",
       "owner": "release-engineering",
-      "reason": "integration: real inference needs the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
       "replacement": {
-        "kind": "none",
-        "reason": "local: nextest profile services-models (real models, network)"
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::core_memory::a_category_only_edit_keeps_the_text_and_an_unchanged_edit_is_refused"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::core_memory::a_folder_scope_change_rejects_add_and_move_without_touching_other_instructions"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::core_memory::the_all_projects_scope_is_refused_for_add_and_delete_but_not_list"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::ingest_rows::a_transcript_is_stored_row_by_row_and_a_repeated_message_keeps_its_own_row"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::ingest_rows::another_session_with_the_same_text_stores_its_own_rows_and_no_messages_store_nothing"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::ingest_rows::system_text_tool_results_and_empty_text_are_not_stored"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::ingest_rows::the_same_messages_again_store_nothing_and_a_longer_transcript_stores_only_what_is_new"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::jobs::a_run_that_finds_the_advisory_lock_held_records_one_request_and_calls_no_model"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::jobs::a_window_below_the_minimum_leaves_the_backlog_without_a_model_call"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::jobs::a_window_of_only_empty_rows_is_marked_terminal_without_a_model_call"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::pool_idle::connections_nobody_used_are_closed_with_their_backends_and_the_next_query_opens_one"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::recall_scopes::a_root_prints_its_time_element_and_summary_and_a_raw_row_its_role_content_and_state"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::recall_scopes::a_scope_shows_the_common_memory_with_its_own_project_and_all_shows_every_project"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::recall_scopes::sorted_by_date_the_newest_comes_first"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::session_search::a_change_during_an_earlier_read_is_not_hidden_by_the_old_stamp"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::session_search::a_rewrite_at_the_same_cursor_retries_the_read_instead_of_storing_the_old_transcript"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::session_search_writes::a_replace_that_changes_nothing_deletes_nothing_and_a_second_one_finds_nothing_left"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::session_search_writes::a_rewound_transcript_adds_its_new_rows_and_keeps_the_stored_ones"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::session_search_writes::a_turn_writes_the_new_rows_only_and_an_unchanged_transcript_writes_nothing"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::session_search_writes::a_value_marked_after_rows_were_stored_replaces_them_on_the_next_turn_and_new_rows_are_stored_redacted"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::session_search_writes::an_earlier_edit_is_indexed_even_if_the_rest_of_the_prefix_did_not_move"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::session_search_writes::an_empty_nameless_or_agent_only_turn_stores_nothing"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::session_search_writes::replacing_a_marked_value_rewrites_only_the_rows_that_hold_it_keeping_ordinal_role_and_time"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::session_search_writes::the_row_of_a_message_the_transcript_dropped_is_rewritten_under_a_fresh_random_identity"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::status_readout::the_status_counts_roots_raw_rows_categories_core_memory_and_the_age_of_the_last_cycle"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::transcript_tail::a_file_rewritten_shorter_is_read_again_from_its_start_and_a_forgotten_file_loses_its_position"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::transcript_tail::a_half_written_last_line_waits_for_its_end_and_nothing_new_stores_nothing"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::transcript_tail::a_run_of_nul_bytes_before_a_line_and_a_crlf_line_end_do_not_hide_the_line"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::transcript_tail::conversation_lines_become_rows_and_blank_broken_and_summary_lines_are_skipped"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-services/Cargo.toml",
+        "lib",
+        "mixdog_services",
+        "memory::tests::transcript_tail::the_position_survives_a_restart_and_a_restart_that_lost_it_stores_every_line_once"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a bundled PostgreSQL runtime (MIXDOG_PG_RUNTIME)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["linux/core-pg/services-pg", "macos/core-pg/1of1#services-pg"]
       }
     },
     {
@@ -8285,60 +9381,6 @@
       "reasonCode": "nextest-ignored",
       "owner": "release-engineering",
       "reason": "integration: loads the real judge; needs MIXDOG_EFFORT_JUDGE_DIR and the staged ONNX Runtime (MIXDOG_ORT_LIBRARY)",
-      "replacement": {
-        "kind": "none",
-        "reason": "local: nextest profile services-models (real models, network)"
-      }
-    },
-    {
-      "id": [
-        "rust",
-        "native/core/crates/mixdog-services/Cargo.toml",
-        "lib",
-        "mixdog_services",
-        "model_install::trigger_tests::without_eager_warmup_only_the_explicit_install_route_loads_the_model"
-      ],
-      "platform": "linux",
-      "kind": "ignored",
-      "reasonCode": "nextest-ignored",
-      "owner": "release-engineering",
-      "reason": "integration: real inference needs the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)",
-      "replacement": {
-        "kind": "none",
-        "reason": "local: nextest profile services-models (real models, network)"
-      }
-    },
-    {
-      "id": [
-        "rust",
-        "native/core/crates/mixdog-services/Cargo.toml",
-        "lib",
-        "mixdog_services",
-        "model_install::trigger_tests::without_eager_warmup_only_the_explicit_install_route_loads_the_model"
-      ],
-      "platform": "macos",
-      "kind": "ignored",
-      "reasonCode": "nextest-ignored",
-      "owner": "release-engineering",
-      "reason": "integration: real inference needs the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)",
-      "replacement": {
-        "kind": "none",
-        "reason": "local: nextest profile services-models (real models, network)"
-      }
-    },
-    {
-      "id": [
-        "rust",
-        "native/core/crates/mixdog-services/Cargo.toml",
-        "lib",
-        "mixdog_services",
-        "model_install::trigger_tests::without_eager_warmup_only_the_explicit_install_route_loads_the_model"
-      ],
-      "platform": "windows",
-      "kind": "ignored",
-      "reasonCode": "nextest-ignored",
-      "owner": "release-engineering",
-      "reason": "integration: real inference needs the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)",
       "replacement": {
         "kind": "none",
         "reason": "local: nextest profile services-models (real models, network)"

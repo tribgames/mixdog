@@ -311,7 +311,7 @@ function replacementProblems({ excepted, used, usedAt, passed, promised, plan, c
     const replacement = tuple.replacement;
     if (replacement.kind === 'runs') runsReplacementProblems({ tuple, key, passed, plan, context, at, fail });
     else if (replacement.kind === 'parent')
-      parentReplacementProblems({ tuple, key, passed, usedAt: usedAt.get(index), fail });
+      parentReplacementProblems({ tuple, key, passed, usedAt: usedAt.get(index), plan, at, fail });
   });
   // a scope names a case an exception sends to a join leg, or it is stale
   for (const scope of plan.gateScopes ?? [])
@@ -365,13 +365,24 @@ function runsReplacementProblems({ tuple, key, passed, plan, context, at, fail }
     );
 }
 
-/** The case is a child process of these tests: each must pass in the invocation that reported the child. */
-function parentReplacementProblems({ tuple, key, passed, usedAt, fail }) {
+/**
+ * The obligations of the run that made a report. A build variant's legs run one archive: its partitions each report every ignored
+ * test (the ignore filter comes before the partition) and run any other test in exactly one of them, and its profile legs run the
+ * ignored tests their profiles name.
+ */
+function runOf(plan, at, where) {
+  const variant = (plan.rust?.variants ?? []).find((entry) => entry.testLegs.map(at).includes(where));
+  return variant ? [...variant.testLegs, ...Object.values(variant.profileLegs ?? {}).flat()].map(at) : [where];
+}
+
+/** The case is a child process of these tests: each must pass in the run that reported the child. */
+function parentReplacementProblems({ tuple, key, passed, usedAt, plan, at, fail }) {
+  const runs = new Map(usedAt.map((where) => runOf(plan, at, where)).map((run) => [run.join(' or '), run]));
   for (const parentId of tuple.replacement.parents)
-    for (const where of new Set(usedAt))
-      if (!(passed.get(idKey(parentId)) ?? []).includes(where))
+    for (const [label, run] of runs)
+      if (!(passed.get(idKey(parentId)) ?? []).some((where) => run.includes(where)))
         fail(
-          `no replacement: ${key} is excepted on ${tuple.platform} because ${idKey(parentId)} starts it, which did not pass in ${where}`
+          `no replacement: ${key} is excepted on ${tuple.platform} because ${idKey(parentId)} starts it, which did not pass in ${label}`
         );
 }
 /** The manifest is version 1, of this commit, intact, and routed by this plan. */

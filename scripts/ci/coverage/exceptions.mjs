@@ -18,7 +18,8 @@ export function loadExceptions(plan, path = EXCEPTIONS) {
 /**
  * Where an excepted case is executed instead, in a form the reconciler enforces:
  *   {kind: 'runs', in: [<leg>#<slot>, ...]}  a pass of the same case on one of these planned obligations
- *   {kind: 'parent', parents: [<id>, ...]}   the case is a child process of these tests, each of which must pass on some leg
+ *   {kind: 'parent', parents: [<id>, ...]}   the case is a child process of these tests, each of which must pass in the run that
+ *                                            reported the child (a build variant's test and profile legs run one archive)
  *   {kind: 'none', reason}                   no lane of the gate runs it (a machine or data a hosted runner does not have); the reason
  *                                            names where it is run, and nothing is enforced
  */

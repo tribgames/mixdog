@@ -55,6 +55,10 @@
         {
           "id": "root",
           "producer": "node"
+        },
+        {
+          "id": "desktop-fast-event-loop",
+          "producer": "node"
         }
       ]
     },
@@ -67,6 +71,10 @@
         {
           "id": "root",
           "producer": "node"
+        },
+        {
+          "id": "desktop-fast-event-loop",
+          "producer": "node"
         }
       ]
     },
@@ -78,6 +86,10 @@
       "slots": [
         {
           "id": "root",
+          "producer": "node"
+        },
+        {
+          "id": "desktop-fast-event-loop",
           "producer": "node"
         }
       ]
@@ -131,6 +143,15 @@
         {
           "id": "root",
           "producer": "node"
+        },
+        {
+          "id": "desktop-slow-web-push",
+          "producer": "node"
+        },
+        {
+          "id": "child:apps/relay/lib/web-push.test.mjs",
+          "producer": "node",
+          "parent": "desktop-slow-web-push"
         }
       ]
     },
@@ -842,11 +863,27 @@
         "apps/desktop/lib/**/*.electron.test.mjs",
         "apps/desktop/deploy/**/*.slow.test.mjs",
         "apps/desktop/deploy/**/*.live.test.mjs",
-        "apps/desktop/deploy/**/*.electron.test.mjs"
+        "apps/desktop/deploy/**/*.electron.test.mjs",
+        "apps/desktop/src/main/protocol/event-loop-lag.test.mjs"
       ],
       "requires": [
         {
-          "anyOf": ["linux/desktop-fast/1of3", "linux/desktop-fast/2of3", "linux/desktop-fast/3of3"]
+          "anyOf": ["linux/desktop-fast/1of3#root", "linux/desktop-fast/2of3#root", "linux/desktop-fast/3of3#root"]
+        }
+      ]
+    },
+    {
+      "name": "desktop-fast-event-loop",
+      "family": "node",
+      "owner": "release-engineering",
+      "include": ["apps/desktop/src/main/protocol/event-loop-lag.test.mjs"],
+      "requires": [
+        {
+          "anyOf": [
+            "linux/desktop-fast/1of3#desktop-fast-event-loop",
+            "linux/desktop-fast/2of3#desktop-fast-event-loop",
+            "linux/desktop-fast/3of3#desktop-fast-event-loop"
+          ]
         }
       ]
     },
@@ -877,9 +914,32 @@
         "apps/desktop/lib/**/*.slow.test.mjs",
         "apps/desktop/deploy/**/*.slow.test.mjs"
       ],
+      "exclude": ["apps/desktop/src/main/web-push-electron-runtime.slow.test.mjs"],
       "requires": [
         {
           "anyOf": ["linux/desktop-slow/1of3#root", "linux/desktop-slow/2of3#root", "linux/desktop-slow/3of3#root"]
+        }
+      ]
+    },
+    {
+      "name": "desktop-slow-web-push",
+      "family": "node",
+      "owner": "release-engineering",
+      "include": ["apps/desktop/src/main/web-push-electron-runtime.slow.test.mjs"],
+      "requires": [
+        {
+          "anyOf": ["linux/desktop-slow/1of3#desktop-slow-web-push"]
+        }
+      ]
+    },
+    {
+      "name": "desktop-slow-web-push-child",
+      "family": "node",
+      "owner": "release-engineering",
+      "include": ["apps/relay/lib/web-push.test.mjs"],
+      "requires": [
+        {
+          "anyOf": ["linux/desktop-slow/1of3#child:apps/relay/lib/web-push.test.mjs"]
         }
       ]
     },
@@ -1227,6 +1287,24 @@
       "glob": "native/core/vendor/rtc-turn/**",
       "class": "vendor",
       "reason": "third-party crate vendored for a [patch]; its upstream suite is not Mixdog's and no workspace member depends on running it",
+      "owner": "release-engineering"
+    },
+    {
+      "glob": "apps/desktop/src/renderer/utilities-gating.test.mjs",
+      "class": "helper",
+      "reason": "declares no test: it imports browser-feature-install.test.mjs, whose cases are reported under that file",
+      "owner": "release-engineering"
+    },
+    {
+      "glob": "apps/desktop/src/main/computer/backend/window-graphics-capture.electron.test.mjs",
+      "class": "not-run-in-ci",
+      "reason": "its one case needs Windows.Graphics.Capture, which the hosted Windows runner's compositor refuses (exceptions.json); the computer-electron slot still runs it and its skip must match that tuple",
+      "owner": "release-engineering"
+    },
+    {
+      "glob": "native/mixdog-computer/tests/windows_backend.rs",
+      "class": "not-run-in-ci",
+      "reason": "live: every test is #[ignore] and creates windows and injects input on a Windows desktop (MIXDOG_COMPUTER_LIVE_TESTS=1); a hosted runner has none",
       "owner": "release-engineering"
     },
     {
