@@ -290,15 +290,14 @@ test('the full gate (a call, the nightly run, a manual full run) selects every c
       JSON.parse(result[`build_matrix_${os}`]).include.map((entry) => entry.os),
       [os]
     );
-  // a run a person started builds the macOS archive on the project's own machine; the nightly run builds it on a hosted runner
-  const buildRunners = (run) =>
-    ['linux', 'macos', 'windows'].map((os) => JSON.parse(run[`build_matrix_${os}`]).include[0].runner);
-  assert.deepEqual(buildRunners(result), ['ubuntu-22.04', 'macos-15', 'windows-2022']);
-  assert.deepEqual(buildRunners(select([], { all: true, ownMachines: true })), [
-    'ubuntu-22.04',
-    'mixdog-m4-gate',
-    'windows-2022',
-  ]);
+  // a system whose own machine is online builds its archive there; any other, and every system with none online, on a hosted runner
+  const buildRunners = (ownMachines) => {
+    const run = select([], { all: true, ownMachines });
+    return ['linux', 'macos', 'windows'].map((os) => JSON.parse(run[`build_matrix_${os}`]).include[0].runner);
+  };
+  assert.deepEqual(buildRunners([]), ['ubuntu-22.04', 'macos-15', 'windows-2022']);
+  assert.deepEqual(buildRunners(['mixdog-m4-gate']), ['ubuntu-22.04', 'mixdog-m4-gate', 'windows-2022']);
+  assert.deepEqual(buildRunners(['mixdog-pc', 'mixdog-m4-gate', 'another']), ['ubuntu-22.04', 'mixdog-m4-gate', 'mixdog-pc']);
   assert.deepEqual([...new Set(JSON.parse(result.test_matrix_macos).include.map((leg) => leg.runner))], ['macos-15']);
   assert.deepEqual(
     JSON.parse(result.core_real_matrix).include.map((entry) => `${entry.os}:${entry.target}`),

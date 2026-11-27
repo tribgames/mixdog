@@ -38,7 +38,17 @@ export const SYSTEMS = [
   // checkout the path the macOS archive was built at"). It builds only: the Office tests' LibreOffice instances hung the
   // window server of a logged-in Mac.
   { os: 'macos', runner: 'macos-15', buildRunner: 'mixdog-m4-gate', nextest: 'mac', exe: '', maxLegs: 4 },
-  { os: 'windows', runner: 'windows-2022', nextest: 'windows-tar', exe: '.exe', maxLegs: 6, testsPerLeg: 3000 },
+  // The Windows archive is built on the project's own PC (twenty cores; the hosted runner's four took 24-29 minutes), at
+  // D:\a\mixdog\mixdog, the hosted runner's own checkout path.
+  {
+    os: 'windows',
+    runner: 'windows-2022',
+    buildRunner: 'mixdog-pc',
+    nextest: 'windows-tar',
+    exe: '.exe',
+    maxLegs: 6,
+    testsPerLeg: 3000,
+  },
 ];
 
 const HACK = 'mixdog-workspace-hack';
@@ -303,7 +313,8 @@ function jobMatrices({ scope, tests, entry, mixdogdDev, mixdogdWindows, systems,
     const legs = on ? Math.min(maxLegs, Math.max(1, Math.ceil(tests / testsPerLeg))) : 0;
     test[system.os] = Array.from({ length: legs }, (_, index) => ({ ...system, part: index + 1, of: legs }));
     // One build of the selection per system, on one runner.
-    build[system.os] = on ? [{ os: system.os, runner: (ownMachines && buildRunner) || system.runner }] : [];
+    const runner = ownMachines.includes(buildRunner) ? buildRunner : system.runner;
+    build[system.os] = on ? [{ os: system.os, runner }] : [];
   }
   return { mixdogd, test, build };
 }
@@ -446,14 +457,15 @@ function storeKey(options) {
  * @param {boolean} [options.all] the full gate: every crate on the three systems, whatever changed (otherwise a push or a pull
  *   request: the crates the change can affect, on Linux)
  * @param {string[]} [options.stage] the tracked files (`git ls-files -s`), for the store keys
- * @param {boolean} [options.ownMachines] a run a person started (a release, a manual run): its archives are built on the
- *   project's own machines (SYSTEMS `buildRunner`). The nightly run builds on hosted runners, whether those machines are on or not.
+ * @param {string[]} [options.ownMachines] the project's own runners that are online now (SYSTEMS `buildRunner`): a system
+ *   whose machine is among them builds its archive there, any other on its hosted runner. None for the nightly run and for a
+ *   pull request from a fork.
  */
 export function selectCore({
   root,
   changed,
   all = false,
-  ownMachines = false,
+  ownMachines = [],
   mixdogdDev = false,
   mixdogdWindows = false,
   metadata,
@@ -549,7 +561,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--all') out.all = true;
-    else if (arg === '--own-machines') out.ownMachines = true;
+    else if (arg === '--own-machines') out.ownMachines = argv[++i].split(',').filter(Boolean);
     else if (arg === '--changed') out.changed = argv[++i];
     else if (arg === '--mixdogd-dev') out.mixdogdDev = argv[++i] === 'true';
     else if (arg === '--mixdogd-windows') out.mixdogdWindows = argv[++i] === 'true';

@@ -302,13 +302,23 @@ jobs:
           # The Windows leg (desktop-computer) boots the built app against this run's Windows dev daemon.
           MIXDOGD_WINDOWS: ${{ steps.paths.outputs.desktop_tests == 'true' || steps.paths.outputs.desktop_computer == 'true' }}
           RUSTUP_TOOLCHAIN: ${{ steps.rust-pin.outputs.version }}
+          RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
           args=(--changed /tmp/changed-core --mixdogd-dev "$MIXDOGD_DEV" --mixdogd-windows "$MIXDOGD_WINDOWS")
           if [[ "$FULL" == true ]]; then args+=(--all); fi
-          # The nightly run builds on hosted runners: the project's own machines may be off.
-          if [[ "$GITHUB_EVENT_NAME" != schedule ]]; then args+=(--own-machines); fi
+          # The project's own machines build an archive only while they are on (core-select.mjs SYSTEMS `buildRunner`): the
+          # runners online now, read with a token that may list them (the workflow's own may not). Without the token (a pull
+          # request from a fork), on a failed read and in the nightly run, none: every archive is built on a hosted runner.
+          online=""
+          if [[ "$GITHUB_EVENT_NAME" != schedule && -n "$RUNNER_STATUS_TOKEN" ]]; then
+            online=$(curl -fsS --max-time 20 -H "Authorization: Bearer $RUNNER_STATUS_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runners?per_page=100" \
+              | node -e 'let s="";process.stdin.on("data",(d)=>(s+=d)).on("end",()=>console.log(JSON.parse(s).runners.filter((r)=>r.status==="online").map((r)=>r.name).join(",")))') || online=""
+          fi
+          echo "own machines online: ${online:-none}" >&2
+          args+=(--own-machines "$online")
           node scripts/ci/core-select.mjs "${args[@]}" | tee -a "$GITHUB_OUTPUT"
       # A partial selection (a push's or a pull request's crates) is resolved here, once, against the whole build: each round of
       # scripts/ci/core-align.mjs selects the workspace crates the last tree resolved otherwise, in either role (built for the host
@@ -2062,9 +2072,13 @@ jobs:
       run:
         shell: bash
     steps: &core-build-steps
+      # The project's own machine is not thrown away after the run: its checkout keeps the build folder (an ignored path,
+      # which a clean would remove), so the build compiles what changed and not the 941 third-party packages again. The
+      # check below still refuses a test target git does not track.
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.ref || github.sha }}
+          clean: ${{ runner.environment == 'github-hosted' }}
       # The archive below is what every test leg and the Postgres job run, so it must be built from a clean checkout: no
       # Cargo test target git does not track (cargo would build an untracked `tests/*.rs` it finds into the archive). A
       # checkout step gives that by construction; the check keeps it so if a self-hosted or cached workspace ever stands in
@@ -2104,13 +2118,6 @@ jobs:
             core-deps-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json') }}
             core-deps-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-
       - uses: ./.github/actions/install-nextest
-      # The project's own machine is not thrown away after the run: its build folder stays outside the checkout (which every
-      # run cleans), so the build compiles what changed and not the 941 third-party packages again.
-      - name: Keep the build folder between runs (the project's own machine)
-        if: runner.environment == 'self-hosted'
-        run: |
-          mkdir -p "$HOME/mixdog-ci-target/core-tests"
-          ln -sfn "$HOME/mixdog-ci-target/core-tests" native/core/target
       # The parallel front end for the workspace crates, whose chain (mixdog-core-session, mixdog-core, its test build) is the
       # floor of the build while the other cores wait (scripts/ci/rustc-threads.rs). The test archive only: nothing a release
       # ships, nor core-real's or the dev daemon's mixdogd, is built through it, and core-lint compiles the same selection on
