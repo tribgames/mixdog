@@ -1568,17 +1568,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: ${{ steps.rust-pin.outputs.version }}
-      - name: Restore the compiled process manager
-        id: spawn-cargo
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            native/mixdog-spawn/target
-          key: spawn-core-test-cargo-${{ matrix.runner }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('native/mixdog-spawn/Cargo.lock', 'native/mixdog-spawn/Cargo.toml', 'native/core/Cargo.lock') }}
-          restore-keys: |
-            spawn-core-test-cargo-${{ matrix.runner }}-${{ steps.rust-pin.outputs.version }}-
+      # No compiled entry is kept for this job: its three were 1.6 GB of the 10 GB the repository's caches share, for a
+      # build that takes 5.5 minutes cold against 4 warm on its slowest system (runs 46008360592, 46017338304), beside
+      # an archive build of half an hour.
       - uses: ./.github/actions/install-nextest
       - name: Test the process manager with the core's features
         shell: bash
@@ -1590,15 +1582,6 @@ jobs:
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/spawn.json
         run: node scripts/ci/check-skips.mjs receipts "$MIXDOG_RECEIPT"
-      - name: Save the compiled process manager
-        if: github.event_name != 'pull_request' && steps.spawn-cargo.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            native/mixdog-spawn/target
-          key: ${{ steps.spawn-cargo.outputs.cache-primary-key }}
       - name: Upload the evidence of this leg
         uses: ./.github/actions/upload-evidence
         with:

@@ -427,17 +427,13 @@ test('release-gate.yml: a split cache restore never falls back to an entry built
       );
     }
   }
-  // spawn and the relay's release restore fall back to the entries of their own prefix: a segment that no other entry's key starts with
-  const prefixed = [
-    ...restores('spawn'),
-    ...restores('relay-rust').filter((step) => step.name === 'Restore the compiled release dependencies'),
-  ];
-  assert.equal(prefixed.length, 2);
+  // the relay's release restore falls back to the entries of its own prefix: a segment that no other entry's key starts with
+  const prefixed = restores('relay-rust').filter((step) => step.name === 'Restore the compiled release dependencies');
+  assert.equal(prefixed.length, 1);
   for (const step of prefixed) {
     const fallback = step.with['restore-keys'].trim();
     assert.ok(fallback.endsWith('-') && step.with.key.startsWith(fallback), `${step.name} falls back to its own prefix`);
   }
-  assert.match(restores('spawn')[0].with['restore-keys'], /spawn-core-test-cargo-.*rust-pin\.outputs\.version/);
   const real = stepsOf(gate.jobs['core-real']).find((step) => step.id === 'deps');
   const relayRelease = restores('relay-rust').find((step) => step.name === 'Restore the compiled release dependencies')
     .with.key;
