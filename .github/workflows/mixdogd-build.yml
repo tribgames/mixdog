@@ -62,7 +62,8 @@ jobs:
         include:
           - { target: x86_64-pc-windows-msvc, runner: windows-2022, exe: ".exe", run_version: true }
           - { target: aarch64-apple-darwin, runner: macos-15, exe: "", run_version: true }
-          - { target: x86_64-apple-darwin, runner: macos-15, exe: "", run_version: false }
+          # An Intel runner: libvpx has no prebuilt for this target and its source build compiles for the host it runs on.
+          - { target: x86_64-apple-darwin, runner: macos-15-intel, exe: "", run_version: true, nasm: true }
           - { target: x86_64-unknown-linux-gnu, runner: ubuntu-24.04, exe: "", run_version: true, relay: true, image: "quay.io/pypa/manylinux_2_28_x86_64@sha256:4131ddd7acb9c6c966af02fe7e71edc51e078c2d41f475966697676430bfa2ae" }
           - { target: aarch64-unknown-linux-gnu, runner: ubuntu-24.04-arm, exe: "", run_version: true, image: "quay.io/pypa/manylinux_2_28_aarch64@sha256:abd1230aa9e4058a74b89d27cd14ba18c0db036d7bfe6e6f219a29ea63c24eb6" }
     env:
@@ -111,6 +112,10 @@ jobs:
             ${{ runner.temp }}/cargo-git
           key: mixdogd-cargo-${{ matrix.target }}-${{ steps.cargo-lock.outputs.key }}
           restore-keys: mixdogd-cargo-${{ matrix.target }}-
+      # libvpx's x86 assembly.
+      - name: Install nasm
+        if: ${{ matrix.nasm }}
+        run: brew install nasm
       # One cargo invocation per program, one target directory: the crates they share compile once, and the features
       # each binary is built with stay its own.
       - name: Build the programs

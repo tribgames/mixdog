@@ -52,6 +52,10 @@ url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
+# No prebuilt libvpx is published for an Intel Mac: there it is built from its source (the build needs nasm).
+[target.'cfg(all(target_os = "macos", target_arch = "x86_64"))'.dependencies]
+shiguredo_libvpx = { workspace = true, features = ["source-build"] }
+
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
 # The interop test runs the leg against the Rust relay started in-process as well as the Node relay.
