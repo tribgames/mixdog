@@ -42,7 +42,7 @@ const READY_POLL: Duration = Duration::from_millis(250);
 const PROBE_CONNECT: Duration = Duration::from_secs(1);
 const STOP_GRACE: Duration = Duration::from_secs(5);
 const LOG_TAIL_BYTES: usize = 4000;
-pub const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+pub const IDLE_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// What the lifecycle actor is told, in arrival order. Each command that has an answer carries
 /// its own reply channel.

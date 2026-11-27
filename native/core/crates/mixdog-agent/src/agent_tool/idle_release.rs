@@ -13,7 +13,7 @@ use super::dispatch::IdleOutcome;
 
 /// `IDLE_RELEASE_MS`: how long an idle agent waits before its runtime is parked.
 /// Also read by `apps/desktop/scripts/dev-isolated.mjs` as the idle backstop for isolated capture instances.
-pub const IDLE_RELEASE_MS: f64 = 420_000.0;
+pub const IDLE_RELEASE_MS: f64 = 600_000.0;
 
 #[derive(Default)]
 pub struct IdleRelease {
@@ -104,12 +104,12 @@ mod tests {
         assert_eq!(release.take_due(now).as_deref(), Some("old"));
         assert_eq!(release.take_due(now).as_deref(), Some("untimed"));
         assert_eq!(release.take_due(now), None);
-        assert_eq!(release.next_due(), Some(now + 400_000.0));
+        assert_eq!(release.next_due(), Some(now + 580_000.0));
         // A later check leaves an armed deadline where it is.
         release.check(&idle(&[("fresh", now - 20_000.0)]), now + 100_000.0);
-        assert_eq!(release.next_due(), Some(now + 400_000.0));
-        assert_eq!(release.take_due(now + 399_999.0), None);
-        assert_eq!(release.take_due(now + 400_000.0).as_deref(), Some("fresh"));
+        assert_eq!(release.next_due(), Some(now + 580_000.0));
+        assert_eq!(release.take_due(now + 579_999.0), None);
+        assert_eq!(release.take_due(now + 580_000.0).as_deref(), Some("fresh"));
     }
 
     /// A row that stops being idle loses its deadline; idle again, it gets a new one from its new time.
@@ -120,7 +120,7 @@ mod tests {
         release.check(&idle(&[]), 2_000.0);
         assert_eq!((release.next_due(), release.take_due(f64::MAX)), (None, None));
         release.check(&idle(&[("a", 500_000.0)]), 500_000.0);
-        assert_eq!(release.next_due(), Some(920_000.0));
+        assert_eq!(release.next_due(), Some(1_100_000.0));
     }
 
     /// `releaseDue`: parked is remembered and not armed again until the agent was busy; gone is done; anything else is
@@ -129,26 +129,26 @@ mod tests {
     fn a_release_that_did_not_happen_is_tried_again_a_period_later() {
         let mut release = IdleRelease::default();
         let rows = idle(&[("busy", 0.0), ("parked", 0.0), ("gone", 0.0), ("left", 0.0)]);
-        release.check(&rows, 420_000.0);
-        while release.take_due(420_000.0).is_some() {}
-        release.settled("busy", &IdleOutcome::Busy, true, 420_000.0);
-        release.settled("parked", &IdleOutcome::Parked, true, 420_000.0);
-        release.settled("gone", &IdleOutcome::Gone, true, 420_000.0);
-        release.settled("left", &IdleOutcome::Failed { reason: None }, false, 420_000.0);
-        assert_eq!(release.next_due(), Some(840_000.0));
-        assert_eq!(release.take_due(840_000.0).as_deref(), Some("busy"));
-        release.settled("busy", &IdleOutcome::Undelivered, true, 840_000.0);
-        assert_eq!(release.next_due(), Some(1_260_000.0));
+        release.check(&rows, 600_000.0);
+        while release.take_due(600_000.0).is_some() {}
+        release.settled("busy", &IdleOutcome::Busy, true, 600_000.0);
+        release.settled("parked", &IdleOutcome::Parked, true, 600_000.0);
+        release.settled("gone", &IdleOutcome::Gone, true, 600_000.0);
+        release.settled("left", &IdleOutcome::Failed { reason: None }, false, 600_000.0);
+        assert_eq!(release.next_due(), Some(1_200_000.0));
+        assert_eq!(release.take_due(1_200_000.0).as_deref(), Some("busy"));
+        release.settled("busy", &IdleOutcome::Undelivered, true, 1_200_000.0);
+        assert_eq!(release.next_due(), Some(1_800_000.0));
         // The parked agent is not armed again while it stays idle.
         assert!(release.is_parked("parked"));
-        release.check(&idle(&[("busy", 0.0), ("parked", 0.0)]), 900_000.0);
-        assert_eq!(release.next_due(), Some(1_260_000.0));
+        release.check(&idle(&[("busy", 0.0), ("parked", 0.0)]), 1_300_000.0);
+        assert_eq!(release.next_due(), Some(1_800_000.0));
         // A send resumed it: it can be parked again later.
-        assert_eq!(release.check(&idle(&[("busy", 0.0)]), 1_000_000.0), vec!["parked".to_owned()]);
+        assert_eq!(release.check(&idle(&[("busy", 0.0)]), 1_400_000.0), vec!["parked".to_owned()]);
         assert!(!release.is_parked("parked"));
-        release.check(&idle(&[("busy", 0.0), ("parked", 1_050_000.0)]), 1_100_000.0);
-        assert_eq!(release.take_due(1_470_000.0).as_deref(), Some("busy"));
-        assert_eq!(release.take_due(1_470_000.0).as_deref(), Some("parked"));
+        release.check(&idle(&[("busy", 0.0), ("parked", 1_450_000.0)]), 1_500_000.0);
+        assert_eq!(release.take_due(2_050_000.0).as_deref(), Some("busy"));
+        assert_eq!(release.take_due(2_050_000.0).as_deref(), Some("parked"));
     }
 
     /// A park that fails while the row is still idle lets go of the agent's process every time it fails, and is tried
@@ -157,17 +157,17 @@ mod tests {
     fn a_park_that_fails_while_idle_lets_go_of_the_agents_process_and_is_tried_again() {
         let mut release = IdleRelease::default();
         let rows = idle(&[("busy", 0.0), ("undelivered", 0.0), ("failed", 0.0)]);
-        release.check(&rows, 420_000.0);
-        while release.take_due(420_000.0).is_some() {}
-        for now in [420_000.0, 840_000.0, 1_260_000.0] {
+        release.check(&rows, 600_000.0);
+        while release.take_due(600_000.0).is_some() {}
+        for now in [600_000.0, 1_200_000.0, 1_800_000.0] {
             assert!(release.settled("busy", &IdleOutcome::Busy, true, now));
             assert!(release.settled("undelivered", &IdleOutcome::Undelivered, true, now));
             assert!(release.settled("failed", &IdleOutcome::Failed { reason: Some("boom".into()) }, true, now));
             assert_eq!(release.next_due(), Some(now + IDLE_RELEASE_MS));
             while release.take_due(now + IDLE_RELEASE_MS).is_some() {}
         }
-        assert!(!release.settled("left", &IdleOutcome::Failed { reason: None }, false, 1_680_000.0));
-        assert!(!release.settled("parked", &IdleOutcome::Parked, true, 1_680_000.0));
-        assert!(!release.settled("gone", &IdleOutcome::Gone, true, 1_680_000.0));
+        assert!(!release.settled("left", &IdleOutcome::Failed { reason: None }, false, 2_400_000.0));
+        assert!(!release.settled("parked", &IdleOutcome::Parked, true, 2_400_000.0));
+        assert!(!release.settled("gone", &IdleOutcome::Gone, true, 2_400_000.0));
     }
 }

@@ -201,9 +201,9 @@ const SESSION_TITLE_INVALID: &str = "Session title is invalid.";
 const TITLE_INVALID: &str = "title is invalid.";
 
 /// How long a thread nobody watches may sit quiet before it unloads (`idleEvictMs` of
-/// `session-service.mjs`: `MIXDOG_SESSION_IDLE_EVICT_MS`, default 5 minutes): one nobody ever watched, or one its last
+/// `session-service.mjs`: `MIXDOG_SESSION_IDLE_EVICT_MS`, default 5 minutes; 10 here, with every other idle release a person may come back to): one nobody ever watched, or one its last
 /// subscriber left (`retainedAt`).
-pub(super) const IDLE_EVICT: Duration = Duration::from_secs(5 * 60);
+pub(super) const IDLE_EVICT: Duration = Duration::from_secs(10 * 60);
 /// The same for a worker (an agent task's session): nobody opens it again once its result is handed back, and a loaded thread
 /// holds its window, feed ring and model context. Codex unloads a thread nobody follows after 60 s (`thread_unload_delay`).
 pub(super) const WORKER_IDLE_EVICT: Duration = Duration::from_secs(60);
