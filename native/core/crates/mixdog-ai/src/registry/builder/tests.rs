@@ -218,11 +218,26 @@ mod account_keys {
         _dir: tempfile::TempDir,
     }
 
+    /// A one-model `AvailableModelsResponse` so `list_models` settles on its first attempt instead of backing off.
+    fn available_models_body() -> Vec<u8> {
+        use crate::providers::connect::pb::Writer;
+        let mut model = Writer::new();
+        model.string(1, "auto");
+        let mut response = Writer::new();
+        response.message(2, model);
+        response.bool_if(11, true);
+        response.finish()
+    }
+
     fn configuration(label: &'static str) -> Config {
         let issued = Arc::new(Mutex::new(Vec::new()));
         let record = issued.clone();
         let n = std::sync::atomic::AtomicU64::new(0);
+        let models = available_models_body();
         let net: Arc<dyn HttpSend> = Arc::new(Replay::new(move |request| {
+            if request.url.ends_with(crate::providers::cursor::AVAILABLE_MODELS_PATH) {
+                return (200, models.clone());
+            }
             if request.url != crate::providers::cursor::auth::EXCHANGE_URL {
                 return (404, Vec::new());
             }
