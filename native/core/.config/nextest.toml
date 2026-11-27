@@ -193,3 +193,15 @@ slow-timeout = { period = "120s", terminate-after = 6 }
 [[profile.default.overrides]]
 filter = 'package(mixdog-workspace) & test(=no_lane_job_runs_while_idle_and_external_writes_are_pushed)'
 threads-required = 'num-test-threads'
+
+# Known long tests start first in each partition so they do not form a tail at the end of a leg (ordering only).
+[[profile.default.overrides]]
+filter = '''
+    (package(mixdog-xlsx-formula) & binary(=features))
+  | (package(mixdog-exthost-worker) & binary(=it) & test(/^office_run::/))
+  | (package(mixdog-core-session) & test(/^session::agent_registry::tests::a_status_signal_/))
+  | (package(mixdog-store) & test(/^store_tests::/))
+  | (package(mixdog-tools) & test(/^code_graph::/))
+  | (package(mixdog-remote) & test(/^webrtc::turn_tests::/))
+'''
+priority = 50

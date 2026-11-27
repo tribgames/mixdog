@@ -59,7 +59,7 @@ env:
 # parallel legs:
 #
 #   changes ---> core-build-linux ---> core-tests-linux (N legs), core-list-linux, core-pg (a leg per profile), core-entry
-#      +-------> core-build-macos ---> core-tests-macos (at most 3 legs), core-list-macos, core-pg-macos (both profiles)
+#      +-------> core-build-macos ---> core-tests-macos (at most 4 legs), core-pg-macos (listing + both profiles)
 #      +-------> core-build-windows -> core-tests-windows (N legs), core-list-windows
 #      +-------> mixdogd-linux ---> core-entry, runtime-slow;  mixdogd-windows ---> desktop-computer
 #      +--> core-lint (clippy, plain stable compile)   rustfmt   core-doctests   core-real (release mixdogd, node real-core tests)
@@ -2026,7 +2026,7 @@ jobs:
   # native/core/.config/nextest.toml.
   #
   # core-build compiles the test binaries ONCE per system (cargo nextest archive) and uploads them;
-  # core-tests runs that archive in parallel legs (nextest --partition count:k/N), so no leg
+  # core-tests runs that archive in parallel legs (nextest --partition slice:k/N), so no leg
   # compiles anything. The systems are the ones the product ships on and runs natively
   # here: Linux x64, macOS arm64 and Windows x64 (Linux arm64 and macOS x64 are built, not
   # tested natively, by mixdogd-build.yml: the code that depends on the architecture is seven
@@ -2444,7 +2444,7 @@ jobs:
           node scripts/ci/run-nextest.mjs --junit native/core/target/nextest/ci/junit.xml -- \
             --archive-file core-tests.tar.zst --workspace-remap native/core \
             --config-file native/core/.config/nextest.toml --profile ci -E "$FILTER" \
-            -- --partition "count:${PART}/${OF}" --no-tests=fail
+            -- --partition "slice:${PART}/${OF}" --no-tests=fail
       - name: Upload the evidence of this leg
         uses: ./.github/actions/upload-evidence
         with:
@@ -2480,9 +2480,9 @@ jobs:
     env: *core-tests-env
     steps: *core-tests-steps
 
-  # The listings of each system's archive, beside its test legs rather than on the first of them, where they held the leg that
-  # ended the run (run 45068609184: 135 s of listing on top of its partition). The listing reads the archive alone and runs
-  # no test. Selected as the system's test legs are, and named in plan.json `listLegs`, whose list leg each binding names.
+  # The listings of Linux's and Windows' archives, beside their test legs rather than on the first of them, where they held
+  # the leg that ended the run (run 45068609184: 135 s of listing on top of its partition). macOS folds its listing into
+  # core-pg-macos so the freed macOS runner slot becomes a fourth test leg. Named in plan.json `listLegs`.
   core-list-linux:
     name: core-list (${{ matrix.os }})
     needs: [changes, core-build-linux]
@@ -2568,21 +2568,6 @@ jobs:
           path: rust-lists
           if-no-files-found: error
           retention-days: 14
-
-  core-list-macos:
-    name: core-list (${{ matrix.os }})
-    needs: [changes, core-build-macos]
-    if: needs.changes.outputs.core == 'true' && needs.changes.outputs.core_macos == 'true'
-    timeout-minutes: 30
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      matrix:
-        include:
-          - { os: macos, runner: macos-15 }
-    defaults:
-      run:
-        shell: bash
-    steps: *core-list-steps
 
   core-list-windows:
     name: core-list (${{ matrix.os }})
@@ -2719,9 +2704,9 @@ jobs:
   # names for the runner, hash-checked (scripts/ci/provision-pg-runtime.mjs), and the tests read it through MIXDOG_PG_RUNTIME.
   # Each profile's tests share the `pg-cluster` group (one cluster of their own at a time), so a leg is serial by design: the
   # Linux legs are per profile instead. A profile runs only when its crate is in the archive (core-select.mjs); the daemon's
-  # composed tests take up to 690 s each. Linux on every run; macOS on a push to main and a manual run, both profiles one after
-  # the other in one job (core-pg-macos), so the macOS legs, that job and core-real fit the five macOS jobs an account runs at
-  # once. Windows has no leg: the postmaster refuses to start under an elevated user and a hosted Windows runner is one.
+  # composed tests take up to 690 s each. Linux on every run; macOS in the full gate, listing the archive and running both
+  # profiles one after the other in one job (core-pg-macos), so the four macOS test legs and this job fit the five macOS jobs
+  # an account runs at once. Windows has no leg: the postmaster refuses to start under an elevated user and a hosted Windows runner is one.
   core-pg:
     name: core-pg (${{ matrix.os }} ${{ matrix.profile }})
     needs: [changes, core-build-linux]
@@ -2816,6 +2801,30 @@ jobs:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: core-tests-${{ env.GATE_KEY }}-macos
+      # Folded into core-pg-macos so the freed macOS runner slot becomes a fourth test leg.
+      - name: List the archive (unfiltered, and per profile that runs ignored tests)
+        id: ignored-audit
+        run: |
+          # nextest canonicalizes the destination of --extract-to, so the folder exists first
+          mkdir -p "$RUNNER_TEMP/rust-lists" "$RUNNER_TEMP/core-extract"
+          # which invocation made the listing: this job, at this commit (cli.mjs reconcile checks it against the plan's list leg)
+          printf '{"leg":"%s","sha":"%s"}\n' "macos/core-list/1of1" "$(git rev-parse HEAD)" > "$RUNNER_TEMP/rust-lists/binding.json"
+          # The archive (1.6 GB) is unpacked by the first listing alone; the others read the unpacked tree it leaves.
+          cargo nextest list --archive-file core-tests.tar.zst --extract-to "$RUNNER_TEMP/core-extract" --workspace-remap native/core --config-file native/core/.config/nextest.toml --message-format json > "$RUNNER_TEMP/rust-lists/all.json"
+          reuse=(--binaries-metadata "$RUNNER_TEMP/core-extract/target/nextest/binaries-metadata.json" --cargo-metadata "$RUNNER_TEMP/core-extract/target/nextest/cargo-metadata.json" --target-dir-remap "$RUNNER_TEMP/core-extract/target" --workspace-remap native/core)
+          for profile in pg services-pg; do
+            cargo nextest list "${reuse[@]}" --config-file native/core/.config/nextest.toml \
+              --profile "$profile" --run-ignored only --message-format json > "$RUNNER_TEMP/rust-lists/$profile.json"
+          done
+          rm -rf "$RUNNER_TEMP/core-extract"
+      - name: Upload the unfiltered nextest listings of this build variant
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rust-lists-${{ env.GATE_KEY }}-macos
+          overwrite: true
+          path: ${{ runner.temp }}/rust-lists
+          if-no-files-found: error
+          retention-days: 14
       - name: Unpack the PostgreSQL runtime
         id: pg_runtime
         run: |
@@ -3210,7 +3219,7 @@ jobs:
   # added to the graph without its line fails the gate's own test.
   complete:
     if: always()
-    needs: [changes, inventory, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, desktop-computer, desktop-slow, relay, relay-rust, spawn, packages, patch, graph, browser-import, secure-desktop, window, mobile-scripts, core-build-linux, core-build-macos, core-build-windows, mixdogd-linux, mixdogd-windows, core-tests-linux, core-tests-macos, core-tests-windows, core-list-linux, core-list-macos, core-list-windows, core-doctests, core-entry, core-pg, core-pg-macos, core-lint, rustfmt, core-real]
+    needs: [changes, inventory, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, desktop-computer, desktop-slow, relay, relay-rust, spawn, packages, patch, graph, browser-import, secure-desktop, window, mobile-scripts, core-build-linux, core-build-macos, core-build-windows, mixdogd-linux, mixdogd-windows, core-tests-linux, core-tests-macos, core-tests-windows, core-list-linux, core-list-windows, core-doctests, core-entry, core-pg, core-pg-macos, core-lint, rustfmt, core-real]
     timeout-minutes: 5
     runs-on: ubuntu-22.04
     steps:
@@ -3247,7 +3256,6 @@ jobs:
           CORE_TESTS_MACOS: ${{ needs.core-tests-macos.result }}
           CORE_TESTS_WINDOWS: ${{ needs.core-tests-windows.result }}
           CORE_LIST_LINUX: ${{ needs.core-list-linux.result }}
-          CORE_LIST_MACOS: ${{ needs.core-list-macos.result }}
           CORE_LIST_WINDOWS: ${{ needs.core-list-windows.result }}
           CORE_DOCTESTS: ${{ needs.core-doctests.result }}
           CORE_ENTRY: ${{ needs.core-entry.result }}
@@ -3283,7 +3291,6 @@ jobs:
           SEL_CORE_TESTS_MACOS: ${{ needs.changes.outputs.core == 'true' && needs.changes.outputs.core_macos == 'true' }}
           SEL_CORE_TESTS_WINDOWS: ${{ needs.changes.outputs.core == 'true' && needs.changes.outputs.core_windows == 'true' }}
           SEL_CORE_LIST_LINUX: ${{ needs.changes.outputs.core == 'true' }}
-          SEL_CORE_LIST_MACOS: ${{ needs.changes.outputs.core == 'true' && needs.changes.outputs.core_macos == 'true' }}
           SEL_CORE_LIST_WINDOWS: ${{ needs.changes.outputs.core == 'true' && needs.changes.outputs.core_windows == 'true' }}
           SEL_CORE_DOCTESTS: ${{ needs.changes.outputs.core_doctests != '[]' }}
           SEL_CORE_ENTRY: ${{ needs.changes.outputs.core_entry == 'true' }}
@@ -3332,7 +3339,6 @@ jobs:
           gate core-tests-macos "$SEL_CORE_TESTS_MACOS" "$CORE_TESTS_MACOS"
           gate core-tests-windows "$SEL_CORE_TESTS_WINDOWS" "$CORE_TESTS_WINDOWS"
           gate core-list-linux "$SEL_CORE_LIST_LINUX" "$CORE_LIST_LINUX"
-          gate core-list-macos "$SEL_CORE_LIST_MACOS" "$CORE_LIST_MACOS"
           gate core-list-windows "$SEL_CORE_LIST_WINDOWS" "$CORE_LIST_WINDOWS"
           gate core-doctests "$SEL_CORE_DOCTESTS" "$CORE_DOCTESTS"
           gate core-entry "$SEL_CORE_ENTRY" "$CORE_ENTRY"

@@ -325,12 +325,12 @@ consumes it (the test runs the selection over a table of paths).
   dev daemons all passed or were not selected, so a run that failed only in another lane counts), falling back to the gate's
   base when no run qualifies or the query fails. Core-real builds the shipping profile in every full run.
   The legs of `core-tests-linux`, `core-tests-macos` and `core-tests-windows` each need their own system's archive alone: they
-  download it and run `--profile ci --partition count:k/N` (N from `scripts/ci/core-select.mjs`: on Linux one leg per 3,000
-  tests, at most six; on macOS one per 4,000 tests, at most three, whose five concurrent jobs per account the legs share with
-  `core-pg-macos` and `core-real`; on Windows, whose partitions run about twice as long as Linux's, one per 3,000 tests and at
+  download it and run `--profile ci --partition slice:k/N` (N from `scripts/ci/core-select.mjs`: on Linux one leg per 3,000
+  tests, at most six; on macOS one per 4,000 tests, at most four, whose five concurrent jobs per account the legs share with
+  `core-pg-macos`; on Windows, whose partitions run about twice as long as Linux's, one per 3,000 tests and at
   most six). The listings of each archive (the unfiltered list and one per profile that runs ignored tests, with their binding,
-  and on Linux the lane-filter check) are a job of their own per system, `core-list-linux`, `core-list-macos` and
-  `core-list-windows` (list legs `<os>/core-list/1of1` in `plan.json` `listLegs`), beside the legs rather than on the first of
+  and on Linux the lane-filter check) are produced by `core-list-linux` on Linux, `core-list-windows` on Windows and
+  `core-pg-macos` on macOS (list legs `<os>/core-list/1of1` in `plan.json` `listLegs`), beside the legs rather than on the first of
   them. The
   ignored interactive scenarios of `mixdog-entry` (`tests/node_free.rs`) drive the dev daemon, so `core-entry` (leg
   `linux/core-entry/1of1`, the Linux variant's `entry` profile) runs them from the Linux archive against the Linux daemon. A pull
@@ -345,7 +345,7 @@ consumes it (the test runs the selection over a table of paths).
   the fixture macros and the `CARGO_MANIFEST_DIR` climbs, a name in a comment or a string not being one) and built only when the store has no entry for the key; main writes the entries, a pull request reads
   them. The key leaves out the runner image: a program built by an older image's linker for the same inputs is taken. `core-pg` runs
   `services-pg` and `pg` from the Linux archive with the provisioned runtime, a leg per profile, when the archive holds the
-  crate; `core-pg-macos` runs both, one after the other as the slots of leg `macos/core-pg/1of1`, in the full gate. `core-lint`
+  crate; `core-pg-macos` lists the macOS archive and runs both profiles, one after the other as the slots of leg `macos/core-pg/1of1`, in the full gate. `core-lint`
   runs clippy of the daemon when the selection holds the daemon (`core_daemon`; every full run), beside the plain stable
   compile. `rustfmt` is the format check of the whole workspace (`cargo fmt --all -- --check` for `native/core` and for each
   standalone tool under `native/` that has a `Cargo.lock`, configured by `native/rustfmt.toml`; `native/core/vendor` and the

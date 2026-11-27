@@ -491,7 +491,7 @@
       ]
     },
     {
-      "id": "macos/core-tests/1of3",
+      "id": "macos/core-tests/1of4",
       "os": "macos",
       "workflow": "release-gate.yml",
       "job": "core-tests-macos",
@@ -503,7 +503,7 @@
       ]
     },
     {
-      "id": "macos/core-tests/2of3",
+      "id": "macos/core-tests/2of4",
       "os": "macos",
       "workflow": "release-gate.yml",
       "job": "core-tests-macos",
@@ -515,7 +515,19 @@
       ]
     },
     {
-      "id": "macos/core-tests/3of3",
+      "id": "macos/core-tests/3of4",
+      "os": "macos",
+      "workflow": "release-gate.yml",
+      "job": "core-tests-macos",
+      "slots": [
+        {
+          "id": "ci",
+          "producer": "nextest"
+        }
+      ]
+    },
+    {
+      "id": "macos/core-tests/4of4",
       "os": "macos",
       "workflow": "release-gate.yml",
       "job": "core-tests-macos",
@@ -678,7 +690,7 @@
       "id": "macos/core-list/1of1",
       "os": "macos",
       "workflow": "release-gate.yml",
-      "job": "core-list-macos"
+      "job": "core-pg-macos"
     },
     {
       "id": "windows/core-list/1of1",
@@ -1370,7 +1382,12 @@
         "name": "macos",
         "os": "macos",
         "listLeg": "macos/core-list/1of1",
-        "testLegs": ["macos/core-tests/1of3#ci", "macos/core-tests/2of3#ci", "macos/core-tests/3of3#ci"],
+        "testLegs": [
+          "macos/core-tests/1of4#ci",
+          "macos/core-tests/2of4#ci",
+          "macos/core-tests/3of4#ci",
+          "macos/core-tests/4of4#ci"
+        ],
         "profileLegs": {
           "pg": ["macos/core-pg/1of1#pg"],
           "services-pg": ["macos/core-pg/1of1#services-pg"]
@@ -1679,7 +1696,7 @@
         "commands": [
           "node scripts/ci/coverage/cli.mjs reconcile --root . --manifest coverage/manifest.json --evidence evidence --rust-lists rust-lists --sha \"$EXPECTED_SHA\" --run-id \"$GITHUB_RUN_ID\" --attempt \"$GITHUB_RUN_ATTEMPT\" --repository \"$GITHUB_REPOSITORY\" --workflow \"$GITHUB_WORKFLOW_REF\""
         ],
-        "digest": "cf17b1b91a3729dd33798bf2ebde76d02996f1149a61beee50428b92336d63cf"
+        "digest": "40b2cdd0e971d141805da7834bf6dce77705e74e01653c5c8afa0c03c498c336"
       },
       "release.yml#prepared-runtime-join": {
         "if": "",

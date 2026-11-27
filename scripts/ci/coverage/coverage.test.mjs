@@ -2104,6 +2104,12 @@ test("the workflows spell the gate's artifact names: the rust-lists upload and t
   // the listing names the list leg the plan gives its variant
   const binding = gate.jobs['core-list-linux'].steps.find((step) => step.id === 'ignored-audit').run;
   assert.match(binding, /printf '\{"leg":"%s","sha":"%s"\}\\n' "\$\{OS\}\/core-list\/1of1"/);
+  const macUpload = gate.jobs['core-pg-macos'].steps.find(
+    (step) => /upload-artifact/.test(step.uses ?? '') && /rust-lists/.test(step.with.name)
+  );
+  assert.equal(macUpload.with.name, artifactTemplate('rust-lists', 'macos'));
+  const macBinding = gate.jobs['core-pg-macos'].steps.find((step) => step.id === 'ignored-audit').run;
+  assert.match(macBinding, /printf '\{"leg":"%s","sha":"%s"\}\\n' "macos\/core-list\/1of1"/);
   for (const variant of loadPlan().rust.variants) assert.equal(variant.listLeg, `${variant.os}/core-list/1of1`);
   assert.match(
     readFileSync(join(root, '.github/actions/upload-evidence/action.yml'), 'utf8'),
@@ -2478,7 +2484,7 @@ test('Rust ignore dispositions come from the invocation itself, and a deselectio
   const xml =
     '<testsuites><testsuite name="p"><testcase name="tests::manual" classname="p"><skipped/></testcase><testcase name="tests::one" classname="p"/></testsuite></testsuites>';
   const byName = new Map([['p', { manifest: 'crates/p/Cargo.toml', targets: [{ kind: 'lib', name: 'p' }] }]]);
-  const ok = invocationRecords(xml, byName, ['--profile', 'ci', '--partition', 'count:1/2']);
+  const ok = invocationRecords(xml, byName, ['--profile', 'ci', '--partition', 'slice:1/2']);
   assert.deepEqual([ok.problems, ok.records.map((record) => record.status)], [[], ['ignored', 'pass']]);
   assert.equal(invocationRecords(xml, byName, ['--profile', 'pg', '--run-ignored', 'only']).problems.length, 1);
   assert.equal(invocationRecords(xml, byName, ['--run-ignored=all']).problems.length, 1);

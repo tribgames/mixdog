@@ -180,7 +180,7 @@ function gateJobProblems(workflows, plan, fail) {
       if (!needsOf(gate.jobs.complete).includes(name))
         fail(`release-gate.yml complete does not need ${name}, a job of declared legs`);
     }
-    // a list leg is one invocation of a job of its own, which `complete` waits for before it reads the listings
+    // a list leg is one invocation of a job that uploads rust-lists-*, which `complete` waits for before it reads the listings
     for (const leg of (plan.listLegs ?? []).filter((entry) => entry.workflow === 'release-gate.yml')) {
       const job = gate.jobs[leg.job];
       if (!job) {

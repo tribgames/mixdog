@@ -25,9 +25,9 @@ export const TESTS_PER_LEG = 4000;
 // The systems the product ships on, one build job and its test legs each. `nextest` is the name get.nexte.st serves the prebuilt
 // binary under. Linux arm64 and macOS x64 are built by mixdogd-build.yml and not tested natively: the code that depends on the
 // architecture is seven files (cfg(target_arch)), none of it a behaviour the x64/arm64 pair of these three systems does not run.
-// macOS has three legs: an account runs five macOS jobs at once, and on a push to main its legs share them with the one
-// Postgres job and core-real's release build (run 44943772315: four legs, two Postgres legs and core-real queued two legs 4 and
-// 7 minutes behind the archive). Windows runs a partition of 4,000 tests in 8-9 minutes where Linux takes 3-4 (run 44959677392),
+// macOS has four legs: an account runs five macOS jobs at once, and the macOS archive listing is folded into core-pg-macos so
+// the four legs and core-pg-macos fit those five slots (run 44943772315: four legs, two Postgres legs and core-real queued two
+// legs 4 and 7 minutes behind the archive). Windows runs a partition of 4,000 tests in 8-9 minutes where Linux takes 3-4 (run 44959677392),
 // after the longest archive build: it takes 3,000 tests a leg and up to six legs, when the Linux runners the other lanes used are free.
 // Linux takes 3,000 a leg and up to six too: its legs end a push's run, each pays about a minute of setup, and four legs of 19,085
 // tests ran partitions of 116-199 s (run 45068609184), so six bring the slowest near two minutes of tests beside that minute.
@@ -37,7 +37,7 @@ export const SYSTEMS = [
   // 46049828800) and run on the hosted legs, which answer at the path that runner checks out at (release-gate.yml, "Give the
   // checkout the path the macOS archive was built at"). It builds only: the Office tests' LibreOffice instances hung the
   // window server of a logged-in Mac.
-  { os: 'macos', runner: 'macos-15', buildRunner: 'mixdog-m4-gate', nextest: 'mac', exe: '', maxLegs: 3 },
+  { os: 'macos', runner: 'macos-15', buildRunner: 'mixdog-m4-gate', nextest: 'mac', exe: '', maxLegs: 4 },
   { os: 'windows', runner: 'windows-2022', nextest: 'windows-tar', exe: '.exe', maxLegs: 6, testsPerLeg: 3000 },
 ];
 

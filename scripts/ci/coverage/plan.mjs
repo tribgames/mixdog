@@ -102,7 +102,7 @@ function legProblems(plan, problems) {
     legIds.add(leg.id);
     slotProblems(leg, Array.isArray(leg.slots) ? leg.slots : [], problems);
   }
-  // list legs: a gate job that lists a build variant's archive and runs no test, so it has no slot and leaves no receipt
+  // list legs: a gate job that lists a build variant's archive (its own job, or core-pg-macos on macOS); the list leg itself has no slot and leaves no receipt
   for (const leg of plan.listLegs ?? []) {
     if (!leg.id || !OSES.has(leg.os) || !leg.workflow || !leg.job)
       problems.push(`list leg ${JSON.stringify(leg.id)} needs an id, an os, a workflow and a job`);

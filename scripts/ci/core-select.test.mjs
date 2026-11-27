@@ -358,14 +358,14 @@ test('every system the product ships on gets its own test matrix with as many le
   });
 
   // Enough tests for three legs on every system (Linux and Windows take 3,000 a leg, macOS 4,000), and for more than the most a
-  // run has: macOS stops at three, Linux and Windows at six.
+  // run has: macOS stops at four, Linux and Windows at six.
   file('native/core/crates/delta/src/many.rs', tests(TESTS_PER_LEG * 2 + 1));
   const three = legsOf(select([], { all: true }));
   assert.deepEqual([three.linux.length, three.macos.length, three.windows.length], [3, 3, 3]);
   file('native/core/crates/delta/src/more.rs', tests(TESTS_PER_LEG * 5));
   const big = legsOf(select([], { all: true }));
   assert.deepEqual(big.linux, ['linux:1/6', 'linux:2/6', 'linux:3/6', 'linux:4/6', 'linux:5/6', 'linux:6/6']);
-  assert.deepEqual(big.macos, ['macos:1/3', 'macos:2/3', 'macos:3/3']);
+  assert.deepEqual(big.macos, ['macos:1/4', 'macos:2/4', 'macos:3/4', 'macos:4/4']);
   assert.equal(big.windows.length, 6);
   rmSync(join(root, 'native/core/crates/delta/src/many.rs'));
   rmSync(join(root, 'native/core/crates/delta/src/more.rs'));

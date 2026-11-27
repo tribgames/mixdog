@@ -211,7 +211,7 @@ test('release-gate.yml: the Rust core is built once per system and its tests run
     );
   assert.doesNotMatch(runOf(tests), /cargo (build|test|nextest archive)/, 'a test leg compiles nothing');
   assert.match(runOf(tests), /--archive-file core-tests\.tar\.zst/);
-  assert.match(runOf(tests), /--partition "count:\$\{PART\}\/\$\{OF\}"/);
+  assert.match(runOf(tests), /--partition "slice:\$\{PART\}\/\$\{OF\}"/);
   assert.match(runOf(tests), /--profile ci/);
 });
 
@@ -577,7 +577,7 @@ test('release-gate.yml: the Postgres-backed tests run from the core-build archiv
   const mac = gate.jobs['core-pg-macos'];
   assert.deepEqual(needsOf(mac), ['changes', 'core-build-macos']);
   assert.equal(mac.env.MIXDOG_LEG, 'macos/core-pg/1of1');
-  const profiles = stepsOf(mac).filter((step) => /--run-ignored only/.test(step.run ?? ''));
+  const profiles = stepsOf(mac).filter((step) => /run-nextest\.mjs[\s\S]*--run-ignored only/.test(step.run ?? ''));
   assert.deepEqual(
     profiles.map((step) => step.env.MIXDOG_SLOT),
     ['services-pg', 'pg']
@@ -929,11 +929,12 @@ test('release-gate.yml: every system lists its archive unfiltered for the reconc
   const rust = stepsOf(gate.jobs['core-list-linux']).find(
     (step) => step.name === 'List the archive (unfiltered, and per profile that runs ignored tests)'
   );
-  // every system's archive is listed whatever the scope of the run: a macOS-only ignored test is seen by no other leg. A job of
-  // its own per system, selected with that system's test legs and waiting for its archive alone, with one set of steps.
+  // Linux and Windows list their archives in jobs of their own; macOS folds its listing into core-pg-macos so the freed
+  // runner slot becomes a fourth test leg.
   assert.equal(rust.if, undefined);
   assert.equal(rust.env.OS, '${{ matrix.os }}');
-  for (const os of ['linux', 'macos', 'windows']) {
+  assert.equal(gate.jobs['core-list-macos'], undefined, 'macOS listing is folded into core-pg-macos');
+  for (const os of ['linux', 'windows']) {
     const list = gate.jobs[`core-list-${os}`];
     assert.deepEqual(needsOf(list), ['changes', `core-build-${os}`]);
     assert.equal(list.if, gate.jobs[`core-tests-${os}`].if);
@@ -944,6 +945,30 @@ test('release-gate.yml: every system lists its archive unfiltered for the reconc
     assert.deepEqual(list.steps, gate.jobs['core-list-linux'].steps);
     assert.ok(needsOf(gate.jobs.complete).includes(`core-list-${os}`));
   }
+  const macSteps = stepsOf(gate.jobs['core-pg-macos']);
+  const macListIndex = macSteps.findIndex(
+    (step) => step.name === 'List the archive (unfiltered, and per profile that runs ignored tests)'
+  );
+  const macList = macSteps[macListIndex];
+  const macDownloadIndex = macSteps.findIndex(
+    (step) =>
+      step.uses?.startsWith('actions/download-artifact@') && step.with?.name === 'core-tests-${{ env.GATE_KEY }}-macos'
+  );
+  const macUploadIndex = macSteps.findIndex(
+    (step) => step.uses?.startsWith('actions/upload-artifact@') && /rust-lists/.test(step.with.name)
+  );
+  assert.ok(macDownloadIndex >= 0 && macListIndex > macDownloadIndex && macUploadIndex > macListIndex);
+  assert.equal(macList.if, undefined);
+  assert.equal(macSteps[macUploadIndex].with.name, 'rust-lists-${{ env.GATE_KEY }}-macos');
+  assert.match(macList.run, /printf '\{"leg":"%s","sha":"%s"\}\\n' "macos\/core-list\/1of1"/);
+  assert.match(macList.run, /for profile in pg services-pg/);
+  assert.match(macList.run, /--profile "\$profile" --run-ignored only --message-format json/);
+  assert.doesNotMatch(
+    JSON.stringify(gate.jobs['core-pg-macos']),
+    /check-skips\.mjs rust/,
+    'a listing that matches a profile credits nothing'
+  );
+  assert.ok(needsOf(gate.jobs.complete).includes('core-pg-macos'));
   for (const profile of ['pg', 'services-pg'])
     assert.ok(read('scripts/ci/core-select.mjs').includes(`name: '${profile}'`), profile);
   assert.match(rust.run, /for profile in pg services-pg/);
