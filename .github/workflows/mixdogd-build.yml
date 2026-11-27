@@ -90,8 +90,8 @@ jobs:
           # in 39 (run 46008650381).
           - { target: x86_64-pc-windows-msvc, runner: windows-2022, own: mixdog-pc, exe: ".exe", run_version: true }
           - { target: aarch64-apple-darwin, runner: macos-15, own: mixdog-m4-build, exe: "", run_version: true }
-          # libvpx has no prebuilt for this target and its source build compiles for the host it runs on: an Intel runner, or
-          # the M4 under Rosetta with the x86_64 toolchain.
+          # libvpx has no prebuilt for this target and is built from its source: on an Intel runner for its host, on the M4
+          # for the target ("Build the programs").
           - { target: x86_64-apple-darwin, runner: macos-15-intel, own: mixdog-m4-build, exe: "", run_version: true, nasm: true }
           - { target: x86_64-unknown-linux-gnu, runner: ubuntu-24.04, exe: "", run_version: true, relay: true, image: "quay.io/pypa/manylinux_2_28_x86_64@sha256:4131ddd7acb9c6c966af02fe7e71edc51e078c2d41f475966697676430bfa2ae" }
           - { target: aarch64-unknown-linux-gnu, runner: ubuntu-24.04-arm, exe: "", run_version: true, image: "quay.io/pypa/manylinux_2_28_aarch64@sha256:abd1230aa9e4058a74b89d27cd14ba18c0db036d7bfe6e6f219a29ea63c24eb6" }
@@ -145,30 +145,46 @@ jobs:
         run: |
           brew install nasm
           rustup component add llvm-tools
-      - name: Install the x86_64 toolchain the Rosetta build runs
-        if: ${{ matrix.target == 'x86_64-apple-darwin' && runner.arch == 'ARM64' }}
-        run: rustup toolchain install 1.99.1-x86_64-apple-darwin --profile minimal --component llvm-tools --force-non-host
       # One cargo invocation per program, one target directory: the crates they share compile once, and the features
       # each binary is built with stay its own.
       - name: Build the programs
         if: ${{ !matrix.image }}
         env:
-          ROSETTA: ${{ matrix.target == 'x86_64-apple-darwin' && runner.arch == 'ARM64' }}
+          MACOS: ${{ runner.os == 'macOS' }}
+          X86_64_ON_ARM: ${{ matrix.target == 'x86_64-apple-darwin' && runner.arch == 'ARM64' }}
         run: |
-          cargo=(cargo)
-          if [ "$ROSETTA" = true ]; then
-            # The toolchain's own programs: rustup's proxies are arm64 only.
-            bin=$(dirname "$(rustup which --toolchain 1.99.1-x86_64-apple-darwin cargo)")
-            export PATH="$bin:$PATH"
-            cargo=(arch -x86_64 "$bin/cargo")
+          if [ "$MACOS" = true ]; then
+            # No library of the machine: a crate that finds one through pkg-config (pcre2 in Homebrew) links the program to a
+            # file its user does not have, and one of another architecture fails the link. With none found each builds its own.
+            mkdir -p "$RUNNER_TEMP/no-pkg-config"
+            export PKG_CONFIG_LIBDIR="$RUNNER_TEMP/no-pkg-config"
           fi
-          "${cargo[@]}" build --locked --release --manifest-path native/core/Cargo.toml -p mixdog-cli --bin mixdogd -p mixdog-askpass --bin mixdog-askpass --target ${{ matrix.target }}
-          "${cargo[@]}" build --locked --release --manifest-path native/core/Cargo.toml -p mixdog-entry --bin mixdog --target ${{ matrix.target }}
-          "${cargo[@]}" build --locked --release --manifest-path scripts/rust-core/tree-helper/Cargo.toml --target ${{ matrix.target }}
+          if [ "$X86_64_ON_ARM" = true ]; then
+            # libvpx's configure takes its architecture from `uname -m` for every Darwin from 20 on and x86_64 for those
+            # before (build/make/configure.sh, process_common_toolchain): named Darwin 19, it builds for the target.
+            export CHOST=x86_64-apple-darwin19
+          fi
+          cargo build --locked --release --manifest-path native/core/Cargo.toml -p mixdog-cli --bin mixdogd -p mixdog-askpass --bin mixdog-askpass --target ${{ matrix.target }}
+          cargo build --locked --release --manifest-path native/core/Cargo.toml -p mixdog-entry --bin mixdog --target ${{ matrix.target }}
+          cargo build --locked --release --manifest-path scripts/rust-core/tree-helper/Cargo.toml --target ${{ matrix.target }}
           mkdir -p out
           release="native/core/target/${{ matrix.target }}/release"
           cp "$release/mixdogd${{ matrix.exe }}" "$release/mixdog-askpass${{ matrix.exe }}" "$release/mixdog${{ matrix.exe }}" out/
           cp "scripts/rust-core/tree-helper/target/${{ matrix.target }}/release/treerun${{ matrix.exe }}" out/
+      # A shipped program runs on a Mac that has only the system: it is of the leg's architecture and loads nothing from
+      # outside /usr/lib and /System (a Homebrew or /usr/local library is on the build machine alone).
+      - name: The macOS programs are of the target's architecture and load only system libraries
+        if: ${{ runner.os == 'macOS' }}
+        run: |
+          arch=${{ startsWith(matrix.target, 'x86_64') && 'x86_64' || 'arm64' }}
+          status=0
+          for program in out/mixdogd out/mixdog-askpass out/mixdog out/treerun; do
+            found=$(lipo -archs "$program")
+            if [ "$found" != "$arch" ]; then echo "::error::$program is $found, not $arch"; status=1; fi
+            foreign=$(otool -L "$program" | tail -n +2 | awk '{print $1}' | grep -Ev '^(/usr/lib/|/System/)' || true)
+            if [ -n "$foreign" ]; then echo "::error::$program loads $foreign"; status=1; fi
+          done
+          exit "$status"
       # The Linux legs build in one container (the core, the terminal program and the relay): the script
       # runs the cargo invocations and leaves the programs in out/.
       - name: Build the programs (glibc 2.28)
