@@ -324,8 +324,6 @@ pub type ToldResult = dyn Fn(&mixdog_agent::agent_tool::flow::seams::ToolResultM
 /// The conversation a session holds from before a turn, for an agent that starts without it.
 pub struct History {
     port: RunPort,
-    /// Live reader of the session's model context (all rows since last compaction except `turn_input.0`).
-    context: mixdog_core_session::session::run::ModelContext,
     rows: Vec<(ItemId, Value)>,
     input: (ItemId, Value),
     /// The turn's original input row whose id `ModelContext::read` excludes; kept separate from `input` on continuation rounds.
@@ -367,20 +365,6 @@ fn header_context_tokens(header: &Header) -> Option<u64> {
         return None;
     }
     header_positive_u64(header, "lastContextTokens")
-}
-
-fn resolve_policy_for_window(
-    settings: Option<&mixdog_agent::boundary::CompactSettings>,
-    effective_window: Option<u64>,
-) -> Option<mixdog_agent::boundary::CompactPolicy> {
-    let mut settings = settings?.clone();
-    if let Some(window) = effective_window.filter(|window| *window > 0) {
-        settings.context_window = Some(window);
-        if let Some(boundary) = settings.explicit_boundary.as_mut() {
-            *boundary = (*boundary).min(window);
-        }
-    }
-    mixdog_agent::boundary::CompactPolicy::resolve(&settings).filter(|policy| policy.boundary_tokens > 0)
 }
 
 fn header_window_policy(settings: Option<&mixdog_agent::boundary::CompactSettings>, header: &Header) -> Option<mixdog_agent::boundary::CompactPolicy> {
@@ -587,7 +571,12 @@ impl History {
     /// The session's automatic compaction trigger (in tokens) when running under `effective_window`, or `None` when
     /// automatic compaction is off.
     pub fn auto_compaction_trigger(&self, effective_window: u64) -> Option<u64> {
-        resolve_policy_for_window(self.compact_settings.as_ref(), Some(effective_window)).map(|policy| policy.trigger_tokens.max(1))
+        let mut settings = self.compact_settings.clone()?;
+        settings.context_window = Some(effective_window);
+        if let Some(boundary) = settings.explicit_boundary.as_mut() {
+            *boundary = (*boundary).min(effective_window);
+        }
+        mixdog_agent::boundary::CompactPolicy::resolve(&settings).filter(|policy| policy.boundary_tokens > 0).map(|policy| policy.trigger_tokens.max(1))
     }
 
     /// The session's automatic compaction, for a context the agent holds: the header stops naming the agent's session,
@@ -599,26 +588,13 @@ impl History {
     pub async fn compact(&self) -> Result<Option<String>, String> {
         if self.is_continuation {
             let live = self.splice_turn_input(&self.rows);
-            return self.compact_live_rows(&live, self.budget_tokens).await;
+            return self.compact_live_rows(&live).await;
         }
         if self.told_rows().iter().all(|(_, row)| row.get("role").and_then(Value::as_str) == Some("system")) {
             return Ok(None);
         }
         self.unset_agent_session().await?;
         self.summarize().await.map(Some)
-    }
-
-    /// Compacts the live in-progress conversation mid-turn (including this turn's input and every assistant/tool row
-    /// committed during the turn), leaves the agent's session behind, stores Mixdog's summary as the session's context,
-    /// and returns it as text for the fresh agent session.
-    pub async fn compact_mid_turn(&self, effective_window: Option<u64>) -> Result<Option<String>, String> {
-        let live_rows = self.context.read().await.map_err(|error| format!("the live conversation could not be read for mid-turn compaction: {error:?}"))?;
-        let full = self.splice_turn_input(&live_rows);
-        let budget = resolve_policy_for_window(self.compact_settings.as_ref(), effective_window)
-            .map(|policy| policy.target_budget())
-            .unwrap_or(self.budget_tokens)
-            .max(super::super::inheritance_fit::MIN_COMPACT_BUDGET_TOKENS);
-        self.compact_live_rows(&full, budget).await
     }
 
     fn splice_turn_input(&self, live_rows: &[(ItemId, Value)]) -> Vec<(ItemId, Value)> {
@@ -636,29 +612,23 @@ impl History {
         self.port.save_header(left).await.map_err(|error| format!("the agent's session could not be left behind: {error:?}"))
     }
 
-    async fn compact_live_rows(&self, full: &[(ItemId, Value)], budget_tokens: u64) -> Result<Option<String>, String> {
+    async fn compact_live_rows(&self, full: &[(ItemId, Value)]) -> Result<Option<String>, String> {
         if full.iter().all(|(_, row)| row.get("role").and_then(Value::as_str) == Some("system")) {
             return Ok(None);
         }
         self.unset_agent_session().await?;
-        self.summarize_rows(full, &self.turn_input, budget_tokens, true).await.map(Some)
+        self.summarize_rows(full, &self.turn_input, true).await.map(Some)
     }
 
     /// Summarizes the stored conversation with the session's own compactor, stores the result as the session's
     /// context and returns it as text.
     async fn summarize(&self) -> Result<String, String> {
-        self.summarize_rows(self.told_rows(), &self.input, self.budget_tokens, false).await
+        self.summarize_rows(self.told_rows(), &self.input, false).await
     }
 
-    async fn summarize_rows(
-        &self,
-        told: &[(ItemId, Value)],
-        anchor_input: &(ItemId, Value),
-        budget_tokens: u64,
-        include_input_in_text: bool,
-    ) -> Result<String, String> {
+    async fn summarize_rows(&self, told: &[(ItemId, Value)], anchor_input: &(ItemId, Value), include_input_in_text: bool) -> Result<String, String> {
         let rows: Vec<Value> = told.iter().map(|(_, row)| row.clone()).collect();
-        let compacted = self.port.compact_for_heir(&rows, budget_tokens).await.map_err(|error| error.to_string())?;
+        let compacted = self.port.compact_for_heir(&rows, self.budget_tokens).await.map_err(|error| error.to_string())?;
         let message_id = |row: &Value| message_of(row).ok().and_then(|message| message.message_id);
         let non_system: Vec<Value> = compacted
             .ok_or_else(|| "this session has no compaction to summarize it with".to_owned())?
@@ -1153,7 +1123,6 @@ pub(super) async fn drive_outside(outside: Outside) -> OutsideOutcome {
     let turn_input = (input_item.clone(), input_body.clone());
     let mut initial_history = Some(History {
         port: port.clone(),
-        context: redactor.clone(),
         rows: stored_ids.into_iter().zip(prior).collect(),
         input: (input_item, input_body),
         turn_input: turn_input.clone(),
@@ -1190,7 +1159,6 @@ pub(super) async fn drive_outside(outside: Outside) -> OutsideOutcome {
                     .max(super::super::inheritance_fit::MIN_COMPACT_BUDGET_TOKENS);
                 History {
                     port: port.clone(),
-                    context: redactor.clone(),
                     rows: conversation_after(&redactor).await.unwrap_or_default(),
                     input: (new_item_id(), current_input.clone()),
                     turn_input: turn_input.clone(),

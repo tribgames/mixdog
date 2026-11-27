@@ -577,24 +577,6 @@ impl RefuseBudget {
         }
     }
 
-    pub(crate) async fn notify(&mut self, session: &AgentSession, method: &str, params: Value) {
-        if self.stalled || session.connection.exited().is_cancelled() {
-            return;
-        }
-        if self.remaining.is_zero() {
-            self.stalled = true;
-            session.break_connection("cancel write budget exhausted on stalled stdin");
-            return;
-        }
-        let started = tokio::time::Instant::now();
-        let timed = mixdog_rt::time::timeout(self.remaining, session.connection.notify(method, params)).await;
-        self.remaining = self.remaining.saturating_sub(started.elapsed());
-        if timed.is_err() {
-            self.stalled = true;
-            session.break_connection("cancel write timed out on stalled stdin");
-        }
-    }
-
     pub(crate) async fn wait_write(&mut self, session: &AgentSession, done: tokio::sync::oneshot::Receiver<()>, why: &str) {
         if self.stalled || session.connection.exited().is_cancelled() {
             return;
@@ -1383,11 +1365,6 @@ impl AgentSession {
     /// Takes the background call `agent_id` out: its result is being shown.
     pub fn background_shown(&self, agent_id: &str) -> Option<Background> {
         lock(&self.routing).background.remove(agent_id)
-    }
-
-    /// Whether a call the agent kept running past an earlier turn has not ended yet.
-    pub(crate) fn has_open_background_calls(&self) -> bool {
-        lock(&self.routing).background.values().any(|call| !call.tool.ended())
     }
 
     /// The background task of the call of the Mixdog tool `name` with `arguments` that went on past the agent's deadline
