@@ -6678,7 +6678,6 @@ async fn reused_handle_after_failed_model_selection_still_runs_handoff_and_resto
         preset.quirks.model_scope = mixdog_acp::preset::ModelScope::ExceptPrefixes(Vec::new());
     });
     world.agents.set_cancel_close_grace(Duration::from_millis(80));
-    world.agents.set_shared_open_timeout(Duration::from_millis(160));
 
     // Turn 1: open `sess-1` on the initial shared server and leave it stuck on Stop.
     let (working, stop) = (Surface::default(), CancellationToken::new());
@@ -6693,10 +6692,11 @@ async fn reused_handle_after_failed_model_selection_still_runs_handoff_and_resto
     let wedged_conn = world.agents.running(&thread()).expect("stuck session").connection.clone();
     let stored_same_prompt = Stored { session_id: "sess-1".into(), prompt: Some(mixdog_acp::session::digest("RULES")) };
 
-    // Stall `session/new` on the wedged server so it retires, then let the fresh replacement server allocate `sess-1`.
+    // Ending the abandoned session retires the wedged server; `session/new` waits until it has exited, so the fresh
+    // replacement server allocates `sess-1`.
     let env_path = world.dir.path().join("fake-agent.env");
     let gate_file = world.dir.path().join("unblock-model-fail-handoff");
-    #[allow(clippy::disallowed_methods, reason = "test updates fake-agent.env to retire wedged server")]
+    #[allow(clippy::disallowed_methods, reason = "test holds session/new until the wedged server exits")]
     {
         let mut content = std::fs::read_to_string(&env_path).expect("read fake-agent.env");
         content.push_str(&format!("\nFAKE_AGENT_NEW_UNTIL={}\n", gate_file.display()));
@@ -6722,7 +6722,10 @@ async fn reused_handle_after_failed_model_selection_still_runs_handoff_and_resto
         std::fs::write(&gate_file, "go").expect("write gate file");
     };
     let (failed, ()) = within("failed model selection on fresh replacement handle", async { tokio::join!(fail_fut, watch_fut) }).await;
-    assert!(matches!(failed, TurnEnd::Failed { .. }), "refused model must fail before sending prompt: {failed:?}");
+    assert!(
+        matches!(&failed, TurnEnd::Failed { message, .. } if message.contains("Unknown model ID: refused")),
+        "refused model must fail before sending prompt: {failed:?}"
+    );
     let cached = world.agents.running(&thread()).expect("fresh handle remains cached after model failure");
     assert_eq!(cached.session_id, "sess-1");
     assert!(cached.handoff_pending(), "handoff_pending must stay true when prompt was never sent");
