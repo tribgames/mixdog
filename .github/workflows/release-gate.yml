@@ -35,6 +35,10 @@ on:
         description: "The caller's name for this invocation; with the SHA it names every artifact of the gate, so two calls in one run never share one"
         required: true
         type: string
+    secrets:
+      # Lists the project's own runners (job `changes`); without it every archive is built on a hosted runner.
+      RUNNER_STATUS_TOKEN:
+        required: false
 
 permissions:
   contents: read

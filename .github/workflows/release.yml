@@ -50,6 +50,10 @@ on:
         required: true
       MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET:
         required: true
+      # Lists the project's own runners, so a build goes to one that is on (mixdogd-build.yml, release-gate.yml); without it
+      # every build runs on a hosted runner.
+      RUNNER_STATUS_TOKEN:
+        required: false
       # Developer ID signing and notarization for the macOS package; without
       # them the app is packaged unsigned.
       MAC_CERTIFICATE_P12_BASE64:
@@ -201,6 +205,8 @@ jobs:
       ref: ${{ inputs.ref }}
       gate: release
       joins: true
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   # The first write of the release to the repository, and only once the gate has verified this exact commit: the default branch
   # moves from the deploy's commit (`base`, a lease: if anything else moved it, nothing is pushed) to the release commit, and the app
@@ -428,6 +434,7 @@ jobs:
     secrets:
       MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
       MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   # The four server bundles (Linux and macOS only: server cores are Unix-only). The job waits for the four Unix mixdogd
   # artifacts in its own step, so it neither idles behind the Windows build nor holds a runner while it waits.
