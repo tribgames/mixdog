@@ -18,6 +18,13 @@ sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain 1.99.1
 export PATH=$HOME/.cargo/bin:$PATH
 export RUSTFLAGS="-C link-arg=-Wl,--build-id=sha1"
 export CARGO_TARGET_DIR=/tmp/target
+# The project's own machine mounts a build folder it keeps at /tmp/target and names what that folder was built of (the
+# image, the third-party packages, this script): with another name nothing in it is read again, so it is emptied here,
+# where its files are this user's.
+if [ -n "${MIXDOG_BUILD_STAMP:-}" ]; then
+	if [ "$(cat /tmp/target/.build-stamp 2>/dev/null)" != "$MIXDOG_BUILD_STAMP" ]; then find /tmp/target -mindepth 1 -delete; fi
+	printf '%s' "$MIXDOG_BUILD_STAMP" >/tmp/target/.build-stamp
+fi
 # The prebuilt static libvpx is published per Ubuntu release, which this container is not: the oldest one is named.
 # A symbol it needed past glibc 2.28 would fail the link here.
 case "$(uname -m)" in

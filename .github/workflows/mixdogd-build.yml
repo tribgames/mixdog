@@ -93,8 +93,10 @@ jobs:
           # libvpx has no prebuilt for this target and is built from its source: on an Intel runner for its host, on the M4
           # for the target ("Build the programs").
           - { target: x86_64-apple-darwin, runner: macos-15-intel, own: mixdog-m4-build, exe: "", run_version: true, nasm: true }
-          - { target: x86_64-unknown-linux-gnu, runner: ubuntu-24.04, exe: "", run_version: true, relay: true, image: "quay.io/pypa/manylinux_2_28_x86_64@sha256:4131ddd7acb9c6c966af02fe7e71edc51e078c2d41f475966697676430bfa2ae" }
-          - { target: aarch64-unknown-linux-gnu, runner: ubuntu-24.04-arm, exe: "", run_version: true, image: "quay.io/pypa/manylinux_2_28_aarch64@sha256:abd1230aa9e4058a74b89d27cd14ba18c0db036d7bfe6e6f219a29ea63c24eb6" }
+          # The Linux legs build in the same container on the project's own machines (the PC's Linux, the arm64 server), which
+          # keep the container's build folder: a hosted runner compiled each from nothing in 28 minutes (run 46071779966).
+          - { target: x86_64-unknown-linux-gnu, runner: ubuntu-24.04, own: mixdog-pc-linux, exe: "", run_version: true, relay: true, image: "quay.io/pypa/manylinux_2_28_x86_64@sha256:4131ddd7acb9c6c966af02fe7e71edc51e078c2d41f475966697676430bfa2ae" }
+          - { target: aarch64-unknown-linux-gnu, runner: ubuntu-24.04-arm, own: mixdog-a1, exe: "", run_version: true, image: "quay.io/pypa/manylinux_2_28_aarch64@sha256:abd1230aa9e4058a74b89d27cd14ba18c0db036d7bfe6e6f219a29ea63c24eb6" }
     env:
       MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
       MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
@@ -138,8 +140,9 @@ jobs:
           key: mixdogd-cargo-${{ matrix.target }}-${{ steps.cargo-lock.outputs.key }}
           restore-keys: mixdogd-cargo-${{ matrix.target }}-
       # The container's CARGO_HOME registry and git directories live on the runner, so the container can be thrown away.
+      # A hosted runner's: the project's own machine keeps them, and the build folder, in its home.
       - name: Cache cargo registry (container)
-        if: ${{ matrix.image }}
+        if: ${{ matrix.image && runner.environment == 'github-hosted' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -198,11 +201,22 @@ jobs:
       # runs the cargo invocations and leaves the programs in out/.
       - name: Build the programs (glibc 2.28)
         if: ${{ matrix.image }}
+        env:
+          OWN_MACHINE: ${{ runner.environment == 'self-hosted' }}
         run: |
-          mkdir -p out "$RUNNER_TEMP/cargo-registry" "$RUNNER_TEMP/cargo-git"
+          keep="$RUNNER_TEMP"
+          target=()
+          if [ "$OWN_MACHINE" = true ]; then
+            # The build folder stays for the next run; the script empties it when what it was built of changes.
+            keep="$HOME/mixdog-release-build"
+            mkdir -p "$keep/target"
+            stamp="${{ matrix.image }} ${{ steps.cargo-lock.outputs.key }} $(sha256sum apps/desktop/scripts/linux-build-core-old-glibc.sh | cut -d' ' -f1)"
+            target=(-v "$keep/target:/tmp/target" -e "MIXDOG_BUILD_STAMP=$stamp")
+          fi
+          mkdir -p out "$keep/cargo-registry" "$keep/cargo-git"
           docker run --rm -e MIXDOG_GOOGLE_OAUTH_CLIENT_ID -e MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET \
             -e MIXDOG_BUILD_RELAY=${{ matrix.relay && '1' || '' }} \
-            -v "$PWD:/w" -v "$RUNNER_TEMP/cargo-registry:/root/.cargo/registry" -v "$RUNNER_TEMP/cargo-git:/root/.cargo/git" \
+            -v "$PWD:/w" -v "$keep/cargo-registry:/root/.cargo/registry" -v "$keep/cargo-git:/root/.cargo/git" "${target[@]}" \
             ${{ matrix.image }} bash /w/apps/desktop/scripts/linux-build-core-old-glibc.sh 2>&1 | tee out/build.log
           test "${PIPESTATUS[0]}" -eq 0
           rm out/build.log

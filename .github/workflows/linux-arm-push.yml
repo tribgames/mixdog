@@ -24,7 +24,9 @@ permissions:
 jobs:
   core:
     # A self-hosted machine runs what the repository's own pushes ask for, never a fork's.
-    if: github.repository == 'tribgames/mixdog'
+    # Not the release commit ("mixdog v<version>"): it changes version numbers alone, and its release builds the arm64
+    # programs on this machine.
+    if: github.repository == 'tribgames/mixdog' && !startsWith(github.event.head_commit.message, 'mixdog v')
     runs-on: [self-hosted, mixdog-a1]
     timeout-minutes: 120
     defaults:
