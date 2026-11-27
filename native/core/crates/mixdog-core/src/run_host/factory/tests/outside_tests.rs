@@ -512,7 +512,12 @@ async fn a_session_leaves_the_agent_only_once_its_header_no_longer_names_the_age
 async fn a_compaction_leaves_the_agents_session_behind_before_it_stores_the_summary() {
     const HELD: &str = mixdog_core_session::session::turn_ops::AGENT_SESSION;
     let agent = Arc::new(Agent::default());
-    let header = json!({ "provider": "outside", "model": "default", HELD: { "agent": "outside", "sessionId": "s-1" } });
+    let header = json!({
+        "provider": "outside",
+        "model": "default",
+        "todo": { "phases": [{ "name": "Work", "tasks": [{ "content": "write the report", "status": "in_progress" }] }], "updatedAt": 1 },
+        HELD: { "agent": "outside", "sessionId": "s-1" },
+    });
     let (world, id, handle) = on_agents_route(&agent, &[], header).await;
     // A first turn gives the session a conversation to compact.
     start_turn(&id, &handle, "go").await;
@@ -526,6 +531,11 @@ async fn a_compaction_leaves_the_agents_session_behind_before_it_stores_the_summ
 
     let compacted = lock(&agent.compacted).clone();
     assert!(matches!(compacted.as_slice(), [Ok(Some(summary))] if summary.contains("what was said before")), "{compacted:?}");
+    // The agent that starts on the summary is told where the work stands, as after a compaction inside a turn.
+    assert!(
+        matches!(compacted.as_slice(), [Ok(Some(summary))] if summary.contains("<todo_state>") && summary.contains("write the report")),
+        "the summary carries the open step list: {compacted:?}"
+    );
     assert!(!handle.live_header().header().contains_key(HELD), "the header no longer names the agent's session");
     let records = world.rig.store.records(&id);
     let left = records.iter().position(

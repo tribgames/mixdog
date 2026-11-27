@@ -605,7 +605,20 @@ impl History {
             return Ok(None);
         }
         self.unset_agent_session().await?;
-        self.summarize().await.map(Some)
+        let summary = self.summarize().await?;
+        Ok(Some(self.with_compaction_reminder(summary).await))
+    }
+
+    /// `summary` with what a compaction before a provider's send gives the request it keeps: the session's Goal and its
+    /// open step list, which the summary took the tool results of. The agent that goes on reads them with the summary.
+    async fn with_compaction_reminder(&self, summary: String) -> String {
+        match self.port.compaction_goal_reminder(false).await.ok().flatten() {
+            Some(reminder) => {
+                let _ = self.port.acknowledge_goal_reminder(reminder.revision).await;
+                format!("{summary}\n\n{}", reminder.content)
+            }
+            None => summary,
+        }
     }
 
     /// Compacts the live in-progress conversation mid-turn (including this turn's input and every assistant/tool row
@@ -642,15 +655,7 @@ impl History {
         }
         self.unset_agent_session().await?;
         let summary = self.summarize_rows(full, &self.turn_input, budget_tokens, true).await?;
-        // As a compaction before a provider's send gives the request it keeps: the session's Goal and its open step
-        // list, which the summary took the tool results of. The agent that goes on reads them with the summary.
-        Ok(Some(match self.port.compaction_goal_reminder(false).await.ok().flatten() {
-            Some(reminder) => {
-                let _ = self.port.acknowledge_goal_reminder(reminder.revision).await;
-                format!("{summary}\n\n{}", reminder.content)
-            }
-            None => summary,
-        }))
+        Ok(Some(self.with_compaction_reminder(summary).await))
     }
 
     /// Summarizes the stored conversation with the session's own compactor, stores the result as the session's
