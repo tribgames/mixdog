@@ -135,6 +135,10 @@ registerHooks({
 });
 
 const { createBrowserLoginPopup } = await import('./login-popup.ts');
+const { loginTakeoverOf } = await import('./login-takeover.ts');
+const { createTakeoverFeed } = await import('../takeover-feed.ts');
+const { createTakeoverStateHandler } = await import('../takeover-state.ts');
+const { createTakeoverGate } = await import('../takeover-gate.ts');
 
 const PAGE_URL = 'https://shop.example/login';
 const parentWindow = { isDestroyed: () => false, getBounds: () => ({ x: 0, y: 0, width: 1200, height: 800 }) };
@@ -370,6 +374,62 @@ test('a crash of the site or of the shell ends the window as closed, never done'
     assert.deepEqual(await f.opened, { state: 'closed' });
     assert.equal(parts.window.isDestroyed(), true);
     assert.equal(log.includes('settle s1 t1'), false);
+  }
+});
+
+test("a core login takeover on a named background page opens by its card's id and closes when the core resolves it", async () => {
+  log.length = 0;
+  windows.length = 0;
+  views.length = 0;
+  const gate = createTakeoverGate();
+  const popup = createBrowserLoginPopup({
+    parent: () => parentWindow,
+    session: () => 'partition',
+    urlPolicy: {},
+    ready: (sessionId, id) => gate.ready(sessionId, id),
+    settle: async () => true,
+    preloadPath: 'preload.js',
+  });
+  // The window process's wiring (index.ts), fed the core's own frame: its card names the takeover apart from the request.
+  const feed = createTakeoverFeed(
+    createTakeoverStateHandler({
+      gate,
+      login: popup,
+      loginOf: loginTakeoverOf,
+      browser: () => null,
+      capture: () => true,
+    })
+  );
+  const takeover = { surface: 'browser', instructions: 'Sign in', tab: 'oci', purpose: 'login', url: PAGE_URL };
+  feed({
+    type: 'serverRequest',
+    request: {
+      id: 7,
+      method: 'item/tool/requestApproval',
+      params: {
+        kind: 'takeover',
+        takeover,
+        threadId: 'sess_lead',
+        turnId: 'r1',
+        order: 7,
+        card: { id: 'itm_card7', name: 'handoff_user', kind: 'takeover', sessionId: 'sess_lead', takeover },
+      },
+    },
+  });
+  try {
+    // What the card's 로그인… asks for: its session and its own id.
+    const opened = popup.open('sess_lead', 'itm_card7');
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(windows.length, 1);
+    assert.deepEqual(popup.status('sess_lead', 'itm_card7'), { state: 'open' });
+    feed({
+      type: 'serverRequestResolved',
+      params: { requestId: 7, threadId: 'sess_lead', resolution: { kind: 'decided' } },
+    });
+    assert.deepEqual(await opened, { state: 'unavailable' });
+    assert.equal(windows[0].isDestroyed(), true);
+  } finally {
+    gate.dispose();
   }
 });
 

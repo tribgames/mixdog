@@ -23,11 +23,14 @@ export function createTakeoverFeed(
       if (params.kind !== 'takeover') return;
       const sessionId = String(params.threadId ?? '');
       if (!sessionId) return;
-      const id = String(request.id);
-      open.set(id, sessionId);
-      current.set(sessionId, id);
+      const requestId = String(request.id);
+      open.set(requestId, sessionId);
+      current.set(sessionId, requestId);
       const takeover =
         params.takeover && typeof params.takeover === 'object' ? (params.takeover as Record<string, unknown>) : null;
+      // Every client names the takeover by its card's id (room_approval.rs `card_id`), not the request's.
+      const card = params.card && typeof params.card === 'object' ? (params.card as { id?: unknown }) : null;
+      const id = typeof card?.id === 'string' && card.id ? card.id : requestId;
       deliver({ sessionId, snapshot: { toolApproval: { id, kind: 'takeover', takeover } } });
     } else if (event.type === 'serverRequestResolved') {
       const params = ((event as { params?: Record<string, unknown> }).params ?? {}) as Record<string, unknown>;

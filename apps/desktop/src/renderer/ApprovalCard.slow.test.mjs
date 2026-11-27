@@ -842,6 +842,37 @@ test('a login takeover asks with 취소 / 로그인하기, and its window decide
   }
 });
 
+test("a core login takeover's card asks for its window by the session and card id the core's request carries", async () => {
+  const { desktopSessionState } = await import('../../../../packages/protocol-client/src/index.ts');
+  const previous = dom.window.mixdogDesktop;
+  const desktop = loginDesktop();
+  dom.window.mixdogDesktop = desktop.api;
+  const takeover = { ...loginTakeover('').takeover, tab: 'oci' };
+  // The Lead's own takeover as the core sends it (actor.rs `approval_id`): its card's id is not the request's.
+  const request = {
+    id: 7,
+    method: 'item/tool/requestApproval',
+    params: {
+      kind: 'takeover',
+      takeover,
+      threadId: 'sess_lead',
+      turnId: 'r1',
+      order: 7,
+      card: { id: 'itm_card7', name: 'handoff_user', kind: 'takeover', sessionId: 'sess_lead', takeover },
+    },
+  };
+  const fold = { sessionId: 'sess_lead', items: [], fields: {}, live: null, structureRevision: 0 };
+  const c = card(desktopSessionState(fold, [request]).toolApproval, { hostSessionId: 'sess_lead' });
+  const ui = await mount(c.element);
+  try {
+    await ui.click(ui.button('Sign in…'));
+    assert.deepEqual(desktop.calls, [['sess_lead', 'itm_card7']]);
+  } finally {
+    dom.window.mixdogDesktop = previous;
+    await ui.done();
+  }
+});
+
 test('완료 in the window: the card reads 로그인됨 with the site while the agent continues', async () => {
   const previous = dom.window.mixdogDesktop;
   const desktop = loginDesktop();
