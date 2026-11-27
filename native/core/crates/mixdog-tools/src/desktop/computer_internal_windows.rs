@@ -49,6 +49,15 @@ impl IdCache {
         if let Some(ids) = fresh {
             return ids;
         }
+        self.asked(fetch).await
+    }
+
+    /// The ids `fetch` returns now, remembered for the reads that follow; a failed fetch is not remembered and names none.
+    async fn asked<F, Fut>(&self, fetch: F) -> HashSet<String>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Option<HashSet<String>>>,
+    {
         let Some(ids) = fetch().await else { return HashSet::new() };
         *self.slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((Instant::now(), ids.clone()));
         ids
@@ -77,6 +86,12 @@ pub(super) async fn filter(backend: &ProcessComputerBackend, result: &mut Map<St
     )
     .await;
     drop_windows(&internal, result);
+}
+
+/// The internal window ids as the desktop names them now, never a remembered answer: the cursor overlay is created while a step
+/// runs, after the read that preceded the step.
+pub(super) async fn ids_now(backend: &ProcessComputerBackend, cancel: &CancellationToken) -> HashSet<String> {
+    CACHE.asked(|| async { backend.ask_desktop(METHOD, json!({}), cancel).await.ok().and_then(|answer| ids_of(&answer)) }).await
 }
 
 fn window_id(window: &Value) -> String {

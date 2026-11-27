@@ -26,6 +26,7 @@ use tokio_util::sync::CancellationToken;
 use super::computer_backend::HOST_READ_ACTIONS;
 use super::computer_backend::ProcessComputerBackend;
 use super::computer_gnome::ARRIVALS_SESSION_ID;
+use super::computer_internal_windows;
 use super::computer_policy;
 
 /// `DEFAULT_CAPTURE_AFTER_DELAY_MS` and `MAX_CAPTURE_AFTER_DELAY_MS` (`shared/common.ts`).
@@ -875,11 +876,21 @@ pub(super) async fn after(
 
 /// A background `sequence_step` reply as the step's result (`readSequenceStep`): the step's own result, with what the window lists
 /// around it show as `window_transition` and the helper's settle as `settle_delay_ms`. A reply without the lists (a helper that
-/// reads no windows) is the step's result as it is.
-pub(super) fn sequence_step_result(backend: &ProcessComputerBackend, window_id: &str, reply: &Map<String, Value>) -> Map<String, Value> {
+/// reads no windows) is the step's result as it is. The lists come inside the step's reply, not from a window read, so Mixdog's own
+/// windows (`internal`, `computer_internal_windows::ids_now`) are left out of them here.
+pub(super) fn sequence_step_result(
+    backend: &ProcessComputerBackend,
+    window_id: &str,
+    reply: &Map<String, Value>,
+    internal: &HashSet<String>,
+) -> Map<String, Value> {
     let Some(Value::Object(step)) = reply.get("step_result") else { return reply.clone() };
     let mut result = step.clone();
-    let list = |key: &str| reply.get(key).and_then(Value::as_array).map(|rows| rows.iter().filter_map(Window::from_row).collect::<Vec<_>>());
+    let list = |key: &str| {
+        reply.get(key).and_then(Value::as_array).map(|rows| {
+            rows.iter().filter_map(Window::from_row).filter(|window| !internal.contains(&computer_internal_windows::normalized(&window.id))).collect::<Vec<_>>()
+        })
+    };
     let (Some(before), Some(after)) = (list("windows_before"), list("windows_after")) else { return result };
     let transition = compute_transition(&before, &after, window_id, result.get("pid").and_then(Value::as_i64).unwrap_or(0), "", false);
     // The reply names these, so the session's next command does not again.

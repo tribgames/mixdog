@@ -17,6 +17,7 @@ use super::computer_command::DEFAULT_DELIVERY;
 use super::computer_command::text;
 use super::computer_delta;
 use super::computer_frames;
+use super::computer_internal_windows;
 use super::computer_pixels::read_displays;
 use super::computer_pointer::prepare_cursor;
 use super::computer_policy;
@@ -390,6 +391,20 @@ mod tests {
         // observation_delta is the capture's own option (capture-finish.ts), never a field of the helper's snapshot request.
         assert!(sent(&manager, "snapshot").iter().all(|line| line["window_id"] == "hwnd:0x9"));
         assert_eq!(sent(&manager, "sequence_step").len(), 1);
+    }
+
+    /// The cursor overlay appears beside the target while a step runs and belongs to the same process when the target is Mixdog's
+    /// own window: it is no window the step opened, so the sequence goes on with its target.
+    #[tokio::test]
+    async fn the_cursor_overlay_a_step_brings_up_is_not_a_successor() {
+        let main = json!({ "id": "hwnd:0x2", "pid": 5, "title": "Mixdog" });
+        let overlay = json!({ "id": "hwnd:0xAB", "pid": 5, "title": "" });
+        let reply = json!({ "step_result": { "text": "ok", "action": "click" }, "windows_before": [main], "windows_after": [main, overlay] });
+        let manager = helper(|_| None);
+        let internal = std::collections::HashSet::from(["hwnd:0xab".to_owned()]);
+        let result = computer_settle::sequence_step_result(&backend(&manager), "hwnd:0x2", reply.as_object().unwrap(), &internal);
+        assert_eq!(result["window_transition"]["opened_windows"], json!([]));
+        assert!(result["window_transition"].get("next_target").is_none_or(Value::is_null), "{result:?}");
     }
 
     /// More than 10 s of waits is refused before the helper is asked anything about the steps.
@@ -971,7 +986,10 @@ impl ProcessComputerBackend {
         }
         request.insert("step".into(), Value::Object(step));
         let reply = self.call(request, cancel).await?;
-        Ok(computer_settle::sequence_step_result(self, window_id, &reply))
+        // Equal lists show no transition whatever they hold: the desktop is asked only when they differ.
+        let internal =
+            if reply.get("windows_before") == reply.get("windows_after") { Default::default() } else { computer_internal_windows::ids_now(self, cancel).await };
+        Ok(computer_settle::sequence_step_result(self, window_id, &reply, &internal))
     }
 
     /// `assertDisplayUnchanged` (`frame-validity.ts`): a step that names a display's frame is refused when the layout the frame was
