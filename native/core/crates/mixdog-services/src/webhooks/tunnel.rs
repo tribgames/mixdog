@@ -352,21 +352,22 @@ mod tests {
         assert_eq!((reply["status"].as_u64(), reply["body"].as_str()), (Some(502), Some("")));
     }
     /// The local server that accepts and goes quiet: the exchange ends at Node's 25 s socket
-    /// timeout with a 502, not never. The clock is paused, so this takes no wall time.
-    #[tokio::test(start_paused = true)]
+    /// timeout, not never. The clock is paused once the connection stands (a paused clock moves on while
+    /// a connect is still under way), so the wait takes no wall time.
+    #[tokio::test]
     async fn a_silent_local_server_times_out_at_25_seconds() {
         let server = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
         let port = server.local_addr().unwrap().port();
-        tokio::spawn(async move {
-            let (_socket, _) = server.accept().await.unwrap();
-            std::future::pending::<()>().await;
-        });
-        let raw = frame(json!({"id": "r", "body": ""})).to_string();
+        let stream = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).await.unwrap();
+        let (_socket, _) = server.accept().await.unwrap();
+        let request = local_request(&normalize_request_frame(&frame(json!({"id": "r", "body": ""}))).unwrap(), port).ok().unwrap();
+        tokio::time::pause();
         let started = tokio::time::Instant::now();
-        let reply: Value = serde_json::from_str(&answer(&raw, Some(port)).await.unwrap()).unwrap();
-        assert_eq!(reply["status"], 502);
-        assert_eq!(String::from_utf8(decoded(&reply)).unwrap(), r#"{"error":"local webhook timeout"}"#);
-        assert_eq!(started.elapsed(), LOCAL_TIMEOUT);
+        let outcome = exchange(stream, request).await;
+        assert!(matches!(outcome, Err(Replay::Failed(message)) if message == "local webhook timeout"));
+        // A timer ends on the millisecond after its deadline, and the clock was paused between two of them.
+        let over = started.elapsed().checked_sub(LOCAL_TIMEOUT).expect("the wait lasted the whole timeout");
+        assert!(over <= Duration::from_millis(1), "{over:?} past the timeout");
     }
 }
 
@@ -425,6 +426,9 @@ async fn replay(frame: &HookFrame, port: u16) -> Result<LocalReply, Replay> {
         Err(e) if e.kind() == ErrorKind::ConnectionRefused => return Err(Replay::Failed(format!("connect ECONNREFUSED 127.0.0.1:{port}"))),
         Err(e) => return Err(Replay::Failed(e.to_string())),
     };
+    exchange(stream, request).await
+}
+async fn exchange(stream: TcpStream, request: Request<RequestBody>) -> Result<LocalReply, Replay> {
     let (mut sender, connection) = within(hyper::client::conn::http1::handshake(TokioIo::new(stream))).await?.map_err(|e| Replay::Failed(e.to_string()))?;
     tokio::spawn(async move {
         let _ = connection.await;

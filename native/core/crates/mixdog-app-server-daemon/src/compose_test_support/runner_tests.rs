@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
-use super::{Budget, Contain, Fault, KILL_GRACE, Report, SINK, SPAWN, Setup, child_side, run, run_bounded, test_path};
+use super::{Budget, CHILD_DIR, Contain, Fault, KILL_GRACE, Report, SINK, SPAWN, Setup, child_side, run, run_bounded, test_path};
 
 /// Shares no case here comes near, except those a case sets.
 const AMPLE: Budget = Budget { start: 30, child: 120, ending: 30, clusters: 60, descendants: 30 };
@@ -595,8 +595,11 @@ fn a_helper_that_leaves_a_process_running_is_not_believed() {
 #[test]
 fn a_tree_not_proven_ended_is_not_examined_and_its_directory_is_kept() {
     const NAME: &str = "a_tree_not_proven_ended_is_not_examined_and_its_directory_is_kept";
-    if child_side(current_thread(), |dir| async move {
-        pgdata_at(&dir, &["data", "pgdata"]);
+    // Written before the child says it is ready: the run returns with the child alive, which must not write into the directory `clean` removes.
+    if let Some(dir) = std::env::var_os(CHILD_DIR) {
+        pgdata_at(Path::new(&dir), &["data", "pgdata"]);
+    }
+    if child_side(current_thread(), |_| async {
         tokio::task::spawn_blocking(|| std::io::copy(&mut std::io::stdin(), &mut std::io::sink())).await.unwrap().unwrap();
     }) {
         return;
@@ -604,7 +607,7 @@ fn a_tree_not_proven_ended_is_not_examined_and_its_directory_is_kept() {
     let fake = tempfile::tempdir().unwrap();
     let report = run(&this(NAME), &setup(Budget { child: 0, ending: 0, ..AMPLE }, fake_pg_ctl(fake.path(), Status::Exit(0)), Some(Fault::TreeKillFails)));
     let shown = report.to_string();
-    let kept = report.dir.exists();
+    let kept = report.dir.join("data").join("pgdata").join("PG_VERSION").is_file();
     clean(&report);
     assert!(report.failures.iter().any(|failure| failure.contains("were not examined: the child's process tree was not proven ended")), "{shown}");
     assert!(!report.failures.iter().any(|failure| failure.contains("a cluster was still running")), "nothing was examined: {shown}");

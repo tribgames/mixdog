@@ -3261,7 +3261,7 @@ async fn put_stored(core: &Core, id: &str, header: Row) {
 }
 async fn crowd_rig() -> Crowd {
     // What is counted is the work of a signal, read back from the running OS: no flush to the device changes a count, and the
-    // 800 index rows of the data set and the 1,000 single-row writes each waited for one (over 120 s on the Windows runner, where
+    // 800 index rows of the data set and the single-row writes each waited for one (over 120 s on the Windows runner, where
     // the same test took 31 s on Linux; release gate run 44959677392).
     mixdog_store::fsio::elide_syncs();
     let began = std::time::Instant::now();
@@ -3322,7 +3322,10 @@ async fn signal(crowd: &Crowd) -> Vec<Vec<String>> {
     }))
     .await
 }
-/// The work of a status signal is what changed, not the size of the index: 1,000 signals over an unchanged index stay within
+/// The signals of each status-signal test, and the single-row writes of the one that writes: work that grows with them outruns
+/// the per-signal budgets long before this, and in a dev build one signal of the loaded threads costs a macOS runner up to 0.16 s.
+const SIGNALS: usize = 250;
+/// The work of a status signal is what changed, not the size of the index: [`SIGNALS`] signals over an unchanged index stay within
 /// what the loaded threads cost, while every re-read answers what it answered before.
 // The body runs on the test's own thread (the counts are per thread); the session tasks run on the runtime's workers.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -3339,7 +3342,7 @@ async fn a_status_signal_over_an_unchanged_index_costs_what_the_loaded_threads_c
 
     let (start, loads, visits) = (rows::work::counts().total(), rows::work::counts().reloads, rows::work::counts().rows_visited);
     let before = rows::work::counts();
-    for n in 1..=1000 {
+    for n in 1..=SIGNALS {
         assert_eq!(signal(&crowd).await, first);
         let now = rows::work::counts();
         let visited = now.rows_visited - visits;
@@ -3357,7 +3360,7 @@ async fn a_status_signal_over_an_unchanged_index_costs_what_the_loaded_threads_c
     }
     crowd.core.directory.shutdown().await;
 }
-/// 1,000 single-row writes (one worker's stage change, each followed by its signal) stay within what the loaded threads
+/// [`SIGNALS`] single-row writes (one worker's stage change, each followed by its signal) stay within what the loaded threads
 /// cost plus the write's own work, and the stage written is the stage read.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_status_signal_after_a_single_row_write_costs_what_the_write_changed() {
@@ -3367,10 +3370,10 @@ async fn a_status_signal_after_a_single_row_write_costs_what_the_write_changed()
     let (start, loads, visits) = (rows::work::counts().total(), rows::work::counts().reloads, rows::work::counts().rows_visited);
     let before = rows::work::counts();
     let began = std::time::Instant::now();
-    for n in 1..=1000 {
+    for n in 1..=SIGNALS {
         // Of a run that is ended for its time, how far it had come and how fast.
-        if n % 100 == 0 {
-            eprintln!("[crowd] write {n} of 1000 begins {:?} after the first", began.elapsed());
+        if n % 50 == 0 {
+            eprintln!("[crowd] write {n} of {SIGNALS} begins {:?} after the first", began.elapsed());
         }
         let (session, tag) = &crowd.running[n % crowd.running.len()];
         let stage = if n % 2 == 0 { "streaming" } else { "tool_running" };
