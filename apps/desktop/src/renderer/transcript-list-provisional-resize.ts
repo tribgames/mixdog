@@ -1,5 +1,6 @@
 import { type MutableRefObject, useEffect, useLayoutEffect, useRef } from 'react';
 import { ceilRowHeight, type TranscriptVirtualizer } from './transcript-list-geometry';
+import { rowIsStreaming } from './transcript-list-held-shrinks';
 
 const PENDING_SELECTOR = '[data-transcript-pending]';
 const ROW_CONTENT = 'transcript-virtual-row-content';
@@ -125,7 +126,9 @@ export function useProvisionalRowResize({
         (!fallback || size < held)
       ) {
         watchProvisional(element);
-        coreResizeItem(index, following || fallback ? Math.max(held, size) : held);
+        // A finished reply's unparsed box is not a size it ever has: only a reply still arriving outgrows its estimate.
+        const grows = fallback || (following && rowIsStreaming(element));
+        coreResizeItem(index, grows ? Math.max(held, size) : held);
         return;
       }
       if (element && !pending && provisionalRows.current.delete(element)) {

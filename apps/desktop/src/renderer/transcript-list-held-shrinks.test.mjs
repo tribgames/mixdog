@@ -568,6 +568,48 @@ test('provisional row settles on DOM commit via MutationObserver without rAF pol
   assert.equal(core.itemSizeCache.get('reply'), 188, 'settles immediately on DOM mutation commit');
 });
 
+test('a finished reply opened at the end keeps its learned height while its markdown is unparsed; one still arriving grows', async (t) => {
+  const { root, document, window } = installTestDom(t, {
+    rootId: 'root',
+    expose: ['Node', 'Element', 'HTMLElement', 'MutationObserver'],
+  });
+  window.requestAnimationFrame = () => 1;
+  window.cancelAnimationFrame = () => {};
+  const { useProvisionalRowResize } = await import('./transcript-list-provisional-resize.ts');
+  const finished = pendingReplyElement(document);
+  finished.element.querySelector('.message').className = 'message';
+  const arriving = pendingReplyElement(document);
+  const keys = ['finished', 'arriving'];
+  const elements = [finished.element, arriving.element];
+  const core = {
+    options: { anchorTo: 'end', followOnAppend: false, count: 2, getItemKey: (index) => keys[index] },
+    elementsCache: new Map(keys.map((key, index) => [key, elements[index]])),
+    itemSizeCache: new Map(),
+    indexFromElement: (element) => elements.indexOf(element),
+    resizeItem: (index, size) => void core.itemSizeCache.set(keys[index], size),
+  };
+  function Harness() {
+    const virtualizerRef = useRef(core);
+    const heldEstimates = useRef(
+      new Map([
+        ['finished', 1196],
+        ['arriving', 1196],
+      ])
+    );
+    const fallbackEstimates = useRef(new Set());
+    useProvisionalRowResize({ virtualizer: core, virtualizerRef, heldEstimates, fallbackEstimates });
+    return null;
+  }
+  await act(async () => root.render(React.createElement(Harness)));
+  core.resizeItem(0, 1329);
+  core.resizeItem(1, 1329);
+  assert.equal(core.itemSizeCache.get('finished'), 1196, 'the unparsed box of a finished reply moves nothing');
+  assert.equal(core.itemSizeCache.get('arriving'), 1329, 'a reply still arriving takes the room it needs');
+  finished.parse(1250);
+  await Promise.resolve();
+  assert.equal(core.itemSizeCache.get('finished'), 1250, 'the parsed box is the size it settles at');
+});
+
 test('settling a held shrink re-reads the connected element live box height instead of replaying a stale dip', async () => {
   const { HELD_SHRINK_WINDOW_MS } = await import('./transcript-list-held-shrinks.ts');
   let clock = 1_000;
