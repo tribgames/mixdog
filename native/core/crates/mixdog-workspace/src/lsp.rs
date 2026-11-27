@@ -3157,6 +3157,7 @@ mod tests {
             mixdog_rt::time::sleep(Duration::from_millis(10)).await;
         }
         assert_eq!(pm.killed.lock().unwrap().len(), 2, "both cancelled servers must be killed");
+        let stopped: Vec<_> = lsp.state.lock().unwrap().stopping.values().map(|stopping| stopping.done.clone()).collect();
         for h in &old_handles {
             pm.emit_exit(h);
         }
@@ -3165,6 +3166,10 @@ mod tests {
             mixdog_rt::time::timeout(Duration::from_secs(2), replacement).await.expect("replacement must start cleanly once stopping server exits").unwrap();
         assert_eq!(replaced["status"], "ready");
         assert_eq!(pm.spawn_count.load(Ordering::SeqCst), 3);
+        // The replacement waits for its own key's server only: the other one's stop ends on its own task.
+        for mut done in stopped {
+            let _ = done.changed().await;
+        }
         assert!(lsp.state.lock().unwrap().stopping.is_empty());
 
         pm.hold_exit.store(false, Ordering::SeqCst);

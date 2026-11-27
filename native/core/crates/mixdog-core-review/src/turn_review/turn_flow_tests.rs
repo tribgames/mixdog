@@ -621,8 +621,18 @@ async fn two_cancelled_starts_behind_mutation_lock_keep_both_close_markers_and_s
     let _ = rig.review.complete_turn("s1", Some(&t3)).await;
 
     assert!(rig.review.inner.reg().closed_before_open.is_empty(), "all consumed close markers cleared");
-    assert!(matches!(rig.changes("cp2").await["status"].as_str(), Some("none" | "missing")));
-    assert!(matches!(rig.changes("cp3").await["status"].as_str(), Some("none" | "missing")));
+    // Whichever of the two opened first is sealed by the other's start, on a task of its own: its changes read `pending` until
+    // that seal lands.
+    for checkpoint in ["cp2", "cp3"] {
+        let status = loop {
+            let changes = rig.changes(checkpoint).await;
+            if changes["status"] != "pending" {
+                break changes["status"].clone();
+            }
+            tokio::task::yield_now().await;
+        };
+        assert!(matches!(status.as_str(), Some("none" | "missing")), "{checkpoint}: {status}");
+    }
 
     // Next real turn adopts the parked worker review.
     rig.begin("cp4").await;
