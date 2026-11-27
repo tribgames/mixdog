@@ -1067,6 +1067,7 @@ impl Served {
         let result = match method {
             "initialize" => {
                 self.initialized.store(true, Ordering::SeqCst);
+                mixdog_rt::turn_trace!("[acp] session={} the agent connected to its tool server", self.thread.as_str());
                 let asked = params.get("protocolVersion").and_then(Value::as_str).unwrap_or_default();
                 let version = PROTOCOL_VERSIONS.iter().find(|version| **version == asked).unwrap_or(&PROTOCOL_VERSIONS[0]);
                 Ok(json!({
@@ -1076,7 +1077,13 @@ impl Served {
                 }))
             }
             "ping" => Ok(json!({})),
-            "tools/list" => self.tools.definitions(&self.thread).await.map(|definitions| {
+            "tools/list" => {
+                let listing = tokio::time::Instant::now();
+                let definitions = self.tools.definitions(&self.thread).await;
+                mixdog_rt::turn_trace!("[acp] session={} the session's tools were listed for the agent in {}ms", self.thread.as_str(), listing.elapsed().as_millis());
+                definitions
+            }
+            .map(|definitions| {
                 let (tools, excluded) = repair_tools_for_gemini(definitions);
                 let digest = tools_digest(&tools);
                 *self.served_digest.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(digest);

@@ -811,10 +811,12 @@ impl AgentSession {
         let closes = offered(capabilities.pointer("/agentCapabilities/sessionCapabilities/close"));
         // Compute the tool-definition digest before any remote open RPC so once `remote_open` returns
         // there are zero `.await` points before `SharedServer::register` and `OwnedSession` construction.
+        let digesting = tokio::time::Instant::now();
         let open_tools_digest = match &handed {
             Some(handed) => handed.current_digest().await,
             None => None,
         };
+        let digested = digesting.elapsed();
         // Mixdog's prompt for the session, and, with the tools handed over, the word to prefer them where the preset
         // appends it. It goes with every open of the agent's session, a reopen included, as do the agent's settings.
         let preference = (handed.is_some() && quirks.append_tool_guidance).then(crate::mcp::preference);
@@ -905,6 +907,7 @@ impl AgentSession {
             };
             Ok((session_id, answer, remote_guard, restarted, opened_fresh))
         };
+        let opening = tokio::time::Instant::now();
         let (session_id, answer, remote_guard, restarted, opened_fresh) = match rpc_timeout {
             Some(limit) if limit.is_zero() => return Err(OpenSharedError::TimedOut),
             // The limit is on a server that says nothing: one that serves its other sessions meanwhile is slow, and
@@ -928,6 +931,11 @@ impl AgentSession {
             }
             None => remote_open.await.map_err(OpenSharedError::Fault)?,
         };
+        mixdog_rt::turn_trace!(
+            "[acp] agent session {session_id} opened: the tools' digest took {}ms, the agent's answer {}ms",
+            digested.as_millis(),
+            opening.elapsed().as_millis()
+        );
         // A session that does not hold the prompt yet, in an agent whose system prompt takes none: its next prompt carries it.
         let holds = !opened_fresh && open.stored.as_deref() == Some(session_id.as_str()) && prompt == open.held;
         let unsent = appendix.filter(|_| appended.is_none() && !holds);
