@@ -142,6 +142,7 @@ impl Owned {
             cwd_startup_entries: None,
             config: Some(&self.config),
             workflow_context: &self.request.target.pack_context,
+            workflow_id: self.request.target.summary.get("id").and_then(Value::as_str).unwrap_or_default(),
             orchestration_context: &self.request.target.orchestration_context,
             agent_catalog_context: &self.request.target.agent_catalog_context,
             contact_catalog_context: &self.request.target.contact_catalog_context,

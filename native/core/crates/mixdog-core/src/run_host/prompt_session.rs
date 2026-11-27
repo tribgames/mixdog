@@ -214,6 +214,8 @@ pub struct SessionPromptInput<'a> {
     /// `promptConfigSlice(opts.promptConfig)`; `None` reads the config file.
     pub config: Option<&'a Value>,
     pub workflow_context: &'a str,
+    /// The id of the workflow `workflow_context` is the pack of.
+    pub workflow_id: &'a str,
     /// `opts.leadWorkflowParts` (ignored for an agent-owned session).
     pub orchestration_context: &'a str,
     pub agent_catalog_context: &'a str,
@@ -472,6 +474,7 @@ pub fn compose_session_prompt(input: &SessionPromptInput, paths: &PromptPaths, s
     let sections = OwnedSections {
         meta: meta_context,
         workflow: workflow.to_owned(),
+        workflow_id: part(input.workflow_id).to_owned(),
         workflow_name: None,
         orchestration: if coding_lead { input.orchestration_context.to_owned() } else { String::new() },
         orchestration_mode: if coding_lead { input.orchestration_mode.to_owned() } else { String::new() },

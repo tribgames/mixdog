@@ -642,9 +642,9 @@ impl LeadSurfaceHost {
     }
 
     /// The prompt sections a conversation's settings are compared with, as they stand now
-    /// (`promptSettingsSections`): the prompt composition's own, over the thread's workflow, denials and route.
+    /// (`promptSettingsSections`): the prompt composition's own, over the thread's workflow and mode, denials and route.
     async fn current_prompt(&self, thread: &ThreadId, header: &Header) -> Result<SessionPrompt, String> {
-        self.composed(thread, header, "", None).await.map(|(prompt, _)| prompt)
+        self.composed(thread, header).await.map(|(prompt, _)| prompt)
     }
 
     /// The chooser can already hold the next turn's pick. Compose for the seated route.
@@ -657,12 +657,13 @@ impl LeadSurfaceHost {
         (clean(route.get("provider")), clean(route.get("model")))
     }
 
-    /// The prompt composition over the workflow `workflow_id` names in `mode` (the config's active workflow for none), and
-    /// the tools that workflow and the live gates deny (`liveDeniedTools`), which the prompt was composed without.
-    async fn composed(&self, thread: &ThreadId, header: &Header, workflow_id: &str, mode: Option<&str>) -> Result<(SessionPrompt, Vec<String>), String> {
+    /// The prompt composition over the workflow and orchestration mode the thread's header pins, and the tools that
+    /// workflow and the live gates deny (`liveDeniedTools`), which the prompt was composed without.
+    async fn composed(&self, thread: &ThreadId, header: &Header) -> Result<(SessionPrompt, Vec<String>), String> {
         let s = &self.sources;
         let (provider, model) = self.seated_route(thread, header);
-        let target = s.workflow.target(header, workflow_id, mode).await.map_err(String::from)?;
+        let workflow_id = header.get("workflow").and_then(|workflow| workflow.get("id")).and_then(Value::as_str).unwrap_or_default();
+        let target = s.workflow.target(header, workflow_id, Some(current_mode(header).as_str())).await.map_err(String::from)?;
         let denied = self.live_denied(header, &target.summary).await?;
         let allowed = self.honored_allowlist(header);
         let has_git_tool = doc_names(header.get("tools")).iter().chain(doc_names(header.get("deferredToolCatalog")).iter()).any(|name| name == "git");
@@ -693,9 +694,7 @@ impl LeadSurfaceHost {
                     return Ok(None);
                 }
             }
-            let workflow_id = header.get("workflow").and_then(|workflow| workflow.get("id")).and_then(Value::as_str).unwrap_or_default();
-            let (composed, denied) =
-                self.composed(thread, &header, workflow_id, Some(current_mode(&header).as_str())).await.map_err(|message| failed("tools", message))?;
+            let (composed, denied) = self.composed(thread, &header).await.map_err(|message| failed("tools", message))?;
             let (next, _) = self.folded_prompt(thread, &header, &composed, &denied, point).map_err(|message| failed("tools", message))?;
             let change = header_diff(&header, &next);
             // The stored header may already be the folded one (another writer's fold, or this one's after a lost race): the

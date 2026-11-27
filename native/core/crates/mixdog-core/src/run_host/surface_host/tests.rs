@@ -524,6 +524,109 @@ mod unloading {
         }
     }
 
+    /// The configured selection is the "configured" pack in Solo (`none`); a thread names its own. `.0` holds each
+    /// mode's instructions, which a test edits.
+    struct Modes(Mutex<HashMap<&'static str, &'static str>>);
+    #[async_trait]
+    impl WorkflowSurface for Modes {
+        async fn target(&self, _: &Header, workflow_id: &str, mode: Option<&str>) -> Result<WorkflowTarget, SurfaceFailure> {
+            let workflow = if workflow_id.is_empty() { "configured" } else { workflow_id };
+            let mode = mode.unwrap_or("none");
+            Ok(WorkflowTarget {
+                summary: json!({ "id": workflow, "name": workflow }),
+                orchestration_mode: mode.to_owned(),
+                pack_context: format!("# Workflow: {workflow}"),
+                orchestration_context: self.0.lock().expect("modes")[mode].to_owned(),
+                agent_catalog_context: String::new(),
+                contact_catalog_context: String::new(),
+            })
+        }
+        async fn live_denied_tools(&self, _: &Header, _: &Value) -> Result<Vec<String>, SurfaceFailure> {
+            Ok(Vec::new())
+        }
+        async fn internal_tools(&self, _: &Header) -> Result<Vec<Value>, SurfaceFailure> {
+            Ok(Vec::new())
+        }
+        async fn orchestration_instructions(&self, _: &str) -> Result<String, SurfaceFailure> {
+            Ok(String::new())
+        }
+    }
+
+    fn target_sections(target: &WorkflowTarget) -> OwnedSections {
+        OwnedSections {
+            workflow: target.pack_context.clone(),
+            workflow_id: target.summary["id"].as_str().unwrap_or_default().to_owned(),
+            orchestration: target.orchestration_context.clone(),
+            orchestration_mode: target.orchestration_mode.clone(),
+            ..OwnedSections::default()
+        }
+    }
+
+    /// Composes the sections of the workflow target it is asked for, over the blocks [`compacted`] stores.
+    struct FromTarget;
+    #[async_trait]
+    impl PromptRebuild for FromTarget {
+        async fn rebuild(&self, request: RebuildRequest) -> Result<SessionPrompt, String> {
+            let sections = target_sections(&request.target);
+            Ok(SessionPrompt {
+                blocks: SystemBlocks {
+                    base: Some("base".into()),
+                    stable: Some("stable".into()),
+                    core: Some("old core".into()),
+                    env: Some("env".into()),
+                    ..SystemBlocks::default()
+                },
+                environment_tail: String::new(),
+                prompt_identity: json!({}),
+                prompt_settings: sections.record(),
+                sections,
+                response_language: Value::Null,
+                profile_revision: String::new(),
+            })
+        }
+    }
+
+    /// A conversation pinned to its own workflow and orchestration mode is told what its next fold presents: a turn start
+    /// where nothing of its own moved carries no settings notice although the configured workflow and mode differ, an
+    /// edit of the configured mode's instructions is not told to it, and an edit of its own mode's is. A switch of its
+    /// workflow is told by the switch's reminder alone.
+    #[tokio::test]
+    async fn a_conversations_settings_notice_follows_its_own_workflow_and_mode() {
+        let modes = Arc::new(Modes(Mutex::new(HashMap::from([("none", "# Solo\nWork alone."), ("swarm", "# Swarm\nDelegate.")]))));
+        let presented = target_sections(&modes.target(&Header::new(), "pinned", Some("swarm")).await.expect("target")).record();
+        let header = compacted(json!({ "workflow": { "id": "pinned" }, "orchestrationMode": "swarm", "promptSettings": presented }));
+        let store = Arc::new(Store(Mutex::new(header)));
+        let host = host_with(store.clone(), Arc::new(FromTarget), modes.clone());
+        let thread = ThreadId::from("t");
+        let carried = || mixdog_core_prompt::prompt::notice::snapshot_pending(&store.0.lock().expect("store")).map(|(_, content)| content);
+
+        host.reconcile(&thread, true).await.expect("a turn start");
+        assert_eq!(carried(), None, "nothing of the conversation's own settings moved");
+
+        modes.0.lock().expect("modes").insert("none", "# Solo\nWork alone, always.");
+        host.reconcile(&thread, true).await.expect("the turn start after the configured mode's instructions were edited");
+        assert_eq!(carried(), None, "the configured mode is not the conversation's");
+
+        modes.0.lock().expect("modes").insert("swarm", "# Swarm\nDelegate every scope.");
+        host.reconcile(&thread, true).await.expect("the turn start after its own mode's instructions were edited");
+        let told = carried().expect("its own mode's edit is told");
+        assert!(told.contains("The Swarm orchestration mode instructions were edited") && told.contains("+ Delegate every scope."), "{told}");
+
+        let mut header = store.0.lock().expect("store").clone();
+        let revision = mixdog_core_prompt::prompt::notice::snapshot_pending(&header).expect("the edit's notice").0;
+        mixdog_core_prompt::prompt::notice::acknowledge_pending(&mut header, revision);
+        let facts = mixdog_core_session::session::thread_switches::Facts { now: 1, in_flight: false, conversation: true };
+        mixdog_core_session::session::thread_switches::switch_workflow(&mut header, &facts, &*modes, "other")
+            .await
+            .expect("the session's workflow switches")
+            .expect("a conversation switches at once");
+        *store.0.lock().expect("store") = header;
+        host.reconcile(&thread, true).await.expect("the turn start after the session's workflow switched");
+        let stored = store.0.lock().expect("store").clone();
+        assert!(mixdog_core_session::session::reminders::workflow_notice(&stored).is_some(), "the switch's reminder is carried");
+        assert_eq!(carried(), None, "and no settings notice tells the switch again");
+    }
+
     /// Without a compaction's mark the same conversation keeps its prompt at a warm turn start, whatever moved.
     #[tokio::test]
     async fn a_warm_turn_start_with_no_fold_owed_keeps_its_prompt() {

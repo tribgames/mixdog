@@ -20,6 +20,8 @@ static SKILL_NAME: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^-
 pub struct Sections<'a> {
     pub meta: &'a str,
     pub workflow: &'a str,
+    /// The id of the workflow `workflow` is the pack of.
+    pub workflow_id: &'a str,
     pub orchestration: &'a str,
     pub orchestration_mode: &'a str,
     pub skills: &'a str,
@@ -65,6 +67,9 @@ pub fn prompt_settings_record(sections: &Sections) -> Value {
     let text = |value: &str| Value::String(value.to_owned());
     let mut texts = Map::new();
     texts.insert("meta".into(), text(sections.meta));
+    if !sections.workflow_id.is_empty() {
+        texts.insert("workflowId".into(), text(sections.workflow_id));
+    }
     texts.insert("orchestration".into(), text(sections.orchestration));
     texts.insert("orchestrationMode".into(), text(sections.orchestration_mode));
     texts.insert("instructionFiles".into(), text(sections.instruction_files));

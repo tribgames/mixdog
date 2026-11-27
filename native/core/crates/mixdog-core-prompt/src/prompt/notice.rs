@@ -50,6 +50,7 @@ const NOTICE_CLOSE: &str = "</system-reminder>";
 pub struct OwnedSections {
     pub meta: String,
     pub workflow: String,
+    pub workflow_id: String,
     pub workflow_name: Option<String>,
     pub orchestration: String,
     pub orchestration_mode: String,
@@ -67,6 +68,7 @@ impl OwnedSections {
         Sections {
             meta: &self.meta,
             workflow: &self.workflow,
+            workflow_id: &self.workflow_id,
             orchestration: &self.orchestration,
             orchestration_mode: &self.orchestration_mode,
             skills: &self.skills,
@@ -464,10 +466,7 @@ fn notice_items(keys: &[String], sections: &OwnedSections, told: &Map<String, Va
         }
         match key {
             "meta" => add_meta_items(&mut items, sections, told),
-            "workflow" => {
-                let name = sections.workflow_name.as_deref().filter(|name| !name.is_empty()).map_or_else(|| "active".to_owned(), |name| format!("\"{name}\""));
-                add(&mut items, key, format!("# Workflow\nThe {name} workflow pack changed; {LATER}"), None, None);
-            }
+            "workflow" => add_workflow_item(&mut items, sections, told),
             "orchestration" => add_orchestration_item(&mut items, sections, told),
             "skills" => {
                 let full = skills_section(told, sections);
@@ -509,6 +508,17 @@ fn add_meta_items(items: &mut Vec<Item>, sections: &OwnedSections, told: &Map<St
             add(items, "meta", part, Some(format!("# Profile\n{lines} profile preference lines changed; {LATER}")), None);
         }
     }
+}
+
+/// The pack of the active workflow was edited. A switch to another workflow is the workflow-switch notice's, and a
+/// record that predates the workflow's id has nothing to compare.
+fn add_workflow_item(items: &mut Vec<Item>, sections: &OwnedSections, told: &Map<String, Value>) {
+    let id = sections.workflow_id.as_str();
+    if id.is_empty() || told_text(told, "workflowId") != id {
+        return;
+    }
+    let name = sections.workflow_name.as_deref().filter(|name| !name.is_empty()).map_or_else(|| "active".to_owned(), |name| format!("\"{name}\""));
+    add(items, "workflow", format!("# Workflow\nThe {name} workflow pack changed; {LATER}"), None, None);
 }
 
 /// The text of the active mode was edited. A switch to another mode is the mode-switch notice's, and a
@@ -726,6 +736,7 @@ fn store_notice(session: &mut Header, built: Built, record: Value, fresh: Vec<St
 fn texts_fields(key: &str) -> &'static [&'static str] {
     match key {
         "meta" => &["meta"],
+        "workflow" => &["workflowId"],
         "orchestration" => &["orchestration", "orchestrationMode"],
         "instructionFiles" => &["instructionFiles", "instructionFilesMode"],
         "coreMemory" => &["coreMemory"],

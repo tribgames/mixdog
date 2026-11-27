@@ -109,6 +109,7 @@ fn a_response_language_change_names_the_new_language_or_says_it_is_gone() {
 fn workflow_core_memory_and_orchestration_changes_are_each_told_in_their_own_section() {
     let was = OwnedSections {
         workflow: "w1".into(),
+        workflow_id: "pack".into(),
         workflow_name: Some("pack".into()),
         core_memory: "remember x".into(),
         orchestration: "plan first".into(),
