@@ -24,6 +24,7 @@ use super::SessionDirectory;
 use super::seams::RunOutcome;
 use super::testing::Rig;
 use super::testing::lock;
+use super::tests::caught_up;
 use super::tests::start_thread;
 use super::tests::turn;
 use crate::eventually_on;
@@ -262,6 +263,10 @@ async fn unloading_cold_opened_session_cancels_and_joins_in_flight_resumed_tools
     let opened = second.open_handle(&id, &CallContext::internal("test")).await.expect("open");
 
     mixdog_rt::time::timeout(Duration::from_secs(5), gated.entered.notified()).await.expect("refresh entered");
+    // An idle deadline that finds the open's own Goal continuation decision on its way keeps the thread loaded; the flag is
+    // read after the actor has published the open's step.
+    caught_up(&opened).await;
+    eventually_on!(&[&opened.cell.stepped], || (!opened.cell.goal_pending.load(Ordering::SeqCst)).then_some(())).await;
 
     // Unload while `refreshed` is still blocked on `gate` (never notified before unload completes).
     opened.inbox.send(super::actor::Inbox::IdleDue).await.expect("send idle due");

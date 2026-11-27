@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
-import { PS_INPUT } from './ps-input.ts';
+import { loadComputerSource } from './native-assets.ts';
 
 test('native predicate reads report empty, truncated and incomplete provider coverage', {
   skip: process.platform !== 'win32' && 'Windows only',
@@ -23,7 +23,7 @@ Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 $AE = [System.Windows.Automation.AutomationElement];
 $TS = [System.Windows.Automation.TreeScope];
-${PS_INPUT}
+${loadComputerSource('input-window.ps1')}
 function Format-ObservationValue($value, $maximum = 120) {
   return ([string]$value).Substring(0, [Math]::Min(([string]$value).Length, $maximum))
 }
@@ -78,7 +78,7 @@ $rows | ConvertTo-Json -Compress -Depth 6
     const { stdout } = await promisify(execFile)(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path],
-      { windowsHide: true, timeout: 10_000 }
+      { windowsHide: true }
     );
     const results = JSON.parse(stdout.trim());
     assert.deepEqual(
