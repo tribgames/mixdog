@@ -1378,42 +1378,67 @@ const WRITE_WORK: usize = LOADED + 8;
 const WRITE_READS: usize = 8;
 
 /// The product's store answering every load whole: the registry over it is what a registry fed deltas is compared with.
-struct Whole(Arc<StoreWorkers>);
+/// While held ([`Self::hold_writes`]), its map writes wait here instead of reaching the store.
+struct Whole {
+    workers: Arc<StoreWorkers>,
+    held: Mutex<Option<Vec<(String, Option<Row>)>>>,
+}
+
+impl Whole {
+    fn new(workers: Arc<StoreWorkers>) -> Self {
+        Self { workers, held: Mutex::default() }
+    }
+
+    fn hold_writes(&self) {
+        *self.held.lock().unwrap() = Some(Vec::new());
+    }
+
+    /// The writes held reach the store in order, and the next ones go straight there.
+    fn release_writes(&self) {
+        let held = self.held.lock().unwrap().take().unwrap_or_default();
+        for (session, worker) in held {
+            WorkerStore::write(&*self.workers, &session, worker);
+        }
+    }
+}
 
 #[async_trait]
 impl WorkerStore for Whole {
     async fn index_since(&self, _: Option<Revision>) -> Result<Index, String> {
-        self.0.index_since(None).await
+        self.workers.index_since(None).await
     }
     async fn worker_maps(&self) -> Result<Vec<(String, Row)>, String> {
-        WorkerStore::worker_maps(&*self.0).await
+        WorkerStore::worker_maps(&*self.workers).await
     }
     async fn agent_sessions(&self) -> Result<Vec<Row>, String> {
-        WorkerStore::agent_sessions(&*self.0).await
+        WorkerStore::agent_sessions(&*self.workers).await
     }
     async fn header(&self, session: &str) -> Result<Option<Row>, String> {
-        WorkerStore::header(&*self.0, session).await
+        WorkerStore::header(&*self.workers, session).await
     }
     async fn is_directory(&self, _: &str) -> bool {
         false
     }
     fn write(&self, session: &str, worker: Option<Row>) {
-        WorkerStore::write(&*self.0, session, worker);
+        match self.held.lock().unwrap().as_mut() {
+            Some(held) => held.push((session.to_owned(), worker)),
+            None => WorkerStore::write(&*self.workers, session, worker),
+        }
     }
     fn keep(&self, session: &str, worker: Option<Row>) {
-        WorkerStore::keep(&*self.0, session, worker);
+        WorkerStore::keep(&*self.workers, session, worker);
     }
     fn kept(&self, session: &str) -> bool {
-        WorkerStore::kept(&*self.0, session)
+        WorkerStore::kept(&*self.workers, session)
     }
     fn kept_sessions(&self) -> Vec<String> {
-        WorkerStore::kept_sessions(&*self.0)
+        WorkerStore::kept_sessions(&*self.workers)
     }
     fn bound(&self, session: &str) -> Option<Bound> {
-        WorkerStore::bound(&*self.0, session)
+        WorkerStore::bound(&*self.workers, session)
     }
     fn release(&self, receipt: &ReleaseReceipt, again: bool) -> ReleaseDone {
-        WorkerStore::release(&*self.0, receipt, again)
+        WorkerStore::release(&*self.workers, receipt, again)
     }
 }
 
@@ -3406,7 +3431,8 @@ async fn a_worker_row_another_connection_wrote_is_seen_by_the_next_load() {
 async fn a_registry_fed_deltas_holds_what_one_that_loads_the_whole_index_holds() {
     let dir = tempfile::tempdir().unwrap();
     let core = Core::up(dir.path()).await;
-    let whole = AgentRegistry::new(Arc::new(Whole(core.workers.clone())), core.directory.clone(), Arc::new(Hour), Arc::new(TestClock(AtomicI64::new(NOW))));
+    let whole_store = Arc::new(Whole::new(core.workers.clone()));
+    let whole = AgentRegistry::new(whole_store.clone(), core.directory.clone(), Arc::new(Hour), Arc::new(TestClock(AtomicI64::new(NOW))));
     let lead = core.start("op-lead", json!({})).await.as_str().to_owned();
     let owned = json!({ "parentSessionId": lead, "ownerSessionId": lead });
     let mut own: Vec<(Row, String)> = Vec::new();
@@ -3451,9 +3477,14 @@ async fn a_registry_fed_deltas_holds_what_one_that_loads_the_whole_index_holds()
                     registry.remove_worker_row(&id);
                 }
             }
+            // A forget reads the index first: each reads it as both held it, the whole one first with its write held back, so
+            // neither reads the other's write, which lands whenever the store gets to it.
             4 => {
+                whole_store.hold_writes();
+                let whole_forgot = whole.forget_deleted_session(&id).await;
                 let forgot = core.registry.forget_deleted_session(&id).await;
-                assert_eq!(whole.forget_deleted_session(&id).await, forgot, "forget, step {step}");
+                whole_store.release_writes();
+                assert_eq!(whole_forgot, forgot, "forget, step {step}");
             }
             5 | 6 if !foreign.is_empty() => {
                 // Another process writes a worker map, or removes it.

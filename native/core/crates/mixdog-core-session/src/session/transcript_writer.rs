@@ -686,14 +686,19 @@ mod tests {
         assert!(!text.contains("secret-token-xyz"), "redaction waited for retiring writer: {text}");
         assert_eq!((r.files.writers_held(), r.files.draining_held()), (0, 0));
 
-        // Retire followed immediately by purge still fences the draining writer, returns its path, and blocks future turns.
-        {
-            let turn = r.files.turn(SESSION, &r.header, &[]).unwrap();
-            turn.user(&json!("last prompt"));
-        }
-        let ((), purged) = tokio::join!(r.files.retire(SESSION), r.files.purge(SESSION));
+        // Retire followed immediately by purge still fences the draining writer, returns its path, and blocks future turns. The
+        // turn's sender keeps the retired writer draining until the purge has fenced it: with none left, the writer may end
+        // and leave the draining set before the purge looks.
+        let turn = r.files.turn(SESSION, &r.header, &[]).unwrap();
+        turn.user(&json!("last prompt"));
+        let retire = r.files.retire(SESSION);
+        tokio::pin!(retire);
+        assert!(futures::poll!(retire.as_mut()).is_pending(), "the retired writer drains");
+        let purged = r.files.purge(SESSION).await;
         assert!(purged.contains(&r.path), "purge fenced the retiring writer and returned its path");
         assert!(r.files.turn(SESSION, &r.header, &[]).is_none(), "purged session cannot reopen a writer");
+        drop(turn);
+        retire.await;
         assert_eq!((r.files.writers_held(), r.files.draining_held()), (0, 0));
     }
 }

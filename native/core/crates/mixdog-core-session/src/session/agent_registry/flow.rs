@@ -1297,24 +1297,24 @@ mod tests {
         let store = crate::session::testing::CallCounted::new(rig.store.clone());
         let directory = Arc::new(SessionDirectory::new(rig.deps_on(store.clone())));
         let handle = crate::session::tests::start_thread(&directory).await;
-        let turns = Arc::new(SessionTurns::new(directory, Arc::new(Released(Mutex::default()))));
+        let turns = SessionTurns::new(directory, Arc::new(Released(Mutex::default())));
         let (request, staged) = staged_request(&handle.id, "sub-count");
         let mut held = store.hold("context_len");
-        // The lines are their thread's: the turn runs on the runtime's one worker.
-        let run = tokio::spawn({
-            let session = handle.id.clone();
-            async move {
-                let (lines, _guard) = mixdog_rt::node_log::capture_trace();
-                let result = turns.run_turn(request).await;
-                (result, stage_lines(&lines, &session))
-            }
+        let told = staged.told.clone();
+        let released = tokio::spawn(async move {
+            held.entered("context_len").await;
+            let at_hold = told.lock().unwrap().clone();
+            held.release();
+            at_hold
         });
-        held.entered("context_len").await;
-        assert_eq!(staged.told(), [TurnStage::Admitted, TurnStage::Opening, TurnStage::Counting]);
-        held.release();
-        let (result, logged) = run.await.expect("joined");
+        // The lines are their thread's, so the turn runs on the test's own, where `block_on` polls it throughout: a task on a
+        // worker goes on on another thread once the held call's wait hands the worker to one.
+        let (lines, _guard) = mixdog_rt::node_log::capture_trace();
+        let result = turns.run_turn(request).await;
+        assert_eq!(released.await.expect("joined"), [TurnStage::Admitted, TurnStage::Opening, TurnStage::Counting]);
         assert_eq!(result.expect("turn").content, "done");
         assert_eq!(staged.told(), [TurnStage::Admitted, TurnStage::Opening, TurnStage::Counting, TurnStage::Starting, TurnStage::Started]);
+        let logged = stage_lines(&lines, &handle.id);
         let passed: Vec<&str> = logged.iter().filter_map(|line| line.split_once(" ms=").map(|(stage, _)| stage)).collect();
         assert_eq!(passed, ["stage=opening", "stage=counting-after-open", "stage=starting"], "{logged:?}");
     }

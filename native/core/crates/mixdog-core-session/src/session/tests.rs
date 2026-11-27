@@ -5612,7 +5612,11 @@ impl super::seams::Transcript for PositionedText {
 
 /// A directory over the real store whose thread feeds are the core's, which hold positioned grants.
 fn positioned_directory(rig: &Rig, store: Arc<dyn super::ThreadStore>) -> SessionDirectory {
-    let mut deps = rig.deps_parts(store);
+    positioned_over(rig.deps_parts(store))
+}
+
+/// [`positioned_directory`] over `deps`, for a test that swaps one of them.
+fn positioned_over(mut deps: super::SessionDeps) -> SessionDirectory {
     deps.transcript = Arc::new(PositionedText);
     deps.feeds = Arc::new(super::store::CoreThreadFeeds::new(&mixdog_app_protocol::limits::Limits::default(), mixdog_rt::testing::tokens().cpu_interactive));
     SessionDirectory::new(Arc::new(deps))
@@ -5860,7 +5864,13 @@ async fn a_message_taking_over_the_turn_leaves_the_queue_with_its_row_while_a_re
     let store = super::testing::CallCounted::paging(real_store(data.path()).await);
     let rig = Rig::new();
     first_runs_until_cancelled(&rig);
-    let directory = positioned_directory(&rig, store.clone());
+    // The message starts once the turn it takes over is settled: that settle waits until B's demand holds the line. The
+    // turn before it settles at once.
+    let settle: Arc<tokio::sync::Notify> = Arc::default();
+    settle.notify_one();
+    let mut deps = rig.deps_parts(store.clone());
+    deps.goals = Arc::new(HeldSettle { goals: rig.goals.clone(), release: settle.clone(), settled: Arc::default() });
+    let directory = positioned_over(deps);
     let handle = start_thread(&directory).await;
     turn(&handle, "zero", "op-0").await;
     stored_rows(&handle, 0).await;
@@ -5874,8 +5884,6 @@ async fn a_message_taking_over_the_turn_leaves_the_queue_with_its_row_while_a_re
     turn(&handle, "first", "op-1").await;
     let running = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await.turn.clone();
     let queued = turn(&handle, "next", "op-2").await;
-    // The message's start waits at a held lane while the turn it takes over ends.
-    let io = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::InteractiveIo);
     let params = json!({ "threadId": id, "opId": "op-3", "turnId": running, "queuedId": queued["queuedId"] });
     let Reply::Value(receipt) = handle.request(request("turn/takeover", params, "op-3")).await.expect("the takeover") else {
         panic!("a takeover answers its receipt");
@@ -5893,8 +5901,8 @@ async fn a_message_taking_over_the_turn_leaves_the_queue_with_its_row_while_a_re
         _ = &mut asked => panic!("the demand was answered while its read was held"),
         () = async {
             caught_up(&handle).await;
-            drop(io);
             read.entered("unit_page").await;
+            settle.notify_one();
             let landed = || handle.cell.run.load_full().is_some_and(|run| run.turn != running) && handle.cell.unacked.load(std::sync::atomic::Ordering::SeqCst) == 0;
             eventually_on!(&[&handle.cell.stepped], || landed().then_some(())).await;
             caught_up(&handle).await;
