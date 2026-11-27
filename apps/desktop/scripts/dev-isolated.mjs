@@ -11,7 +11,7 @@
 //   Each session owns its own instance; `ensure` and `capture` reuse only the calling session's instance
 //   (never another agent's) and automatically rebuild if any file read by the build changed.
 //   Clients reach CDP through the supervisor, so any attached CDP client pauses idle shutdown and its
-//   disconnect starts the backstop idle period (7 min, matching runtime IDLE_RELEASE_MS in
+//   disconnect starts the backstop idle period (10 min, matching runtime IDLE_RELEASE_MS in
 //   native/core/crates/mixdog-agent/src/agent_tool/idle_release.rs).
 //
 // Every start hands the instance the provider sign-ins kept in the kept dev profile's dev-isolated-auth folder,
@@ -85,7 +85,7 @@ export const DEFAULT_TTL_MS = 2 * 60 * 60 * 1000;
 export const DEFAULT_START_TIMEOUT_MS = 300_000;
 /** Where the runtime defines the idle-agent parking period (`IDLE_RELEASE_MS`). */
 export const RUNTIME_IDLE_RELEASE_SOURCE = 'native/core/crates/mixdog-agent/src/agent_tool/idle_release.rs';
-const FALLBACK_IDLE_MS = 420_000;
+const FALLBACK_IDLE_MS = 600_000;
 
 /** Reads the runtime's `IDLE_RELEASE_MS` (the time after which an idle agent is parked and cannot use
  *  the instance without a new turn) directly from the repository source. Throws if missing or renamed. */
@@ -104,9 +104,9 @@ export function readRuntimeIdleReleaseMs(repo = repoDir) {
 }
 
 // Primary ends are owner-session exit, explicit stop, and replacement on source change.
-// Backstop idle period matches the runtime's idle-agent parking period (`IDLE_RELEASE_MS`, 7 min):
+// Backstop idle period matches the runtime's idle-agent parking period (`IDLE_RELEASE_MS`, 10 min):
 // once an owning agent has been parked, it cannot use the instance without a new turn.
-// Falls back to 7 min at module load so a rename in Rust never crashes tool imports (caught by unit test).
+// Falls back to 10 min at module load so a rename in Rust never crashes tool imports (caught by unit test).
 export const DEFAULT_IDLE_MS = (() => {
   try {
     return readRuntimeIdleReleaseMs();

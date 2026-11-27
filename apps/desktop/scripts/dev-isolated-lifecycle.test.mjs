@@ -106,9 +106,9 @@ test('killInstanceProcesses never kills a recorded daemon.json or postmaster.pid
   assert.deepEqual(result.remaining, []);
 });
 
-test('DEFAULT_IDLE_MS matches runtime IDLE_RELEASE_MS (7 min) and readRuntimeIdleReleaseMs fails clearly if renamed', async (t) => {
-  assert.equal(DEFAULT_IDLE_MS, 420_000);
-  assert.equal(readRuntimeIdleReleaseMs(), 420_000);
+test('DEFAULT_IDLE_MS matches runtime IDLE_RELEASE_MS (10 min) and readRuntimeIdleReleaseMs fails clearly if renamed', async (t) => {
+  assert.equal(DEFAULT_IDLE_MS, 600_000);
+  assert.equal(readRuntimeIdleReleaseMs(), 600_000);
 
   const fakeRepo = await tempRoot(t);
   const fakeFile = join(fakeRepo, RUNTIME_IDLE_RELEASE_SOURCE);
