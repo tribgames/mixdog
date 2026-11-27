@@ -15,9 +15,9 @@
 # Windows on Arm has no leg: the x64 programs run there (scripts/npm-platforms.mjs).
 # Linux is built inside manylinux_2_28 (glibc 2.28) like the other Linux native tools, so the package's glibc floor does not
 # follow the runner's. Mixdog's Google OAuth client is embedded by the crate's build script from the two secrets (both or
-# neither). The release profile (native/core/Cargo.toml) strips the symbols and does not LTO link. Compiled crates are cached with sccache
-# (GitHub cache backend), per target and toolchain; the cache is not keyed on Cargo.lock, which Deploy rewrites on every
-# release, and a crate whose inputs did not change is a hit whatever the workspace version is.
+# neither). The release profile (native/core/Cargo.toml) strips the symbols and does not LTO link. Compiled crates are not cached:
+# sccache on the GitHub cache wrote an entry per crate and target (3.4 GB in the first half hour of run 46008650381, 395
+# refused writes on one leg) into the 10 GB the repository shares, which evicted the gate's dependency entries and its own.
 # Each program starts once on its own OS before it is uploaded (the x86_64 macOS leg cannot run its own binary).
 # Called once per run: the artifact names are unique per run.
 name: mixdogd-build
@@ -69,10 +69,6 @@ jobs:
     env:
       MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
       MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
-      # The container legs set the wrapper inside the container (linux-build-core-old-glibc.sh).
-      RUSTC_WRAPPER: ${{ !matrix.image && 'sccache' || '' }}
-      SCCACHE_GHA_ENABLED: "true"
-      SCCACHE_GHA_VERSION: mixdogd-${{ matrix.target }}-rust1.99.1-v1
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -87,8 +83,6 @@ jobs:
         with:
           toolchain: "1.99.1"
           targets: ${{ matrix.target }}
-      # The compiled crates. The container legs mount this static binary into the container.
-      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       # Deploy rewrites the workspace crates' version in Cargo.lock on every release; the digest ignores it.
       - name: Resolve the version-neutral Cargo.lock key
         id: cargo-lock
@@ -131,7 +125,6 @@ jobs:
           release="native/core/target/${{ matrix.target }}/release"
           cp "$release/mixdogd${{ matrix.exe }}" "$release/mixdog-askpass${{ matrix.exe }}" "$release/mixdog${{ matrix.exe }}" out/
           cp "scripts/rust-core/tree-helper/target/${{ matrix.target }}/release/treerun${{ matrix.exe }}" out/
-          sccache --show-stats
       # The Linux legs build in one container (the core, the terminal program and the relay): the script
       # runs the cargo invocations and leaves the programs in out/.
       - name: Build the programs (glibc 2.28)
@@ -139,10 +132,8 @@ jobs:
         run: |
           mkdir -p out "$RUNNER_TEMP/cargo-registry" "$RUNNER_TEMP/cargo-git"
           docker run --rm -e MIXDOG_GOOGLE_OAUTH_CLIENT_ID -e MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET \
-            -e SCCACHE_GHA_ENABLED -e SCCACHE_GHA_VERSION -e ACTIONS_CACHE_URL -e ACTIONS_RESULTS_URL -e ACTIONS_RUNTIME_TOKEN -e ACTIONS_CACHE_SERVICE_V2 \
             -e MIXDOG_BUILD_RELAY=${{ matrix.relay && '1' || '' }} \
             -v "$PWD:/w" -v "$RUNNER_TEMP/cargo-registry:/root/.cargo/registry" -v "$RUNNER_TEMP/cargo-git:/root/.cargo/git" \
-            -v "$(command -v sccache):/usr/local/bin/sccache:ro" \
             ${{ matrix.image }} bash /w/apps/desktop/scripts/linux-build-core-old-glibc.sh 2>&1 | tee out/build.log
           test "${PIPESTATUS[0]}" -eq 0
           rm out/build.log

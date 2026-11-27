@@ -15,7 +15,7 @@ Owner: WP-INTEGRATE. Release version: the root `package.json` `version` (checked
   against is downloaded from the same release, so it detects a corrupt download, not a
   substituted release. **Today the release builds fetch from GitHub at build time:**
   `.github/workflows/mixdogd-build.yml` and `release-gate.yml` neither cache nor vendor the
-  archive (only the cargo registry and sccache are cached). To make release builds independent
+  archive (only the cargo registry is cached). To make release builds independent
   of GitHub, the plan is:
   1. Workflow plan: the core release job restores a CI cache (`actions/cache`) of the archive
      directory keyed on the pinned crate version and target triple

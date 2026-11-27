@@ -9,9 +9,8 @@
 # caller passes them, are read by the crate's build script; the relay is built without them.
 # Each program has a cargo invocation of its own, so the features a binary is built with are the ones it always had; the
 # workspace-hack crate keeps the shared dependencies' features equal, so the second and third build reuse them.
-# With /usr/local/bin/sccache mounted (a static binary) and its cache variables passed, compiled crates are cached
-# across runs; without it the build is the same, only slower. The registry and git directories of cargo may be mounted at
-# /root/.cargo/registry and /root/.cargo/git; they are made readable by the runner user before the container ends.
+# The registry and git directories of cargo may be mounted at /root/.cargo/registry and /root/.cargo/git; they are made
+# readable by the runner user before the container ends.
 set -euo pipefail
 dnf install -y cmake pkgconf-pkg-config
 curl -fsSL -o /tmp/rustup-init.sh https://sh.rustup.rs
@@ -25,11 +24,6 @@ case "$(uname -m)" in
 x86_64) export LIBVPX_TARGET=ubuntu-22.04_x86_64 ;;
 aarch64) export LIBVPX_TARGET=ubuntu-22.04_arm64 ;;
 esac
-if [ -x /usr/local/bin/sccache ] && /usr/local/bin/sccache --version; then
-	export RUSTC_WRAPPER=/usr/local/bin/sccache
-else
-	echo "::warning::sccache is not available in the container: the build runs uncached"
-fi
 # CI leaves both unset. scripts/deploy-remote.ps1 -LocalRelayBuild sets MIXDOG_OUT_DIR (so the repo mounts read-only)
 # and MIXDOG_RELAY_ONLY=1 (it ships nothing but the relay, so the core and the terminal program are not compiled).
 out=${MIXDOG_OUT_DIR:-/w/out}
@@ -46,7 +40,6 @@ if [ "${MIXDOG_BUILD_RELAY:-}" = "1" ]; then
 		cargo build --locked --release --manifest-path "$manifest" -p mixdog-relay --bin mixdog-relay
 	cp /tmp/target/release/mixdog-relay "$out/"
 fi
-if [ -n "${RUSTC_WRAPPER:-}" ]; then "$RUSTC_WRAPPER" --show-stats || true; fi
 # The cache directories belong to root here; the runner user saves them.
 chmod -R a+rwX /root/.cargo/registry /root/.cargo/git 2>/dev/null || true
 ls -l "$out"

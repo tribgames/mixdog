@@ -2287,19 +2287,6 @@ jobs:
         with:
           path: mixdogd-store
           key: ${{ steps.store.outputs.cache-primary-key }}
-      # The Windows entry is otherwise written only by a full gate's core-build, which is nightly: main's own builds keep it too.
-      - name: Keep only the third-party dependencies in the cache (Windows)
-        if: matrix.os == 'windows' && github.ref == 'refs/heads/main' && steps.store.outputs.cache-hit != 'true' && steps.deps.outputs.cache-hit != 'true'
-        run: node scripts/ci/prune-core-target.mjs --target native/core/target --profile debug --manifest-path native/core/Cargo.toml
-      - name: Save the compiled dependencies (Windows)
-        if: matrix.os == 'windows' && github.ref == 'refs/heads/main' && steps.store.outputs.cache-hit != 'true' && steps.deps.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            D:/.cargo/registry
-            D:/.cargo/git
-            native/core/target
-          key: ${{ steps.deps.outputs.cache-primary-key }}
       - name: Upload mixdogd
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
