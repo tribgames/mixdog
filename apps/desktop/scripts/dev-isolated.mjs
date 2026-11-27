@@ -2212,6 +2212,9 @@ function waitOnLockEndpoint(port, token, remainingMs) {
           const ok = (res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300;
           finish(ok ? { ok: true, error: null } : { ok: false, error: `HTTP ${res.statusCode}` });
         });
+        res.once('close', () => {
+          if (!res.complete) finish({ ok: false, error: 'connection closed before response completed' });
+        });
         res.once('error', (error) => finish({ ok: false, error: error?.message || String(error) }));
       }
     );
@@ -2269,6 +2272,10 @@ export async function withEnsureLock(
         return;
       }
       waiters.push(res);
+      res.once('close', () => {
+        const idx = waiters.indexOf(res);
+        if (idx !== -1) waiters.splice(idx, 1);
+      });
     });
     server.setTimeout(0);
     server.requestTimeout = 0;
@@ -2295,14 +2302,36 @@ export async function withEnsureLock(
     }
     if (acquired) {
       const finish = async (payload) => {
-        settled = payload;
-        for (const res of waiters.splice(0)) {
-          res.writeHead(200, { 'Content-Type': 'application/json', Connection: 'close' });
-          res.end(JSON.stringify(payload));
+        // Remove the lockfile before waking /wait clients so woken waiters never observe our closing server.
+        try {
+          await removeLockIfMatches(file, lockRecord);
+        } finally {
+          settled = payload;
+          const closed = new Promise((resolveClose) => server.close(() => resolveClose()));
+          const body = JSON.stringify(payload);
+          const pending = waiters.splice(0).map(
+            (res) =>
+              new Promise((resolveEnd) => {
+                if (res.destroyed || res.writableEnded) {
+                  resolveEnd();
+                  return;
+                }
+                let done = false;
+                const finishRes = () => {
+                  if (done) return;
+                  done = true;
+                  resolveEnd();
+                };
+                res.once('close', finishRes);
+                res.once('error', finishRes);
+                res.writeHead(200, { 'Content-Type': 'application/json', Connection: 'close' });
+                res.end(body, finishRes);
+              })
+          );
+          await Promise.all(pending);
+          server.closeIdleConnections?.();
+          await closed;
         }
-        server.closeAllConnections?.();
-        await new Promise((resolveClose) => server.close(() => resolveClose()));
-        await removeLockIfMatches(file, lockRecord);
       };
       try {
         const result = await fn();

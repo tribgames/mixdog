@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import test from 'node:test';
@@ -340,6 +340,60 @@ test('withEnsureLock reclaims reused-PID stale lock immediately and never spins 
   assert.equal(isPidAlive(longLivedHolder.pid), true, 'holder process stayed alive while lock release unblocked waiter');
 });
 
+test('withEnsureLock unlinks lockfile before /wait wakes and flushes reply cleanly', async (t) => {
+  const root = await tempRoot(t);
+
+  // /wait clients must receive a complete 200 reply only after the lockfile is unlinked (never RST or stale file).
+  let enteredWaitHolder;
+  const waitHolderEntered = new Promise((resolve) => {
+    enteredWaitHolder = resolve;
+  });
+  let releaseWaitHolder;
+  const waitHolderGate = new Promise((resolve) => {
+    releaseWaitHolder = resolve;
+  });
+
+  const holderPromise = withEnsureLock(root, 'wait-order', async () => {
+    enteredWaitHolder();
+    await waitHolderGate;
+    return 'done';
+  });
+  await waitHolderEntered;
+  const waitLockFile = join(root, 'locks', 'wait-order.lock');
+  const record = JSON.parse(await readFile(waitLockFile, 'utf8'));
+  const waitOutcome = await new Promise((resolveWait, rejectWait) => {
+    const req = httpRequest(
+      {
+        host: '127.0.0.1',
+        port: record.port,
+        path: '/wait',
+        method: 'GET',
+        headers: { Authorization: `Bearer ${record.token}`, Connection: 'close' },
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.once('end', () => {
+          resolveWait({
+            statusCode: res.statusCode,
+            complete: res.complete,
+            body: JSON.parse(Buffer.concat(chunks).toString('utf8')),
+            lockExistsAtWake: existsSync(waitLockFile),
+          });
+        });
+        res.once('error', rejectWait);
+      }
+    );
+    req.once('error', rejectWait);
+    req.end(() => releaseWaitHolder());
+  });
+  assert.equal(await holderPromise, 'done');
+  assert.equal(waitOutcome.statusCode, 200);
+  assert.equal(waitOutcome.complete, true);
+  assert.deepEqual(waitOutcome.body, { ok: true });
+  assert.equal(waitOutcome.lockExistsAtWake, false, 'lockfile must be removed before /wait responds');
+});
+
 test('findPersistentOwnerPid, detectSessionScratchDir, and session isolation', () => {
   const processes = [
     { pid: 100, ppid: 1, cmd: 'C:\\Program Files\\Mixdog\\Mixdog.exe serve' },
@@ -624,6 +678,7 @@ test('ensureInstance enforces session isolation, checks build-input freshness, a
     root,
     caller: sessA,
     phoneRelay: true,
+    timeoutMs: 30,
     checkBuildInputs,
     coreSourceStamp: coreStamp,
     startFn: fakeStart,
@@ -640,8 +695,7 @@ test('ensureInstance enforces session isolation, checks build-input freshness, a
   setTimeout(releaseFirstStart, 100);
   const [r1, r2] = await Promise.all([p1, p2]);
   assert.equal(startCalls, 1, 'concurrent same-session ensures must build only once');
-  assert.equal(r1.reused, false);
-  assert.equal(r2.reused, true);
+  assert.deepEqual([r1.reused, r2.reused].sort(), [false, true]);
   assert.equal(touches, 1);
 
   // Different session (sessB) must NOT reuse sessA's instance.
