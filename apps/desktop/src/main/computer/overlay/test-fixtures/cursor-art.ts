@@ -122,8 +122,9 @@ void app
       process.stdout.write(`CURSOR_ART_OK ${JSON.stringify(result)}\n`);
     } finally {
       window.destroy();
-      app.quit();
     }
+    // The checks are done and printed: the process ends here, not when a quit has closed what the debugger session holds.
+    app.exit(0);
   })
   .catch((error) => {
     console.error(error);
