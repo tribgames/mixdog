@@ -683,7 +683,7 @@ async fn serve_with_refusal(
                 let _ = surface.stage("requesting").await;
                 let summary = match made {
                     Ok(Some(summary)) => {
-                        tracing::info!(
+                        mixdog_rt::turn_trace!(
                             "[acp] session={} mixdog compaction mid-turn: {} at {} of trigger {} tokens (window {}), left agent session {} in {}ms",
                             thread.as_str(),
                             preset.id,
@@ -925,7 +925,7 @@ async fn begin(
         let _ = surface.stage("requesting").await;
         match made {
             Ok(Some(summary)) => {
-                tracing::info!(
+                mixdog_rt::turn_trace!(
                     "[acp] session={} mixdog compaction before the turn: {} at {} of trigger {} tokens in {}ms",
                     thread.as_str(),
                     preset.id,
@@ -960,6 +960,7 @@ async fn begin(
     } else {
         None
     };
+    let readying = (context.now_ms)();
     let resolved = tokio::select! {
         biased;
         () = context.cancel.cancelled() => {
@@ -1001,6 +1002,14 @@ async fn begin(
     };
     drop(held);
     let newly_opened = session.handoff_pending() || stored.as_ref().map(|stored| stored.session_id.as_str()) != Some(session.session_id.as_str());
+    mixdog_rt::turn_trace!(
+        "[acp] session={} {} agent session {} of {} ready in {}ms",
+        thread.as_str(),
+        if newly_opened { "new" } else { "running" },
+        session.session_id,
+        preset.id,
+        (context.now_ms)() - readying
+    );
     // Build the prompt blocks before running handover or selecting a model so an all-dropped prompt never triggers
     // handover or leaves a newly opened session orphaned.
     let (mut blocks, attachment_blocks, left_out, attached) =

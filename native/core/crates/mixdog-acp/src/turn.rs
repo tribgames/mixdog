@@ -261,15 +261,18 @@ struct ModelTime {
     /// The first and the last chunk of the window that is open.
     window: Option<(i64, i64)>,
     closed_ms: i64,
+    /// A chunk has arrived in this turn.
+    started: bool,
 }
 
 impl ModelTime {
-    /// A chunk of the agent's output or thought arrived.
-    fn chunk(&mut self, now: i64) {
+    /// A chunk of the agent's output or thought arrived; whether it is the turn's first.
+    fn chunk(&mut self, now: i64) -> bool {
         match &mut self.window {
             Some((_, last)) => *last = now,
             None => self.window = Some((now, now)),
         }
+        !std::mem::replace(&mut self.started, true)
     }
 
     /// The window ends at its last chunk when the agent turns to a call or waits on the user.
@@ -857,7 +860,7 @@ impl Reply<'_> {
         self.mark_output();
         self.context.mark(|progress, now| progress.stream_delta(StreamKind::Text, now));
         self.mark(CallMark::Streaming).await;
-        self.model_time.chunk((self.context.now_ms)());
+        self.note_chunk();
         let shown = match &mut self.text {
             Some((_, text)) => {
                 text.push_str(chunk);
@@ -885,10 +888,17 @@ impl Reply<'_> {
         self.write_draft(false).await
     }
 
+    /// A chunk of the agent's output or thought arrived; the turn's first is logged, so the log times the wait for it.
+    fn note_chunk(&mut self) {
+        if self.model_time.chunk((self.context.now_ms)()) {
+            mixdog_rt::turn_trace!("[acp] agent session {} gave the first output of its turn", self.session.session_id);
+        }
+    }
+
     async fn thought(&mut self, chunk: &str) -> Result<(), RunError> {
         self.context.mark(|progress, now| progress.stream_delta(StreamKind::Reasoning, now));
         self.mark(CallMark::Streaming).await;
-        self.model_time.chunk((self.context.now_ms)());
+        self.note_chunk();
         let surface = self.surface.clone();
         self.end_text(surface.as_ref()).await?;
         if self.reasoning.is_none() {
@@ -2072,6 +2082,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             match sent {
                 Some(Ok(id)) => {
                     // Written, the prompt is the agent's: what is left to wait for is its first answer.
+                    mixdog_rt::turn_trace!("[acp] agent session {} holds the turn's prompt", session.session_id);
                     session.mark_handoff_sent();
                     context.mark(|progress, now| progress.stream_delta(StreamKind::Transport, now));
                     // The agent holds the prompt: its session is the conversation's from here. A record that cannot be

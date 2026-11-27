@@ -929,7 +929,9 @@ impl Agents {
     ) -> Result<(Arc<AgentSession>, Option<crate::shared::SessionUse>), Refusal> {
         // The CLI is checked before its ACP mode is started: one too old for it is never run in it. The start is
         // held against an update of the CLI until the session is among those the update looks at.
+        let checking = tokio::time::Instant::now();
         let (program, _starting) = self.ready_program(preset).await?;
+        mixdog_rt::turn_trace!("[acp] {}'s program was ready after {}ms", preset.id, checking.elapsed().as_millis());
         let grants = {
             let _sessions = lock(&self.sessions);
             if !opening.current() || self.stopping.load(std::sync::atomic::Ordering::SeqCst) {
@@ -981,6 +983,7 @@ impl Agents {
                 let mut result = Err(Fault::Start(format!("{} did not open a session in time", preset.label)));
                 for attempt in 0..2 {
                     let attempt_deadline = (abandoned || attempt > 0).then(|| tokio::time::Instant::now() + self.shared_open_timeout());
+                    let serving = tokio::time::Instant::now();
                     let (lease, existing) = match self.shared_server_bounded(preset, &program, attempt_deadline).await {
                         Ok(found) => found,
                         Err(fault) => {
@@ -988,6 +991,12 @@ impl Agents {
                             break;
                         }
                     };
+                    mixdog_rt::turn_trace!(
+                        "[acp] {}'s shared server {} after {}ms",
+                        preset.id,
+                        if existing { "was running" } else { "started" },
+                        serving.elapsed().as_millis()
+                    );
                     // A start the thread's close (or a reopen's end) ended while the server started opens nothing on it.
                     if !opening.current() {
                         return Err(Refusal::Closed);
