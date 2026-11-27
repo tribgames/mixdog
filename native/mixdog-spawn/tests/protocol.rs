@@ -251,7 +251,10 @@ mod containment {
     use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
     use std::time::Duration;
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
-    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE, TerminateProcess, WaitForSingleObject};
+    use windows_sys::Win32::System::Threading::{
+        GetProcessAffinityMask, HIGH_PRIORITY_CLASS, OpenProcess, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE, SetPriorityClass, SetProcessAffinityMask,
+        TerminateProcess, WaitForSingleObject,
+    };
 
     const HELPER_ENV: &str = "MIXDOG_SPAWN_TREE_HELPER";
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -374,6 +377,19 @@ mod containment {
             (spawned.expect("spawned event"), lines)
         }
 
+        /// The server runs on one processor above the priority of what it starts (its children inherit the processor,
+        /// not the priority class), so the thread a child's exit wakes runs before that child has left its job.
+        fn run_above_children_on_one_processor(&self) {
+            use std::os::windows::io::AsRawHandle;
+            let server = self.child.as_raw_handle();
+            unsafe {
+                let (mut mask, mut system) = (0usize, 0usize);
+                assert_ne!(GetProcessAffinityMask(server, &mut mask, &mut system), 0);
+                assert_ne!(SetProcessAffinityMask(server, mask & mask.wrapping_neg()), 0);
+                assert_ne!(SetPriorityClass(server, HIGH_PRIORITY_CLASS), 0);
+            }
+        }
+
         /// Read until the exit of request `id`; the events seen on the way.
         fn until_exit(&mut self, id: u64) -> Vec<serde_json::Value> {
             let mut seen = Vec::new();
@@ -422,9 +438,12 @@ mod containment {
         assert!(child.exited(), "the child died with its root");
     }
 
+    /// Its root and console host are still counted by their job a moment after their handles signalled, as a loaded
+    /// machine has it by chance: the job is judged once it stops counting them.
     #[test]
     fn a_contained_command_that_exits_on_its_own_reports_its_empty_job() {
         let (mut server, _) = Server::start();
+        server.run_above_children_on_one_processor();
         server.send(serde_json::json!({
             "id": 3,
             "program": std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into()),

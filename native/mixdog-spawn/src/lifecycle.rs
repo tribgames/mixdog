@@ -173,7 +173,9 @@ pub(super) fn pause(_id: u64, _point: &'static str) {}
 
 /// After the root's exit. A killed contained job must empty (verify_kill).
 /// One whose root exited on its own first lets the console hosts it left
-/// signal their exit (console_hosts::settle) and stays Open, so killable,
+/// signal their exit (console_hosts::settle) and, when nothing else was left,
+/// the job stop counting them, which it does only after their handles
+/// signalled. It stays Open, so killable,
 /// meanwhile: a cancel, deadline or the shutdown reap that
 /// lands then makes it a killed job (Killing), verified like any other.
 /// Otherwise, decided in one state-lock hold: EMPTY; or its survivors, which a
@@ -188,7 +190,10 @@ pub(super) fn settle_tree(managed: &Arc<ManagedProcess>, manager: &Arc<Manager>,
     }
     let id = managed.request_id;
     if exited_on_its_own {
-        console_hosts::settle(control.handle, console_hosts::SETTLE_DEADLINE, || {});
+        let started = std::time::Instant::now();
+        if console_hosts::settle(control.handle, console_hosts::SETTLE_DEADLINE, || {}) {
+            control.await_empty(console_hosts::SETTLE_DEADLINE.saturating_sub(started.elapsed()), || {});
+        }
         pause(id, "settle:check");
         let mut state = managed.lock_state();
         if state.tree == Tree::Open {
