@@ -32,7 +32,17 @@ export const TESTS_PER_LEG = 4000;
 // Linux takes 3,000 a leg and up to six too: its legs end a push's run, each pays about a minute of setup, and four legs of 19,085
 // tests ran partitions of 116-199 s (run 45068609184), so six bring the slowest near two minutes of tests beside that minute.
 export const SYSTEMS = [
-  { os: 'linux', runner: 'ubuntu-22.04', nextest: 'linux', exe: '', maxLegs: 6, testsPerLeg: 3000 },
+  // The Linux archive is built in the project's own PC's Ubuntu 22.04 (WSL: the hosted runner's release, so its glibc, and its
+  // checkout path /home/runner/work/mixdog/mixdog). This is the archive of every push and pull request of the repository.
+  {
+    os: 'linux',
+    runner: 'ubuntu-22.04',
+    buildRunner: 'mixdog-pc-linux',
+    nextest: 'linux',
+    exe: '',
+    maxLegs: 6,
+    testsPerLeg: 3000,
+  },
   // The macOS archive is built on the project's own M4 (ten cores; the hosted runner's three took 36-40 minutes, run
   // 46049828800) and run on the hosted legs, which answer at the path that runner checks out at (release-gate.yml, "Give the
   // checkout the path the macOS archive was built at"). It builds only: the Office tests' LibreOffice instances hung the
@@ -500,7 +510,7 @@ export function selectCore({
     .flatMap((crate) => crate.requiredFeatures.map((feature) => `${crate.name}/${feature}`))
     .join(',');
   const pgProfiles = pgProfilesOf(selected);
-  const [linuxSystem] = SYSTEMS.filter((system) => system.os === 'linux').map(({ maxLegs, ...system }) => system);
+  const [linuxSystem] = SYSTEMS.filter((system) => system.os === 'linux').map(({ maxLegs, buildRunner, ...system }) => system);
   const pgMatrix = pgProfiles.map((profile) => ({ ...linuxSystem, profile }));
   // The full gate tests on the three systems; a push and a pull request on Linux.
   const systems = all ? SYSTEMS.map((system) => system.os) : ['linux'];

@@ -298,6 +298,7 @@ test('the full gate (a call, the nightly run, a manual full run) selects every c
   assert.deepEqual(buildRunners([]), ['ubuntu-22.04', 'macos-15', 'windows-2022']);
   assert.deepEqual(buildRunners(['mixdog-m4-gate']), ['ubuntu-22.04', 'mixdog-m4-gate', 'windows-2022']);
   assert.deepEqual(buildRunners(['mixdog-pc', 'mixdog-m4-gate', 'another']), ['ubuntu-22.04', 'mixdog-m4-gate', 'mixdog-pc']);
+  assert.deepEqual(buildRunners(['mixdog-pc-linux']), ['mixdog-pc-linux', 'macos-15', 'windows-2022']);
   assert.deepEqual([...new Set(JSON.parse(result.test_matrix_macos).include.map((leg) => leg.runner))], ['macos-15']);
   assert.deepEqual(
     JSON.parse(result.core_real_matrix).include.map((entry) => `${entry.os}:${entry.target}`),
