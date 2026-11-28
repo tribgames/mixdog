@@ -368,6 +368,9 @@ jobs:
     with:
       ref: ${{ needs.native-commit.outputs.sha }}
       gate: native-assets
+    secrets:
+      # The gate builds its archives on the project's own machines while they are on, as release.yml's gate does.
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   # The native version bump above changes the native sources the old-glibc
   # Linux tools are cached by, so release.yml's linux-native-tools missed its

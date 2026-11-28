@@ -36,7 +36,7 @@
       "os": "darwin",
       "arch": "arm64",
       "backend": "metal",
-      "runner": "macos-14",
+      "runner": "macos-15",
       "asset": "whisper-server-darwin-arm64-metal.zip",
       "executable": "whisper-server"
     },

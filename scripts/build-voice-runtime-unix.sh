@@ -81,7 +81,9 @@ case "${BACKEND}" in
     CMAKE_ARGS+=(-DGGML_VULKAN=ON)
     ;;
   metal)
-    CMAKE_ARGS+=(-DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON)
+    # The macOS the binary still starts on is named here, not taken from the runner's own: this leg was built on macOS 14
+    # until GitHub retired that image, and a build on a later runner would otherwise refuse to start on 14.
+    CMAKE_ARGS+=(-DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0)
     ;;
   cpu)
     CMAKE_ARGS+=(-DGGML_METAL=OFF -DGGML_VULKAN=OFF)
