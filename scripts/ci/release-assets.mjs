@@ -89,6 +89,32 @@ export function verifyAssets(actual, expected, names) {
   }
 }
 
+// No idle-speed limit: GitHub sends nothing while it finalizes a fully received asset, over 20 s for ~1 GB.
+export async function postAsset(file, url) {
+  const { stdout } = await curl('curl', [
+    '--fail',
+    '--silent',
+    '--show-error',
+    '--http1.1',
+    '--connect-timeout',
+    '20',
+    '--max-time',
+    '150',
+    '--header',
+    `Authorization: Bearer ${GH_TOKEN}`,
+    '--header',
+    'Accept: application/vnd.github+json',
+    '--header',
+    'Content-Type: application/octet-stream',
+    '--header',
+    'Expect:',
+    '--data-binary',
+    `@${file}`,
+    url,
+  ]);
+  return stdout;
+}
+
 export async function uploadAssets(files) {
   if (!files.length) throw new Error('Expected files to upload');
   const expected = await Promise.all(files.map(recordFile));
@@ -123,36 +149,15 @@ export async function uploadAssets(files) {
       url.searchParams.set('name', name);
       let stdout;
       try {
-        ({ stdout } = await curl('curl', [
-          '--fail',
-          '--silent',
-          '--show-error',
-          '--http1.1',
-          '--connect-timeout',
-          '20',
-          '--max-time',
-          '150',
-          '--speed-limit',
-          '1024',
-          '--speed-time',
-          '20',
-          '--header',
-          `Authorization: Bearer ${GH_TOKEN}`,
-          '--header',
-          'Accept: application/vnd.github+json',
-          '--header',
-          'Content-Type: application/octet-stream',
-          '--header',
-          'Expect:',
-          '--data-binary',
-          `@${file}`,
-          url.href,
-        ]));
-      } catch {
+        stdout = await postAsset(file, url.href);
+      } catch (error) {
         const after = readAssets().filter((asset) => asset.name === name);
         if (after.length === 1 && sameAsset(after[0], record)) return;
         if (attempt === 1 && (after.length === 0 || (after.length === 1 && incompleteStarter(after[0])))) continue;
-        throw new Error(`Upload of ${name} did not produce the verified bytes`);
+        // error.message repeats the curl command line, which holds the token.
+        throw new Error(
+          `Upload of ${name} did not produce the verified bytes: ${String(error.stderr ?? error.code).trim()}`
+        );
       }
       if (!sameAsset(JSON.parse(stdout), record)) throw new Error(`Upload response does not match ${name}`);
       return;
