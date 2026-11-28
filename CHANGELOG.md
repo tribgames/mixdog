@@ -21,6 +21,45 @@ If you run into any issues, please let me know on [GitHub Issues](https://github
 
 Once again, my sincere thanks to everyone who has cared about Mixdog and waited for it.
 
+### New features
+
+- **Antigravity ACP** — Added an Antigravity ACP card under Settings › Providers to install, sign in and sign out, with its models and effort levels in the model picker.
+- **Session panel** — Added sections for goal, to-do, agents, context, changes and outputs, with an Agents card that groups agents by role and model and filters them by state.
+- **Side panel file tabs** — Added file tabs to the side panel that keep unsaved edits when you move between tabs.
+- **Network proxy** — Added system, custom `http`/`https`/`socks5`, and off proxy modes with a connection test under Settings › System › Network proxy (#317).
+- **New sessions from any session** — Added the ability to start an independent new session from any session, not only from a bot chat (#336).
+- **Vertex AI model list** — Added the models Vertex AI publishers serve to the list, so new Gemini and Claude models appear without an app update (#363).
+
+### Changes
+
+- Changed switching sessions to show the conversation at once, and long conversations to load only the part in view.
+- Changed the phone's remote connection to start connecting directly to the PC as soon as it opens, and added TCP and TLS relay paths for networks that block UDP.
+- Changed fallback chains to accept two models from the same provider, and each row to show how its route signs in (#367, #340).
+- Changed Recent in the sidebar to accept drops: a favorite dropped there is unfavorited, and a project session leaves its project (#395).
+- Changed browser actions to try existing sessions and saved logins first, handing off only passwords, cards, codes, or identity checks.
+- Changed the Android app to show a reconnect screen, reconnect automatically when the network returns or the app reopens, and offer "Choose another PC".
+- Changed worktree removal to delete a branch only when Mixdog created it and git considers it merged.
+
+### Bug fixes
+
+- Fixed the app slowing down or stalling with many open sessions (#316).
+- Fixed the phone failing to connect directly to the PC from outside networks and always going through the relay server.
+- Fixed Computer Use clicks missing targets on high-DPI displays, and your own input pausing every agent instead of only the one it interrupted (#323).
+- Fixed working workers and sub-agents being shown as stalled (#319).
+- Fixed reset-ticket expiry dates being cut off in the usage popup (#324).
+- Fixed the live status line overlapping its text in narrow windows (#326).
+- Fixed the window frame flickering when focus changes on Windows.
+- Fixed a full disk shutting down the background service.
+- Fixed `/stop` reporting shell jobs that had already finished as "Couldn't stop".
+- Fixed the phone app opening side panels late, disconnecting after a single missed acknowledgement, and getting stuck while starting voice input.
+- Fixed an archived session's tab not closing (#352).
+- Fixed the skin dialog's buttons being pushed out of view (#384).
+- Fixed the archive button sitting at a different place on each session row (#357).
+- Fixed HID devices chosen in the built-in browser failing to connect and showing no device names (#313, #314).
+- Fixed the Sessions list showing blank rows or jumping to the top when returning from another menu (#315).
+- Fixed math showing an error for a moment while it streams.
+- Fixed the app staying blank when the engine could not start; a start failure card now appears.
+
 ## v1.4.5 - 2026-11-03
 
 This release speeds up ongoing Claude conversations, organizes the Sessions panel by project and branch, and introduces Studio boards, alongside stability improvements for parallel work.

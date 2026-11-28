@@ -21,6 +21,45 @@ Si vous rencontrez un problème, faites-le-moi savoir sur [GitHub Issues](https:
 
 Encore une fois, merci sincèrement à toutes celles et ceux qui tiennent à Mixdog et qui l'ont attendu.
 
+### Nouvelles fonctionnalités
+
+- **Antigravity ACP** — Ajout d'une carte Antigravity ACP dans Réglages › Fournisseurs pour installer, se connecter et se déconnecter, avec ses modèles et niveaux d'effort dans le sélecteur de modèles.
+- **Panneau de session** — Ajout de sections pour l'objectif, la liste de tâches, les agents, le contexte, les modifications et les sorties, avec une carte Agents qui regroupe les agents par rôle et par modèle et les filtre par état.
+- **Onglets de fichiers du panneau latéral** — Ajout d'onglets de fichiers au panneau latéral conservant les modifications non enregistrées lorsque vous passez d'un onglet à l'autre.
+- **Proxy réseau** — Ajout des modes proxy système, `http`/`https`/`socks5` personnalisé et désactivé avec un test de connexion dans Réglages › Système › Proxy réseau (#317).
+- **Nouvelles sessions depuis n'importe quelle session** — Ajout de la possibilité de démarrer une nouvelle session indépendante depuis n'importe quelle session, et pas seulement depuis une discussion avec un bot (#336).
+- **Liste des modèles Vertex AI** — Ajout à la liste des modèles proposés par les éditeurs Vertex AI afin que les nouveaux modèles Gemini et Claude apparaissent sans mise à jour de l'application (#363).
+
+### Modifications
+
+- Modification du changement de session pour afficher la conversation immédiatement et ne charger que la partie visible des longues conversations.
+- Modification de la connexion à distance du téléphone pour lancer la connexion directe au PC dès son ouverture, et ajout de chemins de relais TCP et TLS pour les réseaux bloquant UDP.
+- Modification des chaînes de secours pour accepter deux modèles d'un même fournisseur et afficher sur chaque ligne le mode de connexion de son itinéraire (#367, #340).
+- Modification de Récents dans la barre latérale pour accepter le glisser-déposer : un favori qui y est déposé est retiré des favoris, et une session de projet quitte son projet (#395).
+- Modification des actions du navigateur pour essayer d'abord les sessions existantes et identifiants enregistrés, ne déléguant que mots de passe, cartes, codes ou contrôles d'identité.
+- Modification de l'application Android pour afficher un écran de reconnexion, se reconnecter automatiquement au retour du réseau ou à la réouverture de l'application, et proposer « Choisir un autre PC ».
+- Modification de la suppression d'un worktree pour ne supprimer une branche que lorsque Mixdog l'a créée et que git la considère fusionnée.
+
+### Corrections de bugs
+
+- Correction du ralentissement ou du blocage de l'application avec de nombreuses sessions ouvertes (#316).
+- Correction de l'échec de connexion directe du téléphone au PC depuis des réseaux externes, qui passait systématiquement par le serveur relais.
+- Correction des clics Computer Use manquant leur cible sur les écrans HiDPI, et de la mise en pause par vos propres entrées de tous les agents au lieu du seul agent interrompu (#323).
+- Correction des workers et sous-agents actifs affichés comme bloqués (#319).
+- Correction des dates d'expiration des tickets de réinitialisation coupées dans la fenêtre d'utilisation (#324).
+- Correction du chevauchement du texte de la ligne d'état en direct dans les fenêtres étroites (#326).
+- Correction du clignotement du cadre de fenêtre lors d'un changement de focus sous Windows.
+- Correction de l'arrêt du service d'arrière-plan lorsque le disque est plein.
+- Correction de `/stop` qui signalait comme « Impossible d'arrêter » des tâches shell déjà terminées.
+- Correction de l'ouverture tardive des panneaux latéraux dans l'application sur téléphone, de la déconnexion après un seul accusé de réception manqué et du blocage au démarrage de la saisie vocale.
+- Correction de l'onglet d'une session archivée qui ne se fermait pas (#352).
+- Correction des boutons de la boîte de dialogue des skins poussés hors de la zone visible (#384).
+- Correction du bouton d'archivage placé à un endroit différent sur chaque ligne de session (#357).
+- Correction de l'échec de connexion des périphériques HID choisis dans le navigateur intégré et de l'absence d'affichage de leurs noms (#313, #314).
+- Correction de la liste Sessions qui affichait des lignes vides ou sautait tout en haut en revenant d'un autre menu (#315).
+- Correction des formules mathématiques affichant brièvement une erreur pendant leur diffusion en continu.
+- Correction de l'application restant vide lorsque le moteur ne pouvait pas démarrer ; une carte d'échec de démarrage s'affiche désormais.
+
 ## v1.4.5 - 2026-11-03
 
 Cette version accélère les conversations Claude en cours, organise le panneau Sessions par projet et branche, et introduit les tableaux Studio, tout en améliorant la stabilité lors du travail en parallèle.

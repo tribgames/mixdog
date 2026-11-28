@@ -21,6 +21,45 @@ Si encuentras algún problema, por favor avísame en [GitHub Issues](https://git
 
 Una vez más, mi más sincero agradecimiento a todos los que le tienen cariño a Mixdog y lo han esperado.
 
+### Nuevas funciones
+
+- **Antigravity ACP** — Se añadió una tarjeta de Antigravity ACP en Configuración › Proveedores para instalar, iniciar y cerrar sesión, con sus modelos y niveles de esfuerzo en el selector de modelos.
+- **Panel de sesión** — Se añadieron secciones para objetivo, lista de tareas, agentes, contexto, cambios y salidas, con una tarjeta Agentes que agrupa los agentes por rol y modelo y los filtra por estado.
+- **Pestañas de archivos en el panel lateral** — Se añadieron pestañas de archivos al panel lateral que conservan los cambios sin guardar al cambiar entre pestañas.
+- **Proxy de red** — Se añadieron los modos de proxy del sistema, personalizado `http`/`https`/`socks5` y desactivado con una prueba de conexión en Configuración › Sistema › Proxy de red (#317).
+- **Nuevas sesiones desde cualquier sesión** — Se añadió la posibilidad de iniciar una nueva sesión independiente desde cualquier sesión, no solo desde un chat de bot (#336).
+- **Lista de modelos de Vertex AI** — Se añadieron a la lista los modelos ofrecidos por los editores de Vertex AI para que los nuevos modelos de Gemini y Claude aparezcan sin actualizar la app (#363).
+
+### Cambios
+
+- Se cambió el cambio de sesiones para mostrar la conversación al instante y para que las conversaciones largas carguen solo la parte visible.
+- Se cambió la conexión remota del teléfono para empezar a conectarse directamente al PC en cuanto se abre, y se añadieron rutas de retransmisión TCP y TLS para redes que bloquean UDP.
+- Se cambiaron las cadenas de respaldo para aceptar dos modelos del mismo proveedor y para que cada fila muestre cómo inicia sesión su ruta (#367, #340).
+- Se cambió Recientes en la barra lateral para aceptar elementos soltados: un favorito soltado allí deja de ser favorito y una sesión de proyecto sale de su proyecto (#395).
+- Se cambiaron las acciones del navegador para probar primero sesiones existentes e inicios de sesión guardados, delegando solo contraseñas, tarjetas, códigos o verificaciones de identidad.
+- Se cambió la app de Android para mostrar una pantalla de reconexión, reconectarse automáticamente al volver la red o reabrir la app y ofrecer "Elegir otro PC".
+- Se cambió la eliminación de worktrees para borrar una rama solo cuando la creó Mixdog y git la considera fusionada.
+
+### Correcciones de errores
+
+- Se corrigió que la app se ralentizara o bloqueara con muchas sesiones abiertas (#316).
+- Se corrigió que el teléfono no lograra conectarse directamente al PC desde redes externas y pasara siempre por el servidor de retransmisión.
+- Se corrigió que los clics de Computer Use fallaran el objetivo en pantallas HiDPI y que tu propia entrada pausara a todos los agentes en lugar de solo al interrumpido (#323).
+- Se corrigió que los workers y subagentes activos aparecieran como bloqueados (#319).
+- Se corrigió que las fechas de vencimiento de los tickets de reinicio aparecieran cortadas en la ventana emergente de uso (#324).
+- Se corrigió que la línea de estado en vivo superpusiera su texto en ventanas estrechas (#326).
+- Se corrigió que el marco de la ventana parpadeara al cambiar el foco en Windows.
+- Se corrigió que un disco lleno cerrara el servicio en segundo plano.
+- Se corrigió que `/stop` informara como "No se pudo detener" las tareas de shell que ya habían terminado.
+- Se corrigió que la app del teléfono abriera tarde los paneles laterales, se desconectara tras una sola confirmación perdida y se quedara atascada al iniciar la entrada de voz.
+- Se corrigió que la pestaña de una sesión archivada no se cerrara (#352).
+- Se corrigió que los botones del cuadro de diálogo de skins quedaran desplazados fuera de la vista (#384).
+- Se corrigió que el botón de archivar apareciera en una posición distinta en cada fila de sesión (#357).
+- Se corrigió que los dispositivos HID elegidos en el navegador integrado no lograran conectarse y no mostraran los nombres de los dispositivos (#313, #314).
+- Se corrigió que la lista Sesiones mostrara filas en blanco o saltara al principio al volver de otro menú (#315).
+- Se corrigió que las fórmulas matemáticas mostraran un error por un momento mientras se transmitían.
+- Se corrigió que la app quedara en blanco cuando el motor no podía iniciarse; ahora aparece una tarjeta de fallo de inicio.
+
 ## v1.4.5 - 2026-11-03
 
 Esta versión acelera las conversaciones en curso con Claude, organiza el panel Sesiones por proyecto y rama, e introduce tableros de Studio, junto con mejoras de estabilidad para el trabajo en paralelo.

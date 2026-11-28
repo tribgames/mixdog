@@ -20,6 +20,45 @@ Falls Sie auf Probleme stoßen, teilen Sie sie mir bitte auf [GitHub Issues](htt
 
 Noch einmal meinen herzlichen Dank an alle, denen Mixdog am Herzen liegt und die darauf gewartet haben.
 
+### Neue Funktionen
+
+- **Antigravity ACP** — Karte für Antigravity ACP unter Einstellungen › Anbieter zum Installieren, An- und Abmelden hinzugefügt, mit den zugehörigen Modellen und Aufwandsstufen in der Modellauswahl.
+- **Sitzungsbereich** — Abschnitte für Ziel, To-do, Agenten, Kontext, Änderungen und Ausgaben hinzugefügt, mit einer Agenten-Karte, die Agenten nach Rolle und Modell gruppiert und nach Status filtert.
+- **Dateitabs im Seitenbereich** — Dateitabs im Seitenbereich hinzugefügt, die ungespeicherte Änderungen beim Wechseln zwischen Tabs behalten.
+- **Netzwerk-Proxy** — Proxy-Modi „System“, benutzerdefiniertes `http`/`https`/`socks5` und „Aus“ mit Verbindungstest unter Einstellungen › System › Netzwerk-Proxy hinzugefügt (#317).
+- **Neue Sitzungen aus jeder Sitzung** — Möglichkeit hinzugefügt, eine unabhängige neue Sitzung aus jeder beliebigen Sitzung heraus zu starten, nicht nur aus einem Bot-Chat (#336).
+- **Vertex AI-Modellliste** — Von Vertex AI-Publishern bereitgestellte Modelle zur Liste hinzugefügt, sodass neue Gemini- und Claude-Modelle ohne App-Update erscheinen (#363).
+
+### Änderungen
+
+- Sitzungswechsel so geändert, dass die Unterhaltung sofort erscheint und lange Unterhaltungen nur den sichtbaren Ausschnitt laden.
+- Fernverbindung des Smartphones so geändert, dass sie beim Öffnen sofort direkt eine Verbindung zum PC aufbaut, sowie TCP- und TLS-Relay-Pfade für Netzwerke hinzugefügt, die UDP blockieren.
+- Fallback-Ketten so geändert, dass sie zwei Modelle desselben Anbieters akzeptieren und jede Zeile anzeigt, wie sich ihre Route anmeldet (#367, #340).
+- „Zuletzt“ in der Seitenleiste so geändert, dass Einträge dort abgelegt werden können: Ein dort abgelegter Favorit wird aus den Favoriten entfernt, und eine Projektsitzung verlässt ihr Projekt (#395).
+- Browser-Aktionen so geändert, dass zuerst bestehende Sitzungen und gespeicherte Logins genutzt werden; nur Passwörter, Karten, Codes oder Identitätsprüfungen werden übergeben.
+- Android-App so geändert, dass sie einen Wiederverbindungsbildschirm zeigt, sich bei Rückkehr des Netzwerks oder beim erneuten Öffnen der App automatisch wieder verbindet und „Anderen PC wählen“ anbietet.
+- Entfernen von Worktrees so geändert, dass ein Branch nur gelöscht wird, wenn Mixdog ihn erstellt hat und Git ihn als zusammengeführt betrachtet.
+
+### Fehlerbehebungen
+
+- Behoben, dass die App bei vielen geöffneten Sitzungen langsamer wurde oder stockte (#316).
+- Behoben, dass das Smartphone aus externen Netzwerken keine direkte Verbindung zum PC herstellen konnte und immer über den Relay-Server ging.
+- Behoben, dass Klicks von Computer Use auf HiDPI-Displays Ziele verfehlten und eigene Eingaben jeden Agenten statt nur des unterbrochenen pausierten (#323).
+- Behoben, dass arbeitende Worker und Unteragenten als hängend angezeigt wurden (#319).
+- Behoben, dass Ablaufdaten von Reset-Tickets im Nutzungs-Popup abgeschnitten wurden (#324).
+- Behoben, dass sich der Text in der Live-Statuszeile in schmalen Fenstern überlagerte (#326).
+- Behoben, dass der Fensterrahmen unter Windows beim Fokuswechsel flackerte.
+- Behoben, dass ein voller Datenträger den Hintergrunddienst beendete.
+- Behoben, dass `/stop` bereits abgeschlossene Shell-Aufträge als „Konnte nicht gestoppt werden“ meldete.
+- Behoben, dass die Smartphone-App Seitenleisten verspätet öffnete, nach einer einzelnen verpassten Bestätigung die Verbindung trennte und beim Starten der Spracheingabe hängen blieb.
+- Behoben, dass der Tab einer archivierten Sitzung nicht geschlossen wurde (#352).
+- Behoben, dass die Schaltflächen im Skin-Dialog aus dem sichtbaren Bereich geschoben wurden (#384).
+- Behoben, dass die Archivieren-Schaltfläche in jeder Sitzungszeile an einer anderen Stelle saß (#357).
+- Behoben, dass im integrierten Browser ausgewählte HID-Geräte sich nicht verbanden und keine Gerätenamen anzeigten (#313, #314).
+- Behoben, dass die Liste „Sitzungen“ beim Zurückkehren aus einem anderen Menü leere Zeilen zeigte oder nach oben sprang (#315).
+- Behoben, dass mathematische Formeln während des Streamings kurz einen Fehler anzeigten.
+- Behoben, dass die App leer blieb, wenn die Engine nicht starten konnte; nun erscheint eine Karte für den Startfehler.
+
 ## v1.4.5 - 2026-11-03
 
 Diese Version beschleunigt laufende Claude-Unterhaltungen, ordnet den Bereich „Sitzungen“ nach Projekt und Branch, führt Studio-Pinnwände ein und verbessert die Stabilität bei paralleler Arbeit.

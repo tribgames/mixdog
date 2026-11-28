@@ -20,6 +20,45 @@ Se encontrar algum problema, por favor me avise no [GitHub Issues](https://githu
 
 Mais uma vez, meu sincero agradecimento a todos que têm carinho pelo Mixdog e esperaram por ele.
 
+### Novos recursos
+
+- **Antigravity ACP** — Adicionado um cartão do Antigravity ACP em Configurações › Provedores para instalar, entrar e sair, com seus modelos e níveis de esforço no seletor de modelos.
+- **Painel da sessão** — Adicionadas seções para objetivo, lista de tarefas, agentes, contexto, alterações e saídas, com um cartão Agentes que agrupa agentes por função e modelo e os filtra por estado.
+- **Abas de arquivos no painel lateral** — Adicionadas abas de arquivos ao painel lateral que mantêm edições não salvas ao alternar entre abas.
+- **Proxy de rede** — Adicionados os modos de proxy do sistema, `http`/`https`/`socks5` personalizado e desativado com teste de conexão em Configurações › Sistema › Proxy de rede (#317).
+- **Novas sessões a partir de qualquer sessão** — Adicionada a opção de iniciar uma nova sessão independente a partir de qualquer sessão, não apenas de um chat de bot (#336).
+- **Lista de modelos do Vertex AI** — Adicionados à lista os modelos oferecidos pelos publicadores do Vertex AI para que novos modelos Gemini e Claude apareçam sem atualizar o app (#363).
+
+### Alterações
+
+- Alterada a troca de sessões para mostrar a conversa na hora e para que conversas longas carreguem apenas a parte visível.
+- Alterada a conexão remota do celular para começar a conectar diretamente ao PC assim que é aberta, e adicionadas rotas de retransmissão TCP e TLS para redes que bloqueiam UDP.
+- Alteradas as cadeias de fallback para aceitar dois modelos do mesmo provedor e para que cada linha mostre como sua rota faz login (#367, #340).
+- Alterada a seção Recentes na barra lateral para aceitar itens soltos: um favorito solto ali deixa de ser favorito e uma sessão de projeto sai do seu projeto (#395).
+- Alteradas as ações do navegador para tentar primeiro sessões existentes e logins salvos, repassando apenas senhas, cartões, códigos ou verificações de identidade.
+- Alterado o app Android para exibir uma tela de reconexão, reconectar automaticamente quando a rede voltar ou o app for reaberto e oferecer "Escolher outro PC".
+- Alterada a remoção de worktree para excluir uma branch apenas quando o Mixdog a tiver criado e o git a considerar mesclada.
+
+### Correções de bugs
+
+- Corrigido o problema em que o app ficava lento ou travava com muitas sessões abertas (#316).
+- Corrigido o problema em que o celular não conseguia se conectar diretamente ao PC a partir de redes externas e sempre passava pelo servidor de retransmissão.
+- Corrigido o problema em que cliques do Computer Use erravam o alvo em telas HiDPI e a sua entrada pausava todos os agentes em vez de apenas o agente interrompido (#323).
+- Corrigido o problema em que workers e subagentes em atividade eram mostrados como travados (#319).
+- Corrigido o problema em que as datas de validade dos tíquetes de redefinição eram cortadas no pop-up de uso (#324).
+- Corrigido o problema em que a linha de status ao vivo sobrepunha o texto em janelas estreitas (#326).
+- Corrigido o problema em que a moldura da janela piscava quando o foco mudava no Windows.
+- Corrigido o problema em que o disco cheio encerrava o serviço em segundo plano.
+- Corrigido o problema em que `/stop` informava tarefas do shell já concluídas como "Não foi possível parar".
+- Corrigido o problema em que o app no celular abria painéis laterais com atraso, desconectava após uma única confirmação perdida e travava ao iniciar a entrada por voz.
+- Corrigido o problema em que a aba de uma sessão arquivada não fechava (#352).
+- Corrigido o problema em que os botões da caixa de diálogo de skins eram empurrados para fora da área visível (#384).
+- Corrigido o problema em que o botão de arquivar ficava em uma posição diferente em cada linha de sessão (#357).
+- Corrigido o problema em que dispositivos HID escolhidos no navegador integrado não se conectavam e não exibiam os nomes dos dispositivos (#313, #314).
+- Corrigido o problema em que a lista Sessões exibia linhas em branco ou saltava para o topo ao retornar de outro menu (#315).
+- Corrigido o problema em que fórmulas matemáticas exibiam um erro por um instante durante o streaming.
+- Corrigido o problema em que o app ficava em branco quando o motor não conseguia iniciar; agora aparece um cartão de falha de inicialização.
+
 ## v1.4.5 - 2026-11-03
 
 Esta versão acelera conversas contínuas com o Claude, organiza o painel Sessões por projeto e branch e introduz quadros do Studio, além de melhorias de estabilidade para trabalho em paralelo.

@@ -20,6 +20,45 @@ Nếu gặp bất kỳ sự cố nào, vui lòng báo cho tôi biết trên [Git
 
 Một lần nữa, tôi xin gửi lời cảm ơn chân thành đến tất cả những ai đã luôn quan tâm và chờ đợi Mixdog.
 
+### Tính năng mới
+
+- **Antigravity ACP** — Bổ sung thẻ Antigravity ACP trong Cài đặt › Nhà cung cấp để cài đặt, đăng nhập và đăng xuất, cùng các mô hình và mức suy luận của dịch vụ này trong bộ chọn mô hình.
+- **Bảng phiên** — Bổ sung các mục cho mục tiêu, việc cần làm, agent, ngữ cảnh, thay đổi và đầu ra, cùng thẻ Agent giúp nhóm agent theo vai trò và mô hình cũng như lọc theo trạng thái.
+- **Thẻ tệp ở bảng bên** — Bổ sung các thẻ tệp vào bảng bên giúp giữ lại nội dung chỉnh sửa chưa lưu khi chuyển qua lại giữa các thẻ.
+- **Proxy mạng** — Bổ sung các chế độ proxy hệ thống, `http`/`https`/`socks5` tùy chỉnh và tắt kèm kiểm tra kết nối trong Cài đặt › Hệ thống › Proxy mạng (#317).
+- **Tạo phiên mới từ bất kỳ phiên nào** — Bổ sung khả năng bắt đầu một phiên mới độc lập từ bất kỳ phiên nào, không chỉ từ cuộc trò chuyện với bot (#336).
+- **Danh sách mô hình Vertex AI** — Bổ sung các mô hình do nhà phát hành Vertex AI cung cấp vào danh sách, giúp các mô hình Gemini và Claude mới xuất hiện mà không cần cập nhật ứng dụng (#363).
+
+### Thay đổi
+
+- Thay đổi thao tác chuyển phiên để hiển thị cuộc trò chuyện ngay lập tức và chỉ tải phần đang hiển thị đối với các cuộc trò chuyện dài.
+- Thay đổi kết nối từ xa trên điện thoại để bắt đầu kết nối trực tiếp tới máy tính ngay khi mở, đồng thời bổ sung đường truyền chuyển tiếp TCP và TLS cho các mạng chặn UDP.
+- Thay đổi chuỗi mô hình dự phòng để chấp nhận hai mô hình từ cùng một nhà cung cấp và hiển thị cách đăng nhập của tuyến trên từng hàng (#367, #340).
+- Thay đổi mục Gần đây trên thanh bên để hỗ trợ kéo thả: mục yêu thích thả vào đó sẽ được bỏ yêu thích, còn phiên thuộc dự án sẽ rời khỏi dự án của nó (#395).
+- Thay đổi thao tác trình duyệt để thử phiên hiện có và thông tin đăng nhập đã lưu trước, chỉ chuyển giao mật khẩu, thẻ, mã hoặc bước xác minh danh tính.
+- Thay đổi ứng dụng Android để hiển thị màn hình kết nối lại, tự động kết nối lại khi có mạng trở lại hoặc khi mở lại ứng dụng và cung cấp tùy chọn "Chọn máy tính khác".
+- Thay đổi việc xóa worktree để chỉ xóa nhánh khi nhánh đó do Mixdog tạo và được git coi là đã gộp.
+
+### Sửa lỗi
+
+- Sửa lỗi ứng dụng bị chậm hoặc treo khi mở nhiều phiên (#316).
+- Sửa lỗi điện thoại không kết nối trực tiếp được tới máy tính từ mạng bên ngoài và luôn phải đi qua máy chủ chuyển tiếp.
+- Sửa lỗi nhấp chuột của Computer Use lệch mục tiêu trên màn hình HiDPI, và thao tác nhập của bạn làm tạm dừng mọi agent thay vì chỉ agent bị gián đoạn (#323).
+- Sửa lỗi các worker và sub-agent đang làm việc bị hiển thị là đang treo (#319).
+- Sửa lỗi ngày hết hạn của vé đặt lại bị cắt mất trong cửa sổ bật lên về mức sử dụng (#324).
+- Sửa lỗi dòng trạng thái trực tiếp bị đè chữ lên nhau trong cửa sổ hẹp (#326).
+- Sửa lỗi khung cửa sổ bị nhấp nháy khi chuyển tiêu điểm trên Windows.
+- Sửa lỗi đầy ổ đĩa làm tắt dịch vụ chạy nền.
+- Sửa lỗi lệnh `/stop` báo các tác vụ shell đã hoàn tất là "Không thể dừng".
+- Sửa lỗi ứng dụng điện thoại mở bảng bên chậm, mất kết nối sau một lần lỡ xác nhận và bị kẹt khi bắt đầu nhập giọng nói.
+- Sửa lỗi thẻ của phiên đã lưu trữ không tự đóng (#352).
+- Sửa lỗi các nút trong hộp thoại giao diện skin bị đẩy ra khỏi vùng hiển thị (#384).
+- Sửa lỗi nút lưu trữ nằm ở vị trí khác nhau trên mỗi hàng phiên (#357).
+- Sửa lỗi thiết bị HID được chọn trong trình duyệt tích hợp không kết nối được và không hiển thị tên thiết bị (#313, #314).
+- Sửa lỗi danh sách Phiên hiển thị các hàng trống hoặc nhảy lên đầu khi quay lại từ menu khác (#315).
+- Sửa lỗi công thức toán hiển thị lỗi trong chốc lát khi đang phát trực tuyến.
+- Sửa lỗi ứng dụng giữ nguyên màn hình trống khi không thể khởi động bộ máy; giờ đây thẻ báo lỗi khởi động sẽ xuất hiện.
+
 ## v1.4.5 - 2026-11-03
 
 Bản phát hành này tăng tốc các cuộc trò chuyện Claude đang diễn ra, sắp xếp bảng Phiên theo dự án và nhánh, đồng thời ra mắt bảng Studio cùng các cải tiến về độ ổn định cho công việc song song.
