@@ -9,9 +9,12 @@ import { bytesFromBase64, concat, readRemoteFile, type Call, type RangeResult } 
 import { buildPageSrcdoc, resolvePageReference } from './remote-page-inliner';
 import { registerIdleReclaim } from './idle-reclaim';
 import { enforceRendererCacheBudget, registerBudgetedCache } from './renderer-cache-budget';
+import type { RemotePageCache } from './remote-page-cache';
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { useSurfaceActive } from './surface-activity';
+
+export { createRemotePageCache, type RemotePageCache } from './remote-page-cache';
 
 // Streamed preview URLs embed the media session: when it changes (reconnect)
 // the old URLs are dead, so mounted previews must resolve theirs again.
@@ -241,51 +244,6 @@ export async function readRemoteVisualizePane(
   const file = await readRemoteFile(paneCall, ['', meta.rel, null], REMOTE_PREVIEW_MAX_FILE_BYTES);
   return { kind: meta.kind, url: URL.createObjectURL(new Blob(file.parts as BlobPart[], { type: meta.mime })) };
 }
-
-const REMOTE_PAGE_CACHE_LIMIT = 6;
-
-/** Built remote HTML pages of one authenticated connection, keyed by tab,
- *  pane and the host's content identity, in use order. `scope` names the
- *  pairing (server, device, keys): another one drops every page, and none
- *  keeps nothing. Only page text is kept; a page's fetch always goes over
- *  the load that asked for it. */
-export function createRemotePageCache(scope: () => string | null) {
-  let owner: string | null = null;
-  const pages = new Map<string, Promise<string>>();
-  return {
-    clear(): void {
-      pages.clear();
-    },
-    /** The page for `key`, built once per connection; `build` says whether
-     *  its result may be kept. */
-    page(key: string, build: () => Promise<{ srcdoc: string; keep: boolean }>): Promise<string> {
-      const current = scope();
-      if (current !== owner) {
-        pages.clear();
-        owner = current;
-      }
-      if (current === null) return build().then((page) => page.srcdoc);
-      const kept = pages.get(key);
-      if (kept) {
-        pages.delete(key);
-        pages.set(key, kept);
-        return kept;
-      }
-      const built = build();
-      const srcdoc = built.then((page) => page.srcdoc);
-      pages.set(key, srcdoc);
-      while (pages.size > REMOTE_PAGE_CACHE_LIMIT) pages.delete(pages.keys().next().value as string);
-      const drop = () => {
-        if (pages.get(key) === srcdoc) pages.delete(key);
-      };
-      void built.then((page) => {
-        if (!page.keep) drop();
-      }, drop);
-      return srcdoc;
-    },
-  };
-}
-export type RemotePageCache = ReturnType<typeof createRemotePageCache>;
 
 /** A page built for the cache: kept only when it inlined no other file (it
  *  is only as fresh as those) and was built from exactly the bytes the host

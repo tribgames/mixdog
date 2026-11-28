@@ -37,12 +37,11 @@ import {
   remotePairingKeys,
   type RemotePairingKeys,
 } from './remote-pairing-recovery';
-import { createRemotePageCache, type RemotePageCache } from './remote-file-preview';
+import { createRemotePageCache, type RemotePageCache } from './remote-page-cache';
 import { createRemoteTransportMediaClient, type RemoteTransportMediaClient } from './remote-transport-media-client';
 import { createRemoteSessionInbox } from './remote-session-inbox';
 import type { RemoteTransportPeer } from './remote-transport-peer';
 import { createRelayPayloadLimits, showRemoteToast, type PendingCall } from './remote-shim-payload-limit';
-import type { createRemotePairingScreen } from './remote-pairing-screen';
 import type { TerminalSizeOwnerEvent } from '../shared/terminal-size-owner';
 import type { TerminalActivityEvent } from '../shared/terminal-activity';
 
@@ -242,7 +241,8 @@ export interface RemoteShimServices {
   waitForCredential: () => Promise<void>;
   wsUrl: () => string;
   ensureClientRegistration: () => Promise<void>;
-  showPairingScreen: ReturnType<typeof createRemotePairingScreen>;
+  // Spelled out, not taken from remote-pairing-screen.ts: its surface probes import React, which the phone's own check never installs.
+  showPairingScreen: (message: string, autoAsk?: boolean, title?: string, recovery?: 'reload') => void;
   adoptApproval: (credential: string, material: RelayE2EEPairingMaterial) => Promise<boolean>;
   /** Fill a credential missing from localStorage from its durable copy. */
   restoreDurablePairing: () => Promise<void>;

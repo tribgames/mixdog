@@ -14,7 +14,7 @@ import {
   setRemoteConnectionState,
   setRemoteRedialAt,
 } from '../../desktop/src/renderer/remote-connection-state.ts';
-import { setRemoteHostName, setRemoteHostOpenAccess } from '../../desktop/src/renderer/remote-host-access.ts';
+import { setRemoteHostName, setRemoteHostOpenAccess } from '../../desktop/src/renderer/remote-host-access-state.ts';
 import { publishMediaKey, revokeMediaKey } from '../../desktop/src/renderer/remote-media-lane.ts';
 import { currentDeviceId, savePcName } from '../../desktop/src/renderer/remote-saved-pcs.ts';
 import {

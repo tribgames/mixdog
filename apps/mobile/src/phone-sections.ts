@@ -24,7 +24,7 @@ const statusOf = (client: Client): DesktopProtocolStatus => {
   return state === 'ready' ? 'ready' : state === 'closed' ? 'closed' : 'reconnecting';
 };
 
-/** The renderer's adapter from a fold store to a pushes source (section-store.ts), passed in so this module needs none of the renderer. */
+/** The renderer's adapter from a fold store to a pushes source (section-store-model.ts), passed in so this module needs none of the renderer. */
 export type SectionsFromFoldStore = (
   store: Client['store'],
   names: readonly string[],

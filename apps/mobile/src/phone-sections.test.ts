@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createPhoneSections } from './phone-sections.ts';
-import { createSectionStore, sectionsSourceFromFoldStore as source } from '../../desktop/src/renderer/section-store.ts';
+import {
+  createSectionStore,
+  sectionsSourceFromFoldStore as source,
+} from '../../desktop/src/renderer/section-store-model.ts';
 
 type Listener = (event: any) => void;
 const flush = async () => {

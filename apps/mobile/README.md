@@ -81,7 +81,7 @@ npm ci
 npm run check          # shell typecheck + unit tests + native config checks + web build
 npm run check:source   # the same without the web build (what the Android release runs: sync:android builds it)
 npm run test:e2e       # phone <-> relay over the Rust relay binary (cargo build -p mixdog-relay first)
-npm run typecheck      # the whole source, phone-boot.ts included (needs apps/desktop installed, for react)
+npm run typecheck      # the whole source, the end to end tests and their relay harness included
 npm run sync:android   # build web, cap sync android
 npm run apk:debug      # needs the Android SDK
 npm run sync:ios       # build web, cap sync ios (+ pod install, macOS)

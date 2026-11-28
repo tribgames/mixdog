@@ -1471,7 +1471,6 @@ jobs:
       - uses: ./.github/actions/setup-node-ci
         with:
           cache-dependency-path: |
-            apps/desktop/package-lock.json
             apps/relay/package-lock.json
             apps/mobile/package-lock.json
             packages/protocol-client/package-lock.json
@@ -1516,6 +1515,8 @@ jobs:
             ~/.cargo/git
             native/core/target
           key: core-deps-linux-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json') }}
+      # The phone's packages are the two the Android release (mobile-android.yml) installs, and no desktop or root packages: a phone
+      # import that reaches the desktop UI (React) fails here as it fails the release.
       - name: Install phone verification and Node relay dependencies
         shell: bash
         run: |
@@ -1533,9 +1534,6 @@ jobs:
           npm_ci --prefix packages/protocol-client &
           pids+=($!)
           npm_ci --prefix apps/mobile &
-          pids+=($!)
-          # Phone source checks follow desktop renderer imports and need React's types, not Electron.
-          npm_ci --prefix apps/desktop --ignore-scripts &
           pids+=($!)
           status=0
           for pid in "${pids[@]}"; do wait "$pid" || status=1; done
