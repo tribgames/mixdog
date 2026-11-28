@@ -819,6 +819,11 @@ jobs:
           docker run --rm --shm-size=1g -v "$PWD:/w" ${{ matrix.image }} \
             bash /w/apps/desktop/scripts/linux-container-smoke.sh ${{ matrix.family }} 2>&1 | tee out/container-smoke.log
           test "${PIPESTATUS[0]}" -eq 0
+      # The container writes as root, and the app keeps its diagnostics file to its owner (0600): the upload below runs as
+      # the runner's user and failed on it (`EACCES … desktop-diagnostics.jsonl`, deploy run 46116500043).
+      - name: Let the runner read what the container wrote
+        if: always()
+        run: sudo chmod -R a+rX out
       - name: Upload container smoke output
         if: always()
         uses: actions/upload-artifact@v5
