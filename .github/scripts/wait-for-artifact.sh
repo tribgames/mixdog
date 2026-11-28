@@ -15,8 +15,10 @@ deadline=$((SECONDS + minutes * 60))
 api_failures=0
 missing_after_success=0
 while :; do
+	# Thirty jobs a page: GitHub answered 502 to every page of 100 of a deploy run of 166 jobs (46102511409) and served
+	# the same listing in pages of 50 and 30.
 	if ! build=$(gh api --paginate \
-		"repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100" \
+		"repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=30" \
 		--jq ".jobs[] | select(.name == \"${producer}\" or (.name | endswith(\" / ${producer}\"))) | \"\(.status) \(.conclusion)\""); then
 		build=unknown
 	fi
