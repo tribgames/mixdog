@@ -4,8 +4,6 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
-## v1.5.0 - 2026-11-28
-
 Olá a todos que amam o Mixdog. Sou Plankton, mantenedor do Mixdog.
 
 Primeiro, peço sinceras desculpas por esta atualização ter chegado muito mais tarde do que o planejado. Muito obrigado de coração por esperarem tanto tempo.

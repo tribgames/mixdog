@@ -5,8 +5,6 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
-## v1.5.0 - 2026-11-28
-
 Bonjour à toutes celles et ceux qui aiment Mixdog. Je suis Plankton, le mainteneur de Mixdog.
 
 Tout d'abord, je suis vraiment désolé que cette mise à jour soit arrivée bien plus tard que prévu. Merci sincèrement d'avoir attendu si longtemps.

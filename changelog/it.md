@@ -4,8 +4,6 @@ Modifiche rilevanti, dalla più recente. La pipeline di deploy rifiuta di rilasc
 
 ## Unreleased
 
-## v1.5.0 - 2026-11-28
-
 Ciao a tutti quelli che amano Mixdog. Sono Plankton, il maintainer di Mixdog.
 
 Prima di tutto, mi dispiace davvero che questo aggiornamento sia arrivato molto più tardi del previsto. Grazie di cuore per aver aspettato così a lungo.

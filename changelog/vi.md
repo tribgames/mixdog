@@ -4,8 +4,6 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
-## v1.5.0 - 2026-11-28
-
 Xin chào tất cả mọi người yêu mến Mixdog. Tôi là Plankton, người duy trì Mixdog.
 
 Trước hết, tôi thật lòng xin lỗi vì bản cập nhật này đã đến muộn hơn rất nhiều so với dự kiến. Chân thành cảm ơn mọi người đã chờ đợi suốt thời gian dài như vậy.
