@@ -6,6 +6,9 @@
 # `stage-core.mjs --server-cores=<dir>`, which refuses a set that does not match their own mixdogd builds.
 # Needs the mixdogd-<target> artifacts of this run (mixdogd-build.yml) and uploads `server-cores`; the
 # artifact name is unique per run, so call this once per run.
+# With sign_darwin (the release), every Mach-O file of the two macOS bundles is signed once, on a hosted macOS
+# runner, before any package takes them: Apple's notary inspects the programs inside the bundles every macOS
+# app carries, and all five packages ship the same bytes.
 name: server-cores-build
 
 on:
@@ -16,6 +19,16 @@ on:
         required: false
         type: string
         default: ""
+      sign_darwin:
+        description: "Sign the macOS bundles with the Developer ID of MAC_CERTIFICATE_* (without the secrets they stay unsigned, as the app does)"
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      MAC_CERTIFICATE_P12_BASE64:
+        required: false
+      MAC_CERTIFICATE_PASSWORD:
+        required: false
 
 permissions:
   contents: read
@@ -68,6 +81,106 @@ jobs:
         run: node apps/desktop/scripts/stage-core.mjs --servers-only
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: server-cores
+          name: ${{ inputs.sign_darwin && 'server-cores-unsigned' || 'server-cores' }}
           path: apps/desktop/.runtime/server-cores
+          if-no-files-found: error
+
+  # The Developer ID stays on a GitHub-hosted runner. Each package takes a signed macOS core for its own build of
+  # it only when the two are the same program apart from the signature (stage-core.mjs adoptServerCores).
+  # mixdogd may be built on the project's own machines: the certificate secrets are in the import step alone, no
+  # step that has the keychain runs a program of the bundles, and the signed core starts only once it is deleted.
+  sign-darwin:
+    name: sign-darwin-server-cores
+    needs: [server-cores]
+    if: inputs.sign_darwin
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/assert-sha
+        with:
+          expected: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: server-cores-unsigned
+          path: server-cores-in
+      # GNU tar unpacks and packs the bundles, as on the Linux producer: macOS tar would also archive the files'
+      # extended attributes. `brew --prefix` names the directory whether or not the formula is installed.
+      - name: Take GNU tar for the bundles
+        run: |
+          gnubin="$(brew --prefix gnu-tar)/libexec/gnubin"
+          if [[ "$(PATH="$gnubin:$PATH" tar --version 2>&1)" != "tar (GNU tar) "* ]]; then
+            echo "::error title=No GNU tar::$gnubin holds no GNU tar; the bundles are packed with GNU tar only."
+            exit 1
+          fi
+          echo "$gnubin" >> "$GITHUB_PATH"
+      - name: Import the Developer ID certificate
+        id: certificate
+        env:
+          MAC_CERTIFICATE_P12_BASE64: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          present=0
+          for name in MAC_CERTIFICATE_P12_BASE64 MAC_CERTIFICATE_PASSWORD; do
+            if [ -n "${!name}" ]; then present=$((present + 1)); fi
+          done
+          if [ "$present" -eq 0 ]; then
+            echo "::warning title=Unsigned macOS server bundles::Developer ID signing secrets are not configured; the bundles stay unsigned, as the app does."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          elif [ "$present" -ne 2 ]; then
+            echo "::error title=Incomplete macOS signing secrets::Configure both MAC_CERTIFICATE_* secrets or neither."
+            exit 1
+          fi
+          # The .p12 goes into a keychain of this job the way electron-builder imports it for the app (decoded as it
+          # decodes CSC_LINK); the runner image holds the Developer ID intermediate certificate.
+          keychain="$RUNNER_TEMP/developer-id.keychain-db"
+          keychain_password="$(openssl rand -base64 32)"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          node -e 'process.stdout.write(Buffer.from(process.env.MAC_CERTIFICATE_P12_BASE64, "base64"))' \
+            > "$RUNNER_TEMP/developer-id.p12"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$keychain" -P "$MAC_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/developer-id.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          identity="$(security find-identity -v -p codesigning "$keychain" | awk '/"Developer ID Application: / { print $2; exit }')"
+          {
+            echo "signed=true"
+            echo "keychain=$keychain"
+            echo "identity=$identity"
+          } >> "$GITHUB_OUTPUT"
+      # codesign and tar only: nothing of the bundles runs while the keychain is there.
+      - name: Sign every Mach-O file of the macOS bundles
+        if: steps.certificate.outputs.signed == 'true'
+        env:
+          KEYCHAIN: ${{ steps.certificate.outputs.keychain }}
+          IDENTITY: ${{ steps.certificate.outputs.identity }}
+        run: |
+          node apps/desktop/scripts/sign-server-cores.mjs --server-cores=server-cores-in --out=server-cores-signed \
+            --identity="$IDENTITY" --keychain="$KEYCHAIN"
+      # Also when the import or the signing failed part-way: the keychain and the decoded certificate do not outlive the step
+      # that needed them.
+      - name: Delete the signing keychain
+        if: always()
+        run: |
+          if [ -e "$RUNNER_TEMP/developer-id.keychain-db" ]; then security delete-keychain "$RUNNER_TEMP/developer-id.keychain-db"; fi
+          rm -f "$RUNNER_TEMP/developer-id.p12"
+      - name: Start the signed core of this runner's platform
+        if: steps.certificate.outputs.signed == 'true'
+        run: node apps/desktop/scripts/sign-server-cores.mjs --start --server-cores=server-cores-signed
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: server-cores
+          path: ${{ steps.certificate.outputs.signed == 'true' && 'server-cores-signed' || 'server-cores-in' }}
           if-no-files-found: error

@@ -437,7 +437,9 @@ jobs:
       RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   # The four server bundles (Linux and macOS only: server cores are Unix-only). The job waits for the four Unix mixdogd
-  # artifacts in its own step, so it neither idles behind the Windows build nor holds a runner while it waits.
+  # artifacts in its own step, so it neither idles behind the Windows build nor holds a runner while it waits. The
+  # macOS bundles are signed with the app's Developer ID before any packager takes them: the notary inspects the
+  # programs inside them in each macOS app.
   server-cores:
     needs: [identity]
     uses: ./.github/workflows/server-cores-build.yml
@@ -446,6 +448,10 @@ jobs:
       actions: read
     with:
       ref: ${{ inputs.ref }}
+      sign_darwin: true
+    secrets:
+      MAC_CERTIFICATE_P12_BASE64: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+      MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
 
   # The npm packages: one per platform (scripts/npm-platforms.mjs), staged from the programs mixdogd-build.yml built once
   # (mixdogd-<target> and mixdog-entry-<target>), and the main package, which lists them as optional dependencies at the

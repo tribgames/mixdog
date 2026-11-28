@@ -8,6 +8,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { checkReleaseVersion, workspaceVersion } from '../../../scripts/check-release-version.mjs';
+import { readTarball } from '../../../scripts/check-npm-packages.mjs';
 import {
   CORE_PLATFORM_TARGETS,
   manifestBuild,
@@ -22,6 +23,7 @@ import {
   stageOfficeTemplates,
   verifyRemotePayload,
 } from './core-layout.mjs';
+import { sameUnsignedCode } from './macho-signature.mjs';
 import { buildJsPayload, createBundleArchive } from './stage-js-bundle.mjs';
 
 const BUNDLE_FILE = 'bundle.tgz';
@@ -183,7 +185,7 @@ export async function stageCore({
  * `servers.json` and `<key>/bundle.tgz`. Fails closed, never rebuilds: the manifest lists exactly the
  * server platforms and this version, every bundle matches its recorded size and sha256, the recorded
  * build is the one of its binaries, and each recorded mixdogd is the very binary this job holds for that
- * platform.
+ * platform, or for macOS that binary with the Developer ID signature sign-server-cores.mjs adds.
  */
 export async function adoptServerCores({ source, serversDir, targetDir, version }) {
   const problems = [];
@@ -218,9 +220,15 @@ export async function adoptServerCores({ source, serversDir, targetDir, version 
       problems.push(`${key}: ${bundle} is not readable (${error.code ?? error.message})`);
     }
     try {
-      const local = await builtBinary(targetDir, target, key.split('-')[0]);
-      if ((await sha256Of(local)) !== entry.sha256)
-        problems.push(`${key}: the bundled mixdogd is not the mixdogd built for ${target}`);
+      const platform = key.split('-')[0];
+      const built = await readFile(await builtBinary(targetDir, target, platform));
+      if (createHash('sha256').update(built).digest('hex') !== entry.sha256) {
+        const problem =
+          platform === 'darwin'
+            ? signedCoreProblem({ bundle, entry, built, target })
+            : `the bundled mixdogd is not the mixdogd built for ${target}`;
+        if (problem) problems.push(`${key}: ${problem}`);
+      }
     } catch (error) {
       problems.push(error.message);
     }
@@ -232,7 +240,26 @@ export async function adoptServerCores({ source, serversDir, targetDir, version 
   return manifest;
 }
 
-function hostReportedVersion(file) {
+/** Why the signed macOS core in `bundle` is not `built`, or null when it is that program: the bundled binary is the one
+ *  the manifest records, and with its code signature set aside the same bytes as the build. */
+function signedCoreProblem({ bundle, entry, built, target }) {
+  let bundled;
+  try {
+    bundled = readTarball(bundle).find((file) => file.path === 'mixdogd')?.data;
+  } catch (error) {
+    return `${bundle} could not be unpacked (${error.message})`;
+  }
+  if (!bundled || createHash('sha256').update(bundled).digest('hex') !== entry.sha256)
+    return "the bundle's mixdogd does not match the manifest";
+  const notBuilt = `the bundled mixdogd is not the mixdogd built for ${target}`;
+  try {
+    return sameUnsignedCode(bundled, built) ? null : notBuilt;
+  } catch (error) {
+    return `${notBuilt} (${error.message})`;
+  }
+}
+
+export function hostReportedVersion(file) {
   const run = spawnSync(file, ['--version'], { encoding: 'utf8' });
   if (run.status !== 0) throw new Error(`${file} --version exited with ${run.status}: ${run.stderr}`);
   return String(run.stdout).trim().split(/\s+/).at(-1);
