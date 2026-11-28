@@ -202,7 +202,11 @@ test('the built runtime is the staged real-file tree: no archive, the closure, t
 test('the packaged resources hold the Rust core, its unpacked resource root, the ONNX library and the extension host closure', async () => {
   const resources = await packagedResources();
   const archive = await artifactFile(resources, join(resources, 'app.asar'));
-  assert.ok(extractFile(archive, 'out/preload/index.js').length > 0, 'the package is missing the desktop preload');
+  // @electron/asar walks an archive path split on path.sep.
+  assert.ok(
+    extractFile(archive, join('out', 'preload', 'index.js')).length > 0,
+    'the package is missing the desktop preload'
+  );
   assert.deepEqual(verifyStagedResources({ resources, platform: process.platform, arch: process.arch }).sort(), [
     'darwin-arm64',
     'darwin-x64',

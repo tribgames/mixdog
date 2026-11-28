@@ -262,9 +262,10 @@ export async function withPackagedCore(resources, version, check) {
       if (!windows) return run(launcher, args, { ...options, env: skillEnv });
       // Expand into quoted cmd arguments so the batch file has to forward %*.
       // The separate PowerShell carrier would skip the batch forwarding path.
+      // cmd leaves %NAME% of an empty variable unexpanded, so an empty argument is a literal "".
       const values = [launcher, ...args];
       const names = values.map((_, i) => `MIXDOG_ARTIFACT_ARG_${i}`);
-      const command = `"${names.map((name) => `"%${name}%"`).join(' ')}"`;
+      const command = `"${names.map((name, i) => (values[i] ? `"%${name}%"` : '""')).join(' ')}"`;
       const commandEnv = Object.fromEntries(names.map((name, i) => [name, values[i]]));
       return run(join(env.SystemRoot, 'System32', 'cmd.exe'), ['/d', '/s', '/v:off', '/c', command], {
         ...options,

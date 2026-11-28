@@ -104,14 +104,16 @@ function verifyServerBundles({ resources, hostOnly }) {
       problems.push(`${key}: ${bundle} is missing`);
       continue;
     }
-    if (createHash('sha256').update(readFileSync(bundle)).digest('hex') !== entry.bundle.sha256) {
+    const archive = readFileSync(bundle);
+    if (createHash('sha256').update(archive).digest('hex') !== entry.bundle.sha256) {
       problems.push(`${key}: bundle.tgz does not match servers.json`);
       continue;
     }
     // The bundle is unpacked as the ssh install does and checked as the staging checked the payload before archiving it.
     const unpacked = mkdtempSync(join(tmpdir(), 'verify-staged-bundle-'));
     try {
-      const extraction = spawnSync('tar', ['-xzf', bundle, '-C', unpacked], { encoding: 'utf8' });
+      // No path reaches tar: GNU tar (first on PATH under Git for Windows) cannot open a drive-letter path.
+      const extraction = spawnSync('tar', ['-xzf', '-'], { cwd: unpacked, input: archive, encoding: 'utf8' });
       if (extraction.status !== 0) {
         problems.push(`${key}: tar could not unpack the bundle: ${extraction.stderr}`);
         continue;
