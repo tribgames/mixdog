@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.5.0 - 2026-11-28
+
 Hello to everyone who loves Mixdog. I'm Plankton, the maintainer of Mixdog.
 
 First, I'm truly sorry that this update arrived much later than planned. Thank you sincerely for waiting so long.
