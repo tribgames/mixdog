@@ -49,6 +49,8 @@ mixdog-core-agents = { workspace = true }
 mixdog-core-base = { workspace = true }
 mixdog-core-config = { workspace = true }
 mixdog-core-domains = { workspace = true }
+# The footer's files (statusline rules, gateway routes and usage, the per-cwd prompt history), shared with the terminal interface.
+mixdog-core-files = { workspace = true }
 mixdog-core-goal = { workspace = true }
 mixdog-core-ports = { workspace = true }
 mixdog-core-prompt = { workspace = true }

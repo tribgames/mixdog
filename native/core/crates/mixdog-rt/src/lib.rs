@@ -73,6 +73,17 @@ pub fn replay_event(name: &str) {
     let _ = name;
 }
 
+/// A panic ends this process once the hook installed so far has run (its report on stderr): what a shipped build's
+/// `panic = "abort"` does, done the same in a build that unwinds, so a development process and the tests that drive one
+/// end where a user's does. A program calls it first in `main`; a hook installed later runs before it.
+pub fn abort_on_panic() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        previous(info);
+        std::process::abort();
+    }));
+}
+
 pub use cancel::CancelSource;
 pub use cancel::CancelView;
 pub use gate::Gate;

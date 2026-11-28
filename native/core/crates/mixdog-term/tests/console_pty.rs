@@ -7,7 +7,7 @@ mod unix_pty {
     use std::time::{Duration, Instant};
 
     use mixdog_term::console::{RawConsole, is_raw};
-    use mixdog_term::guard::{CleanupConfig, SignalCleanup, StderrGuard, TerminalGuard};
+    use mixdog_term::guard::{CleanupConfig, SignalCleanup, StderrGuard, TerminalGuard, install_panic_hook};
     use mixdog_term::modes::{ModeEnv, TerminalModes, restore_sequence, screen_entry_sequence};
     use mixdog_term::reader::{TermEvent, spawn_reader};
     use portable_pty::{CommandBuilder, PtySize, native_pty_system};
@@ -25,8 +25,27 @@ mod unix_pty {
         match std::env::var(CHILD_ENV).as_deref() {
             Ok("keys") => child_keys(),
             Ok("signal") => child_signal(),
+            Ok("panic") => child_panic(),
             _ => {}
         }
+    }
+
+    /// A panic ends the program in the hook installed before the terminal's (mixdog-entry `end_on_panic` exits there, and a
+    /// build that aborts unwinds nothing either): the terminal that hook sees is the one the shell gets back.
+    fn child_panic() {
+        let raw = RawConsole::enable().expect("raw mode");
+        let guard = TerminalGuard::new(TerminalModes::new(ModeEnv::from_process()), Some(raw));
+        std::panic::set_hook(Box::new(|_| {
+            let mut attributes = std::mem::MaybeUninit::<libc::termios>::uninit();
+            // SAFETY: tcgetattr fills the struct it is given when it returns 0, and only then is it read.
+            let echo = unsafe { libc::tcgetattr(0, attributes.as_mut_ptr()) } == 0 && unsafe { attributes.assume_init() }.c_lflag & libc::ECHO != 0;
+            println!("ENDED raw:{} echo:{echo}", is_raw());
+            std::process::exit(1);
+        }));
+        install_panic_hook(guard.restorer());
+        let _ = thread::spawn(|| panic!("a frame failed")).join();
+        drop(guard);
+        println!("UNWOUND");
     }
 
     fn child_keys() {
@@ -264,6 +283,18 @@ mod unix_pty {
         assert!(position(&output, b"CLEANUP:SIGINT").unwrap() > restored, "the cleanup ran before the restore");
         assert_back_on_the_main_screen(&output);
     }
+
+    #[test]
+    fn a_panic_puts_the_terminal_modes_back_before_the_process_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut run = start("panic", &dir.path().join("stderr.log"));
+        assert_eq!(run.wait_for_exit(), 1, "output {:?}", String::from_utf8_lossy(&run.bytes()));
+        let output = run.bytes();
+        assert!(contains(&output, b"ENDED raw:false echo:true"), "output {:?}", String::from_utf8_lossy(&output));
+        assert!(!contains(&output, b"UNWOUND"));
+        let restored = position(&output, restore_sequence().as_bytes()).expect("the restore was written");
+        assert!(position(&output, b"ENDED").unwrap() > restored, "the process ended before the restore");
+    }
 }
 
 #[cfg(windows)]
@@ -272,10 +303,14 @@ mod windows_console {
 
     use mixdog_fsio::{File, OpenOptions, Unlaned};
     use mixdog_term::console::{RawConsole, terminal_size};
+    use mixdog_term::guard::{TerminalGuard, install_panic_hook};
+    use mixdog_term::modes::{ModeEnv, TerminalModes};
     use windows_sys::Win32::System::Console::{
         ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_PROCESSED_INPUT, ENABLE_VIRTUAL_TERMINAL_INPUT, ENABLE_VIRTUAL_TERMINAL_PROCESSING, ENABLE_WINDOW_INPUT,
-        GetConsoleMode,
+        GetConsoleMode, SetConsoleMode,
     };
+
+    const CHILD_ENV: &str = "MIXDOG_TERM_CONSOLE_CHILD";
 
     fn open(name: &str) -> File {
         OpenOptions::new().read(true).write(true).open(&Unlaned, name).expect("a real console")
@@ -306,5 +341,47 @@ mod windows_console {
         drop(raw);
         assert_eq!(mode_of(&input), input_before, "the input mode is put back");
         assert_eq!(mode_of(&output), output_before, "the output mode is put back");
+    }
+
+    /// Not a test of its own: the program the test below runs on the console it shares. It does nothing in a normal run.
+    #[test]
+    fn console_child() {
+        if std::env::var_os(CHILD_ENV).is_none() {
+            return;
+        }
+        let raw = RawConsole::enable().expect("raw mode on the shared console");
+        let guard = TerminalGuard::new(TerminalModes::new(ModeEnv::from_process()), Some(raw));
+        // The hook that ends the program before any unwind, as mixdog-entry `end_on_panic` does.
+        std::panic::set_hook(Box::new(|_| {
+            println!("ENDED");
+            std::process::exit(1);
+        }));
+        install_panic_hook(guard.restorer());
+        let _ = std::thread::spawn(|| panic!("a frame failed")).join();
+        drop(guard);
+        println!("UNWOUND");
+    }
+
+    /// A panic that ends the program from its hook leaves the console it shares in the console's own modes.
+    #[test]
+    #[ignore = "needs a real console: run with -- --ignored a_panic_puts_the_console_modes_back"]
+    #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the test runs its own program on the console it shares")]
+    fn a_panic_puts_the_console_modes_back() {
+        let input = open("CONIN$");
+        let before = mode_of(&input);
+        let child = std::process::Command::new(std::env::current_exe().expect("current exe"))
+            .args(["--exact", "console_pty::windows_console::console_child", "--nocapture", "--test-threads=1"])
+            .env(CHILD_ENV, "panic")
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .expect("the child runs");
+        let after = mode_of(&input);
+        // SAFETY: the handle is owned by `input`; a console the child left raw is put back for whoever types in it.
+        unsafe { SetConsoleMode(input.as_raw_handle(), before) };
+        let out = String::from_utf8_lossy(&child.stdout);
+        assert_eq!(child.status.code(), Some(1), "{out}");
+        assert!(out.contains("ENDED") && !out.contains("UNWOUND"), "{out}");
+        assert_eq!(after, before, "the console's input mode is put back");
     }
 }

@@ -3,7 +3,7 @@
 // version `compat::order` compares.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { access, copyFile, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -14,6 +14,8 @@ import {
   manifestBuild,
   SERVER_MANIFEST_FILE,
   SERVER_PLATFORM_TARGETS,
+  serverBundleAsset,
+  serverManifestProblems,
 } from '../src/main/ssh/server-manifest.mjs';
 
 import {
@@ -26,7 +28,6 @@ import {
 import { sameUnsignedCode } from './macho-signature.mjs';
 import { buildJsPayload, createBundleArchive } from './stage-js-bundle.mjs';
 
-const BUNDLE_FILE = 'bundle.tgz';
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const coreRoot = resolve(desktopDir, '../../native/core');
 
@@ -44,8 +45,8 @@ export { JS_RUNTIME_MANIFEST };
 export const jsRuntimeManifest = desktopJsRuntimeManifest;
 export const ortLibraryPath = desktopOrtLibraryPath;
 
-/** A server payload is complete before it is archived (core-layout.mjs), and the staged package is verified
- *  again with the same check (verify-staged-package.mjs). */
+/** A server payload is complete before it is archived (core-layout.mjs), and the release's server set is verified
+ *  again with the same check before its assets are uploaded (verify-staged-package.mjs `verifyServerSet`). */
 export { verifyRemotePayload };
 
 async function builtBinary(targetDir, target, platform, name = binaryName(platform)) {
@@ -69,7 +70,7 @@ export { workspaceVersion };
 /**
  * Stages the core this app starts: `.runtime/core/mixdogd[.exe]`, the `mixdog-askpass[.exe]` beside it and its
  * `js-runtime.json`. A local deploy
- * stages only this (`--binary`, or `--host-only` over a triple build); the server bundles need the other platforms' builds.
+ * stages only this (`--binary`, or `--host-only` over a triple build); the server set needs the other platforms' builds.
  * @param {object} options
  * @param {string} options.binary      the built `mixdogd` of the host platform
  * @param {string} [options.askpass]   the built `mixdog-askpass` (default: the one beside `binary`, where one cargo build puts both)
@@ -116,8 +117,14 @@ export async function stageHostCore({
  * @param {(file: string) => string} [options.reportedVersion]  `mixdogd --version` of the host binary
  * @param {typeof buildJsPayload} [options.buildPayload]  builds one server platform's JS runtime payload
  * @param {typeof verifyRemotePayload} [options.verifyPayload]  integrity check of that payload before it is archived
- * @param {boolean} [options.hostOnly]  stage only this app's own core: no server bundles for the ssh install, so no other
+ * @param {boolean} [options.hostOnly]  stage only this app's own core: no server manifest for the ssh install, so no other
  *   platform's binary is needed (an app built for the machine it is built on, not a release)
+ * @param {boolean} [options.serversOnly]  build only the server set, no host core
+ * @param {string} [options.prebuiltServerCores]  a server set another job built, taken in place of building one
+ *
+ * `.runtime/server-cores` is the server set: `servers.json` and, when this machine built the set, each server platform's
+ * asset beside it, which the core of a development tree uploads from there. A package carries `servers.json` alone
+ * (electron-builder.yml); the release uploads the assets.
  */
 export async function stageCore({
   targetDir,
@@ -133,11 +140,11 @@ export async function stageCore({
   prebuiltServerCores = null,
 }) {
   const serversDir = join(runtimeDir, 'server-cores');
+  await rm(serversDir, { recursive: true, force: true });
   if (!serversOnly) {
     const hostKey = `${host.platform}-${host.arch}`;
     const hostTarget = HOST_TARGETS[hostKey];
     if (!hostTarget) throw new Error(`no mixdogd target for ${hostKey}`);
-    await rm(serversDir, { recursive: true, force: true });
     await stageHostCore({
       binary: await builtBinary(targetDir, hostTarget, host.platform),
       askpass: await builtBinary(targetDir, hostTarget, host.platform, askpassName(host.platform)),
@@ -147,8 +154,6 @@ export async function stageCore({
       hostRunnable,
       reportedVersion,
     });
-  } else {
-    await rm(serversDir, { recursive: true, force: true });
   }
 
   if (hostOnly) return null;
@@ -157,20 +162,21 @@ export async function stageCore({
   // way on every run, and no platform's build is left running after the staging has failed.
   const sources = [];
   for (const [key, target] of Object.entries(SERVER_PLATFORM_TARGETS)) {
-    sources.push([key, await builtBinary(targetDir, target, key.split('-')[0])]);
+    sources.push([key, target, await builtBinary(targetDir, target, key.split('-')[0])]);
   }
+  await mkdir(serversDir, { recursive: true });
   // The four platforms share nothing but the read-only pinned downloads, so they build side by side.
   const built = await Promise.all(
-    sources.map(async ([key, source]) => {
+    sources.map(async ([key, target, source]) => {
       const payloadDir = join(runtimeDir, 'server-js', key);
       await buildPayload({ key, payloadDir, cacheDir: join(runtimeDir, 'node-cache') });
       await verifyPayload({ key, payloadDir });
-      await mkdir(join(serversDir, key), { recursive: true });
       // One upload per platform: the core and its JS runtime, installed together under one version directory.
-      const bundle = await createBundleArchive({ binary: source, payloadDir, out: join(serversDir, key, BUNDLE_FILE) });
+      const asset = serverBundleAsset(key);
+      const bundle = await createBundleArchive({ binary: source, payloadDir, out: join(serversDir, asset) });
       return [
         key,
-        { sha256: await sha256Of(source), size: (await readFile(source)).length, bundle: { file: BUNDLE_FILE, ...bundle } },
+        { target, sha256: await sha256Of(source), size: (await readFile(source)).length, bundle: { asset, ...bundle } },
       ];
     })
   );
@@ -181,14 +187,13 @@ export async function stageCore({
 }
 
 /**
- * Takes the server bundles another job built (`--servers-only`) in place of building them: `source` holds
- * `servers.json` and `<key>/bundle.tgz`. Fails closed, never rebuilds: the manifest lists exactly the
- * server platforms and this version, every bundle matches its recorded size and sha256, the recorded
- * build is the one of its binaries, and each recorded mixdogd is the very binary this job holds for that
- * platform, or for macOS that binary with the Developer ID signature sign-server-cores.mjs adds.
+ * Takes the server set another job built (`--servers-only`, its macOS bundles signed by sign-server-cores.mjs) in place
+ * of building one: `source` holds `servers.json` and each platform's asset. Fails closed, never rebuilds: the manifest is
+ * the one of a release of this version (server-manifest.mjs), every bundle matches its recorded size and sha256, and each
+ * recorded mixdogd is the very binary this job holds for that platform, or for macOS that binary with the Developer ID
+ * signature added. Only the manifest is staged for the app: the bundles are release assets.
  */
 export async function adoptServerCores({ source, serversDir, targetDir, version }) {
-  const problems = [];
   let manifest;
   try {
     manifest = JSON.parse(await readFile(join(source, SERVER_MANIFEST_FILE), 'utf8'));
@@ -197,19 +202,11 @@ export async function adoptServerCores({ source, serversDir, targetDir, version 
       `the prebuilt server cores in ${source} have no readable ${SERVER_MANIFEST_FILE}: ${error.code ?? error.message}`
     );
   }
-  if (manifest.version !== version) problems.push(`they are version ${manifest.version}, the release is ${version}`);
-  const keys = Object.keys(manifest.binaries ?? {}).sort();
-  const wanted = Object.keys(SERVER_PLATFORM_TARGETS).sort();
-  if (keys.join() !== wanted.join())
-    problems.push(`they list ${keys.join(', ') || 'no platform'}, not ${wanted.join(', ')}`);
+  const problems = serverManifestProblems(manifest, { version });
   for (const [key, entry] of Object.entries(manifest.binaries ?? {})) {
     const target = SERVER_PLATFORM_TARGETS[key];
-    if (!target) continue;
-    if (entry?.bundle?.file !== BUNDLE_FILE) {
-      problems.push(`${key}: the bundle file must be ${BUNDLE_FILE}`);
-      continue;
-    }
-    const bundle = join(source, key, BUNDLE_FILE);
+    if (!target || entry?.bundle?.asset !== serverBundleAsset(key)) continue;
+    const bundle = join(source, entry.bundle.asset);
     try {
       const bytes = await readFile(bundle);
       if (bytes.length !== entry.bundle.size)
@@ -233,10 +230,9 @@ export async function adoptServerCores({ source, serversDir, targetDir, version 
       problems.push(error.message);
     }
   }
-  if (manifest.binaries && manifestBuild(manifest.binaries) !== manifest.build)
-    problems.push('the recorded build is not the build of the listed binaries');
   if (problems.length) throw new Error(`prebuilt server cores ${source} are refused:\n- ${problems.join('\n- ')}`);
-  await cp(source, serversDir, { recursive: true });
+  await mkdir(serversDir, { recursive: true });
+  await copyFile(join(source, SERVER_MANIFEST_FILE), join(serversDir, SERVER_MANIFEST_FILE));
   return manifest;
 }
 
@@ -271,8 +267,9 @@ if (invokedPath === import.meta.url) {
   try {
     await checkReleaseVersion();
     // `--binary=<exe>`: the host core from any cargo build (the local deploy: no `<triple>` directory, no server
-    // bundles). Without it the host core is read from `<target-dir>/<triple>/release`; `--host-only` there also leaves
-    // out the server bundles, so the other platforms' binaries are not demanded.
+    // manifest). Without it the host core is read from `<target-dir>/<triple>/release`; `--host-only` there also leaves
+    // out the server set, so the other platforms' binaries are not demanded. `--servers-only` builds the server set
+    // alone; `--server-cores=<set>` takes one another job built and stages its manifest.
     const binary = argument('binary');
     if (binary) {
       // Local deploy: the host core only, from `cargo build --release -p mixdog-cli -p mixdog-askpass` (no `<triple>` directory).
@@ -296,7 +293,7 @@ if (invokedPath === import.meta.url) {
       console.log(
         manifest
           ? `[stage-core] ${manifest.version} build ${manifest.build}: ${Object.keys(manifest.binaries).join(', ')}`
-          : '[stage-core] host core only (no server bundles)'
+          : '[stage-core] host core only (no server manifest)'
       );
     }
   } catch (error) {

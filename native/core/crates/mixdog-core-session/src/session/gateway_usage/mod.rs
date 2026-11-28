@@ -2,7 +2,7 @@
 //! `recordStandaloneStatusTelemetry` (`session/manager/status-telemetry.mjs`) after the ask's usage
 //! reached the session, and read by the statusline footer for route spend and local budgets.
 
-pub(crate) mod event;
+pub(crate) use mixdog_core_files::gateway_usage as event;
 mod store;
 
 pub use event::RouteSection;

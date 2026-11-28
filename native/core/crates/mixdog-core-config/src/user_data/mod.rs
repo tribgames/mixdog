@@ -40,7 +40,7 @@ pub use backup::BackupResult;
 pub use restore::LegacyEvidence;
 
 /// The config file the guard protects, and the only file it copies besides the folders below.
-pub const CONFIG_FILE: &str = "mixdog-config.json";
+pub use mixdog_core_files::CONFIG_FILE;
 /// The data-dir folders every snapshot carries.
 pub(crate) const USER_DATA_DIRS: [&str; 3] = ["schedules", "webhooks", "workflows"];
 /// `BOT_SPLIT_BACKUP_DIRS`: what a one-time migration's snapshot also carries (`bot-split-migration.mjs`).

@@ -1,5 +1,6 @@
-//! The worker's frame loop over in-memory pipes, as the pool drives it (the 7 cases of `src/ext-host/worker-core.test.mjs`, in the
-//! order and with the outcomes that file asserts), the wire layout against `mixdog_exthost::frame`, and the approved-path guard
+//! The worker's frame loop over in-memory pipes, as the pool drives it (the cases of `src/ext-host/worker-core.test.mjs`, in the
+//! order and with the outcomes that file asserts, but for its throwing handler: a panicking one ends the worker,
+//! `tests/pool_e2e.rs`), the wire layout against `mixdog_exthost::frame`, and the approved-path guard
 //! (the 2 cases of `path-scope.test.mjs` and the refusals of `office-run.e2e.test.mjs`).
 
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "a test driver: it makes the folders and the link the path guard is checked against")]
@@ -404,32 +405,6 @@ async fn frames_that_cannot_be_read_are_protocol_errors() {
         h.send(&bad).await;
         assert_eq!(h.exit_code().await, code(2), "{bad:?}");
     }
-}
-
-#[tokio::test]
-async fn a_panicking_handler_is_answered_and_the_worker_serves_on() {
-    let mut registry = Registry::new();
-    registry.register("panic", |_| async move {
-        let nothing: Option<Outcome> = None;
-        Ok(nothing.expect("handler went wrong"))
-    });
-    registry.register_blocking("panic_blocking", |_| {
-        let nothing: Option<Outcome> = None;
-        Ok(nothing.expect("blocking handler went wrong"))
-    });
-    registry.register("echo", |ctx| async move { Ok(Outcome::value(ctx.params)) });
-    let mut h = Harness::start(registry);
-    h.call(1, "panic", json!(null)).await;
-    let first = h.result(1).await;
-    assert_eq!(first["err"]["code"], "failed");
-    assert!(first["err"]["message"].as_str().unwrap().contains("handler went wrong"), "{first}");
-    h.call(2, "panic_blocking", json!(null)).await;
-    let second = h.result(2).await;
-    assert_eq!(second["err"]["code"], "failed");
-    assert!(second["err"]["message"].as_str().unwrap().contains("blocking handler went wrong"), "{second}");
-    h.call(3, "echo", json!(3)).await;
-    assert_eq!(h.result(3).await, json!({"ok": 3, "pin": false}));
-    assert!(!h.exit.is_finished());
 }
 
 #[tokio::test]

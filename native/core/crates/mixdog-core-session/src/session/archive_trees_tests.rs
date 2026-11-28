@@ -493,20 +493,19 @@ async fn a_release_with_a_pending_decision_answers_stays_and_the_sweep_moves_on(
     drop(go);
 }
 
-/// A decision that fails, or whose task panics, clears the pending state; a release after it unloads the idle session.
+/// A decision that fails clears the pending state; a release after it unloads the idle session.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_failed_or_panicked_decision_clears_the_pending_state_for_the_next_release() {
+async fn a_failed_decision_clears_the_pending_state_for_the_next_release() {
     use crate::session::goal_lane::DecisionFault;
     let world = world().await;
-    for (id, fault) in [("sess_fails", DecisionFault::Fail), ("sess_panics", DecisionFault::Panic)] {
-        stored_only(&world, id).await;
-        // Returns once the actor published the held decision as pending.
-        let (handle, go) = open_with_held_decision(&world, id).await;
-        go.send(fault).ok().expect("the decision waits");
-        decision_ended(&handle).await;
-        world.directory.release(&ThreadId::from(id)).await;
-        assert!(world.directory.handle(&ThreadId::from(id)).is_none(), "{id}: unloaded by the release after the decision ended");
-    }
+    let id = "sess_fails";
+    stored_only(&world, id).await;
+    // Returns once the actor published the held decision as pending.
+    let (handle, go) = open_with_held_decision(&world, id).await;
+    go.send(DecisionFault::Fail).ok().expect("the decision waits");
+    decision_ended(&handle).await;
+    world.directory.release(&ThreadId::from(id)).await;
+    assert!(world.directory.handle(&ThreadId::from(id)).is_none(), "unloaded by the release after the decision ended");
 }
 
 /// An attached session stays loaded through a release.

@@ -10,7 +10,6 @@
 //! turn that is running.
 
 use std::collections::HashMap;
-use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -76,8 +75,7 @@ impl NativeSearchUsageSinks {
             owner_session_id.and_then(|owner| entries.get(owner)).and_then(|live| live.last()).map(|(_, sink)| Arc::clone(sink))
         };
         if let Some(sink) = sink {
-            // Telemetry must never fail the search.
-            let _ = std::panic::catch_unwind(AssertUnwindSafe(|| sink(delta())));
+            sink(delta());
         }
     }
 }

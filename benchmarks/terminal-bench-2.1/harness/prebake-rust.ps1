@@ -1,7 +1,8 @@
 # Rust-core replacement of prebake.ps1 (the Node prebake): the dependency shell of a Terminal-Bench container is
 # the staged `mixdogd` bundle, not NodeSource node + `npm install -g mixdog`. apps/desktop/scripts/stage-core.mjs
-# builds `<runtime>/server-cores/linux-x64/bundle.tgz` (mixdogd + its JS runtime payload) and records its sha256
-# in the server manifest; this script verifies that digest and the pinned version, and copies the bundle to
+# builds `<runtime>/server-cores/mixdog-server-linux-x64.tgz` (mixdogd + its JS runtime payload) beside the server
+# manifest that records its asset name and sha256; this script verifies that digest and the pinned version, and
+# copies the bundle to
 #   mixdog-prebake/mixdogd-linux-x64.tgz
 # which the agent extracts under /opt/mixdog. Nothing is installed from a registry and no container is started.
 param(
@@ -25,7 +26,7 @@ if ([string]$manifest.version -ne $MixdogVersion) {
 }
 $entry = $manifest.binaries.$Platform
 if (-not $entry) { throw "the server manifest has no $Platform entry" }
-$bundle = Join-Path (Join-Path $ServerCores $Platform) $entry.bundle.file
+$bundle = Join-Path $ServerCores $entry.bundle.asset
 $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath $bundle).Hash.ToLowerInvariant()
 if ($sha -ne [string]$entry.bundle.sha256) {
     throw "bundle digest $sha does not match the manifest $($entry.bundle.sha256)"

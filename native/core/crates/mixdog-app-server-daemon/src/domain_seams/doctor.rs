@@ -234,9 +234,13 @@ fn run_probe(runtime: &ScriptRuntime, cancel: &CancellationToken, output: &Path)
         .stdin(std::process::Stdio::null())
         .stdout(std::fs::File::create_new(output).ok()?)
         .stderr(std::process::Stdio::null());
-    // The child leads its own group; on Windows it starts suspended (and without a window) so it joins its job before it runs.
+    // The child leads its own session, and so its group, which the core's warden ends with the core; on Windows it starts
+    // suspended (and without a window) so it joins its job before it runs.
+    // SAFETY: enter_session is async-signal-safe.
     #[cfg(unix)]
-    std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    unsafe {
+        std::os::unix::process::CommandExt::pre_exec(&mut command, mixdog_spawn::warden::enter_session);
+    }
     #[cfg(windows)]
     std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000 | 0x0000_0004);
     let mut child = command.spawn().ok()?;

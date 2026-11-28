@@ -6,7 +6,7 @@
 #   mixdog-prebake/mixdog-core-prebake.tar.gz (+ .tar.zst and zstd-amd64)
 # which install() then `docker cp`s and extracts in seconds. The core is the
 # staged server bundle (apps/desktop/scripts/stage-core.mjs:
-# <runtime>/server-cores/linux-x64/bundle.tgz: mixdogd and its JS runtime),
+# <runtime>/server-cores/mixdog-server-linux-x64.tgz: mixdogd and its JS runtime),
 # which prebake-rust.ps1 checks against the server manifest's digest and the
 # pinned version and leaves as mixdog-prebake/mixdogd-linux-x64.tgz, the
 # bundle install() unpacks itself when there is no prebake. Task images stay

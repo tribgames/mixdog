@@ -27,6 +27,8 @@ pub mod tasks;
 pub mod terminal;
 #[cfg(any(unix, test))]
 mod tree;
+#[cfg(unix)]
+pub mod warden;
 #[cfg(windows)]
 mod winspawn;
 

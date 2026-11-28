@@ -4,7 +4,7 @@
 //! - `chunks {bytes, fill}`: emits that many bytes, answers `{sent}`.
 //! - `sleep {ms}`: waits that long, or until cancelled (cooperative).
 //! - `spin`: never returns and never looks at the cancel (CPU-bound code that ignores it).
-//! - `panic`: panics.
+//! - `panic`: panics, which ends the worker as it ends a shipped one.
 //! - `pin {pin}`: answers the worker's process id and reports `pin`.
 //! - and the document methods the real worker serves (`register_document_methods`).
 //! - `--clock-ms N` (an argument): `office.sweepJournals` ages the journals by the clock N (milliseconds since the epoch)
@@ -65,6 +65,7 @@ fn registry() -> Registry {
 }
 
 fn main() -> ExitCode {
+    mixdog_rt::abort_on_panic();
     let (input, output) = match mixdog_exthost_worker::run::stdio() {
         Ok(pipes) => pipes,
         Err(error) => {

@@ -126,6 +126,12 @@ impl Table {
         Ok(Self::with_unreadable(procs, unreadable))
     }
 
+    /// The readable processes, in the reader's order.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    pub(crate) fn procs(&self) -> &[Proc] {
+        &self.procs
+    }
+
     pub(crate) fn row(&self, pid: u32) -> Row {
         match self.at.get(&pid) {
             Some(&index) => Row::Readable(self.procs[index].clone()),

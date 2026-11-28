@@ -1448,8 +1448,9 @@ pub(crate) fn slow_wait_line(tool: &str, lane: LaneKind, waited: Duration, ran: 
     format!("[lane-wait] tool={tool} lane={} waited={}ms ran={}ms", lane.name(), waited.as_millis(), ran.as_millis())
 }
 
-/// Runs one dequeued job. A cancelled job is answered cancelled unrun (RL §7.1); a panicking job resolves its handle with
-/// `JobDropped` and leaves the thread serving the next one.
+/// Runs one dequeued job. A cancelled job is answered cancelled unrun (RL §7.1). A panicking job, in a program that unwinds
+/// (the relay's `release-relay` profile, the tests), resolves its handle with `JobDropped` and leaves the thread serving the
+/// next one; in `mixdogd` (`panic = "abort"`, or [`crate::abort_on_panic`] in a build that unwinds) it ends the process.
 fn run_job(stats: &LaneStats, job: QueuedJob) {
     let waited = job.enqueued_at().elapsed();
     stats.queue_wait.record(waited);

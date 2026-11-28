@@ -3,7 +3,8 @@
 //! The child is contained from its first instruction and cannot outlive its owner:
 //! - Windows: created inside a kill-on-close job that allows no breakaway (`crate::winspawn`), inheriting exactly its
 //!   three standard handles.
-//! - Unix: the leader of a session of its own, so its process group is the owner's to kill. The group is signalled only
+//! - Unix: the leader of a session of its own, which the warden ends with the owner however the owner ends
+//!   (`crate::warden`), and so its process group is the owner's to kill. The group is signalled only
 //!   while the leader is unreaped, under the lock its reaper takes, so no signal can reach a reused pid. Every descriptor
 //!   std opens is close-on-exec: the standard streams are all the child inherits.
 //! - Linux: the parent-death signal (SIGKILL), set before exec, with the parent checked after it is set.
@@ -199,9 +200,7 @@ mod sys {
         // SAFETY: only async-signal-safe calls run between fork and exec, and nothing is allocated.
         unsafe {
             cmd.pre_exec(move || {
-                if libc::setsid() < 0 {
-                    return Err(io::Error::last_os_error());
-                }
+                crate::warden::enter_session()?;
                 #[cfg(target_os = "linux")]
                 {
                     if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 {

@@ -67,13 +67,18 @@ extraResources:
   - from: .runtime/native-modules
     to: runtime.asar.unpacked/node_modules
   # The core this app starts (`mixdogd`, built for the app's own platform) and
-  # the per-platform servers the SSH install uploads (servers.json + one
-  # binary per Linux/macOS x64/arm64). scripts/stage-core.mjs stages both from
-  # the release builds.
+  # the manifest of the servers the SSH install uploads (servers.json: per
+  # Linux/macOS x64/arm64 the release asset, its length and sha256). The
+  # bundles themselves are assets of the GitHub release, fetched and checked
+  # against this manifest when an install needs one; the bundles a local
+  # staging leaves beside it are not packed. scripts/stage-core.mjs stages
+  # both from the release builds.
   - from: .runtime/core
     to: core
   - from: .runtime/server-cores
     to: server-cores
+    filter:
+      - servers.json
   # Product-native executables stay canonical GitHub release assets. Desktop
   # preparation downloads, verifies, and embeds only this platform's set,
   # plus the in-repo helpers built from source: the Computer Use helper

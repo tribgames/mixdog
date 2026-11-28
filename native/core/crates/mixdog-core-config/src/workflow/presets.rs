@@ -3,6 +3,10 @@ use mixdog_ai::service::admin_route::clean_model_parameters;
 use mixdog_ai::service::admin_route::find_preset;
 use mixdog_ai::service::admin_route::normalize_workflow_route;
 use mixdog_ai::service::admin_route::workflow_preset_id;
+use mixdog_core_files::presets::anthropic_family_model;
+pub(crate) use mixdog_core_files::presets::default_presets_for;
+use mixdog_core_files::presets::first_text;
+pub use mixdog_core_files::presets::with_default_presets;
 use mixdog_js::js_trim;
 use mixdog_js::value_to_string;
 use serde_json::Map;
@@ -15,16 +19,6 @@ use super::ids::truthy;
 
 const AGENT_PROVIDER_ALIASES: [(&str, &str); 3] = [("openai-api", "openai"), ("gemini-api", "gemini"), ("xai-api", "xai")];
 const FAST_CAPABLE_PRESET_PROVIDERS: [&str; 6] = ["anthropic", "anthropic-oauth", "openai", "openai-oauth", "cursor-oauth", "cursor-api"];
-
-/// `String(a || b || '')` for a preset's own fields.
-fn first_text(preset: &Value, keys: &[&str]) -> String {
-    for key in keys {
-        if let Some(value) = preset.get(key).filter(|value| truthy(Some(*value))) {
-            return value_to_string(value);
-        }
-    }
-    String::new()
-}
 
 /// `normalizeMaintenanceRoutes(rawMaint)` (`config-storage.mjs`): a slot that is no object, or whose route lacks a provider or a
 /// model, is dropped; a kept route holds the provider (its alias resolved), the model, a non-empty `effort`, `fast: true` and
@@ -332,19 +326,6 @@ mod tests {
     }
 }
 
-/// `resolveAnthropicFamilyModel(family)`: the environment override, else the shipped model.
-fn anthropic_family_model(family: &str) -> String {
-    let variable = format!("ANTHROPIC_DEFAULT_{}_MODEL", family.to_uppercase());
-    if let Some(model) = std::env::var(&variable).ok().filter(|model| !model.is_empty()) {
-        return model;
-    }
-    match family {
-        "opus" => "claude-opus-4-8",
-        "sonnet" => "claude-sonnet-4-6",
-        _ => "claude-haiku-4-5-20251001",
-    }
-    .to_owned()
-}
 /// `DEFAULT_MAINTENANCE`: the shipped route of each maintenance slot.
 pub(crate) fn default_maintenance_for(legacy_switch_on: bool) -> Map<String, Value> {
     let mut slots = Map::new();
@@ -357,43 +338,6 @@ pub(crate) fn default_maintenance_for(legacy_switch_on: bool) -> Map<String, Val
         }),
     );
     slots
-}
-/// `withDefaultPresets(stored)`: the stored presets, then the shipped ones whose id none of them has.
-pub fn with_default_presets(stored: Option<&Value>) -> Vec<Value> {
-    with_default_presets_for(stored, true)
-}
-pub fn with_default_presets_for(stored: Option<&Value>, legacy_switch_on: bool) -> Vec<Value> {
-    let mut list: Vec<Value> = stored.and_then(Value::as_array).cloned().unwrap_or_default();
-    let key = |preset: &Value| first_text(preset, &["id", "name"]);
-    let present: Vec<String> = list.iter().map(key).collect();
-    list.extend(default_presets_for(legacy_switch_on).into_iter().filter(|shipped| !present.contains(&key(shipped))));
-    list
-}
-/// `DEFAULT_PRESETS`: shipped agent presets take the creation default from the legacy switch.
-pub(crate) fn default_presets_for(legacy_switch_on: bool) -> Vec<Value> {
-    let effort_auto = mixdog_ai::effort::EffortAuto::default_for_new(legacy_switch_on).as_bool();
-    let preset = |id: &str, name: &str, family: &str, effort: Option<&str>| {
-        let mut preset = json!({
-            "id": id,
-            "name": name,
-            "type": "agent",
-            "provider": "anthropic-oauth",
-            "model": anthropic_family_model(family),
-            "effortAuto": effort_auto,
-        });
-        if let Some(effort) = effort {
-            preset["effort"] = json!(effort);
-        }
-        preset["tools"] = json!("full");
-        preset
-    };
-    vec![
-        preset("haiku", "HAIKU", "haiku", None),
-        preset("sonnet-mid", "SONNET MID", "sonnet", Some("medium")),
-        preset("sonnet-high", "SONNET HIGH", "sonnet", Some("high")),
-        preset("opus-mid", "OPUS MID", "opus", Some("medium")),
-        preset("opus-high", "OPUS HIGH", "opus", Some("high")),
-    ]
 }
 /// The effective presets of `agent`: what `loadConfig().presets` holds.
 pub fn effective_presets(agent: &Doc) -> Vec<Value> {

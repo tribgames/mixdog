@@ -3,7 +3,7 @@
 //! context share, provider quota) and the second (agents, shells, web search, memory cycle) are built here.
 //!
 //! * [`render`] is `renderStatusline`: it answers from caches a background job keeps and reads nothing on its own call
-//!   stack. The core also serves `statusline/read`, from the same functions of `mixdog-core-session`; the render stays
+//!   stack. The core also serves `statusline/read`, from the same functions of `mixdog-core-files`; the render stays
 //!   in-process because the first full render of a boot is timed by these caches (a request per tick would not match it),
 //!   and the rules are not repeated: [`files`] only reads the files they decide on.
 //! * [`text`] is the hook: the instant local line, the debounced full render, the refresh cadence and the boot schedule

@@ -1,13 +1,12 @@
 //! The helper processes a core starts as its own executable run with a subcommand (`current_exe`): the extension-host
 //! worker, the code graph helper, the search helper, the effort judge's and the embedding model's hosts, Office automation, an ACP agent's tool
-//! server and a skill script. Started by a core, never by a user. Both programs a core runs in serve every one of them: `mixdogd`, and
-//! `mixdog`, whose `exec` composes its core in its own process.
+//! server and a skill script. Started by a core, never by a user. `mixdogd` serves every one of them; the terminal program hands a
+//! line that names one (`mixdog_launch::command::HELPER_SUBCOMMANDS`) to the `mixdogd` beside it.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::Parser;
 use clap::Subcommand;
 
 #[derive(Subcommand, Debug)]
@@ -75,21 +74,6 @@ fn web_methods(registry: &mut mixdog_exthost_worker::Registry) {
     });
 }
 
-/// A command line that is one helper's.
-#[derive(Parser)]
-#[command(no_binary_name = true)]
-struct HelperLine {
-    #[command(subcommand)]
-    helper: Helper,
-}
-
-/// The helper `args` (the words after the program's name) ask for: `None` unless the first word names one. A helper line that
-/// does not parse ends the process with clap's error, as it does in `mixdogd`.
-pub fn requested(args: &[OsString]) -> Option<Helper> {
-    let first = args.first()?.to_str()?;
-    <Helper as Subcommand>::has_subcommand(first).then(|| HelperLine::parse_from(args).helper)
-}
-
 /// Runs `helper` in this process; the process's exit status.
 pub fn run(helper: Helper) -> ExitCode {
     match helper {
@@ -135,6 +119,18 @@ pub fn run(helper: Helper) -> ExitCode {
 
 #[cfg(test)]
 mod tests {
+    use clap::Subcommand;
+
+    #[test]
+    fn the_terminal_program_hands_on_exactly_the_helper_subcommands() {
+        let helpers = <super::Helper as Subcommand>::augment_subcommands(clap::Command::new("mixdogd"));
+        let mut served: Vec<&str> = helpers.get_subcommands().map(clap::Command::get_name).collect();
+        let mut handed = mixdog_launch::command::HELPER_SUBCOMMANDS.to_vec();
+        served.sort_unstable();
+        handed.sort_unstable();
+        assert_eq!(served, handed);
+    }
+
     #[test]
     fn the_worker_serves_the_web_tools_page_extraction() {
         let methods = mixdog_exthost_worker::main_entry::native_methods_with(&[super::web_methods]);

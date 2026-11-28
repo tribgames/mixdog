@@ -23,14 +23,6 @@ impl<F: Fn(&str, &[String]) -> BoxFuture<'static, ()> + Send + Sync> PurgeHook f
     }
 }
 
-/// One hook step: neither a panic building it nor one while it runs stops the delete or the
-/// hooks after it (Node's per-hook `try`).
-async fn guarded(step: impl FnOnce() -> BoxFuture<'static, ()>) {
-    use futures::FutureExt;
-    let Ok(effect) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(step)) else { return };
-    let _ = std::panic::AssertUnwindSafe(effect).catch_unwind().await;
-}
-
 /// The store purge hooks in the order a booted 1.4.5 daemon registers (and so runs) them
 /// (`delete_goldens/purge_order.json`). The turn review's (`runtime-review-api.mjs:26`) is
 /// `SessionDeps.turn_review`'s `forget_session`, run in its place between `connector_accounts`
@@ -104,21 +96,16 @@ impl PurgeHooks {
     /// ([`Self::before_review`]).
     async fn run_as(&self, review: &dyn mixdog_core_api::turn_review::TurnReviewApi, id: &str, cwds: &[String], stored: bool) {
         for hook in self.before_review(stored) {
-            guarded(|| hook.purge(id, cwds)).await;
+            hook.purge(id, cwds).await;
         }
-        guarded(|| {
-            review.forget_session(id);
-            Box::pin(std::future::ready(()))
-        })
-        .await;
+        review.forget_session(id);
         for hook in self.after_review(stored) {
-            guarded(|| hook.purge(id, cwds)).await;
+            hook.purge(id, cwds).await;
         }
     }
 
     /// `_runSessionPurgeHooks(id, { cwds })`, then the archive and scratch removal, one after
-    /// another; it returns once every hook's effect has landed. A hook that panics never breaks
-    /// the delete or the hooks after it (Node's per-hook `try`).
+    /// another; it returns once every hook's effect has landed.
     pub async fn run(&self, review: &dyn mixdog_core_api::turn_review::TurnReviewApi, id: &str, cwds: &[String]) {
         self.run_as(review, id, cwds, true).await;
     }

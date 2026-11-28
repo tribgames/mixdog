@@ -4573,6 +4573,7 @@ dependencies = [
  "mixdog-image-egress",
  "mixdog-imaging",
  "mixdog-js",
+ "mixdog-launch",
  "mixdog-ledger",
  "mixdog-mcp",
  "mixdog-migrate",
@@ -4732,6 +4733,7 @@ dependencies = [
  "mixdog-image-egress",
  "mixdog-imaging",
  "mixdog-js",
+ "mixdog-launch",
  "mixdog-mcp",
  "mixdog-migrate",
  "mixdog-office",
@@ -5000,6 +5002,7 @@ dependencies = [
  "mixdog-core-api",
  "mixdog-core-base",
  "mixdog-core-config",
+ "mixdog-core-files",
  "mixdog-exthost",
  "mixdog-fsio",
  "mixdog-graph-host",
@@ -5090,6 +5093,28 @@ dependencies = [
  "url",
  "uuid",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "mixdog-core-files"
+version = "1.5.0"
+dependencies = [
+ "mixdog-ai",
+ "mixdog-core-api",
+ "mixdog-fsio",
+ "mixdog-image-egress",
+ "mixdog-imaging",
+ "mixdog-js",
+ "mixdog-protocol",
+ "mixdog-rt",
+ "mixdog-secrets",
+ "mixdog-statefile",
+ "mixdog-workspace-hack",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -5418,6 +5443,7 @@ dependencies = [
  "mixdog-core-base",
  "mixdog-core-config",
  "mixdog-core-domains",
+ "mixdog-core-files",
  "mixdog-core-goal",
  "mixdog-core-ports",
  "mixdog-core-prompt",
@@ -5534,6 +5560,7 @@ dependencies = [
  "mixdog-acp",
  "mixdog-agent",
  "mixdog-ai",
+ "mixdog-app-protocol",
  "mixdog-app-server",
  "mixdog-app-server-client",
  "mixdog-app-server-daemon",
@@ -5572,8 +5599,6 @@ dependencies = [
  "mixdog-tools",
  "mixdog-trace",
  "mixdog-tui",
- "mixdog-tui-style",
- "mixdog-view-model",
  "mixdog-workspace",
  "mixdog-workspace-hack",
  "portable-pty",
@@ -6839,6 +6864,7 @@ dependencies = [
  "mixdog-workspace-hack",
  "rand 0.9.5",
  "regex",
+ "reqwest",
  "serde",
  "serde_json",
  "sha1",
@@ -7040,6 +7066,7 @@ dependencies = [
  "mixdog-core-base",
  "mixdog-core-config",
  "mixdog-core-domains",
+ "mixdog-core-files",
  "mixdog-core-review",
  "mixdog-core-rooms",
  "mixdog-core-run",

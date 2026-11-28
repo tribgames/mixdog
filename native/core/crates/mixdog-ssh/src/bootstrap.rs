@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::{LazyLock, Mutex, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::Duration;
 
 use serde_json::{Map, Value};
 
+use crate::bundle_source::{AssetFetcher, BundleCache, Held, HttpFetcher, ReleaseFetch};
 use crate::command::SshTarget;
 use crate::connect_failure::ConnectError;
 use crate::context::{AttemptContext, ModelLogin, SshEnv};
@@ -254,38 +255,54 @@ pub struct ServerIdentity {
     pub build: String,
 }
 
-/// The runtime to upload for one server platform, checked against the manifest.
+/// The runtime to upload for one server platform, as the manifest names it.
 pub struct ServerBinary {
     /// sha256 of the `mixdogd` inside the bundle.
     pub sha256: String,
     /// sha256 of the bundle, the wire form.
     pub bundle_sha256: String,
-    pub archive: Vec<u8>,
+    pub archive: ServerArchive,
 }
 
-/// Where the runtimes to upload come from. Reading the bundle is a blocking file read: it happens only when a run
-/// uploads.
+/// The bundle's bytes, or the download that brings them.
+pub enum ServerArchive {
+    /// Read, and checked against the manifest.
+    Held(Vec<u8>),
+    /// Not on this PC: fetched from the release once the upload starts.
+    Fetch(ReleaseFetch),
+}
+
+/// Where the runtimes to upload come from. Looking for the bundle is a blocking file read and its download a network fetch:
+/// both happen only when a run uploads.
 pub trait ServerPayloads: Sync {
     fn identity(&self) -> &ServerIdentity;
-    /// `local-payload` when this desktop ships no runtime for the platform, or the bundle is damaged.
+    /// `local-payload` when this desktop ships no runtime for the platform, or its manifest entry is unusable.
     fn binary(&self, platform: ServerPlatform) -> Result<ServerBinary, RemoteBootstrapError>;
 }
 
-/// The release staged in `SshEnv::server_cores_dir`, read under the proof of the lane job the caller runs in.
+/// The release whose manifest is staged in `SshEnv::server_cores_dir`, read under the proof of the lane job the caller runs in;
+/// its bundles are the copies staged beside the manifest or this PC's cached or imported ones, else downloads from the release.
 pub struct StagedPayloads<'a, P: mixdog_fsio::ReadProof> {
     proof: &'a P,
     dir: PathBuf,
     manifest: ServerManifest,
     identity: ServerIdentity,
+    cache: BundleCache,
+    fetcher: Arc<dyn AssetFetcher>,
 }
 
 impl<'a, P: mixdog_fsio::ReadProof> StagedPayloads<'a, P> {
-    /// Reads and checks the release manifest; a malformed or missing one is `local-payload`.
+    /// Reads and checks the release manifest; a malformed or missing one is `local-payload`. Nothing is downloaded here.
     pub fn open(proof: &'a P, env: &SshEnv) -> Result<Self, RemoteBootstrapError> {
+        Self::with_fetcher(proof, env, Arc::new(HttpFetcher))
+    }
+
+    /// [`Self::open`] with the downloads of `fetcher`.
+    pub fn with_fetcher(proof: &'a P, env: &SshEnv, fetcher: Arc<dyn AssetFetcher>) -> Result<Self, RemoteBootstrapError> {
         let dir = env.server_cores_dir.clone().ok_or_else(|| RemoteBootstrapError::said(BootstrapCode::LocalPayload, crate::said::APP_LACKS_FILES.plain()))?;
         let manifest = ServerManifest::load(proof, &dir)?;
         let identity = ServerIdentity { version: manifest.version.clone(), build: manifest.build.clone() };
-        Ok(Self { proof, dir, manifest, identity })
+        Ok(Self { proof, dir, manifest, identity, cache: BundleCache::of(env), fetcher })
     }
 }
 
@@ -295,9 +312,13 @@ impl<P: mixdog_fsio::ReadProof + Sync> ServerPayloads for StagedPayloads<'_, P> 
     }
 
     fn binary(&self, platform: ServerPlatform) -> Result<ServerBinary, RemoteBootstrapError> {
-        let payload = InstallPayload::resolve(&self.dir, &self.manifest, platform)?;
-        let archive = payload.read_archive(self.proof)?;
-        Ok(ServerBinary { sha256: payload.sha256, bundle_sha256: payload.bundle_sha256, archive })
+        let payload = InstallPayload::resolve(&self.manifest, platform)?;
+        let (sha256, bundle_sha256) = (payload.sha256.clone(), payload.bundle_sha256.clone());
+        let archive = match self.cache.held(self.proof, &self.dir, &payload) {
+            Held::Bytes(bytes) => ServerArchive::Held(bytes),
+            Held::Missing { refused } => ServerArchive::Fetch(ReleaseFetch::new(payload, self.cache.clone(), Arc::clone(&self.fetcher), refused)),
+        };
+        Ok(ServerBinary { sha256, bundle_sha256, archive })
     }
 }
 
@@ -354,7 +375,8 @@ impl Remote<'_> {
         Ok((value, platform))
     }
 
-    /// `args` run on the server with the runtime uploaded: its digests and bundle go with the run.
+    /// `args` run on the server with the runtime uploaded: its digests and bundle go with the run. A bundle this PC lacks is
+    /// downloaded first; a failed download ends the attempt before anything runs on the server.
     async fn run_uploading(
         self,
         payloads: &dyn ServerPayloads,
@@ -362,13 +384,20 @@ impl Remote<'_> {
         args: &ProgramArgs,
         timeout: Duration,
     ) -> Result<Map<String, Value>, ConnectError> {
-        let binary = payloads.binary(platform)?;
-        self.log(&format!("uploading server runtime {} platform={} bytes={}", args.install_id, platform.key(), binary.archive.len()));
+        let ServerBinary { sha256, bundle_sha256, archive } = payloads.binary(platform)?;
+        let archive = match archive {
+            ServerArchive::Held(bytes) => bytes,
+            ServerArchive::Fetch(fetch) => {
+                self.log(&format!("downloading server runtime {} platform={} from {}", args.install_id, platform.key(), fetch.url()));
+                fetch.bytes(&|line: &str| self.log(line)).await?
+            }
+        };
+        self.log(&format!("uploading server runtime {} platform={} bytes={}", args.install_id, platform.key(), archive.len()));
         let mut with_upload = args.clone();
         with_upload.upload = true;
-        with_upload.sha256 = Some(binary.sha256);
-        with_upload.bundle_sha256 = Some(binary.bundle_sha256);
-        Ok(self.run(&with_upload, timeout.max(REMOTE_INSTALL_TIMEOUT), Some(binary.archive)).await?.0)
+        with_upload.sha256 = Some(sha256);
+        with_upload.bundle_sha256 = Some(bundle_sha256);
+        Ok(self.run(&with_upload, timeout.max(REMOTE_INSTALL_TIMEOUT), Some(archive)).await?.0)
     }
 
     /// `args` run on the server: with the runtime uploaded when this build is not installed, and once more with it

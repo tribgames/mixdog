@@ -253,8 +253,8 @@ export async function treeDigest(dir) {
   return hash.digest('hex');
 }
 
-/** `bundle.tgz`: `mixdogd` and `payload/` — what the bootstrap unpacks on the server. `content` identifies
- *  what is inside (the binary and the payload tree), whatever the archive's timestamps. */
+/** `mixdog-server-<os>-<arch>.tgz`: `mixdogd` and `payload/` — what the bootstrap unpacks on the server. `content`
+ *  identifies what is inside (the binary and the payload tree), whatever the archive's timestamps. */
 export async function createBundleArchive({ binary, payloadDir, out }) {
   const assembly = `${payloadDir}.assembly`; // beside the payload, so moving it in is a rename
   await rm(assembly, { recursive: true, force: true });

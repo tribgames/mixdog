@@ -4,6 +4,7 @@ pub mod agent;
 pub mod askpass;
 pub mod binary;
 pub mod bootstrap;
+pub mod bundle_source;
 pub mod callback_forward;
 pub mod cleanup;
 pub mod command;

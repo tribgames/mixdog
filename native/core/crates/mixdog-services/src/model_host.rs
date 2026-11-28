@@ -104,6 +104,11 @@ impl Pipes {
         // libuv's PRIORITY_BELOW_NORMAL on POSIX.
         #[cfg(unix)]
         {
+            // A session of its own, which the core's warden ends with the core.
+            // SAFETY: enter_session is async-signal-safe.
+            unsafe {
+                command.pre_exec(mixdog_spawn::warden::enter_session);
+            }
             if below_normal {
                 // SAFETY: only async-signal-safe operations run between fork and exec.
                 unsafe {

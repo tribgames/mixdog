@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
-use mixdog_core_session::session::statusline_agents::RuntimeEntry;
+use mixdog_core_files::statusline_agents::RuntimeEntry;
 use mixdog_fsio::Unlaned;
 use mixdog_tui_style::color::Styler;
 use mixdog_view_model::display::statusline_format::StatusStyle;

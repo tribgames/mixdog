@@ -6,7 +6,7 @@
 //! A render call never reads a file: it answers from the caches at once and, when one is due, hands its refresh to the
 //! [`BackgroundRun`] (Node's `setImmediate`), at most one in flight per cache. That is what the first full render of a boot
 //! depends on, so the render stays here, in the process that paints the footer, rather than a `statusline/read` round trip
-//! per tick; the reads and the rules are those of `mixdog-core-session` (the service answers the same two values from the
+//! per tick; the reads and the rules are those of `mixdog-core-files` (the service answers the same two values from the
 //! same functions).
 
 use std::collections::HashSet;
@@ -14,20 +14,20 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
 
-use mixdog_core_session::session::gateway_usage::RouteSection;
-use mixdog_core_session::session::prompt_submission::truthy;
-use mixdog_core_session::session::statusline_agents::LabelColours;
-use mixdog_core_session::session::statusline_agents::Owner;
-use mixdog_core_session::session::statusline_agents::active_hidden_agent_workers;
-use mixdog_core_session::session::statusline_agents::agent_statusline_payload;
-use mixdog_core_session::session::statusline_agents::agent_web_search_status;
-use mixdog_core_session::session::statusline_agents::classify_agent_workers;
-use mixdog_core_session::session::statusline_limits::LimitsInput;
-use mixdog_core_session::session::statusline_limits::UsageView;
-use mixdog_core_session::session::statusline_limits::agent_config_section;
-use mixdog_core_session::session::statusline_limits::build_gateway_limits;
-use mixdog_core_session::session::statusline_status::SegmentFormat;
-use mixdog_core_session::session::statusline_status::format_gateway_limit_segments;
+use mixdog_core_files::gateway_usage::RouteSection;
+use mixdog_core_files::gateway_usage::truthy;
+use mixdog_core_files::statusline_agents::LabelColours;
+use mixdog_core_files::statusline_agents::Owner;
+use mixdog_core_files::statusline_agents::active_hidden_agent_workers;
+use mixdog_core_files::statusline_agents::agent_statusline_payload;
+use mixdog_core_files::statusline_agents::agent_web_search_status;
+use mixdog_core_files::statusline_agents::classify_agent_workers;
+use mixdog_core_files::statusline_limits::LimitsInput;
+use mixdog_core_files::statusline_limits::UsageView;
+use mixdog_core_files::statusline_limits::agent_config_section;
+use mixdog_core_files::statusline_limits::build_gateway_limits;
+use mixdog_core_files::statusline_status::SegmentFormat;
+use mixdog_core_files::statusline_status::format_gateway_limit_segments;
 use mixdog_js::js_to_lowercase;
 use mixdog_js::js_trim;
 use mixdog_js::number_to_string;

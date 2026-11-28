@@ -4,11 +4,11 @@
 
 use std::collections::BTreeMap;
 
-use mixdog_cli::exec::ToolMode;
-use mixdog_cli::exec::is_exec;
-use mixdog_cli::exec::quoted;
-use mixdog_core::run_host::tool_pool::session_create::worktree_name_error;
+use mixdog_app_protocol::boundary::validate::worktree_name::worktree_name_error;
 use mixdog_js::js_trim;
+use mixdog_launch::command::ToolMode;
+use mixdog_launch::command::is_exec;
+use mixdog_launch::command::quoted;
 use serde_json::Value;
 
 /// The options that take the next word as their value (`VALUE_OPTIONS`).
@@ -60,8 +60,9 @@ pub enum Kind {
     Plain,
     /// `--react`: the removed flag's refusal.
     React,
-    /// `exec <message...>`: the headless one-shot.
-    Exec { message: String },
+    /// `exec <message...>`: the headless one-shot, with the words of its message as the line gave them (joined, they are the
+    /// message: `mixdogd exec` joins them).
+    Exec { words: Vec<String> },
     /// Everything else: the terminal interface.
     General,
 }
@@ -230,8 +231,8 @@ pub fn classify(argv: &[String]) -> Invocation {
     }
     // `execFromPositional`.
     if parsed.positional.first().is_some_and(|word| is_exec(word)) {
-        let message = js_trim(&parsed.positional[1..].join(" ")).to_owned();
-        if message.is_empty() {
+        let words = &parsed.positional[1..];
+        if js_trim(&words.join(" ")).is_empty() {
             return refusal("usage: mixdog exec [options] <message...>", true);
         }
         if parsed.values.contains_key("--workflow") {
@@ -241,7 +242,7 @@ pub fn classify(argv: &[String]) -> Invocation {
         if let Some(flag) = unsupported {
             return refusal(format!("option {flag} is not supported for mixdog exec"), true);
         }
-        return with(Kind::Exec { message }, true, options);
+        return with(Kind::Exec { words: words.iter().map(|word| (*word).to_owned()).collect() }, true, options);
     }
     if given("--json") {
         return refusal("option --json is only supported for mixdog exec", true);
@@ -255,6 +256,10 @@ mod tests {
 
     fn line(words: &[&str]) -> Invocation {
         classify(&words.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>())
+    }
+
+    fn exec(words: &[&str]) -> Kind {
+        Kind::Exec { words: words.iter().map(|word| (*word).to_owned()).collect() }
     }
 
     fn error(words: &[&str]) -> (String, bool) {
@@ -277,11 +282,11 @@ mod tests {
     #[test]
     fn the_exec_verb_is_found_after_options_in_any_case_and_its_words_are_joined() {
         let invocation = line(&["--provider", "p", "--fast", " Exec ", "say", "hi "]);
-        assert_eq!(invocation.kind, Kind::Exec { message: "say hi".to_owned() });
+        assert_eq!(invocation.kind, exec(&["say", "hi "]));
         assert!(invocation.skip_host_prelude);
         let options = invocation.options.unwrap();
         assert_eq!((options.provider.as_deref(), options.fast), (Some("p"), true));
-        assert_eq!(line(&["--", "exec", "a b"]).kind, Kind::Exec { message: "a b".to_owned() });
+        assert_eq!(line(&["--", "exec", "a b"]).kind, exec(&["a b"]));
         assert_eq!(line(&["hi", "exec"]).kind, Kind::General);
     }
 
@@ -341,7 +346,7 @@ mod tests {
         assert!(error(&["--provider", "p", "exec", "--bogus"]).1);
         assert!(!error(&["--bogus", "--react"]).1);
         // After `--` everything is a word.
-        assert_eq!(line(&["exec", "--", "--bogus"]).kind, Kind::Exec { message: "--bogus".to_owned() });
+        assert_eq!(line(&["exec", "--", "--bogus"]).kind, exec(&["--bogus"]));
     }
 
     #[test]
@@ -377,17 +382,17 @@ mod tests {
         );
         assert_eq!((options.effort.as_deref(), options.provider.as_deref(), options.model.as_deref()), (Some("high"), Some("anthropic"), Some("m")));
         // An exec keeps the options that it supports, `--json` among them.
-        let exec = line(&["exec", "--json", "--fast", "go"]);
-        assert_eq!(exec.kind, Kind::Exec { message: "go".to_owned() });
-        let options = exec.options.unwrap();
+        let invocation = line(&["exec", "--json", "--fast", "go"]);
+        assert_eq!(invocation.kind, exec(&["go"]));
+        let options = invocation.options.unwrap();
         assert!(options.json && options.fast);
     }
 
     #[test]
-    fn an_exec_message_is_the_words_after_the_verb_joined_by_spaces_whatever_they_hold() {
-        // Words are joined by one space each and only the ends of the whole are trimmed.
-        assert_eq!(line(&["exec", "안녕", "  세계 ", "😀"]).kind, Kind::Exec { message: "안녕   세계  😀".to_owned() });
-        assert_eq!(line(&["exec", "--", "--json", "-x"]).kind, Kind::Exec { message: "--json -x".to_owned() }, "after `--` every word is text");
+    fn an_exec_message_is_the_words_after_the_verb_as_given_whatever_they_hold() {
+        assert_eq!(line(&["exec", "안녕", "  세계 ", "😀"]).kind, exec(&["안녕", "  세계 ", "😀"]));
+        assert_eq!(line(&["exec", "--", "--json", "-x"]).kind, exec(&["--json", "-x"]), "after `--` every word is text");
+        assert_eq!(error(&["exec", "  ", ""]), ("usage: mixdog exec [options] <message...>".to_owned(), true), "words that join to blank are no message");
         assert_eq!(line(&["--", "-x"]).kind, Kind::General, "a word after `--` that looks like an option is text, not an unknown option");
     }
 

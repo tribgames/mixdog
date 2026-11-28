@@ -1,20 +1,19 @@
 //! The terminal guard: what keeps the terminal and the process in a sane state however the session ends.
 //!
 //! * [`TerminalGuard`] / [`TerminalRestorer`]: the terminal restore (drain the queued input, write
-//!   [`crate::modes::restore_sequence`]) that happens once, whoever asks first.
+//!   [`crate::modes::restore_sequence`], put the console's own modes back) that happens once, whoever asks first.
 //! * [`StderrGuard`]: stderr goes to `mixdog-tui.stderr.log` while the full-screen UI owns the terminal.
 //! * [`SignalCleanup`]: SIGINT, SIGTERM and SIGHUP (Windows: Ctrl+C, Ctrl+Break and the console close event) run the
 //!   terminal restore, the cleanup with a deadline and the exit with code 128+n; a dead stdio does the same with code 1
 //!   (`stdio-dead`); a second request while the cleanup runs forces the exit.
-//! * [`install_panic_hook`]: a panic that ends the program restores the terminal before the message is printed.
+//! * [`install_panic_hook`]: a panic, which ends the program, restores the terminal before the message is printed.
 //! * [`schedule_hard_exit`]: the timer that writes the reset again and ends the process when the normal exit hangs.
 //!
 //! The behaviour is that of `installTuiStderrGuard`, `registerStdioDeathGuards`, `scheduleHardExit` and `restoreTerminal`
 //! in `src/tui/index.jsx` and of `installProcessSignalCleanup` in `src/runtime/shared/process-shutdown.mjs`.
 
-use std::any::Any;
 use std::io::{self, Write};
-use std::panic::{self, AssertUnwindSafe};
+use std::panic;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -72,21 +71,10 @@ pub struct ExitSettings {
 fn run_bounded(name: &str, limit: Duration, work: impl FnOnce() + Send + 'static) -> bool {
     let (done_tx, done_rx) = mpsc::channel();
     let spawned = thread::Builder::new().name(name.to_string()).spawn(move || {
-        // A panic inside the work is its own failure; the wait below is what the caller needs.
-        let _ = panic::catch_unwind(AssertUnwindSafe(work));
+        work();
         let _ = done_tx.send(());
     });
     spawned.is_ok() && done_rx.recv_timeout(limit).is_ok()
-}
-
-fn panic_text(payload: &(dyn Any + Send)) -> String {
-    if let Some(text) = payload.downcast_ref::<&str>() {
-        (*text).to_string()
-    } else if let Some(text) = payload.downcast_ref::<String>() {
-        text.clone()
-    } else {
-        "panic".to_string()
-    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -109,17 +97,20 @@ fn stdout_sink() -> Sink {
 pub struct TerminalRestorer {
     modes: Arc<TerminalModes>,
     sink: Sink,
+    /// The raw mode of the session, turned off by the restore itself: a panic, which aborts, and an exit from a signal or a
+    /// timer run no drop.
+    raw: Arc<Mutex<Option<RawConsole>>>,
 }
 
 impl TerminalRestorer {
     /// A restorer writing to stdout.
     pub fn new(modes: Arc<TerminalModes>) -> TerminalRestorer {
-        TerminalRestorer { modes, sink: stdout_sink() }
+        TerminalRestorer::with_sink(modes, stdout_sink())
     }
 
     /// A restorer writing to `sink`.
     pub fn with_sink(modes: Arc<TerminalModes>, sink: Sink) -> TerminalRestorer {
-        TerminalRestorer { modes, sink }
+        TerminalRestorer { modes, sink, raw: Arc::new(Mutex::new(None)) }
     }
 
     pub fn modes(&self) -> &Arc<TerminalModes> {
@@ -132,14 +123,17 @@ impl TerminalRestorer {
         (self.sink)(text.as_bytes())
     }
 
-    /// Restores the terminal: the queued input is drained, then [`restore_sequence`] is written. Idempotent; a write
-    /// error is ignored (the terminal may be closing).
+    /// Restores the terminal: the queued input is drained, [`restore_sequence`] is written, then the console's own modes
+    /// are put back. Idempotent; a write error is ignored (the terminal may be closing).
     pub fn restore(&self) {
         if !self.modes.take_restore() {
             return;
         }
         drain_stdin();
         let _ = (self.sink)(restore_sequence().as_bytes());
+        if let Some(mut raw) = self.raw.lock().unwrap_or_else(PoisonError::into_inner).take() {
+            raw.restore();
+        }
     }
 
     /// The restore as a hook for [`CleanupConfig`].
@@ -152,13 +146,12 @@ impl TerminalRestorer {
 /// Raw mode and the terminal restore of a session; dropping it restores the terminal (the end of `process.on('exit')`).
 pub struct TerminalGuard {
     restorer: TerminalRestorer,
-    _raw: Option<RawConsole>,
 }
 
 impl TerminalGuard {
-    /// A guard over `raw` (when raw mode is on) writing to stdout.
+    /// A guard over `raw` (when raw mode is on) writing to stdout; its restorer turns raw mode off.
     pub fn new(modes: Arc<TerminalModes>, raw: Option<RawConsole>) -> TerminalGuard {
-        TerminalGuard { restorer: TerminalRestorer::new(modes), _raw: raw }
+        TerminalGuard { restorer: TerminalRestorer { raw: Arc::new(Mutex::new(raw)), ..TerminalRestorer::new(modes) } }
     }
 
     pub fn restorer(&self) -> TerminalRestorer {
@@ -172,14 +165,12 @@ impl Drop for TerminalGuard {
     }
 }
 
-/// Makes a panic of the main thread (which ends the program) restore the terminal before the panic message is printed.
-/// A panic on another thread is left to the code that catches it: the screen stays as it is.
+/// Makes a panic, on any thread, restore the terminal before the panic message is printed: a panic ends the program
+/// (`panic = "abort"`), and no drop runs after it.
 pub fn install_panic_hook(restorer: TerminalRestorer) {
     let previous = panic::take_hook();
     panic::set_hook(Box::new(move |info| {
-        if thread::current().name() == Some("main") {
-            restorer.restore();
-        }
+        restorer.restore();
         previous(info);
     }));
 }
@@ -458,11 +449,10 @@ impl Inner {
         (self.config.log)(line);
     }
 
-    fn call(&self, hook: &Option<Hook>, reason: &str) -> Result<(), String> {
-        let Some(hook) = hook else {
-            return Ok(());
-        };
-        panic::catch_unwind(AssertUnwindSafe(|| hook(reason))).map_err(|payload| panic_text(&*payload))
+    fn call(&self, hook: &Option<Hook>, reason: &str) {
+        if let Some(hook) = hook {
+            hook(reason);
+        }
     }
 
     /// The cleanup, on a thread of its own, abandoned after the deadline.
@@ -473,16 +463,15 @@ impl Inner {
         let (done_tx, done_rx) = mpsc::channel();
         let reason_owned = reason.to_string();
         let spawned = thread::Builder::new().name(CLEANUP_THREAD.into()).spawn(move || {
-            let outcome = panic::catch_unwind(AssertUnwindSafe(|| cleanup(&reason_owned))).map_err(|p| panic_text(&*p));
-            let _ = done_tx.send(outcome);
+            cleanup(&reason_owned);
+            let _ = done_tx.send(());
         });
         if let Err(error) = spawned {
             return Err(error.to_string());
         }
-        match done_rx.recv_timeout(self.config.timeout) {
-            Ok(outcome) => outcome,
-            Err(_) => Err(format!("{} shutdown timed out after {}ms", self.config.name, self.config.timeout.as_millis().max(1))),
-        }
+        done_rx
+            .recv_timeout(self.config.timeout)
+            .map_err(|_| format!("{} shutdown timed out after {}ms", self.config.name, self.config.timeout.as_millis().max(1)))
     }
 
     /// The forced exit: the terminal restore gets a moment, then the process ends.
@@ -563,8 +552,10 @@ impl SignalCleanup {
         if let Some(error) = &options.error {
             inner.log(&format!("[{name}] {reason}: {error}"));
         }
-        let steps = [inner.call(&inner.config.before_cleanup, reason), inner.run_cleanup(reason), inner.call(&inner.config.after_cleanup, reason)];
-        for step in steps.into_iter().flat_map(Result::err) {
+        inner.call(&inner.config.before_cleanup, reason);
+        let cleaned = inner.run_cleanup(reason);
+        inner.call(&inner.config.after_cleanup, reason);
+        if let Err(step) = cleaned {
             inner.log(&format!("[{name}] cleanup failed: {step}"));
         }
         inner.cancel_timer();
@@ -889,19 +880,6 @@ mod tests {
         assert_eq!(restored.load(Ordering::SeqCst), 1);
         assert_eq!(probe.exits.lock().unwrap()[0], 1);
         assert!(running.join().unwrap());
-    }
-
-    #[test]
-    fn a_panicking_hook_is_logged_and_the_run_goes_on() {
-        let probe = probe(Duration::ZERO, Duration::from_secs(5));
-        let mut config = probe.config;
-        config.before_cleanup = Some(Arc::new(|_| panic!("restore failed")));
-        let cleanup = cleanup_of(config);
-        cleanup.run("SIGHUP", RunOptions { code: 129, should_exit: true, error: None });
-        let log = probe.log.lock().unwrap().clone();
-        assert!(log.contains(&"log:[probe] cleanup failed: restore failed".to_string()), "{log:?}");
-        assert!(log.contains(&"cleanup:SIGHUP".to_string()));
-        assert_eq!(*probe.exits.lock().unwrap(), [129]);
     }
 
     #[test]

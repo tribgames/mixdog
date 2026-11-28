@@ -354,25 +354,6 @@ async fn an_opening_that_ends_after_the_stop_gave_up_starts_nothing() {
     assert_eq!(message(ended), "memory service stopping");
     assert!(!dir.path().join("pgdata").exists(), "the abandoned opening began no cluster step");
 }
-/// An opening whose task panics is forgotten like one that failed (Node forgets its shared ensure whenever it settles, `supervisor.mjs:659-665`): the next
-/// use starts a new opening instead of getting the same failure for good.
-#[tokio::test]
-async fn an_opening_that_panics_is_forgotten_and_the_next_use_opens_again() {
-    let dir = tempfile::tempdir().expect("dir");
-    let (install, installs, _entered) = install_of(|nth, _| {
-        Box::pin(async move {
-            assert!(nth != 1, "the first install panics");
-            Err(MemoryError::Runtime("the download failed".to_owned()))
-        })
-    });
-    let stack = stack_over(dir.path(), PgRuntimeSource::Install(install)).await;
-    let first = message(awaiting("the use whose opening panics", stack.db().client()).await);
-    let second = message(awaiting("the next use", stack.db().client()).await);
-    stack.stop().await.expect("stop");
-    assert!(first.contains("panicked"), "{first}");
-    assert_eq!(second, "postgres runtime: the download failed");
-    assert_eq!(installs.load(Ordering::SeqCst), 2, "the next use ran a new opening");
-}
 /// Opening hand-off, fenced before the launch: a postmaster start held right before its last check (`pg_ctl start` not spawned) is waited for only within the
 /// stop's graceful phase, which ends at the cutoff (4.2 s from the stop's start here): the stop is pending before 4.2 s and has returned at 4.2 s, and the
 /// opening, the owner's work, was revoked there, so the start never spawns after the cut.

@@ -470,7 +470,7 @@ impl Inner {
         let listeners: Vec<Listener> = self.listeners.lock().unwrap_or_else(PoisonError::into_inner).iter().map(|(_, l)| l.clone()).collect();
         let event = GoalEvent { session_id: id.to_owned(), goal };
         for listener in listeners {
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener(&event)));
+            listener(&event);
         }
     }
 

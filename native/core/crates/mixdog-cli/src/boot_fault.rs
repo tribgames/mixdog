@@ -32,7 +32,6 @@ pub fn run() -> Option<Result<(), String>> {
     let text = std::env::var(TEXT).unwrap_or_default();
     let mut lines = std::io::stdin().lock().lines();
     use mixdog_app_server_daemon::crash_record::record_exit;
-    use mixdog_app_server_daemon::crash_record::settle_exit;
     Some(match scenario.as_str() {
         // The start-up itself, no fault added: whatever it fails on is the end (the launcher still names it first).
         "real" => return None,
@@ -59,15 +58,10 @@ pub fn run() -> Option<Result<(), String>> {
         }
         "oom" => std::alloc::handle_alloc_error(std::alloc::Layout::from_size_align(1 << 40, 8).unwrap()),
         "next-boot" => Ok(()),
-        "caught-panic" => {
+        "worker-panic" => {
             let worker = std::thread::Builder::new().name("worker".into()).spawn(move || panic!("{text}")).unwrap();
-            assert!(worker.join().is_err(), "the worker panicked");
-            println!("caught");
-            std::io::stdout().flush().unwrap();
-            expect(&mut lines, "stop");
-            let code = settle_exit("no live session clients", 0);
-            record_exit(code);
-            std::process::exit(code)
+            let _ = worker.join();
+            unreachable!("a panic ends the process")
         }
         other => panic!("no boot fault {other}"),
     })

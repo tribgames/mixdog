@@ -1,7 +1,6 @@
 //! Every answer comes within the waits of [`JudgeTiming`]: a model that is not installed or being
-//! installed, a load failure, a run error, a busy queue, a missed deadline and a worker that dies or
-//! panics all answer a skip, which leaves the turn at its default effort and the step at the effort
-//! in force.
+//! installed, a load failure, a run error, a busy queue, a missed deadline and a worker that dies all
+//! answer a skip, which leaves the turn at its default effort and the step at the effort in force.
 //!
 //! The model load, its warm-up and every inference run on the judge's own thread ([`JudgeWorker`]),
 //! one judgment at a time per model instance, never behind the shared CPU lanes; the model lives in a
@@ -467,8 +466,8 @@ impl EffortJudgeModel {
         matches!(self.loaded(), Some(Ok(_)))
     }
 
-    /// The load as it stands for the thread taking jobs: a model on a thread given up (stuck,
-    /// panicked, shut down) or stalled is none, as Node's `ready` falls with its worker.
+    /// The load as it stands for the thread taking jobs: a model on a thread given up (stuck, shut
+    /// down) or stalled is none, as Node's `ready` falls with its worker.
     fn loaded(&self) -> Loaded {
         let state = self.model_state().clone();
         match state {
@@ -630,8 +629,8 @@ impl EffortJudgeModel {
     }
 
     /// Loads the model unless the thread taking jobs has it (or it failed); callers hold the `turn`
-    /// gate. Answers the generation of the thread holding it. Only a load failure (a panicking load
-    /// included) is remembered; not-installed and a thread that cannot take the job are not. A load
+    /// gate. Answers the generation of the thread holding it. Only a load failure is remembered;
+    /// not-installed and a thread that cannot take the job are not. A load
     /// answered after the judge let its thread go stores nothing.
     async fn ensure_loaded(self: &Arc<Self>) -> Result<u64, JudgeError> {
         if let Some(outcome) = self.loaded() {

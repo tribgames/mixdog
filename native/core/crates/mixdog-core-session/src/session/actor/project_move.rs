@@ -142,11 +142,7 @@ impl SessionActor {
         };
         let jobs = self.jobs_tx.clone();
         tokio::spawn(async move {
-            use futures::FutureExt;
-            let result = std::panic::AssertUnwindSafe(carried)
-                .catch_unwind()
-                .await
-                .unwrap_or_else(|_| Err(CoreError::Internal { incident_id: "project-move-panicked".into() }));
+            let result = carried.await;
             let _ = jobs.send(JobDone::ProjectMoved(result));
         });
     }

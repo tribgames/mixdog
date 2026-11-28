@@ -19,8 +19,6 @@ required-features = ["fake-core"]
 [dependencies]
 # Discovery (`Discovery::read`) and the client error a version refusal arrives as.
 mixdog-app-server-client = { workspace = true }
-# One implementation of the crash capture's exit text, retention and capture directory: the core's own (crash_record.rs, stale_temps.rs).
-mixdog-app-server-daemon = { workspace = true }
 mixdog-statefile = { workspace = true }
 mixdog-store = { workspace = true }
 mixdog-js = { workspace = true }
@@ -33,7 +31,16 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 libc = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
+# The process table (src/process): processes and their start times, and the loopback sockets a process listens on.
+windows-sys = { workspace = true, features = [
+    "Wdk_System_Threading",
+    "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

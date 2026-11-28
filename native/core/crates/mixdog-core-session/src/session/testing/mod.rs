@@ -101,8 +101,6 @@ pub struct TestCompaction {
     pub called: tokio::sync::Notify,
     /// A compaction waits on it before answering, when set.
     pub hold: Mutex<Option<Arc<tokio::sync::Notify>>>,
-    /// A compaction panics (after it is recorded) instead of answering, when set.
-    pub panics: std::sync::atomic::AtomicBool,
     /// The `compaction` record the saved configuration gives a thread, when it has one.
     pub synced: Mutex<Option<Value>>,
     /// Each sync asked for: whether it was the session's installation.
@@ -186,7 +184,6 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
         lock(&self.calls).push(format!("compact {trigger} {require_reduction}"));
         lock(&self.cancels).push(cancel.clone());
         self.called.notify_waiters();
-        assert!(!self.panics.load(Ordering::SeqCst), "the compaction engine panicked");
         let hold = lock(&self.hold).clone();
         if let Some(hold) = hold {
             hold.notified().await;

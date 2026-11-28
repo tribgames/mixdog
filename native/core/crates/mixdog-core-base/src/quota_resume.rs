@@ -13,7 +13,6 @@
 //! queued (`routeProvider`, `routeModel`): a fire on any other route is not the resume of this
 //! failure. The global auto-resume setting is the config's (`quotaResume.autoResume`).
 
-use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -233,9 +232,7 @@ impl Inner {
     fn notify(&self, session_id: Option<&str>) {
         let listeners: Vec<Listener> = self.listeners.lock().unwrap_or_else(PoisonError::into_inner).iter().map(|(_, l)| l.clone()).collect();
         for listener in listeners {
-            // The change is already persisted; one failing listener must neither undo it nor
-            // keep the others from hearing about it.
-            let _ = catch_unwind(AssertUnwindSafe(|| listener(session_id)));
+            listener(session_id);
         }
     }
 

@@ -1,6 +1,7 @@
 //! Process-tree containment of a stdio server: a Windows job object (kill-on-close) or, on
-//! Unix, the child's own process group. A forced shutdown ends the server and everything it
-//! started. Termination is the OS exit; nothing here waits.
+//! Unix, the child's own process group (it leads a session of its own, which the core's warden
+//! ends with the core). A forced shutdown ends the server and everything it started.
+//! Termination is the OS exit; nothing here waits.
 
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;

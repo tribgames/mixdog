@@ -5,8 +5,9 @@
 //! again; it never polls. Registering an earlier deadline than the current first wakes it to re-arm.
 //!
 //! Callbacks run inside a poll of the ticker task (RT-C, 5 ms bound): they must only flip a flag, send on a channel or `notify`,
-//! never block, do I/O or take long. A panicking callback is contained and does not stop the ticker. For "sleep until" inside
-//! async code use [`Ticker::wait_until`].
+//! never block, do I/O or take long. A panicking callback is contained and does not stop the ticker in a program that
+//! unwinds (the relay); in `mixdogd` (`panic = "abort"`, or [`crate::abort_on_panic`] in a build that unwinds) it ends the
+//! process. For "sleep until" inside async code use [`Ticker::wait_until`].
 
 use std::collections::BTreeMap;
 use std::future::Future;

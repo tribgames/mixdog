@@ -700,12 +700,7 @@ impl MemoryStack {
     ) {
         let Some(me) = self.me.upgrade() else { return };
         let _opening = reservation.activate("services.memory.open", async move {
-            use futures::FutureExt as _;
-            // A panic ends the opening like a failure (Node forgets its shared ensure whenever it settles): its text is every waiting use's error.
-            let outcome = std::panic::AssertUnwindSafe(me.clone().run_opening(&cancel)).catch_unwind().await.unwrap_or_else(|panic| {
-                let text = panic.downcast_ref::<String>().cloned().or_else(|| panic.downcast_ref::<&str>().map(|text| (*text).to_owned())).unwrap_or_default();
-                Err(format!("the memory opening ended: the opening panicked: {text}"))
-            });
+            let outcome = me.clone().run_opening(&cancel).await;
             if let Some(ended) = me.opening_ended.get() {
                 ended();
             }

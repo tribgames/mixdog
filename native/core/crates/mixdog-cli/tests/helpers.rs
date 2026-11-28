@@ -1,5 +1,5 @@
-//! The helper processes the core of `mixdog exec` starts as this program (`current_exe`) are served as `mixdogd` serves them
-//! (`mixdog_cli::helpers`), never read as a command line of the terminal interface.
+//! The helper processes a core starts as its own program (`current_exe`): `mixdogd` serves them (`mixdog_cli::helpers`), each with
+//! its own grammar.
 #![allow(clippy::disallowed_methods, reason = "the test runs the binary and reads its pipes")]
 
 use std::io::Read;
@@ -9,11 +9,10 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 /// `ext-worker` sends the extension host's READY frame on its stdout and ends when the pool closes its stdin; `effort-judge-host`
-/// takes the judge host's own options, so a line missing one is refused by that grammar (exit 2, naming the option), not as an
-/// unknown option of the terminal interface.
+/// takes the judge host's own options, so a line missing one is refused by that grammar (exit 2, naming the option).
 #[test]
-fn the_mixdog_program_serves_the_helpers_its_exec_core_starts() {
-    let mut worker = Command::new(mixdog_testkit::bin_exe!("mixdog"))
+fn mixdogd_serves_the_helpers_its_core_starts() {
+    let mut worker = Command::new(mixdog_testkit::bin_exe!("mixdogd"))
         .arg("ext-worker")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -34,7 +33,7 @@ fn the_mixdog_program_serves_the_helpers_its_exec_core_starts() {
     assert!(worker.wait().expect("the worker's exit").success(), "the worker ends when its pipe closes");
 
     let dir = tempfile::tempdir().unwrap();
-    let judge = Command::new(mixdog_testkit::bin_exe!("mixdog"))
+    let judge = Command::new(mixdog_testkit::bin_exe!("mixdogd"))
         .args(["effort-judge-host", "--dir"])
         .arg(dir.path())
         .stdin(Stdio::null())

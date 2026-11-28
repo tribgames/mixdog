@@ -1,5 +1,6 @@
-//! The interactive scenarios need `mixdogd` (`MIXDOGD_BIN`, or the one beside the test's target folder) built with mixdog-ai's
-//! `test-support` feature, so its provider requests reach the stand-in (`REPLAY_PROVIDER_PIN`); they run with `-- --ignored`.
+//! The interactive and the `exec` scenarios need `mixdogd` (`MIXDOGD_BIN`, or the one beside the test's target folder) built with
+//! mixdog-ai's `test-support` feature, so its provider requests reach the stand-in (`REPLAY_PROVIDER_PIN`); they run with
+//! `-- --ignored`. An `exec` runs on the `mixdogd` beside the program, so those scenarios lay the program out beside it.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the test runs the binary as a process and lays out folders")]
 
 #[path = "support/procs.rs"]
@@ -113,6 +114,14 @@ impl DaemonInstall {
     fn interpreter_runs(&self) -> String {
         std::fs::read_to_string(&self.record).unwrap_or_default()
     }
+
+    /// The terminal program laid out beside this `mixdogd`, as an install has them: its `exec` runs on this one.
+    fn terminal(&self) -> std::path::PathBuf {
+        let built = mixdog_testkit::bin_exe!("mixdog");
+        let exe = self.exe.with_file_name(if cfg!(windows) { "mixdog.exe" } else { "mixdog" });
+        std::fs::hard_link(&built, &exe).or_else(|_| std::fs::copy(&built, &exe).map(drop)).unwrap_or_else(|error| panic!("laying out {built}: {error}"));
+        exe
+    }
 }
 
 /// What a core left of its end under the sandbox: the crash capture's records (`daemon-crash`) and every log, the end of each.
@@ -201,34 +210,20 @@ fn plain_answers_one_turn_without_node() {
     assert_eq!(daemon.interpreter_runs(), "", "the install's interpreter was run");
 }
 
-/// Runs `mixdog args` to its end with the sandbox's environment and the stand-in's pin; (exit code, stdout, stderr, the Node or
+/// Runs `program args` to its end with the sandbox's environment and the stand-in's pin; (exit code, stdout, stderr, the Node or
 /// Electron images the watcher saw).
-fn run(sandbox: &Sandbox, stand_in: &StandIn, args: &[&str]) -> (Option<i32>, String, String, Vec<String>) {
-    let mut command = Command::new(install().unwrap_or_else(|| mixdog_testkit::bin_exe!("mixdog").into()));
+fn run(program: &std::path::Path, sandbox: &Sandbox, stand_in: &StandIn, args: &[&str]) -> (Option<i32>, String, String, Vec<String>) {
+    let mut command = Command::new(program);
     command.args(args).current_dir(sandbox.work()).env_clear().envs(sandbox.env()).envs(stand_in.pin());
     let child = command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
     let watch = procs::Watch::start(child.id());
     let output = child.wait_with_output().unwrap();
     (output.status.code(), String::from_utf8_lossy(&output.stdout).into_owned(), String::from_utf8_lossy(&output.stderr).into_owned(), watch.finish())
 }
-/// The host's own `node`, by its full path: the runs' search path names none.
-fn host_node() -> Option<std::path::PathBuf> {
-    let name = if cfg!(windows) { "node.exe" } else { "node" };
-    std::env::split_paths(&std::env::var_os("PATH")?).map(|dir| dir.join(name)).find(|path| path.is_file())
-}
 /// An install's `js-runtime.json` over the interpreter `program` and this checkout's package.
 fn runtime_manifest(program: &std::path::Path) -> String {
     let package = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..").canonicalize().unwrap();
     serde_json::json!({ "program": program, "packageRoot": package }).to_string()
-}
-fn install() -> Option<std::path::PathBuf> {
-    let node = host_node()?;
-    let dir = mixdog_testkit::target_tmpdir!().join(format!("node-free-install-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let exe = dir.join("mixdog.exe");
-    std::fs::hard_link(mixdog_testkit::bin_exe!("mixdog"), &exe).unwrap();
-    std::fs::write(dir.join("js-runtime.json"), runtime_manifest(&node)).unwrap();
-    Some(exe)
 }
 #[test]
 fn the_search_path_of_these_runs_names_neither_node_nor_electron() {
@@ -242,33 +237,32 @@ fn the_search_path_of_these_runs_names_neither_node_nor_electron() {
 fn help_succeeds_without_node() {
     let sandbox = Sandbox::new();
     let stand_in = StandIn::start(sandbox.root(), &[ANSWER]);
-    let (code, out, err, started) = run(&sandbox, &stand_in, &["--help"]);
+    let (code, out, err, started) = run(std::path::Path::new(&mixdog_testkit::bin_exe!("mixdog")), &sandbox, &stand_in, &["--help"]);
     assert_eq!((code, err.as_str()), (Some(0), ""), "{out}");
     assert!(out.starts_with("mixdog"), "{out}");
     assert!(started.is_empty(), "started {started:?}");
 }
 #[test]
+#[ignore = "needs mixdogd built with the test-support feature of mixdog-ai (MIXDOGD_BIN)"]
 fn exec_succeeds_without_node_and_starts_neither_node_nor_electron() {
-    if install().is_none() {
-        return;
-    }
     let sandbox = Sandbox::new();
     let stand_in = StandIn::start(sandbox.root(), &[ANSWER]);
-    let (code, out, err, started) = run(&sandbox, &stand_in, &["exec", "--provider", "anthropic", "--model", "claude-sonnet-4-6", "go"]);
+    let daemon = DaemonInstall::new();
+    let (code, out, err, started) = run(&daemon.terminal(), &sandbox, &stand_in, &["exec", "--provider", "anthropic", "--model", "claude-sonnet-4-6", "go"]);
     assert_eq!(code, Some(0), "stdout: {out}\nstderr: {err}");
     assert!(out.contains(ANSWER), "{out}");
     assert!(stand_in.requests() >= 1);
     assert!(started.is_empty(), "started {started:?}");
+    assert_eq!(daemon.interpreter_runs(), "", "the install's interpreter was run");
 }
 
 #[test]
+#[ignore = "needs mixdogd built with the test-support feature of mixdog-ai (MIXDOGD_BIN)"]
 fn exec_json_streams_one_json_event_per_line_from_the_thread_start_to_the_successful_result() {
-    if install().is_none() {
-        return;
-    }
     let sandbox = Sandbox::new();
     let stand_in = StandIn::start(sandbox.root(), &[ANSWER]);
-    let (code, out, err, _) = run(&sandbox, &stand_in, &["exec", "--provider", "anthropic", "--model", "claude-sonnet-4-6", "--json", "go"]);
+    let (code, out, err, _) =
+        run(&DaemonInstall::new().terminal(), &sandbox, &stand_in, &["exec", "--provider", "anthropic", "--model", "claude-sonnet-4-6", "--json", "go"]);
     assert_eq!(code, Some(0), "stdout: {out}\nstderr: {err}");
     let events: Vec<serde_json::Value> = out.lines().map(|line| serde_json::from_str(line).unwrap_or_else(|error| panic!("{line}: {error}"))).collect();
     assert!(events.iter().all(|event| event["schema_version"] == 1), "{out}");
@@ -288,27 +282,25 @@ fn exec_json_streams_one_json_event_per_line_from_the_thread_start_to_the_succes
 }
 
 #[test]
+#[ignore = "needs mixdogd built with the test-support feature of mixdog-ai (MIXDOGD_BIN)"]
 fn exec_ends_with_the_providers_refusal_on_stderr_and_exit_code_1() {
-    if install().is_none() {
-        return;
-    }
     let sandbox = Sandbox::new();
     let body = r#"{"type":"error","error":{"type":"invalid_request_error","message":"the request was refused"}}"#;
     let stand_in = StandIn::start_with(sandbox.root(), stand_in::Reply::Refuse(body.to_owned()));
-    let (code, out, err, _) = run(&sandbox, &stand_in, &["exec", "--provider", "anthropic", "--model", "claude-sonnet-4-6", "go"]);
+    let (code, out, err, _) =
+        run(&DaemonInstall::new().terminal(), &sandbox, &stand_in, &["exec", "--provider", "anthropic", "--model", "claude-sonnet-4-6", "go"]);
     assert_eq!(code, Some(1), "stdout: {out}\nstderr: {err}");
     assert_eq!(out, "", "an answer that never came prints nothing on stdout");
     assert!(err.lines().any(|line| line == format!("mixdog: 400 {body}")), "stderr: {err}");
 }
 
 #[test]
+#[ignore = "needs mixdogd built with the test-support feature of mixdog-ai (MIXDOGD_BIN)"]
 fn exec_ends_with_the_streams_error_on_stderr_and_exit_code_1_when_the_turn_breaks_midway() {
-    if install().is_none() {
-        return;
-    }
     let sandbox = Sandbox::new();
     let stand_in = StandIn::start_with(sandbox.root(), stand_in::Reply::BreakStream("the turn broke".to_owned()));
-    let (code, out, err, _) = run(&sandbox, &stand_in, &["exec", "--provider", "anthropic", "--model", "claude-sonnet-4-6", "go"]);
+    let (code, out, err, _) =
+        run(&DaemonInstall::new().terminal(), &sandbox, &stand_in, &["exec", "--provider", "anthropic", "--model", "claude-sonnet-4-6", "go"]);
     assert_eq!(code, Some(1), "stdout: {out}\nstderr: {err}");
     assert!(err.lines().any(|line| line == "mixdog: Anthropic SSE error invalid_request_error: the turn broke"), "stderr: {err}");
 }

@@ -33,7 +33,7 @@ pub const REMOTE_STATE_DIRECTORY: &str = ".mixdog-remote";
 pub const REMOTE_INSTALL_LOCK_WAIT_MS: u64 = 240_000;
 pub const REMOTE_INSTALL_LOCK_STALE_MS: u64 = 15 * 60_000;
 
-/// The runtime manifest the staging script writes next to the bundles.
+/// The runtime manifest the staging script writes and the desktop carries in place of the bundles.
 pub const SERVER_MANIFEST_FILE: &str = "servers.json";
 
 // ---------------------------------------------------------------------------------------------
@@ -318,7 +318,7 @@ pub struct ServerPlatform {
 }
 
 impl ServerPlatform {
-    /// `<os>-<arch>`: the key of `servers.json` and the bundle's folder.
+    /// `<os>-<arch>`: the key of `servers.json`.
     pub fn key(self) -> String {
         let os = match self.os {
             ServerOs::Linux => "linux",
@@ -329,6 +329,16 @@ impl ServerPlatform {
             ServerArch::Arm64 => "arm64",
         };
         format!("{os}-{arch}")
+    }
+
+    /// The Rust target its `mixdogd` is built for (`SERVER_PLATFORM_TARGETS` of server-manifest.mjs).
+    pub fn target(self) -> &'static str {
+        match (self.os, self.arch) {
+            (ServerOs::Linux, ServerArch::X64) => "x86_64-unknown-linux-gnu",
+            (ServerOs::Linux, ServerArch::Arm64) => "aarch64-unknown-linux-gnu",
+            (ServerOs::Darwin, ServerArch::X64) => "x86_64-apple-darwin",
+            (ServerOs::Darwin, ServerArch::Arm64) => "aarch64-apple-darwin",
+        }
     }
 }
 
@@ -506,7 +516,8 @@ pub fn remote_shell_command(script: &str) -> String {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ServerBundleEntry {
-    pub file: String,
+    /// The name of the release asset that is the bundle.
+    pub asset: String,
     pub sha256: String,
     pub size: u64,
     /// Digest of the bundle's content (it carries the JS runtime).
@@ -516,10 +527,12 @@ pub struct ServerBundleEntry {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ServerBinaryEntry {
+    /// The Rust target the binary is built for.
+    pub target: String,
     /// sha256 and size of the `mixdogd` binary.
     pub sha256: String,
     pub size: u64,
-    /// `bundle.tgz`: that binary and the JS runtime it runs with.
+    /// That binary and the JS runtime it runs with, in one gzip tar.
     pub bundle: Option<ServerBundleEntry>,
 }
 

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Signs every Mach-O file of the macOS server bundles (mixdogd and the native files of its JS runtime) with a Developer
-// ID, the hardened runtime and a secure timestamp: notarization of the desktop app inspects the programs inside the
-// archives it carries, and every desktop package carries these bundles. Runs once per release on macOS
-// (server-cores-build.yml) over the set `stage-core.mjs --servers-only` built; the Linux bundles pass through untouched.
-// Signing runs no program of the bundles; `--start` runs the signed core apart, where no certificate is.
+// ID, the hardened runtime and a secure timestamp: the bundles are assets of the release that a desktop uploads to a Mac
+// over ssh, and the programs run there as the project signed them. Runs once per release on macOS
+// (server-cores-build.yml) over the set `stage-core.mjs --servers-only` built (`servers.json` and one asset per server
+// platform); the Linux bundles pass through untouched. Signing runs no program of the bundles; `--start` runs the signed
+// core apart, where no certificate is.
 import { execFile, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -97,7 +98,7 @@ export async function signServerCores({
     await writeFile(entitlements, CORE_ENTITLEMENTS);
     for (const [key, entry] of Object.entries(manifest.binaries)) {
       if (!key.startsWith('darwin-')) continue;
-      const bundle = join(source, key, entry.bundle.file);
+      const bundle = join(source, entry.bundle.asset);
       if (sha256(await readFile(bundle)) !== entry.bundle.sha256)
         throw new Error(`${key}: ${bundle} does not match ${SERVER_MANIFEST_FILE}`);
       const dir = join(work, key);
@@ -143,7 +144,7 @@ export async function signServerCores({
       const archive = await createBundleArchive({
         binary,
         payloadDir: join(dir, 'payload'),
-        out: join(out, key, entry.bundle.file),
+        out: join(out, entry.bundle.asset),
       });
       manifest.binaries[key] = {
         ...entry,
@@ -174,7 +175,7 @@ export async function startSignedCore({
   if (!entry?.bundle) throw new Error(`${serverCores} holds no ${key} bundle to start`);
   const dir = await mkdtemp(join(tmpdir(), 'signed-core-'));
   try {
-    await execFileAsync('tar', ['-xzf', join(serverCores, key, entry.bundle.file), '-C', dir, 'mixdogd']);
+    await execFileAsync('tar', ['-xzf', join(serverCores, entry.bundle.asset), '-C', dir, 'mixdogd']);
     const binary = join(dir, 'mixdogd');
     if (sha256(await readFile(binary)) !== entry.sha256)
       throw new Error(`${key}: the bundle's mixdogd does not match ${SERVER_MANIFEST_FILE}`);

@@ -20,6 +20,7 @@ pub mod normalize;
 pub mod prompt;
 pub mod workspace_names;
 pub mod worktree_import;
+pub mod worktree_name;
 
 /// A method group either declines ownership or returns its canonical verdict.
 type ValidationGroup = fn(&str, Option<&Value>) -> Option<Result<(), ErrorData>>;

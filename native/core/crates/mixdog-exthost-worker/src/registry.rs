@@ -45,7 +45,7 @@ impl Registry {
         Self::default()
     }
 
-    /// Serves `name` with an async handler. The handler runs as its own task: a panic in it is answered as code `failed`.
+    /// Serves `name` with an async handler. The handler runs as its own task; a panic in it ends the worker.
     pub fn register<F, Fut>(&mut self, name: &str, handler: F)
     where
         F: Fn(CallCtx) -> Fut + Send + Sync + 'static,
@@ -56,7 +56,7 @@ impl Registry {
 
     /// Serves `name` with CPU-bound code. It runs on its own thread, so the frame loop keeps reading (a cancel, a bye) while it
     /// works, and it polls `ctx.cancel` to stop early; one that never looks keeps its thread until the process ends. A panic in
-    /// it is answered as code `failed`.
+    /// it ends the worker.
     pub fn register_blocking<F>(&mut self, name: &str, handler: F)
     where
         F: Fn(CallCtx) -> HandlerResult + Send + Sync + 'static,
@@ -67,8 +67,7 @@ impl Registry {
             async move {
                 let (done, answer) = tokio::sync::oneshot::channel();
                 let spawned = std::thread::Builder::new().name("ext-worker-blocking".to_owned()).spawn(move || {
-                    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (*handler)(ctx)));
-                    let _ = done.send(outcome.unwrap_or_else(|payload| Err(CodedError::failed(panic_text(&*payload)))));
+                    let _ = done.send((*handler)(ctx));
                 });
                 if let Err(error) = spawned {
                     return Err(CodedError::failed(format!("cannot start a thread: {error}")));
@@ -105,17 +104,6 @@ impl Registry {
     }
 }
 
-/// The text of a panic payload.
-pub(crate) fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
-    if let Some(text) = payload.downcast_ref::<&str>() {
-        (*text).to_owned()
-    } else if let Some(text) = payload.downcast_ref::<String>() {
-        text.clone()
-    } else {
-        "the handler panicked".to_owned()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,12 +116,5 @@ mod tests {
         assert_eq!(registry.methods(), vec!["a", "b"]);
         assert!(registry.handler("a").is_some());
         assert!(registry.handler("c").is_none());
-    }
-
-    #[test]
-    fn a_panic_payload_is_read_as_text() {
-        assert_eq!(panic_text(&*Box::new("str")), "str");
-        assert_eq!(panic_text(&*Box::new(String::from("owned"))), "owned");
-        assert_eq!(panic_text(&*Box::new(5u8)), "the handler panicked");
     }
 }

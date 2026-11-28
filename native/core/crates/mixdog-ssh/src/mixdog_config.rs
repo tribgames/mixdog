@@ -65,8 +65,8 @@ fn grown(extra: &[String], files: &[String], own: &Path, home: &Path) -> Vec<Str
     next
 }
 
-/// The folder every file of this module lives in: `ssh` under the core's data folder.
-fn data_dir(env: &SshEnv) -> PathBuf {
+/// The core's data folder: `ssh` under it holds every file of this module.
+pub(crate) fn data_dir(env: &SshEnv) -> PathBuf {
     let set = |name: &str| env.var(name).filter(|value| !value.is_empty()).map(PathBuf::from);
     set("MIXDOG_DATA_DIR").unwrap_or_else(|| set("MIXDOG_HOME").unwrap_or_else(|| env.home.join(".mixdog")).join("data"))
 }

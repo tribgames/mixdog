@@ -5,7 +5,7 @@
 //   - the release asset set matches the asset contract (release.yml
 //     "Verify complete hidden release"), and every url/sha512 listed in
 //     latest.yml and latest-mac.yml matches the uploaded assets
-//   - mixdog and every native platform package resolve at the release version on npm
+//   - mixdog resolves at the release version on npm (its native runtime archives are release assets)
 //   - production relay /app answers 200 and links an existing, published
 //     mobile-v* release
 //   - the effort-judge manifest release exists, is published, and is not Latest
@@ -17,7 +17,7 @@ import { appendFileSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { parseMacFeed } from './merge-mac-update-feed.mjs';
 import { APP_TAG_RE, currentLatestTag, gh, isHttp404 } from './release-guard.mjs';
-import { PLATFORMS, platformPackageName } from './npm-platforms.mjs';
+import { PLATFORMS, runtimeAssetName } from './npm-platforms.mjs';
 
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -40,6 +40,13 @@ export const ASSET_CONTRACT = Object.freeze([
   'mixdog-desktop-mac-x64.zip.blockmap',
   'mixdog-desktop-win-x64.exe',
   'mixdog-desktop-win-x64.exe.blockmap',
+  // The server bundles a desktop fetches for an ssh install (scripts/ci/release-assets.mjs SERVER_BUNDLE_ASSET_NAMES).
+  'mixdog-server-darwin-arm64.tgz',
+  'mixdog-server-darwin-x64.tgz',
+  'mixdog-server-linux-arm64.tgz',
+  'mixdog-server-linux-x64.tgz',
+  // The native runtime of each platform, which the npm package fetches (scripts/ci/publish-npm.mjs uploads them).
+  ...PLATFORMS.map(({ key }) => runtimeAssetName(key)),
 ]);
 
 const MAC_ZIPS = ['mixdog-desktop-mac-arm64.zip', 'mixdog-desktop-mac-x64.zip'];
@@ -149,10 +156,9 @@ export async function waitForNpm({
   }
 }
 
-/** The launcher and its optional platform packages must all be published at the same version. */
+/** The package is published at the release version; it carries no native program, so nothing else is on npm. */
 export async function waitForNpmPackages(options) {
-  const names = ['mixdog', ...PLATFORMS.map(({ key }) => platformPackageName(key))];
-  return (await Promise.all(names.map((name) => waitForNpm({ ...options, name })))).flat();
+  return waitForNpm({ ...options, name: 'mixdog' });
 }
 
 const ANDROID_LINK_RE =

@@ -57,7 +57,7 @@ pub fn error_answer(message: &str) -> Value {
     Value::object(ObjectKind::Ordered, vec![("ok", Value::Bool(false)), ("backend", Value::string(BACKEND)), ("error", Value::string(message))])
 }
 
-/// The text of a panic, for the error line that answers it.
+/// The text of a panic, the line the host's panic hook writes on stderr.
 pub fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
     if let Some(text) = payload.downcast_ref::<&str>() {
         (*text).to_owned()

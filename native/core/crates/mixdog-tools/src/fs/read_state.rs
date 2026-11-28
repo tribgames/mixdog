@@ -1263,7 +1263,7 @@ impl ReadState {
     fn notify_released(&self, scope: &str) {
         let listeners: Vec<_> = self.shared.releases.lock().unwrap_or_else(|e| e.into_inner()).clone();
         for listener in listeners {
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener(scope)));
+            listener(scope);
         }
     }
 
@@ -1352,7 +1352,7 @@ impl ReadState {
         }
         let paths: Vec<String> = paths.iter().map(|p| (*p).to_owned()).collect();
         for watcher in watchers {
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| watcher(&paths)));
+            watcher(&paths);
         }
     }
 

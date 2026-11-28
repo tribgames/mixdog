@@ -173,7 +173,6 @@ impl SessionActor {
                         end.0 = None;
                         return JobDone::GoalDecision(None);
                     }
-                    super::super::goal_lane::DecisionFault::Panic => panic!("the test's injected panic in a continuation decision"),
                 }
             }
             let input = super::super::goal_lane::continuation_input(&*deps.todos, &*deps.work, &thread).await;

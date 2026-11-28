@@ -1401,10 +1401,11 @@ fn read_shell(shell: &str, timeout: Duration) -> Result<BTreeMap<String, String>
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null());
     // A session of its own, so with no controlling terminal an rc file that opens `/dev/tty` or runs a job-control `stty` fails instead
-    // of stopping the read; the shell stays its group's leader, so the timeout still ends the whole tree.
-    // SAFETY: the closure only calls the async-signal-safe `setsid`.
+    // of stopping the read; the shell stays its group's leader, so the timeout still ends the whole tree, and the core's warden ends the
+    // session with the core.
+    // SAFETY: enter_session is async-signal-safe.
     unsafe {
-        command.pre_exec(|| if libc::setsid() < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) });
+        command.pre_exec(mixdog_spawn::warden::enter_session);
     }
     let mut child = command.spawn().map_err(|error| error.to_string())?;
     let pid = child.id();

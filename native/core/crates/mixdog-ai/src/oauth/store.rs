@@ -331,8 +331,8 @@ impl CredentialFile {
     /// selected account and one bound to that account's file alike) and returns its result. `refresh` is handed that
     /// file pinned: the refresh reads and writes the account's file it started on whatever the selection does
     /// meanwhile. Re-read the credential at the start of the refresh: it may just have been renewed. A refresh that
-    /// outlives its deadline ends for every joiner as `Expired`.
-    pub async fn refresh_once<T, R, F>(&self, held: &str, refresh: R) -> Result<T, mixdog_rt::Expired>
+    /// outlives its deadline, or whose runtime shuts down under it, ends for every joiner as that [`super::FlightLost`].
+    pub async fn refresh_once<T, R, F>(&self, held: &str, refresh: R) -> Result<T, super::FlightLost>
     where
         T: Clone + Send + Sync + 'static,
         R: FnOnce(CredentialFile) -> F,

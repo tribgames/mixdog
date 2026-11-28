@@ -17,7 +17,8 @@ function evaluate(text, inputs) {
     .trim()
     .replace(/^\$\{\{([\s\S]*)\}\}$/, '$1');
   const js = expression.replace(/\binputs\.(\w+)/g, (_, name) => JSON.stringify(inputs[name] ?? null));
-  assert.doesNotMatch(js.replace(/'[^']*'/g, "''"), /[^\w\s'"&|!()-]/, `unsupported expression: ${text}`);
+  const outsideStrings = js.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, "''");
+  assert.doesNotMatch(outsideStrings, /[^\w\s'&|!()=-]/, `unsupported expression: ${text}`);
   return new Function(`return (${js});`)();
 }
 
@@ -62,6 +63,43 @@ test('the Linux verification builds its bundles without the macOS signer', () =>
   const inputs = inputsOf(load('linux-desktop-verify.yml').jobs['server-cores']);
   assert.deepEqual(producersOf('server-cores', inputs), ['server-cores']);
   assert.equal(evaluate(build.jobs['sign-darwin'].if, inputs), false);
+  assert.equal(evaluate(build.jobs['release-assets'].if, inputs), false, 'and uploads nothing to a release');
+});
+
+// The bundles leave the installers: the release's draft holds them, as the set every package took its manifest from, and
+// publish refuses a draft that does not hold them with the bytes of that manifest.
+test('a release uploads the signed set’s bundles to its draft after checking them, and publish holds the draft to their manifest', () => {
+  const release = load('release.yml');
+  const call = release.jobs['server-cores'];
+  const inputs = inputsOf(call);
+  assert.equal(call.with.release_id, '${{ needs.prepare-github-release.outputs.release_id }}');
+  assert.ok([call.needs].flat().includes('prepare-github-release'));
+  assert.equal(call.permissions.contents, 'write');
+  const job = build.jobs['release-assets'];
+  assert.equal(evaluate(job.if, inputs), true);
+  assert.equal(job.permissions.contents, 'write');
+  const [producer] = producersOf('server-cores', inputs);
+  assert.ok([job.needs].flat().includes(producer), 'it takes the set once the job that uploads it (the signer) is done');
+  const takes = job.steps.find((step) => step.uses?.startsWith('actions/download-artifact@'));
+  assert.equal(takes.with.name, 'server-cores');
+  const at = (pattern) => job.steps.findIndex((step) => pattern.test(step.run ?? ''));
+  const checks = at(/verify-staged-package\.mjs --server-set=server-cores-in/);
+  const uploads = at(/upload-release-assets\.sh server-cores-in\/mixdog-server-\*\.tgz/);
+  assert.ok(job.steps.indexOf(takes) < checks && checks >= 0 && checks < uploads, 'the bundles are checked before they are uploaded');
+  assert.equal(job.steps[uploads].env.RELEASE_ID, '${{ inputs.release_id }}');
+  assert.equal(job.outputs.manifest, '${{ steps.manifest.outputs.manifest }}');
+  assert.match(job.steps.find((step) => step.id === 'manifest').run, /server-cores-in\/servers\.json/);
+  assert.equal(build.on.workflow_call.outputs.manifest.value, '${{ jobs.release-assets.outputs.manifest }}');
+  // The packagers take the same set; the SSH install of the installers fetches what this job uploads.
+  for (const name of ['desktop-windows', 'desktop-darwin-arm64', 'desktop-darwin-x64', 'desktop-linux-x64', 'desktop-linux-arm64'])
+    assert.ok([release.jobs[name].needs].flat().includes('server-cores'), name);
+
+  const publish = release.jobs.publish;
+  assert.ok([publish.needs].flat().includes('server-cores'));
+  for (const command of ['verify-desktop', 'publish-desktop']) {
+    const step = publish.steps.find((candidate) => (candidate.run ?? '').includes(`release-assets.mjs ${command}`));
+    assert.equal(step.env.SERVER_BUNDLES_MANIFEST, '${{ needs.server-cores.outputs.manifest }}', command);
+  }
 });
 
 test('the Developer ID reaches only a GitHub-hosted macOS runner', () => {

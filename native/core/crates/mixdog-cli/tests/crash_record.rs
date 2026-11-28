@@ -13,6 +13,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use mixdog_app_server_daemon::crash_record::PANIC_EXIT_CODE;
+use mixdog_app_server_daemon::crash_record::PANIC_EXIT_SIGNAL;
 use mixdog_app_server_daemon::crash_record::capture_dir;
 use serde_json::Value;
 use serde_json::json;
@@ -187,14 +188,19 @@ fn run(scenario: &str, text: &str, settled_by_next: bool, dead_pipe: bool) -> (O
     (code, sidecar, captured)
 }
 
+/// A panic aborts the core once its hook has run: the record is the hook's, with the abort's status, and fd 2 holds the
+/// panic's line. The main thread's and a worker thread's end alike.
 #[test]
-fn a_core_that_panics_leaves_an_uncaught_exception_record() {
-    let (code, sidecar, captured) = run("main-panic", PANIC_MESSAGE, false, false);
-    assert_eq!(code, Some(PANIC_EXIT_CODE));
-    assert_eq!((&sidecar["exitCode"], &sidecar["exitReason"]), (&json!(1), &json!("fatal uncaughtException")));
-    assert_eq!(sidecar["daemonExit"]["reason"], "shutdown: fatal uncaught exception (fatal uncaught exception) (exited with code 1)");
-    assert!(sidecar["daemonExit"]["error"].as_str().unwrap().contains(PANIC_MESSAGE), "{sidecar}");
-    assert!(captured.contains(PANIC_MESSAGE), "fd 2 holds the panic line: {captured}");
+fn a_core_that_panics_aborts_with_an_uncaught_exception_record() {
+    for (scenario, thread) in [("main-panic", "main"), ("worker-panic", "worker")] {
+        let (code, sidecar, captured) = run(scenario, PANIC_MESSAGE, false, false);
+        assert_eq!(code, PANIC_EXIT_CODE, "{scenario}");
+        assert_eq!((&sidecar["exitCode"], &sidecar["exitSignal"]), (&json!(PANIC_EXIT_CODE), &json!(PANIC_EXIT_SIGNAL)), "{scenario}");
+        assert_eq!((&sidecar["exitReason"], &sidecar["daemonExit"]["reason"]), (&json!("fatal uncaughtException"), &json!("fatal uncaughtException")));
+        let error = sidecar["daemonExit"]["error"].as_str().unwrap();
+        assert!(error.contains(PANIC_MESSAGE) && error.ends_with(&format!("(thread {thread})")), "{scenario}: {sidecar}");
+        assert!(captured.contains(PANIC_MESSAGE), "{scenario}: fd 2 holds the panic line: {captured}");
+    }
 }
 
 /// A start returning an error is a fatal boot error that exits 2.
@@ -252,24 +258,4 @@ fn a_dead_launchers_stderr_pipe_neither_blocks_nor_replaces_the_record() {
     assert_eq!(code, Some(2));
     assert_eq!(sidecar["daemonExit"]["reason"], "shutdown: fatal boot error (exited with code 2)");
     assert!(captured.is_empty(), "nothing reached the capture file: {captured}");
-}
-
-/// A panic on a worker thread that the runtime catches is in the boot's record when it happens; the normal stop that follows
-/// names it with the code the stop exits with.
-#[test]
-fn a_caught_worker_panic_is_in_the_record_when_it_happens_and_the_stop_after_it_names_it() {
-    let (_folder, exe) = binary();
-    let data = tempfile::tempdir().unwrap();
-    let mut boot = Boot::start(&exe, data.path(), "daemon-20261111-041600-999999998-0bad", "caught-panic", PANIC_MESSAGE, false);
-    boot.heard("caught");
-    let at_panic = record(&boot.sidecar);
-    assert_eq!(at_panic["daemonExit"]["reason"], "fatal uncaughtException");
-    assert!(at_panic["daemonExit"]["error"].as_str().unwrap().contains(PANIC_MESSAGE), "{at_panic}");
-    boot.say("stop");
-    let (code, written, _) = boot.ended();
-    assert_eq!(code, Some(0));
-    assert_eq!(written["exitCode"], 0);
-    assert_eq!(written["daemonExit"]["code"], 0);
-    assert_eq!(written["daemonExit"]["reason"], "shutdown: no live session clients (fatal uncaught exception) (exited normally (code 0))");
-    assert!(written["daemonExit"]["error"].as_str().unwrap().contains(PANIC_MESSAGE), "{written}");
 }

@@ -629,7 +629,7 @@ fn migrate_data(
                 }
             })
             .join()
-            .unwrap_or_else(|_| Err("the migration panicked".to_owned()))
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
     })
 }
 /// Runs LR §3 steps 1 to 5 over `data_dir`. A `release{pid}` decision reaches the verdict gate through `Booting::release`; a start the interrupt abandons returns

@@ -112,10 +112,10 @@ mod spinner;
 #[cfg(test)]
 mod start_hold_tests;
 mod stats;
-pub mod statusline_agents;
-pub mod statusline_claude;
-pub mod statusline_limits;
-pub mod statusline_status;
+pub use mixdog_core_files::statusline_agents;
+pub use mixdog_core_files::statusline_claude;
+pub use mixdog_core_files::statusline_limits;
+pub use mixdog_core_files::statusline_status;
 mod stop;
 pub mod sub_agent_retention;
 pub mod thread_context;

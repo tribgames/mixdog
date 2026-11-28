@@ -1,0 +1,38 @@
+[package]
+name = "mixdog-core-files"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "The data folder's files the core writes and the terminal interface's footer reads, with the rules both read them by (statusline status, limits and agent rows, gateway routes and usage, shipped presets, per-cwd prompt history)"
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# The usage pricing of a gateway usage event, an account slot's sign-in stamp and the effort default of a shipped preset.
+mixdog-ai = { workspace = true }
+mixdog-js = { workspace = true }
+mixdog-protocol = { workspace = true }
+mixdog-rt = { workspace = true }
+mixdog-statefile = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tracing = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (<build-tools>\unify-test-features.py).
+mixdog-ai = { workspace = true, features = ["count-work", "replay-bytes", "test-support", "virtual-clock"] }
+mixdog-core-api = { workspace = true, features = ["mock"] }
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
+mixdog-image-egress = { workspace = true, features = ["test-support"] }
+mixdog-imaging = { workspace = true, features = ["test-support"] }
+mixdog-js = { workspace = true, features = ["prefilter-probe"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
+mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }

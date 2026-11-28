@@ -2,14 +2,10 @@
 //! per request on stdout echoing the request's `requestId`, and, when stdin ends or the loop ends, the cleanup of the
 //! session that is still open.
 
-use std::panic::AssertUnwindSafe;
-use std::panic::catch_unwind;
-
 use super::apartment::Inbox;
 use super::apartment::Input;
 use super::emit::Emitter;
 use super::emit::error_answer;
-use super::emit::panic_text;
 use super::handlers::SessionHandler;
 use crate::ps::Value;
 use crate::ps::convert;
@@ -78,8 +74,7 @@ pub fn run(handler: &mut dyn SessionHandler, out: &mut Emitter, inbox: &Inbox) -
             continue;
         }
         let mut request_id = String::new();
-        let stepped = catch_unwind(AssertUnwindSafe(|| step(handler, out, &line, &mut request_id)));
-        let handled = stepped.unwrap_or_else(|panic| Handled { answer: Err(panic_text(&*panic)), close_after_response: false });
+        let handled = step(handler, out, &line, &mut request_id);
         let mut result = match handled.answer {
             Ok(value) => value,
             Err(message) => failure(handler, &message),
@@ -95,10 +90,9 @@ pub fn run(handler: &mut dyn SessionHandler, out: &mut Emitter, inbox: &Inbox) -
         }
     }
     if handler.session_id().is_some() {
-        match catch_unwind(AssertUnwindSafe(|| handler.end())) {
-            Ok(Ok(cleanup)) => out.cleanup_failure(&cleanup),
-            Ok(Err(message)) => out.cleanup_text(&message),
-            Err(panic) => out.cleanup_text(&panic_text(&*panic)),
+        match handler.end() {
+            Ok(cleanup) => out.cleanup_failure(&cleanup),
+            Err(message) => out.cleanup_text(&message),
         }
     }
     0
@@ -151,7 +145,6 @@ mod tests {
 
         fn action(&mut self, _out: &mut Emitter, payload: &Value) -> Result<Value, String> {
             match convert::to_ps_string(&payload::property(payload, "action")).as_str() {
-                "panic" => panic!("action bug"),
                 "echo" => Ok(object(vec![("ok", Value::Bool(true)), ("requestId", Value::string("handler-set"))])),
                 other => Err(format!("Unsupported Office host action: {other}")),
             }
@@ -289,16 +282,5 @@ mod tests {
         let mut clean = Scripted::default();
         let (_, stderr) = serve(&mut clean, &[OPEN]);
         assert_eq!((clean.ended, stderr.as_str()), (1, ""));
-    }
-
-    #[test]
-    fn a_panic_is_an_error_answer_and_the_state_is_kept_for_the_cleanup_at_the_end() {
-        let mut handler = Scripted::default();
-        let previous = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {}));
-        let (stdout, _) = serve(&mut handler, &[OPEN, "{\"action\":\"panic\",\"session\":\"s1\",\"requestId\":\"p\"}"]);
-        std::panic::set_hook(previous);
-        assert!(stdout.contains("\"error\":\"action bug\",\"session\":\"s1\",\"appPid\":4242,\"requestId\":\"p\"}"));
-        assert_eq!(handler.ended, 1);
     }
 }

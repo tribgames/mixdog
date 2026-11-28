@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { stageCore } from '../../../apps/desktop/scripts/stage-core.mjs';
+import { SERVER_PLATFORM_TARGETS } from '../../../apps/desktop/src/main/ssh/server-manifest.mjs';
 import { runTree } from '../../../scripts/rust-core/lib/process-tree.mjs';
 
 const script = fileURLToPath(new URL('./prebake-rust.ps1', import.meta.url));
@@ -23,14 +24,28 @@ for (const name of ['pwsh', 'powershell']) {
   }
 }
 
-function stage(root, { version = '9.9.9', tamper = false } = {}) {
-  const dir = join(root, 'server-cores', 'linux-x64');
-  mkdirSync(dir, { recursive: true });
-  const bytes = Buffer.from('bundle bytes');
-  writeFileSync(join(dir, 'bundle.tgz'), tamper ? Buffer.from('other bytes') : bytes);
-  const sha256 = createHash('sha256').update(bytes).digest('hex');
-  writeFileSync(join(root, 'server-cores', 'servers.json'), JSON.stringify({ version, binaries: { 'linux-x64': { bundle: { file: 'bundle.tgz', sha256 } } } }));
-  return join(root, 'server-cores');
+/** The server set stage-core.mjs builds, of stand-in binaries and JS runtimes, and the file of its linux-x64 bundle. */
+async function stage(root) {
+  const targetDir = join(root, 'target');
+  for (const target of Object.values(SERVER_PLATFORM_TARGETS)) {
+    mkdirSync(join(targetDir, target, 'release'), { recursive: true });
+    writeFileSync(join(targetDir, target, 'release', 'mixdogd'), `mixdogd for ${target}`);
+  }
+  const runtimeDir = join(root, 'runtime');
+  const manifest = await stageCore({
+    targetDir,
+    runtimeDir,
+    version: '9.9.9',
+    host: { platform: 'linux', arch: 'x64' },
+    serversOnly: true,
+    buildPayload: async ({ key, payloadDir }) => {
+      mkdirSync(join(payloadDir, 'js'), { recursive: true });
+      writeFileSync(join(payloadDir, 'js', 'node'), `node for ${key}`);
+    },
+    verifyPayload: async () => {},
+  });
+  const serverCores = join(runtimeDir, 'server-cores');
+  return { serverCores, bundle: join(serverCores, manifest.binaries['linux-x64'].bundle.asset) };
 }
 const run = (serverCores, out, version = '9.9.9') =>
   runTree(powershell, ['-NoProfile', '-File', script, '-ServerCores', serverCores, '-MixdogVersion', version, '-OutDir', out], { label: 'prebake-rust.ps1', deadlineMs: DEADLINE_MS });
@@ -39,9 +54,10 @@ test('the prebake copies the staged mixdogd bundle once its digest and version m
   const root = mkdtempSync(join(tmpdir(), 'prebake-rust-'));
   try {
     const out = join(root, 'out');
-    const result = await run(stage(root), out);
+    const { serverCores, bundle } = await stage(root);
+    const result = await run(serverCores, out);
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(readFileSync(join(out, 'mixdogd-linux-x64.tgz'), 'utf8'), 'bundle bytes');
+    assert.deepEqual(readFileSync(join(out, 'mixdogd-linux-x64.tgz')), readFileSync(bundle));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -51,8 +67,10 @@ test('a bundle that is not the manifest\'s, or another version, is refused and n
   const root = mkdtempSync(join(tmpdir(), 'prebake-rust-'));
   try {
     const out = join(root, 'out');
-    assert.notEqual((await run(stage(root, { tamper: true }), out)).status, 0);
-    assert.notEqual((await run(stage(root), out, '1.0.0')).status, 0);
+    const { serverCores, bundle } = await stage(root);
+    assert.notEqual((await run(serverCores, out, '1.0.0')).status, 0);
+    writeFileSync(bundle, 'other bytes');
+    assert.notEqual((await run(serverCores, out)).status, 0);
     assert.equal(existsSync(join(out, 'mixdogd-linux-x64.tgz')), false);
   } finally {
     rmSync(root, { recursive: true, force: true });

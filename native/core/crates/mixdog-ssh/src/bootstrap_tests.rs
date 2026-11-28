@@ -14,12 +14,15 @@ use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use mixdog_app_protocol::v2::connections::SshFailureKind;
+use mixdog_fsio::Unlaned;
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::bootstrap::{
-    BootstrapOptions, BootstrapPhase, ServerBinary, ServerIdentity, ServerPayloads, bootstrap, parse_remote_discovery, parse_remote_report,
+    BootstrapOptions, BootstrapPhase, ServerArchive, ServerBinary, ServerIdentity, ServerPayloads, StagedPayloads, bootstrap, parse_remote_discovery,
+    parse_remote_report,
 };
+use crate::bundle_source::AssetFetcher;
 use crate::cleanup::{CleanupOptions, CleanupProgress, cleanup_server};
 use crate::command::{FailureClass, SshError, SshTarget, parse_ssh_target};
 use crate::connect_failure::{ConnectError, failure_of, login_key_commands};
@@ -27,7 +30,9 @@ use crate::context::{
     AttemptContext, ChildExit, ConfigFiles, ModelLogin, Platform, PreparedSpawn, SshChild, SshConfigFiles, SshEnv, SshSpawner, ToolOutput, ToolRunner,
 };
 use crate::diagnostics::{DiagnosticKind, Diagnostics};
-use crate::install_wire::{RemoteBootstrapError, ServerPlatform};
+use crate::install_wire::{
+    RemoteBootstrapError, SERVER_MANIFEST_FILE, ServerBinaryEntry, ServerBundleEntry, ServerManifest, ServerPlatform, manifest_build, sha256_hex,
+};
 
 // ---- the fake remote ----
 
@@ -213,7 +218,7 @@ impl ServerPayloads for FakePayloads {
             .get(&key)
             .ok_or_else(|| RemoteBootstrapError::from_wire("local-payload", format!("This desktop ships no Mixdog server runtime for {key}."), None))?;
         let (sha256, bundle_sha256) = self.digests(&key);
-        Ok(ServerBinary { sha256, bundle_sha256, archive: archive.clone() })
+        Ok(ServerBinary { sha256, bundle_sha256, archive: ServerArchive::Held(archive.clone()) })
     }
 }
 
@@ -289,7 +294,7 @@ async fn run_bootstrap(
     context: &AttemptContext,
     host: &str,
     model_login: Option<ModelLogin>,
-    release: &FakePayloads,
+    release: &dyn ServerPayloads,
     phases: &Phases,
 ) -> Result<crate::bootstrap::RemoteReport, ConnectError> {
     let progress = |phase: BootstrapPhase| phases.lock().unwrap().push(phase);
@@ -575,6 +580,225 @@ async fn a_server_platform_with_no_shipped_runtime_is_refused_before_anything_is
     let error = bootstrap_error(run_bootstrap(&env, &AttemptContext::default(), "lonely", None, &lonely, &Phases::default()).await);
     assert!(error.code == "local-payload" && error.is_terminal());
     assert_eq!(ssh.call_count(), 1);
+}
+
+// ---- the release's bundles: this PC's copy, else a download ----
+
+/// The release's asset server: answers every download with `answer` and records what it was asked for.
+struct FakeRelease {
+    answer: Result<Vec<u8>, String>,
+    asked: Mutex<Vec<(String, u64)>>,
+}
+
+impl FakeRelease {
+    fn answering(answer: Result<Vec<u8>, String>) -> Arc<Self> {
+        Arc::new(Self { answer, asked: Mutex::new(Vec::new()) })
+    }
+
+    fn asked(&self) -> Vec<(String, u64)> {
+        self.asked.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl AssetFetcher for FakeRelease {
+    async fn fetch(&self, url: &str, length: u64) -> Result<Vec<u8>, String> {
+        self.asked.lock().unwrap().push((url.to_owned(), length));
+        self.answer.clone()
+    }
+}
+
+const ASSET: &str = "mixdog-server-linux-x64.tgz";
+
+/// An app that carries the manifest of a 1.5.0 release and no bundle, with a data folder of its own.
+struct Carried {
+    _dir: tempfile::TempDir,
+    runtimes: PathBuf,
+    install_id: String,
+    bundle: Vec<u8>,
+}
+
+impl Carried {
+    fn cached(&self) -> PathBuf {
+        self.runtimes.join(&self.install_id).join(ASSET)
+    }
+
+    fn imported(&self) -> PathBuf {
+        self.runtimes.join("import").join(ASSET)
+    }
+}
+
+/// `env`, the machine of another ssh stand-in, made the one of the app `from` is.
+fn same_app(from: &SshEnv, env: &mut SshEnv) {
+    env.server_cores_dir = from.server_cores_dir.clone();
+    env.env = from.env.clone();
+}
+
+fn put(path: &Path, bytes: &[u8]) {
+    mixdog_fsio::create_dir_all(&Unlaned, path.parent().unwrap()).unwrap();
+    mixdog_fsio::write(&Unlaned, path, bytes).unwrap();
+}
+
+fn exists(path: &Path) -> bool {
+    mixdog_fsio::exists(&Unlaned, path).unwrap()
+}
+
+/// Makes `env` the machine of an app that carries the manifest of a 1.5.0 release with a linux-x64 bundle.
+fn app_carrying_manifest(env: &mut SshEnv) -> Carried {
+    let dir = tempfile::tempdir().unwrap();
+    let bundle = b"mixdogd and payload for linux-x64".to_vec();
+    let entry = ServerBinaryEntry {
+        target: "x86_64-unknown-linux-gnu".to_owned(),
+        sha256: sha256_hex(b"mixdogd"),
+        size: 7,
+        bundle: Some(ServerBundleEntry { asset: ASSET.to_owned(), sha256: sha256_hex(&bundle), size: bundle.len() as u64, content: "c".to_owned() }),
+    };
+    let binaries = BTreeMap::from([("linux-x64".to_owned(), entry)]);
+    let manifest = ServerManifest { version: "1.5.0".to_owned(), build: manifest_build(&binaries), binaries };
+    let cores = dir.path().join("server-cores");
+    put(&cores.join(SERVER_MANIFEST_FILE), &serde_json::to_vec(&manifest).unwrap());
+    let data = dir.path().join("data");
+    env.server_cores_dir = Some(cores);
+    env.env.insert("MIXDOG_DATA_DIR".to_owned(), data.to_string_lossy().into_owned());
+    Carried { _dir: dir, runtimes: data.join("server-runtimes"), install_id: manifest.install_id(), bundle }
+}
+
+/// A server with an older core running and this build not installed.
+fn older_not_installed() -> Value {
+    let mut probe = older();
+    probe["installed"] = json!(false);
+    probe
+}
+
+#[tokio::test]
+async fn a_current_install_downloads_and_reads_no_bundle() {
+    let (mut env, ssh) = world(vec![result(json!({}))]);
+    let carried = app_carrying_manifest(&mut env);
+    let release = FakeRelease::answering(Ok(carried.bundle.clone()));
+    let payloads = StagedPayloads::with_fetcher(&Unlaned, &env, release.clone()).unwrap();
+    run_bootstrap(&env, &AttemptContext::default(), "current-server", None, &payloads, &Phases::default()).await.unwrap();
+    assert_eq!(ssh.call_count(), 1);
+    assert!(release.asked().is_empty(), "the probe found this build serving");
+    assert!(!exists(&carried.runtimes));
+}
+
+#[tokio::test]
+async fn a_missing_install_downloads_its_platforms_bundle_once_and_the_next_install_uploads_the_kept_copy() {
+    let (mut env, ssh) = world(vec![result(empty()), result(json!({ "started": true }))]);
+    let carried = app_carrying_manifest(&mut env);
+    let earlier = carried.runtimes.join("1.4.6-0123456789abcdef").join(ASSET);
+    put(&earlier, b"an earlier build's bundle");
+    let brought = carried.runtimes.join("import").join("mixdog-server-darwin-arm64.tgz");
+    put(&brought, b"brought by hand");
+    let release = FakeRelease::answering(Ok(carried.bundle.clone()));
+    let payloads = StagedPayloads::with_fetcher(&Unlaned, &env, release.clone()).unwrap();
+    run_bootstrap(&env, &AttemptContext::default(), "fresh-server", None, &payloads, &Phases::default()).await.unwrap();
+    assert_eq!(
+        release.asked(),
+        [("https://github.com/tribgames/mixdog/releases/download/v1.5.0/mixdog-server-linux-x64.tgz".to_owned(), carried.bundle.len() as u64)]
+    );
+    assert_eq!(ssh.input(1), carried.bundle, "the downloaded bytes go up the ssh connection");
+    assert_eq!(mixdog_fsio::read(&Unlaned, carried.cached()).unwrap(), carried.bundle);
+    assert!(!exists(earlier.parent().unwrap()), "an earlier build's bundle is not kept once this build's is");
+    assert!(exists(&brought), "the import folder is not the cache's to clear");
+
+    let (mut next, next_ssh) = world(vec![result(empty()), result(json!({ "started": true }))]);
+    same_app(&env, &mut next);
+    let payloads = StagedPayloads::with_fetcher(&Unlaned, &next, release.clone()).unwrap();
+    run_bootstrap(&next, &AttemptContext::default(), "second-server", None, &payloads, &Phases::default()).await.unwrap();
+    assert_eq!(release.asked().len(), 1, "the kept copy serves the next install");
+    assert_eq!(next_ssh.input(1), carried.bundle);
+}
+
+#[tokio::test]
+async fn a_damaged_kept_copy_is_not_uploaded_and_the_download_replaces_it() {
+    let (mut env, ssh) = world(vec![result(empty()), result(json!({ "started": true }))]);
+    let carried = app_carrying_manifest(&mut env);
+    let mut damaged = carried.bundle.clone();
+    damaged[0] ^= 1;
+    put(&carried.cached(), &damaged);
+    let release = FakeRelease::answering(Ok(carried.bundle.clone()));
+    let payloads = StagedPayloads::with_fetcher(&Unlaned, &env, release.clone()).unwrap();
+    run_bootstrap(&env, &AttemptContext::default(), "damaged-cache", None, &payloads, &Phases::default()).await.unwrap();
+    assert_eq!(release.asked().len(), 1);
+    assert_eq!(ssh.input(1), carried.bundle);
+    assert_eq!(mixdog_fsio::read(&Unlaned, carried.cached()).unwrap(), carried.bundle);
+}
+
+#[tokio::test]
+async fn a_failed_download_ends_the_attempt_before_the_server_is_touched_and_names_the_asset_and_the_import_folder() {
+    for (answer, reason) in [(Err("offline".to_owned()), "offline"), (Ok(b"not the bundle".to_vec()), "it is 14 bytes")] {
+        let (mut env, ssh) = world(vec![result(older_not_installed()), result(json!({ "started": true }))]);
+        let carried = app_carrying_manifest(&mut env);
+        let earlier = carried.runtimes.join("1.4.6-0123456789abcdef").join(ASSET);
+        put(&earlier, b"an earlier build's bundle");
+        let payloads = StagedPayloads::with_fetcher(&Unlaned, &env, FakeRelease::answering(answer)).unwrap();
+        let error = bootstrap_error(run_bootstrap(&env, &AttemptContext::default(), "offline-pc", None, &payloads, &Phases::default()).await);
+        assert!(error.code == "local-payload" && error.is_terminal(), "{reason}: {}", error.code);
+        for named in [reason, ASSET, "https://github.com/tribgames/mixdog/releases/tag/v1.5.0", &carried.runtimes.join("import").display().to_string()] {
+            assert!(error.message.contains(named), "{reason}: the message names {named}: {}", error.message);
+        }
+        assert_eq!(ssh.call_count(), 1, "{reason}: only the probe ran, so the server's older core runs on");
+        assert!(!exists(&carried.cached()), "{reason}: nothing is kept");
+        assert_eq!(mixdog_fsio::read(&Unlaned, &earlier).unwrap(), b"an earlier build's bundle", "{reason}: the cache is as it was");
+    }
+}
+
+#[tokio::test]
+async fn a_bundle_brought_by_hand_is_held_to_the_same_rule_and_moves_into_the_cache() {
+    let (mut env, ssh) = world(vec![result(empty()), result(json!({ "started": true }))]);
+    let carried = app_carrying_manifest(&mut env);
+    put(&carried.imported(), &carried.bundle);
+    let release = FakeRelease::answering(Err("offline".to_owned()));
+    let payloads = StagedPayloads::with_fetcher(&Unlaned, &env, release.clone()).unwrap();
+    run_bootstrap(&env, &AttemptContext::default(), "offline-import", None, &payloads, &Phases::default()).await.unwrap();
+    assert!(release.asked().is_empty());
+    assert_eq!(ssh.input(1), carried.bundle);
+    assert_eq!(mixdog_fsio::read(&Unlaned, carried.cached()).unwrap(), carried.bundle);
+    assert!(!exists(&carried.imported()));
+
+    // Another file under the asset's name is refused and named; the person's file stays as it is.
+    let (mut env, ssh) = world(vec![result(empty())]);
+    let carried = app_carrying_manifest(&mut env);
+    put(&carried.imported(), b"another release's bundle");
+    let release = FakeRelease::answering(Err("offline".to_owned()));
+    let payloads = StagedPayloads::with_fetcher(&Unlaned, &env, release.clone()).unwrap();
+    let error = bootstrap_error(run_bootstrap(&env, &AttemptContext::default(), "wrong-import", None, &payloads, &Phases::default()).await);
+    let refused = format!("{} is not that file", carried.imported().display());
+    assert!(error.message.contains(&refused), "{}", error.message);
+    assert_eq!(release.asked().len(), 1);
+    assert_eq!(ssh.call_count(), 1);
+    assert_eq!(mixdog_fsio::read(&Unlaned, carried.imported()).unwrap(), b"another release's bundle");
+}
+
+#[tokio::test]
+async fn a_development_tree_uploads_the_bundle_staged_beside_its_manifest_without_the_release() {
+    let (mut env, ssh) = world(vec![result(empty()), result(json!({ "started": true }))]);
+    let carried = app_carrying_manifest(&mut env);
+    let staged = env.server_cores_dir.clone().unwrap().join(ASSET);
+    put(&staged, &carried.bundle);
+    let release = FakeRelease::answering(Err("this version has no release".to_owned()));
+    let payloads = StagedPayloads::with_fetcher(&Unlaned, &env, release.clone()).unwrap();
+    run_bootstrap(&env, &AttemptContext::default(), "dev-tree", None, &payloads, &Phases::default()).await.unwrap();
+    assert!(release.asked().is_empty());
+    assert_eq!(ssh.input(1), carried.bundle);
+    assert!(!exists(&carried.runtimes), "the staged copy is not copied into the cache");
+
+    // A staged file that is not the manifest's bundle is refused and named, and stays as it is.
+    let (mut env, ssh) = world(vec![result(empty())]);
+    let carried = app_carrying_manifest(&mut env);
+    let staged = env.server_cores_dir.clone().unwrap().join(ASSET);
+    put(&staged, b"an earlier staging's bundle");
+    let release = FakeRelease::answering(Err("this version has no release".to_owned()));
+    let payloads = StagedPayloads::with_fetcher(&Unlaned, &env, release.clone()).unwrap();
+    let error = bootstrap_error(run_bootstrap(&env, &AttemptContext::default(), "stale-tree", None, &payloads, &Phases::default()).await);
+    assert_eq!(error.code, "local-payload");
+    let refused = format!("{} is not that file", staged.display());
+    assert!(error.message.contains(&refused), "{}", error.message);
+    assert_eq!(release.asked().len(), 1);
+    assert_eq!(ssh.call_count(), 1);
+    assert!(!exists(&carried.cached()));
+    assert_eq!(mixdog_fsio::read(&Unlaned, &staged).unwrap(), b"an earlier staging's bundle");
 }
 
 #[tokio::test]

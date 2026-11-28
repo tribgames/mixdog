@@ -58,6 +58,8 @@ count-work = ["mixdog-ai/count-work"]
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
+# The login shell read leads a session the core's warden ends with the core (`mixdog_spawn::warden`).
+mixdog-spawn = { workspace = true, features = ["core"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }

@@ -54,9 +54,10 @@ if [ "${MIXDOG_RELAY_ONLY:-}" != "1" ]; then
 	cp "$release/mixdogd" "$release/mixdog-askpass" "$release/mixdog" "$release/treerun" "$out/"
 fi
 if [ "${MIXDOG_BUILD_RELAY:-}" = "1" ]; then
+	# The relay's own profile: it unwinds (native/core/Cargo.toml `release-relay`).
 	env -u MIXDOG_GOOGLE_OAUTH_CLIENT_ID -u MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET \
-		cargo build --locked --release --manifest-path "$manifest" -p mixdog-relay --bin mixdog-relay
-	cp "$release/mixdog-relay" "$out/"
+		cargo build --locked --profile release-relay --manifest-path "$manifest" -p mixdog-relay --bin mixdog-relay
+	cp "${release%/release}/release-relay/mixdog-relay" "$out/"
 fi
 # The cache directories belong to root here; the runner user saves them.
 chmod -R a+rwX /root/.cargo/registry /root/.cargo/git 2>/dev/null || true

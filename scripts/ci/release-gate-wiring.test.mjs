@@ -577,7 +577,9 @@ test('release-gate.yml: the Postgres-backed tests run from the core-build archiv
   const mac = gate.jobs['core-pg-macos'];
   assert.deepEqual(needsOf(mac), ['changes', 'core-build-macos']);
   assert.equal(mac.env.MIXDOG_LEG, 'macos/core-pg/1of1');
-  const profiles = stepsOf(mac).filter((step) => /run-nextest\.mjs[\s\S]*--run-ignored only/.test(step.run ?? ''));
+  const profiles = stepsOf(mac).filter(
+    (step) => /run-nextest\.mjs[\s\S]*--run-ignored only/.test(step.run ?? '') && step.env.MIXDOG_SLOT !== 'handoff'
+  );
   assert.deepEqual(
     profiles.map((step) => step.env.MIXDOG_SLOT),
     ['services-pg', 'pg']
@@ -889,10 +891,10 @@ for (const label of ['release-gate.yml', 'desktop-package.yml']) {
         declared.push({ name: receipt, step });
       }
       if (declared.length === 0) continue;
-      // core-tests and core-pg leave one receipt per partition or profile whose skips are the reconciliation's (the ignore dispositions
-      // of the unfiltered listing include tests a profile leg runs, which need no exception): `complete` reconciles them, there is no
-      // per-job skip check to name them in
-      if (/^core-(tests-|entry$|pg)/.test(name)) continue;
+      // core-tests, core-entry, core-pg and the Windows hand-off of core-list leave one receipt per partition or profile whose skips are
+      // the reconciliation's (the ignore dispositions of the unfiltered listing include tests a profile leg runs, which need no
+      // exception): `complete` reconciles them, there is no per-job skip check to name them in
+      if (/^core-(tests-|entry$|pg|list-)/.test(name)) continue;
       const checks = stepsOf(job).filter((step) => /check-skips\.mjs receipts/.test(step.run ?? ''));
       assert.ok(checks.length > 0, `${name}: no check-skips.mjs receipts step`);
       const checked = new Set(
@@ -999,6 +1001,30 @@ test('release-gate.yml: every system lists its archive unfiltered for the reconc
   assert.equal(run.env.MIXDOG_SLOT, 'entry');
   assert.equal(gate.jobs['core-entry'].if, "needs.changes.outputs.core_entry == 'true'");
   for (const text of [rust.run, run.run]) assert.match(text, /package\(mixdog-entry\) & binary\(node_free\)/);
+  // the hand-off scenarios run on every system from its own archive with a built mixdogd beside mixdog (Linux: the daemon core-entry
+  // downloads; macOS and Windows: the full gate's archive holds mixdog-cli's), each the `handoff` profile of its variant, listed with
+  // the run's filter
+  const plan = JSON.parse(read('scripts/ci/coverage/plan.json'));
+  const handoffFilter = /-E 'package\(mixdog-entry\) & binary\(handoff\)' -- --run-ignored only --no-tests=fail/;
+  for (const [os, job, leg] of [
+    ['linux', 'core-entry', 'linux/core-entry/1of1'],
+    ['macos', 'core-pg-macos', 'macos/core-pg/1of1'],
+    ['windows', 'core-list-windows', 'windows/core-entry/1of1'],
+  ]) {
+    const handoff = stepsOf(gate.jobs[job]).find((step) => step.env?.MIXDOG_SLOT === 'handoff');
+    assert.match(handoff?.run ?? '', handoffFilter, os);
+    assert.match(handoff.run, /--archive-file core-tests\.tar\.zst --workspace-remap native\/core/, os);
+    assert.equal(gate.jobs[job].env.MIXDOG_LEG, leg, os);
+    const variant = plan.rust.variants.find((entry) => entry.name === os);
+    assert.deepEqual(variant.profileLegs.handoff, [`${leg}#handoff`], os);
+  }
+  assert.match(stepsOf(gate.jobs['core-entry']).find((step) => step.id === 'handoff').run, /MIXDOGD_BIN="\$PWD\/native-dev\/mixdogd"/);
+  assert.equal(stepsOf(gate.jobs['core-list-windows']).find((step) => step.id === 'handoff').if, "matrix.os == 'windows'");
+  for (const text of [rust.run, macList.run])
+    assert.match(
+      text,
+      /--run-ignored only -E 'package\(mixdog-entry\) & binary\(handoff\)' --message-format json > "?(\$RUNNER_TEMP\/)?rust-lists\/handoff\.json/
+    );
   const readers = stepsOf(gate.jobs.changes).find((step) => /check-clean-checkout\.mjs --readers/.test(step.run ?? ''));
   assert.equal(readers['continue-on-error'], true, 'the reader scan is advice, like the silent-return scan');
   const silent = stepsOf(gate.jobs.changes).find((step) => /scan-silent-returns/.test(step.run ?? ''));

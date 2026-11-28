@@ -12,7 +12,7 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
-use super::gateway_usage::event::truthy;
+use crate::gateway_usage::truthy;
 
 /// `MAINTENANCE_AGENT_LABELS`: the agents hidden from the worker list by default, and the short label each one renders as.
 const MAINTENANCE_AGENT_LABELS: [(&str, &str); 1] = [("cycle1-agent", "cycle1")];

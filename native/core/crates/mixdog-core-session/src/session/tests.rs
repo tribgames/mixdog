@@ -938,36 +938,6 @@ async fn a_header_update_is_computed_where_the_header_has_one_writer() {
     assert_eq!(rig.store.records(&handle.id).len(), records);
 }
 
-/// A panic in a header update fails only its caller (`Failed`), writes nothing and leaves the
-/// actor running: the next update is computed and written, and the thread still answers.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_panicking_header_update_fails_only_its_caller() {
-    use crate::session::thread_state::SessionThreads;
-    use mixdog_core_ports::ports::threads::HeaderUpdates;
-    use mixdog_core_ports::ports::threads::ThreadState;
-    use mixdog_tools::orch::util::PortError;
-    let rig = Rig::new();
-    let directory = Arc::new(SessionDirectory::new(rig.deps()));
-    let handle = start_thread(&directory).await;
-    let threads = SessionThreads::new(directory.clone());
-    let records = rig.store.records(&handle.id).len();
-    let failed = threads.update_header(&handle.id, Box::new(|_| panic!("update gone wrong"))).await;
-    assert!(matches!(failed, Err(PortError::Failed { .. })), "{failed:?}");
-    assert_eq!(rig.store.records(&handle.id).len(), records, "nothing was written");
-    threads
-        .update_header(
-            &handle.id,
-            Box::new(|_| {
-                let mut set = serde_json::Map::new();
-                set.insert("skillCount".into(), json!(1));
-                mixdog_store::schema::record::HeaderChange { set, unset: Vec::new(), patch: Default::default() }
-            }),
-        )
-        .await
-        .expect("the actor serves the next update");
-    assert_eq!(threads.header(&handle.id).await.expect("read")["skillCount"], json!(1));
-}
-
 pub fn runs_started(rig: &Rig, id: &ThreadId) -> usize {
     use mixdog_store::schema::record::Record;
     use mixdog_store::schema::record::RunPhase;

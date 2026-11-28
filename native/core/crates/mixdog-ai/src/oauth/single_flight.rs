@@ -25,9 +25,46 @@ use std::sync::PoisonError;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use futures::future::Shared;
+use mixdog_core_api::domain::provider::DeliveryState;
+use mixdog_core_api::domain::provider::ErrorKind;
+use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_rt::Expired;
 
 use crate::transport::deadlines::REFRESH_FLIGHT;
+use crate::transport::link::Surface;
+use crate::transport::link::deadline_error;
+
+/// How a refresh flight ended for every caller that joined it, with no result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlightLost {
+    /// The refresh outlived its deadline.
+    Expired(Expired),
+    /// The runtime that ran the refresh shut down before it ended.
+    Cancelled,
+}
+
+impl std::fmt::Display for FlightLost {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Expired(expired) => write!(f, "token refresh: request timed out after {}ms", expired.after.as_millis()),
+            Self::Cancelled => f.write_str("token refresh: cancelled, the runtime that ran it shut down"),
+        }
+    }
+}
+
+impl FlightLost {
+    /// The error a send sees: the deadline's ([`deadline_error`]), or a transient failure the next send refreshes past.
+    pub fn provider_error(self, delivery: DeliveryState, surface: Surface) -> ProviderError {
+        match self {
+            Self::Expired(expired) => deadline_error(expired, delivery, surface),
+            Self::Cancelled => {
+                let mut error = ProviderError::new(ErrorKind::Transient, delivery);
+                error.message = self.to_string();
+                error
+            }
+        }
+    }
+}
 
 type Key = (PathBuf, String, TypeId);
 
@@ -40,8 +77,8 @@ fn flights() -> std::sync::MutexGuard<'static, HashMap<Key, Flight>> {
     FLIGHTS.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Takes a flight out of the map however its task ends: returned, expired, panicked, or dropped unfinished with its
-/// runtime. A flight whose task is gone can never be joined, so the next caller starts its own refresh.
+/// Takes a flight out of the map however its task ends: returned, expired, or dropped unfinished with its runtime. A
+/// flight whose task is gone can never be joined, so the next caller starts its own refresh.
 struct Landed {
     key: Key,
     identity: Arc<()>,
@@ -64,11 +101,11 @@ pub(crate) fn reset() {
 
 /// Runs `refresh` unless one with the same result type is already running for
 /// `held`, the credential the caller read from the file `credential`; then waits
-/// for that one and returns its result, or the [`Expired`] that ended the
+/// for that one and returns its result, or the [`FlightLost`] that ended the
 /// flight. The refresh runs to its end as a task of its own, as Node's promise
 /// does, whether or not a caller still waits: a refreshed credential is written
 /// even when every caller went away.
-pub(crate) async fn refresh_once<T, F>(credential: &Path, held: &str, refresh: F) -> Result<T, Expired>
+pub(crate) async fn refresh_once<T, F>(credential: &Path, held: &str, refresh: F) -> Result<T, FlightLost>
 where
     T: Clone + Send + Sync + 'static,
     F: Future<Output = T> + Send + 'static,
@@ -76,7 +113,7 @@ where
     let key: Key = (credential.to_owned(), held.to_owned(), TypeId::of::<T>());
     let (flight, start) = {
         let mut map = flights();
-        match map.get(&key).and_then(|(_, slot)| slot.downcast_ref::<Shared<BoxFuture<'static, Result<T, Expired>>>>()) {
+        match map.get(&key).and_then(|(_, slot)| slot.downcast_ref::<Shared<BoxFuture<'static, Result<T, FlightLost>>>>()) {
             Some(running) => (running.clone(), None),
             None => {
                 let identity = Arc::new(());
@@ -86,9 +123,9 @@ where
                     // The task is handed over right after the flight is in the map (below).
                     let Ok(task) = task.await else { panic!("the refresh flight was never started") };
                     match task.await {
-                        Ok(result) => result,
+                        Ok(result) => result.map_err(FlightLost::Expired),
                         Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
-                        Err(error) => panic!("the refresh flight was cancelled: {error}"),
+                        Err(_) => Err(FlightLost::Cancelled),
                     }
                 }
                 .boxed()
@@ -198,19 +235,6 @@ mod tests {
         assert_eq!(refresh_once(path, "r", async { 9u32 }).await, Ok(9));
     }
 
-    async fn broken() -> u32 {
-        panic!("the refresh broke")
-    }
-
-    // A refresh that panicked is over: its callers get the panic, the next caller a refresh of its own.
-    #[tokio::test]
-    async fn a_refresh_that_panicked_is_not_joined_by_the_next_caller() {
-        let path = Path::new("panicked-oauth.json");
-        let first = tokio::spawn(refresh_once(path, "r", broken()));
-        assert!(first.await.is_err_and(|error| error.is_panic()), "the caller of the broken refresh gets its panic");
-        assert_eq!(refresh_once(path, "r", async { 6u32 }).await, Ok(6));
-    }
-
     // A runtime that has shut down drops a task where it is spawned. The flight's end takes the map's lock, so the
     // spawn is made with the lock released: the caller on the dead runtime gets the flight's end, and the map is
     // free for the next caller.
@@ -221,11 +245,11 @@ mod tests {
         let closed = runtime();
         let handle = closed.handle().clone();
         drop(closed);
-        let attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let attempt = {
             let _context = handle.enter();
             refresh_once(path, "r", async { 1u32 }).now_or_never()
-        }));
-        assert!(attempt.is_err(), "the caller on the dead runtime is told its refresh was cancelled");
+        };
+        assert_eq!(attempt, Some(Err(FlightLost::Cancelled)), "the caller on the dead runtime is told its refresh was cancelled");
         assert_eq!(runtime().block_on(refresh_once(path, "r", async { 8u32 })), Ok(8));
     }
 
@@ -271,7 +295,7 @@ mod tests {
         let owner = refresh_once(path, "r", std::future::pending::<u32>());
         let joiner = refresh_once(path, "r", std::future::pending::<u32>());
         let (owner, joiner) = tokio::join!(owner, joiner);
-        let expired = Err(Expired { after: std::time::Duration::from_secs(150) });
+        let expired = Err(FlightLost::Expired(Expired { after: std::time::Duration::from_secs(150) }));
         assert_eq!((owner, joiner), (expired, expired));
         // The dead flight is gone: the next caller starts a new refresh.
         assert_eq!(refresh_once(path, "r", async { 5u32 }).await, Ok(5));

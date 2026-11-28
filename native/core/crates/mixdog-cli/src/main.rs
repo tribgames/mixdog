@@ -1,5 +1,5 @@
 //! `mixdogd serve | ctl | migrate | server-ensure` (SPEC §3.2). Argument parsing only; every
-//! subcommand body lives in the daemon, migrate or client crate it names.
+//! subcommand body lives in the daemon, migrate, client or spawn crate it names.
 
 #[cfg(feature = "crash-gates")]
 mod boot_fault;
@@ -63,6 +63,10 @@ enum Command {
     /// The helper processes a core starts as this program (`mixdog_cli::helpers`).
     #[command(flatten)]
     Helper(mixdog_cli::helpers::Helper),
+    /// The process that ends a core's children when the core ends (`mixdog_spawn::warden`); started by the core.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[command(hide = true)]
+    Warden,
 }
 
 #[derive(Args)]
@@ -144,11 +148,15 @@ struct StopArgs {
 }
 
 fn main() -> ExitCode {
+    mixdog_rt::abort_on_panic();
     let cli = Cli::parse();
     match cli.command {
         Command::Serve { desktop_confirmation_pipe } => {
             #[cfg(all(feature = "alloc-profile", windows))]
             alloc_profile::enable_from_env();
+            if let Err(code) = tie_children() {
+                return code;
+            }
             serve(desktop_confirmation_pipe)
         }
         Command::Ctl(args) => ctl(args),
@@ -160,9 +168,29 @@ fn main() -> ExitCode {
             // Prints its own result lines; the status is 0 or 3.
             ExitCode::from(mixdog_app_server_daemon::server_ensure::main(&argument) as u8)
         }
-        Command::Exec(args) => exec_command(args),
+        Command::Exec(args) => match tie_children() {
+            Ok(()) => exec_command(args),
+            Err(code) => code,
+        },
         Command::Helper(helper) => mixdog_cli::helpers::run(helper),
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        Command::Warden => mixdog_spawn::warden::serve(),
     }
+}
+
+/// Linux and macOS: the warden that ends every child this core starts when the core ends, however it ends
+/// (`mixdog_spawn::warden`). Windows has the children's kill-on-close jobs.
+fn tie_children() -> Result<(), ExitCode> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        use std::io::Write;
+        let installed = std::env::current_exe().and_then(|program| mixdog_spawn::warden::install(&program, &["warden"]));
+        if let Err(error) = installed {
+            let _ = writeln!(std::io::stderr(), "mixdogd: the warden of this core's children did not start: {error}");
+            return Err(ExitCode::FAILURE);
+        }
+    }
+    Ok(())
 }
 
 /// Runs the migration on this thread, outside every async context: the runtime only carries the

@@ -111,13 +111,18 @@ async fn a_failed_one_shot_call_is_an_error_line_exit_one_and_every_handle_relea
     run.assert_exit_discipline(3);
 }
 
+/// The status of a host a panic ended: Windows' `__fastfail` status; SIGABRT elsewhere, which leaves no code.
+const ABORTED: Option<i32> = if cfg!(windows) { Some(0xC000_0409_u32 as i32) } else { None };
+
+/// A panic aborts the host before it answers or cleans up: its text is the last line on stderr, which the transport answers
+/// the call with, and what the host held is left to the transport's sweep.
 #[tokio::test]
-async fn a_panic_in_a_one_shot_call_is_answered_as_an_error_and_the_cleanup_still_runs() {
+async fn a_panic_in_a_one_shot_call_aborts_the_host_with_its_text_on_stderr() {
     let run = host(&["office-com-host"], "{\"action\":\"x\",\"scenario\":{\"hold\":2,\"panic\":\"a bug\"}}").await;
-    assert_eq!(run.stdout, format!("{ERROR_PREFIX}\"a bug\"}}\r\n"));
-    assert_eq!(run.code, Some(1));
-    assert!(run.events().contains(&"Finish"));
-    run.assert_exit_discipline(2);
+    assert_eq!(run.stdout, "");
+    assert_eq!(run.code, ABORTED);
+    assert_eq!(run.stderr.lines().last(), Some("a bug"), "{}", run.stderr);
+    assert!(!run.events().contains(&"Finish"), "{:?}", run.events());
 }
 
 #[tokio::test]
@@ -219,18 +224,16 @@ async fn a_session_cleanup_that_succeeded_writes_nothing() {
 }
 
 #[tokio::test]
-async fn a_panic_in_a_session_request_is_an_error_answer_and_the_state_is_cleaned_up_at_the_end() {
+async fn a_panic_in_a_session_request_aborts_the_host_with_its_text_on_stderr() {
     let run = host(
         &["office-com-host", "--session"],
         &lines(&[OPEN, "{\"action\":\"snapshot\",\"session\":\"s1\",\"requestId\":\"p\",\"scenario\":{\"panic\":\"a bug\"}}"]),
     )
     .await;
-    let out = run.lines();
-    assert_eq!(out.len(), 3);
-    assert_eq!(out[2], format!("{ERROR_PREFIX}\"a bug\",\"session\":\"s1\",\"appPid\":4242,\"requestId\":\"p\"}}"));
-    assert_eq!(run.code, Some(0));
-    assert!(run.events().contains(&"EndCleanup"));
-    run.assert_exit_discipline(2);
+    assert_eq!(run.lines().len(), 2, "the identity and the open, then nothing: {:?}", run.stdout);
+    assert_eq!(run.code, ABORTED);
+    assert_eq!(run.stderr.lines().last(), Some("a bug"), "{}", run.stderr);
+    assert!(!run.events().contains(&"EndCleanup"), "{:?}", run.events());
 }
 
 #[tokio::test]

@@ -129,15 +129,17 @@ async fn stopping_a_worker_stuck_in_cpu_bound_code_ends_its_call_and_a_new_worke
     pool.close().await;
 }
 
+/// A panic in a handler aborts its worker: the call fails with the abort's exit (Windows' `__fastfail` status, SIGABRT
+/// elsewhere), and a new process answers the next call.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_panic_is_answered_without_the_worker_exiting() {
+async fn a_panic_aborts_the_worker_and_a_new_one_answers_the_next_call() {
     let pool = ExtHostPool::new(config(1)).unwrap();
     let pid = run(&pool, call("t", "pin", json!({"pin": false}))).await;
     let mut panicking = pool.call(call("t", "panic", json!(null))).unwrap();
     let (_, outcome) = finish(&mut panicking).await;
-    assert!(matches!(&outcome, Err(ExtError::Failed { code, message }) if code == "failed" && message.contains("boom from ext_worker_dev")), "{outcome:?}");
-    // The same process answers the next call.
-    assert_eq!(run(&pool, call("t", "pin", json!({"pin": false}))).await, pid);
+    let aborted = if cfg!(windows) { ExtExit::Code(0xC000_0409_u32 as i32) } else { ExtExit::Signal(6) };
+    assert_eq!(outcome, Err(ExtError::HostExited { exit: aborted }));
+    assert_ne!(run(&pool, call("t", "pin", json!({"pin": false}))).await, pid);
     pool.close().await;
 }
 

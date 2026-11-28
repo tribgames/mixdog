@@ -54,13 +54,6 @@ pub struct Running {
     pub outgoing: Arc<Outgoing>,
 }
 
-/// `sink` that cannot panic into its caller: a failing log write never changes what a connection does.
-fn contained(sink: Arc<dyn Fn(&str) + Send + Sync>) -> Arc<dyn Fn(&str) + Send + Sync> {
-    Arc::new(move |line: &str| {
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sink(line)));
-    })
-}
-
 /// The window a connection's origin names, in the shape the core's calls carry.
 fn window_scope_of(origin: &ConnectionOrigin) -> Option<WindowScope> {
     let id = origin.window_id()?;
@@ -239,18 +232,6 @@ mod tests {
         async fn close(&mut self, _: CloseCode) -> Result<(), SocketClosed> {
             Ok(())
         }
-    }
-
-    #[test]
-    fn link_log_contained_sink_does_not_panic_into_its_caller() {
-        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let seen = calls.clone();
-        let sink = contained(Arc::new(move |_: &str| {
-            seen.fetch_add(1, Ordering::SeqCst);
-            panic!("the sink failed");
-        }));
-        sink("connection open id=1 kind=loopback");
-        assert_eq!(calls.load(Ordering::SeqCst), 1, "the sink ran, and its panic stayed in it");
     }
 
     struct Source(mpsc::Receiver<JsonRpcMessage>);
@@ -567,8 +548,8 @@ impl Running {
             Arc::new(move |id| origins.origin_of(id)),
             ServerConfig { native_push: core.native_push_offered(), ..server_config(limits, core.defaults_separation()) },
         )?;
-        // One contained sink for every connection line, served or not: recording never reaches the connection that is recorded.
-        let sink = contained(core.log_line_sink());
+        // One sink for every connection line, served or not.
+        let sink = core.log_line_sink();
         server.set_connection_log(sink.clone()).unwrap_or_else(|_| unreachable!("a server built a line above has no connection log yet"));
         // Sockets that never reach `drive` (refused, abandoned, handshake failed) leave their line through the same sink.
         hub.set_log(sink).unwrap_or_else(|_| unreachable!("a hub built a line above has no log yet"));

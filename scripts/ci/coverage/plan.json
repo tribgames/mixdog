@@ -656,6 +656,22 @@
         {
           "id": "entry",
           "producer": "nextest"
+        },
+        {
+          "id": "handoff",
+          "producer": "nextest"
+        }
+      ]
+    },
+    {
+      "id": "windows/core-entry/1of1",
+      "os": "windows",
+      "workflow": "release-gate.yml",
+      "job": "core-list-windows",
+      "slots": [
+        {
+          "id": "handoff",
+          "producer": "nextest"
         }
       ]
     },
@@ -695,6 +711,10 @@
         },
         {
           "id": "pg",
+          "producer": "nextest"
+        },
+        {
+          "id": "handoff",
           "producer": "nextest"
         }
       ]
@@ -1453,7 +1473,8 @@
         "profileLegs": {
           "pg": ["linux/core-pg/pg"],
           "services-pg": ["linux/core-pg/services-pg"],
-          "entry": ["linux/core-entry/1of1#entry"]
+          "entry": ["linux/core-entry/1of1#entry"],
+          "handoff": ["linux/core-entry/1of1#handoff"]
         }
       },
       {
@@ -1468,7 +1489,8 @@
         ],
         "profileLegs": {
           "pg": ["macos/core-pg/1of1#pg"],
-          "services-pg": ["macos/core-pg/1of1#services-pg"]
+          "services-pg": ["macos/core-pg/1of1#services-pg"],
+          "handoff": ["macos/core-pg/1of1#handoff"]
         }
       },
       {
@@ -1483,7 +1505,9 @@
           "windows/core-tests/5of6#ci",
           "windows/core-tests/6of6#ci"
         ],
-        "profileLegs": {}
+        "profileLegs": {
+          "handoff": ["windows/core-entry/1of1#handoff"]
+        }
       }
     ],
     "standalone": [
@@ -1654,6 +1678,14 @@
       "kind": "staging",
       "gate": null,
       "reason": "creates a hidden draft; nothing is visible until publish finalizes it",
+      "owner": "release-engineering"
+    },
+    {
+      "workflow": "release.yml",
+      "job": "server-cores",
+      "kind": "staging",
+      "gate": null,
+      "reason": "uploads the four server bundles to the hidden draft only (the draft is public only at publish, which checks them against the manifest)",
       "owner": "release-engineering"
     },
     {
@@ -1859,12 +1891,6 @@
       "workflow": "release.yml",
       "job": "mixdogd",
       "reason": "builds the daemon binaries into run artifacts",
-      "owner": "release-engineering"
-    },
-    {
-      "workflow": "release.yml",
-      "job": "server-cores",
-      "reason": "builds server cores into run artifacts",
       "owner": "release-engineering"
     },
     {

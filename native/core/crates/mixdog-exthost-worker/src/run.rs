@@ -21,7 +21,6 @@ use crate::ctx::Output;
 use crate::error::CodedError;
 use crate::registry::HandlerResult;
 use crate::registry::Registry;
-use crate::registry::panic_text;
 use crate::wire;
 use crate::wire::FrameReader;
 use crate::wire::Inbound;
@@ -154,10 +153,7 @@ fn browser_answer(answer: &Value) -> Result<String, String> {
 /// The RESULT body of a finished call. A call that was cancelled answers `cancelled` whatever its handler returned, with the pin
 /// the handler reported.
 fn answer(link: &CallLink, joined: Result<HandlerResult, JoinError>) -> Value {
-    let outcome = joined.unwrap_or_else(|error| match error.try_into_panic() {
-        Ok(payload) => Err(CodedError::failed(panic_text(&*payload))),
-        Err(error) => Err(CodedError::failed(error.to_string())),
-    });
+    let outcome = joined.unwrap_or_else(|error| Err(CodedError::failed(error.to_string())));
     let pin = match &outcome {
         Ok(outcome) => outcome.pin,
         Err(error) => error.pin,

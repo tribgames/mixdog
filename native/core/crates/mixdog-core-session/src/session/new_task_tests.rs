@@ -404,25 +404,6 @@ async fn a_request_whose_reply_is_lost_runs_on_and_the_retry_gets_its_task() {
     })
     .await;
 }
-/// An attempt that panics gives up its place: the callers it had get no answer, and the next request for the id starts afresh
-/// instead of joining an attempt that will never answer.
-#[tokio::test(start_paused = true)]
-async fn an_attempt_that_panics_frees_its_id() {
-    let rig = Rig::new();
-    let receipts = NewTaskReceipts::new(&rig._data.path().join("userdata"), mixdog_rt::testing::tokens().durability_io);
-    let panicked = within("the panicked attempt's answer", receipts.run("sub-p", &json!({}), |_| async { panic!("the attempt's seam panics") })).await;
-    assert!(
-        matches!(&panicked, Err(CoreError::DomainError { message: Some(message), .. }) if message.as_ref() == "The new task request ended without an answer."),
-        "{panicked:?}"
-    );
-    assert_eq!(receipts.in_flight(), 0, "the panicked attempt gave up its place");
-    let next = within(
-        "the next attempt's answer",
-        receipts.run("sub-p", &json!({}), |_| async { Err(mixdog_core_base::support::failed("session", "the next attempt ran")) }),
-    )
-    .await;
-    assert!(matches!(&next, Err(CoreError::DomainError { message: Some(message), .. }) if message.as_ref() == "the next attempt ran"), "{next:?}");
-}
 #[tokio::test(start_paused = true)]
 async fn shutdown_cuts_an_attempt_in_flight_and_the_next_start_resumes_it() {
     whole("shutdown_cuts_an_attempt_in_flight_and_the_next_start_resumes_it", |step| async move {

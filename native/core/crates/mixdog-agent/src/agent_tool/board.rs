@@ -1072,9 +1072,8 @@ impl JobBoard {
             }
             (task.cancel.clone(), task.operation.clone())
         };
-        // A failing hook must not keep the cancellation from being announced.
         if let Some(hook) = hook {
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hook()));
+            hook();
         }
         self.run(effects);
         Some(AgentTaskCancellation::Cancelled { operation })

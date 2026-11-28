@@ -12,7 +12,7 @@
 //! waits.
 //!
 //! Cancelling (or dropping) an `enter` that still waits removes its place; a turn already handed to a cancelled waiter passes on
-//! to the next. A guard gives its turn back when dropped, an unwinding panic included.
+//! to the next. A guard gives its turn back when dropped.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -398,21 +398,6 @@ mod tests {
         assert!(!free.queued(), "the second turn is free");
         drop((c, free));
         assert!(!gate.is_busy());
-    }
-
-    #[tokio::test]
-    async fn a_holder_that_panics_gives_its_turn_back() {
-        let gate = Arc::new(OwnerGate::with_limit(2));
-        let held = gate.clone();
-        let task = tokio::spawn(async move {
-            let _turn = held.enter("A", &CancellationToken::new()).await.unwrap();
-            panic!("the search failed");
-        });
-        assert!(task.await.unwrap_err().is_panic());
-        assert!(!gate.is_busy());
-        let never = CancellationToken::new();
-        let (b, c) = (gate.enter("B", &never).await.unwrap(), gate.enter("C", &never).await.unwrap());
-        assert!(!b.queued() && !c.queued(), "both turns are free");
     }
 
     #[tokio::test]

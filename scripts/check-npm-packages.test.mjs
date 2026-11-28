@@ -1,123 +1,92 @@
-// The rules of scripts/check-npm-packages.mjs on file lists, with no tarball: what a platform package and the main package
-// must hold. (check-npm-packages.slow.test.mjs packs real packages.)
+// The rules of scripts/check-npm-packages.mjs: what the package must hold, with no tarball, and what the runtime archives
+// beside it must be. (check-npm-packages.slow.test.mjs packs a real package.)
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
-import { expectedPlatformFiles, mainProblems, platformProblems } from './check-npm-packages.mjs';
-import { PLATFORMS, platformPackageName } from './npm-platforms.mjs';
+import { LAUNCHER_FILES, mainProblems, runtimeProblems } from './check-npm-packages.mjs';
+import { PLATFORMS, runtimeAssetName } from './npm-platforms.mjs';
+import { LEGACY_ENTRY, LEGACY_ENTRY_SOURCE, runtimeFiles, runtimeManifest, writeRuntimeArchive } from './npm-runtime-assets.mjs';
 
 const VERSION = '4.5.6';
+const BUILD = 'c0ffee';
+const KEYS = PLATFORMS.map(({ key }) => key);
 const json = (value) => Buffer.from(JSON.stringify(value));
-const platformEntries = (key, overrides = {}) => {
-  const { platform, cpu } = PLATFORMS.find((entry) => entry.key === key);
-  const manifest = { name: platformPackageName(key), version: VERSION, os: [platform], cpu, ...overrides };
-  return expectedPlatformFiles(platform).map((path) => ({
-    path,
-    mode: 0o755,
-    data: path === 'package/package.json' ? json(manifest) : Buffer.from('x'),
-  }));
-};
-const mainEntries = (overrides = {}, extra = []) => [
-  {
-    path: 'package/package.json',
-    mode: 0o644,
-    data: json({
-      name: 'mixdog',
-      version: VERSION,
-      optionalDependencies: Object.fromEntries(PLATFORMS.map(({ key }) => [platformPackageName(key), VERSION])),
-      ...overrides,
-    }),
-  },
-  { path: 'package/bin/mixdog.mjs', mode: 0o644, data: Buffer.from('x') },
-  { path: 'package/bin/native-layout.mjs', mode: 0o644, data: Buffer.from('x') },
-  { path: 'package/bin/staged-swap.mjs', mode: 0o644, data: Buffer.from('x') },
-  { path: 'package/bin/invocation.mjs', mode: 0o644, data: Buffer.from('x') },
-  ...extra.map((path) => ({ path, mode: 0o644, data: Buffer.from('x') })),
-];
 
-test('a platform package holds its three programs, the three templates and its manifest, and nothing else', () => {
-  assert.deepEqual(
-    expectedPlatformFiles('linux').filter((path) => path.startsWith('package/bin/') && !path.includes('assets')),
-    ['package/bin/mixdog', 'package/bin/mixdog-askpass', 'package/bin/mixdogd']
-  );
-  assert.ok(expectedPlatformFiles('win32').includes('package/bin/mixdogd.exe'));
-  assert.equal(expectedPlatformFiles('linux').filter((path) => path.includes('assets/templates/')).length, 3);
-  assert.deepEqual(platformProblems({ entries: platformEntries('linux-x64'), key: 'linux-x64', version: VERSION }), []);
-  assert.deepEqual(platformProblems({ entries: platformEntries('win32-x64'), key: 'win32-x64', version: VERSION }), []);
+/** A runtime manifest of every platform the release builds, as the release writes it. */
+const manifestOf = (change = (targets) => targets) => ({
+  schema: 1,
+  repository: 'tribgames/mixdog',
+  tag: `v${VERSION}`,
+  targets: change(
+    Object.fromEntries(
+      PLATFORMS.map(({ key, platform }) => [
+        key,
+        { asset: runtimeAssetName(key), length: 10, sha256: 'a'.repeat(64), version: VERSION, buildId: BUILD, files: Object.fromEntries(runtimeFiles(platform).map((path) => [path, 1])) },
+      ])
+    )
+  ),
 });
 
-test('a missing program, an extra file, a wrong version, os or cpu and a program that cannot be executed are each named', () => {
-  const missing = platformEntries('linux-x64').filter((entry) => entry.path !== 'package/bin/mixdog-askpass');
-  assert.match(
-    platformProblems({ entries: missing, key: 'linux-x64', version: VERSION }).join('\n'),
-    /lacks package\/bin\/mixdog-askpass/
-  );
-  const extra = [
-    ...platformEntries('linux-x64'),
-    { path: 'package/bin/js-runtime.json', mode: 0o644, data: Buffer.from('{}') },
-  ];
-  assert.match(
-    platformProblems({ entries: extra, key: 'linux-x64', version: VERSION }).join('\n'),
-    /holds package\/bin\/js-runtime\.json/
-  );
-  assert.match(
-    platformProblems({ entries: platformEntries('linux-x64'), key: 'linux-x64', version: '4.5.7' }).join('\n'),
-    /is version 4\.5\.6, the release is 4\.5\.7/
-  );
-  assert.match(
-    platformProblems({
-      entries: platformEntries('linux-x64', { os: ['darwin'] }),
-      key: 'linux-x64',
-      version: VERSION,
-    }).join('\n'),
-    /os is \["darwin"\]/
-  );
-  assert.match(
-    platformProblems({
-      entries: platformEntries('linux-x64', { cpu: ['arm64'] }),
-      key: 'linux-x64',
-      version: VERSION,
-    }).join('\n'),
-    /cpu is \["arm64"\]/
-  );
-  const plain = platformEntries('linux-x64').map((entry) => ({ ...entry, mode: 0o644 }));
-  assert.match(
-    platformProblems({ entries: plain, key: 'linux-x64', version: VERSION }).join('\n'),
-    /mixdogd without the executable bit/
-  );
-  // Windows programs have no mode to check.
-  const win = platformEntries('win32-x64').map((entry) => ({ ...entry, mode: 0o644 }));
-  assert.deepEqual(platformProblems({ entries: win, key: 'win32-x64', version: VERSION }), []);
+const mainEntries = ({ manifest = {}, runtime = manifestOf(), drop = [], extra = [] } = {}) =>
+  [
+    {
+      path: 'package/package.json',
+      data: json({ name: 'mixdog', version: VERSION, bin: { mixdog: 'bin/mixdog.mjs', 'mixdog-runtime': 'bin/mixdog-runtime.mjs' }, ...manifest }),
+    },
+    ...LAUNCHER_FILES.map((path) => ({
+      path: `package/${path}`,
+      data: path === 'bin/runtime-manifest.json' ? json(runtime) : Buffer.from(path === LEGACY_ENTRY ? LEGACY_ENTRY_SOURCE : 'x'),
+    })),
+    ...extra.map((path) => ({ path, data: Buffer.from('x') })),
+  ].filter((entry) => !drop.includes(entry.path));
+
+const problemsOf = (options, check = {}) => mainProblems({ entries: mainEntries(options), version: VERSION, platforms: KEYS, buildId: BUILD, ...check }).join('\n');
+
+test('the package holds the launcher, the 1.4.5 command and a manifest of exactly the runtimes of the release, and no program', () => {
+  assert.equal(problemsOf({}, { repository: 'tribgames/mixdog', tag: `v${VERSION}` }), '');
+  assert.match(problemsOf({ manifest: { optionalDependencies: { 'mixdog-linux-x64': VERSION } } }), /lists optional dependencies/);
+  assert.match(problemsOf({ manifest: { bin: { mixdog: 'bin/mixdog.mjs' } } }), /the package's bin is/);
+  assert.match(problemsOf({ manifest: { version: '1.0.0' } }), /the package is version 1\.0\.0, the release is 4\.5\.6/);
+  assert.match(problemsOf({ extra: ['package/vendor/mixdogd.exe'] }), /carries a native program: package\/vendor\/mixdogd\.exe/);
+  assert.match(problemsOf({ drop: [`package/${LEGACY_ENTRY}`] }), /lacks package\/src\/cli\.mjs/);
+  assert.match(problemsOf({ drop: ['package/bin/download.mjs'] }), /lacks package\/bin\/download\.mjs/);
+  assert.match(problemsOf({ drop: ['package/bin/runtime-manifest.json'] }), /lacks package\/bin\/runtime-manifest\.json/);
 });
 
-test('the main package lists every platform package at the release version and carries no program', () => {
-  assert.deepEqual(mainProblems({ entries: mainEntries(), version: VERSION }), []);
-  assert.match(
-    mainProblems({ entries: mainEntries({ optionalDependencies: {} }), version: VERSION }).join('\n'),
-    /optionalDependencies of mixdog/
-  );
-  const drift = Object.fromEntries(PLATFORMS.map(({ key }) => [platformPackageName(key), '4.5.5']));
-  assert.match(
-    mainProblems({ entries: mainEntries({ optionalDependencies: drift }), version: VERSION }).join('\n'),
-    /optionalDependencies of mixdog/
-  );
-  assert.match(
-    mainProblems({ entries: mainEntries({}, ['package/native-bin/linux-x64/mixdog']), version: VERSION }).join('\n'),
-    /carries a native program/
-  );
-  assert.match(
-    mainProblems({ entries: mainEntries({}, ['package/vendor/mixdogd.exe']), version: VERSION }).join('\n'),
-    /carries a native program/
-  );
-  assert.match(
-    mainProblems({ entries: mainEntries({ version: '1.0.0' }), version: VERSION }).join('\n'),
-    /is version 1\.0\.0/
-  );
-  const noLauncher = mainEntries().filter((entry) => !entry.path.endsWith('native-layout.mjs'));
-  assert.match(
-    mainProblems({ entries: noLauncher, version: VERSION }).join('\n'),
-    /lacks package\/bin\/native-layout\.mjs/
-  );
-  const noSwap = mainEntries().filter((entry) => !entry.path.endsWith('staged-swap.mjs'));
-  assert.match(mainProblems({ entries: noSwap, version: VERSION }).join('\n'), /lacks package\/bin\/staged-swap\.mjs/);
+test('a 1.4.5 command that is not the launcher, and a manifest that is not this release\'s, are each named', () => {
+  const entries = mainEntries().map((entry) => (entry.path === `package/${LEGACY_ENTRY}` ? { ...entry, data: Buffer.from('// stale') } : entry));
+  assert.match(mainProblems({ entries, version: VERSION, platforms: KEYS }).join('\n'), /src\/cli\.mjs is not the command an install made by 1\.4\.5 starts/);
+  assert.match(problemsOf({}, { buildId: 'other' }), /linux-x64: the build is c0ffee, not other/);
+  assert.match(problemsOf({}, { repository: 'someone/fork' }), /names the repository tribgames\/mixdog, not someone\/fork/);
+  assert.match(problemsOf({}, { tag: 'v9.9.9' }), /names the tag v4\.5\.6, not v9\.9\.9/);
+  const { 'darwin-x64': _gone, ...fewer } = manifestOf().targets;
+  assert.match(problemsOf({ runtime: manifestOf(() => fewer) }), /names no runtime for darwin-x64/);
+  assert.match(problemsOf({}, { platforms: KEYS.filter((key) => key !== 'linux-arm64') }), /a runtime for linux-arm64, which this release does not build/);
+  const renamed = manifestOf((targets) => ({ ...targets, 'linux-x64': { ...targets['linux-x64'], asset: 'mixdog-runtime-linux.tar.gz' } }));
+  assert.match(problemsOf({ runtime: renamed }), /linux-x64: the asset is mixdog-runtime-linux\.tar\.gz, not mixdog-runtime-linux-x64\.tar\.gz/);
+  const unlisted = manifestOf((targets) => ({ ...targets, 'win32-x64': { ...targets['win32-x64'], files: { ...targets['win32-x64'].files, 'extra.dll': 1 } } }));
+  assert.match(problemsOf({ runtime: unlisted }), /win32-x64: the runtime lists .*extra\.dll/);
+  const older = manifestOf((targets) => ({ ...targets, 'linux-x64': { ...targets['linux-x64'], version: '4.5.5' } }));
+  assert.match(problemsOf({ runtime: older }), /the runtime manifest: linux-x64: the version "4\.5\.5" is not the package's 4\.5\.6/);
+});
+
+test('the runtime folder holds exactly the archives the manifest names, each of its bytes and its layout', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-runtime-check-test-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const built = join(dir, 'built');
+  mkdirSync(built);
+  for (const name of ['mixdog', 'mixdogd', 'mixdog-askpass']) writeFileSync(join(built, name), name);
+  const assets = join(dir, 'assets');
+  const archive = await writeRuntimeArchive({ key: 'linux-x64', from: [built], out: assets });
+  const manifest = runtimeManifest({ archives: [archive], version: VERSION, buildId: BUILD, repository: 'o/r', tag: `v${VERSION}` });
+  assert.deepEqual(await runtimeProblems({ manifest, dir: assets }), []);
+  writeFileSync(join(assets, 'stray.txt'), 'x');
+  const wrong = { ...manifest, targets: { 'linux-x64': { ...manifest.targets['linux-x64'], sha256: 'b'.repeat(64) }, 'win32-x64': { ...manifest.targets['linux-x64'], asset: 'mixdog-runtime-win32-x64.tar.gz' } } };
+  const problems = (await runtimeProblems({ manifest: wrong, dir: assets })).join('\n');
+  assert.match(problems, /holds stray\.txt, which is no asset of the runtime manifest/);
+  assert.match(problems, /holds no mixdog-runtime-win32-x64\.tar\.gz/);
+  assert.match(problems, /linux-x64: .* its SHA-256 is [0-9a-f]{64}, the release's is b{64}/);
 });

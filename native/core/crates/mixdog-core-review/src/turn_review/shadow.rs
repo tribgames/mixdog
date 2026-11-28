@@ -277,8 +277,7 @@ impl ReposShared {
                     let next = shared.review_listeners.lock().unwrap_or_else(|e| e.into_inner()).following(seen);
                     let Some((at, listener)) = next else { break };
                     seen = Some(at);
-                    // Node: `try { fn() } catch {}`.
-                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener()));
+                    listener();
                 }
             }
         });

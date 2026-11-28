@@ -159,16 +159,6 @@ mod tests {
         tokio::task::spawn(task)
     }
 
-    struct Dies;
-
-    impl Future for Dies {
-        type Output = Outcome;
-
-        fn poll(self: std::pin::Pin<&mut Self>, _: &mut std::task::Context<'_>) -> std::task::Poll<Outcome> {
-            panic!("the work died");
-        }
-    }
-
     #[tokio::test]
     async fn a_task_dropped_before_its_first_poll_clears_its_slot_and_rejects_its_callers() {
         let flights = Flights::default();
@@ -223,17 +213,6 @@ mod tests {
         assert!(flights.lock().is_idle());
     }
 
-    #[test]
-    fn a_work_constructor_that_panics_leaves_no_flight_and_does_not_deadlock() {
-        let flights = Flights::default();
-        let started = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            flights.start_on(plain, flights.lock(), 1, |_| -> std::future::Ready<Outcome> { panic!("the work constructor died") }, abnormal)
-        }));
-        assert!(started.is_err(), "the panic reaches the caller that started the flight");
-        // The unwinding guard locked the mutex after the caller's guard was released.
-        assert!(flights.lock().is_idle(), "the slot is empty, so the next call starts again");
-    }
-
     #[tokio::test]
     async fn a_waiter_that_drops_does_not_stop_the_work() {
         let flights = Flights::default();
@@ -258,16 +237,6 @@ mod tests {
         gate.notify_one();
         done.notified().await;
         assert_eq!(kept.await, Ok(3));
-        assert!(flights.lock().is_idle());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_task_that_panics_rejects_its_callers_and_empties_the_slot() {
-        mixdog_rt::testing::tokens();
-        let flights = Flights::default();
-        let join = flights.start("test-flight", flights.lock(), 1, |_| Dies, abnormal);
-        let failure = join.await.unwrap_err();
-        assert!(failure.contains("panicked"), "{failure}");
         assert!(flights.lock().is_idle());
     }
 }

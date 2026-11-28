@@ -96,7 +96,7 @@ impl WorktreeSetup {
         }
         let listeners: Vec<SetupListener> = self.listeners.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().map(|(_, l)| l.clone()).collect();
         for listener in listeners {
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener(value.clone())));
+            listener(value.clone());
         }
     }
 

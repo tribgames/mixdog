@@ -364,6 +364,13 @@ async fn a_crash_settles_the_dispatched_call_once() {
     a_broken_helper_settles_its_call_once("crash", |error| matches!(error, TransportError::Eof | TransportError::Exited(Some(3)))).await;
 }
 
+/// A panic in the helper aborts it (Windows' `__fastfail` status; SIGABRT elsewhere, which leaves no code): a crash.
+#[tokio::test]
+async fn a_panic_aborts_the_helper_and_settles_the_dispatched_call_once() {
+    let aborted = if cfg!(windows) { Some(0xC000_0409_u32 as i32) } else { None };
+    a_broken_helper_settles_its_call_once("panic", |error| matches!(error, TransportError::Eof) || *error == TransportError::Exited(aborted)).await;
+}
+
 #[tokio::test]
 async fn the_end_of_the_helpers_output_settles_the_dispatched_call_once_and_kills_it() {
     let events = a_broken_helper_settles_its_call_once("eof", |error| *error == TransportError::Eof).await;
@@ -610,7 +617,6 @@ async fn answers_keep_their_shape_and_size_across_the_pipe() {
     assert_eq!(ask(&h, json!({ "do": "refuse" })).await, Err(HostError::Refused(Refusal { message: "refused by the fixture".to_owned() })));
     let failure = WorkerFailure { kind: FailureKind::Io, message: "failed by the fixture".to_owned() };
     assert_eq!(ask(&h, json!({ "do": "fail" })).await, Err(HostError::Failed(failure)));
-    assert!(matches!(ask(&h, json!({ "do": "panic" })).await, Err(HostError::Failed(WorkerFailure { kind: FailureKind::Internal, .. }))));
     let prewarm = Prewarm { cwd: PathBuf::from("/fixture") };
     assert_eq!(within(h.host.prewarm(prewarm, Start::Demand, &CancellationToken::new())).await, Ok(Warmed { built: true }));
     assert_eq!((h.events.count(spawned), h.events.count(killed)), (1, 0));

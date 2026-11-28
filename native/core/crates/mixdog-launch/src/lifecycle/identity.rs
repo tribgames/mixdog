@@ -50,8 +50,8 @@ pub(super) fn of_pid(pid: u32) -> Option<Value> {
         let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
         return linux_ticks_from_stat(&stat).map(|ticks| linux_start_ticks(&ticks));
     }
-    use mixdog_app_server_daemon::verdict::OsProcessTable;
-    use mixdog_app_server_daemon::verdict::ProcessTable;
+    use crate::process::OsProcessTable;
+    use crate::process::ProcessTable;
     let info = OsProcessTable.query(u64::from(pid)).ok()??;
     // 0: the OS denied the start time.
     let seconds = i64::try_from(info.identity.start_ms / 1000).ok().filter(|seconds| *seconds > 0)?;

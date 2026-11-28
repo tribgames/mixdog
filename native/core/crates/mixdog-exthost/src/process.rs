@@ -85,8 +85,12 @@ fn worker_command(program: &Path, args: &[OsString], envs: &[(&str, &str)]) -> C
     #[cfg(windows)]
     // CREATE_NO_WINDOW | CREATE_SUSPENDED: `Containment::attach` resumes the child once it is in its job.
     command.creation_flags(0x0800_0000 | 0x0000_0004);
+    // The leader of a session of its own, and so of its process group, which the core's warden ends with the core.
+    // SAFETY: enter_session is async-signal-safe.
     #[cfg(unix)]
-    command.process_group(0);
+    unsafe {
+        command.pre_exec(mixdog_spawn::warden::enter_session);
+    }
     command
 }
 

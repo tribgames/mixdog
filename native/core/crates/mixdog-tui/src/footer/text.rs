@@ -8,7 +8,7 @@
 //! tick that fires every [`StatuslineText::refresh_ms`], and [`StatuslineText::poll`] for the host's timer that fires at
 //! [`StatuslineText::next_wake`]. The clock is the renderer's, so a test drives all of it with one fake clock.
 
-use mixdog_core_session::session::prompt_submission::truthy;
+use mixdog_core_files::gateway_usage::truthy;
 use mixdog_js::number_to_string;
 use mixdog_js::value_to_string;
 use mixdog_tui_style::bridge::statusline_footer_identity_changed;

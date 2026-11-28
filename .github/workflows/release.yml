@@ -2,12 +2,14 @@
 # (to no branch and no tag), then calls this workflow with the tag, the commit's
 # SHA and the default branch commit it descends from. The full gate verifies
 # that SHA (coverage-gate) before push-release-refs moves the branch and creates
-# the tag, and every publishing job needs both. The npm packages (one per
-# platform and the main package that lists them, built from the programs mixdogd-build.yml
-# builds once) remain staged as an Actions artifact, while verified desktop packages upload directly
-# to one hidden GitHub draft. The draft becomes public only after the exact
-# four-platform asset set succeeds. Deploy is the only release entry point;
-# there is no direct tag-push trigger.
+# the tag, and every publishing job needs both. The npm package (the launcher and
+# the manifest of the native runtime archives, one per platform, built from the
+# programs mixdogd-build.yml builds once) and those archives remain staged as an
+# Actions artifact, while verified desktop packages upload directly to one hidden
+# GitHub draft. At publish the archives join the draft, the draft becomes public
+# only after the exact asset set succeeds, and npm publishes the package only
+# once the archives it names download publicly. Deploy is the only release entry
+# point; there is no direct tag-push trigger.
 # Requires the NPM_TOKEN repo secret (npm automation token) and the
 # MIXDOG_GOOGLE_OAUTH_CLIENT_ID / MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET repo
 # secrets: Mixdog's Google OAuth desktop client, which every shipped mixdogd
@@ -408,7 +410,8 @@ jobs:
           ref: ${{ inputs.ref }}
           sparse-checkout: scripts/ci
           persist-credentials: false
-      # A public release of the tag is refused; one draft is resumed only if it names this commit; the draft is then used by its id.
+      # One release of the tag is resumed only if it names this commit, a public one too: a re-run after publication, which goes on only
+      # where the release holds exactly this run's assets (release-assets.mjs changes nothing on it). It is then used by its id.
       # The listing is the evidence: a failed lookup stops the run, and only a complete listing that lacks the tag creates a draft. The
       # body comes from CHANGELOG.md at publish time (GitHub's generated notes list merged PRs only, and Deploy commits straight to
       # main, so they would leave just a compare link).
@@ -438,24 +441,27 @@ jobs:
 
   # The four server bundles (Linux and macOS only: server cores are Unix-only). The job waits for the four Unix mixdogd
   # artifacts in its own step, so it neither idles behind the Windows build nor holds a runner while it waits. The
-  # macOS bundles are signed with the app's Developer ID before any packager takes them: the notary inspects the
-  # programs inside them in each macOS app.
+  # macOS bundles are signed with the app's Developer ID before anything takes them. The packagers carry only their
+  # manifest; the bundles themselves become assets of the hidden draft, and the desktop fetches the one a server needs.
   server-cores:
-    needs: [identity]
+    needs: [identity, prepare-github-release]
     uses: ./.github/workflows/server-cores-build.yml
     permissions:
-      contents: read
+      contents: write
       actions: read
     with:
       ref: ${{ inputs.ref }}
       sign_darwin: true
+      tag: ${{ inputs.tag }}
+      release_id: ${{ needs.prepare-github-release.outputs.release_id }}
     secrets:
       MAC_CERTIFICATE_P12_BASE64: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
       MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
 
-  # The npm packages: one per platform (scripts/npm-platforms.mjs), staged from the programs mixdogd-build.yml built once
-  # (mixdogd-<target> and mixdog-entry-<target>), and the main package, which lists them as optional dependencies at the
-  # release version. It waits for the builds only, not for the tests of validate, and no packager waits for it.
+  # The npm package and the native runtime archives it points at (scripts/npm-platforms.mjs): one archive per platform from
+  # the programs mixdogd-build.yml built once (mixdogd-<target> and mixdog-entry-<target>), and the package with the manifest
+  # of those archives as written (length, SHA-256, version, the gated commit as the build). It waits for the builds only,
+  # not for the tests of validate, and no packager waits for it.
   pack-npm:
     name: pack-npm-packages
     needs: [identity, mixdogd]
@@ -482,34 +488,41 @@ jobs:
         with:
           pattern: mixdog-entry-*
           path: native-artifacts
-      - name: Stage the platform packages
-        run: node scripts/stage-npm-native.mjs --artifacts native-artifacts --out staged-packages
-      # The committed package.json lists no platform package (`npm ci` would look for them before they exist); the
-      # package that is packed and published lists every one at this release's version.
-      - name: List the platform packages in the main package
-        run: node scripts/stage-npm-native.mjs --lock-optional-dependencies
-      - name: Pack every package
+      # The tree carries neither the manifest nor src/cli.mjs (the command an install made by 1.4.5 links to): both are
+      # written into this checkout for the pack.
+      - name: Write the runtime archives and the files of the package that point at them
+        env:
+          BUILD_ID: ${{ inputs.ref }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: >-
+          node scripts/npm-runtime-assets.mjs --artifacts native-artifacts --out npm-runtime --package .
+          --build-id "$BUILD_ID" --repository "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG"
+      - name: Pack the package
         run: |
           set -euo pipefail
           mkdir npm-tarballs
           npm pack --ignore-scripts --pack-destination npm-tarballs >/dev/null
-          for dir in staged-packages/*/; do
-            npm pack --ignore-scripts --pack-destination npm-tarballs "$dir" >/dev/null
-          done
-          ls -l npm-tarballs
-      - name: Check the tarballs and start the launcher from an install of them
-        run: node scripts/check-npm-packages.mjs --dir npm-tarballs --run
-      - name: Stage npm packages
+          ls -l npm-tarballs npm-runtime
+      - name: Check the package and the archives, and start the launcher from an install of them
+        env:
+          BUILD_ID: ${{ inputs.ref }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: >-
+          node scripts/check-npm-packages.mjs --dir npm-tarballs --runtime npm-runtime --build-id "$BUILD_ID"
+          --repository "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --run
+      - name: Stage the npm package and the runtime archives
         id: tarballs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: npm-package-${{ github.run_attempt }}
-          path: npm-tarballs/*.tgz
+          path: |
+            npm-tarballs/*.tgz
+            npm-runtime/*.tar.gz
           if-no-files-found: error
           retention-days: 2
 
-  # The same install, started on the other operating systems: the launcher, the manifest it writes and each program of the
-  # platform package, from the packed tarballs. pack-npm did Linux x64 beside the check of the files.
+  # The same install, started on the other operating systems: the package installed, the archive of the platform imported
+  # with its own command, the launcher, the manifest it writes and each program. pack-npm did Linux x64 beside the check.
   verify-npm-install:
     name: verify-npm-install-${{ matrix.key }}
     needs: [identity, pack-npm]
@@ -539,15 +552,15 @@ jobs:
         with:
           artifact-ids: ${{ needs.pack-npm.outputs.artifact_id }}
           digest-mismatch: error
-          path: npm-tarballs
-      - name: Start the launcher from the packed tarballs
-        run: node scripts/check-npm-packages.mjs --dir npm-tarballs --run ${{ matrix.key }}
+          path: npm-package
+      - name: Start the launcher from the packed package and the archive of this platform
+        run: node scripts/check-npm-packages.mjs --dir npm-package/npm-tarballs --runtime npm-package/npm-runtime --run ${{ matrix.key }}
 
   # Desktop update feed. electron-updater reads latest.yml from the LATEST
   # GitHub release, so a tag without these assets leaves every installed app
   # stranded on its current version ("no update available" forever).
   # Each packager starts once the common desktop output, every mixdogd and the
-  # server bundles it stages exist.
+  # server set whose manifest it stages exist.
   desktop-windows:
     needs: [prepare-github-release, desktop-build, mixdogd, server-cores]
     uses: ./.github/workflows/desktop-package.yml
@@ -761,6 +774,25 @@ jobs:
             mac-feeds/arm64/latest-mac.yml mac-feeds/x64/latest-mac.yml
           bash .github/scripts/upload-release-assets.sh latest-mac.yml
 
+      # The package and the archives are what pack-npm checked; nothing else may be in the folders.
+      - name: Verify the staged npm package and the runtime archives
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_REF: ${{ inputs.ref }}
+        run: >-
+          node scripts/check-npm-packages.mjs --dir staged-npm/npm-tarballs --runtime staged-npm/npm-runtime
+          --build-id "$RELEASE_REF" --repository "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG"
+
+      # The archives the package names join the hidden draft; their records (NPM_RUNTIME_ASSETS, exported to the rest of
+      # this job) are part of the asset set the draft is verified and published with.
+      - name: Upload the runtime archives to the hidden draft
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_REF: ${{ inputs.ref }}
+          RELEASE_ID: ${{ needs.prepare-github-release.outputs.release_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/publish-npm.mjs upload-runtime staged-npm
+
       - name: Verify complete hidden release
         env: &desktop-release
           RELEASE_TAG: ${{ inputs.tag }}
@@ -773,6 +805,8 @@ jobs:
           LINUX_ARM64_ASSETS: ${{ needs.desktop-linux-arm64.outputs.assets }}
           LINUX_X64_ASSETS: ${{ needs.desktop-linux-x64.outputs.assets }}
           MERGED_FEED: ${{ steps.merged-feed.outputs.assets }}
+          # The manifest every installer carries: the draft must hold each server bundle with the bytes it lists.
+          SERVER_BUNDLES_MANIFEST: ${{ needs.server-cores.outputs.manifest }}
         shell: bash
         run: |
           set -euo pipefail
@@ -780,23 +814,6 @@ jobs:
           git fetch --force origin "+refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
           test "$(git rev-list -n 1 "refs/tags/${RELEASE_TAG}")" = "$RELEASE_REF"
           node scripts/ci/release-assets.mjs verify-desktop
-
-      # The six tarballs are what pack-npm checked; nothing else may be in the folder.
-      - name: Verify the staged npm packages
-        run: node scripts/check-npm-packages.mjs --dir staged-npm
-
-      # The platform packages first, the main package last: the main package lists them, so an install of it can
-      # never find a version whose platform package is missing. Only exact bytes count as already published.
-      - name: Publish staged npm packages
-        shell: bash
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          CI: "true"
-          MIXDOG_MODE: "ship"
-          RELEASE_TAG: ${{ inputs.tag }}
-        run: |
-          set -euo pipefail
-          node scripts/ci/publish-npm.mjs staged-npm "${RELEASE_TAG#v}"
 
       - name: Publish one complete GitHub release
         env: *desktop-release
@@ -828,6 +845,23 @@ jobs:
           writeFileSync('/tmp/release-notes.md', `${body}${compare}\n`);
           NODE
           node scripts/ci/release-assets.mjs publish-desktop /tmp/release-notes.md
+
+      # The package fetches its runtime from the release: each archive must download publicly, with the launcher's own client
+      # and no credential, as the package names it before npm has the package.
+      - name: Verify the runtime archives download publicly
+        run: node scripts/ci/publish-npm.mjs verify-public staged-npm
+
+      # Only exact bytes count as already published.
+      - name: Publish the npm package
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          CI: "true"
+          MIXDOG_MODE: "ship"
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          node scripts/ci/publish-npm.mjs publish staged-npm "${RELEASE_TAG#v}"
 
   # Renderer staging is deterministic and does not touch production. Do it
   # while native packages build, then leave only the seven-second atomic remote

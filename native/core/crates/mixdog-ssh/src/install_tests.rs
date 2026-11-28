@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 
@@ -13,9 +11,11 @@ const MANIFEST_JSON: &str = r#"{
   "version": "1.4.6",
   "build": "a888562fff32273b",
   "binaries": {
-    "linux-x64": { "sha256": "aa11", "size": 1, "bundle": { "file": "bundle.tgz", "sha256": "dd44", "size": 2, "content": "c1" } },
-    "darwin-arm64": { "sha256": "bb22", "size": 1, "bundle": { "file": "bundle.tgz", "sha256": "ee55", "size": 2, "content": "c2" } },
-    "linux-arm64": { "sha256": "cc33", "size": 1 }
+    "linux-x64": { "target": "x86_64-unknown-linux-gnu", "sha256": "aa11", "size": 1,
+      "bundle": { "asset": "mixdog-server-linux-x64.tgz", "sha256": "dd44", "size": 2, "content": "c1" } },
+    "darwin-arm64": { "target": "aarch64-apple-darwin", "sha256": "bb22", "size": 1,
+      "bundle": { "asset": "mixdog-server-darwin-arm64.tgz", "sha256": "ee55", "size": 2, "content": "c2" } },
+    "linux-arm64": { "target": "aarch64-unknown-linux-gnu", "sha256": "cc33", "size": 1 }
   }
 }"#;
 
@@ -40,14 +40,34 @@ fn manifest_that_does_not_match_its_binaries_is_local_payload() {
 fn payload_resolves_the_bundle_of_the_platform() {
     let manifest = ServerManifest::parse(MANIFEST_JSON).unwrap();
     let darwin = classify_platform("Darwin arm64", "none").unwrap();
-    let payload = InstallPayload::resolve(Path::new("cores"), &manifest, darwin).unwrap();
-    assert_eq!(payload.bundle, Path::new("cores").join("darwin-arm64").join("bundle.tgz"));
+    let payload = InstallPayload::resolve(&manifest, darwin).unwrap();
+    assert_eq!((payload.key.as_str(), payload.asset.as_str(), payload.size), ("darwin-arm64", "mixdog-server-darwin-arm64.tgz", 2));
     assert_eq!((payload.sha256.as_str(), payload.bundle_sha256.as_str()), ("bb22", "ee55"));
     assert_eq!(payload.install_id(), "1.4.6-a888562fff32273b");
     let absent = classify_platform("Darwin x86_64", "none").unwrap();
-    assert_eq!(InstallPayload::resolve(Path::new("cores"), &manifest, absent).unwrap_err().code, "local-payload");
+    assert_eq!(InstallPayload::resolve(&manifest, absent).unwrap_err().code, "local-payload");
     let no_bundle = classify_platform("Linux aarch64", "glibc").unwrap();
-    assert_eq!(InstallPayload::resolve(Path::new("cores"), &manifest, no_bundle).unwrap_err().code, "local-payload");
+    assert_eq!(InstallPayload::resolve(&manifest, no_bundle).unwrap_err().code, "local-payload");
+    // A runtime the manifest records as built for another target is not this platform's.
+    let swapped = ServerManifest::parse(&MANIFEST_JSON.replace("aarch64-apple-darwin", "x86_64-apple-darwin")).unwrap();
+    assert_eq!(InstallPayload::resolve(&swapped, darwin).unwrap_err().code, "local-payload");
+}
+
+#[test]
+fn every_copy_of_a_bundle_is_held_to_the_length_and_checksum_the_manifest_lists() {
+    // The SHA-256 of "abc" (FIPS 180-2, appendix B.1).
+    let payload = InstallPayload {
+        key: "linux-x64".to_owned(),
+        asset: "mixdog-server-linux-x64.tgz".to_owned(),
+        size: 3,
+        bundle_sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad".to_owned(),
+        sha256: "aa11".to_owned(),
+        version: "1.5.0".to_owned(),
+        build: "a888562fff32273b".to_owned(),
+    };
+    assert_eq!(payload.check(b"abc"), Ok(()));
+    assert!(payload.check(b"abd").unwrap_err().contains("checksum"), "the same length with other bytes");
+    assert!(payload.check(b"abcd").unwrap_err().contains("4 bytes"), "more bytes than listed");
 }
 
 #[test]

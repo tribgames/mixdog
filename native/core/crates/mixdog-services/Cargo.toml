@@ -78,6 +78,8 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
+# A model host leads a session the core's warden ends with the core (`mixdog_spawn::warden`).
+mixdog-spawn = { workspace = true, features = ["core"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_Threading", "Win32_System_JobObjects"] }

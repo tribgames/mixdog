@@ -303,24 +303,6 @@ mod tests {
         }
     }
 
-    /// A PC whose handling of the question panics, which ends the read's task abnormally.
-    struct PanickingPc;
-
-    #[async_trait]
-    impl HostChannel for PanickingPc {
-        async fn request(&self, _: HostCapability, _: Method, _: Value) -> Result<Value, HostError> {
-            unreachable!("a provider question is a streamed request")
-        }
-
-        fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), CoreError> {
-            unreachable!("a provider question sends no notification")
-        }
-
-        async fn request_streamed(&self, _: HostCapability, _: Method, _: Value, _: &mut (dyn FnMut(Value) + Send)) -> Result<Value, HostError> {
-            panic!("the host died while answering");
-        }
-    }
-
     /// A PC that is connected and answers, but whose registry never reports loaded.
     struct Unloaded;
 
@@ -372,25 +354,15 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_read_whose_task_ends_abnormally_rejects_its_callers_and_clears_its_slot() {
-        mixdog_rt::testing::tokens();
-        let providers = HostProxyProviders::new(Arc::new(PanickingPc), Epoch::new(), Arc::new(|| 1_000_000));
-        let failure = providers.providers(false).await.unwrap_err();
-        assert!(failure.message().contains("panicked"), "{}", failure.message());
-        let state = providers.inner.state();
-        assert!(state.is_idle(), "the slot is empty, so the next call reads again");
-        assert!(state.state.is_none(), "nothing was published");
-    }
-
-    #[tokio::test(start_paused = true)]
     async fn a_failed_read_reaches_both_waiters_and_the_next_call_reads_again() {
         mixdog_rt::testing::tokens();
-        let providers = HostProxyProviders::new(Arc::new(PanickingPc), Epoch::new(), Arc::new(|| 1_000_000));
+        let providers = HostProxyProviders::new(Arc::new(Absent), Epoch::new(), Arc::new(|| 1_000_000));
         let (first, second) = futures::join!(providers.providers(false), providers.providers(false));
         let (first, second) = (first.unwrap_err(), second.unwrap_err());
-        assert!(first.message().contains("panicked"), "{}", first.message());
         assert_eq!(first.message(), second.message(), "the second call joined the first one's read");
-        assert!(providers.inner.state().is_idle(), "the failure is not retained in the slot");
+        let state = providers.inner.state();
+        assert!(state.is_idle(), "the failure is not retained in the slot");
+        assert!(state.state.is_none(), "nothing was published");
     }
 
     #[tokio::test(start_paused = true)]

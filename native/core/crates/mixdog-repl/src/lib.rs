@@ -143,6 +143,16 @@ fn hook(step: impl Fn(&str) + Send + Sync + 'static) -> Hook {
     Arc::new(step)
 }
 
+/// Makes a panic, on any thread, run `restore` before the hooks installed earlier, the entry's among them, which ends the process:
+/// no drop runs after a panic in the shipped build (`panic = "abort"`), nor after that hook.
+fn restore_on_panic(restore: Hook) {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        restore("panic");
+        previous(info);
+    }));
+}
+
 fn spawn_input(interactive: bool, tx: UnboundedSender<InputMsg>) -> Option<ReaderHandle> {
     if interactive {
         let (sender, receiver) = std::sync::mpsc::channel();
@@ -232,6 +242,9 @@ async fn run_process(options: ReplOptions, footer: Arc<dyn Footer>, handle: toki
             let _ = Out::write_str(&mut StdoutOut::new(), &text);
         })
     };
+    if interactive {
+        restore_on_panic(Arc::clone(&before));
+    }
     let close = {
         let store = Arc::clone(&store);
         hook(move |reason| handle.block_on(Session::dispose(&*store, reason)))
@@ -256,4 +269,28 @@ async fn run_process(options: ReplOptions, footer: Arc<dyn Footer>, handle: toki
         let _ = Out::write_str(&mut out, PASTE_OFF);
     }
     code
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
+    use super::hook;
+    use super::restore_on_panic;
+
+    /// A panic in `--plain` ends the process in the hook the entry installed first (mixdog-entry `end_on_panic`), before any unwind:
+    /// the terminal's own modes are back by then.
+    #[test]
+    fn a_panic_restores_the_terminal_before_the_hook_that_ends_the_process() {
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let ends = Arc::clone(&seen);
+        std::panic::set_hook(Box::new(move |_| ends.lock().unwrap().push("end".to_owned())));
+        let restores = Arc::clone(&seen);
+        restore_on_panic(hook(move |reason| restores.lock().unwrap().push(format!("restore {reason}"))));
+        let panicked = std::thread::spawn(|| panic!("a turn failed")).join();
+        drop(std::panic::take_hook());
+        assert!(panicked.is_err());
+        assert_eq!(*seen.lock().unwrap(), ["restore panic", "end"]);
+    }
 }

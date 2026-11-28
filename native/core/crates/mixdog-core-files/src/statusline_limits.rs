@@ -10,12 +10,12 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
-use super::gateway_usage::event;
-use super::gateway_usage::event::RouteSection;
-use super::gateway_usage::event::clean_string;
-use super::gateway_usage::event::num;
-use super::gateway_usage::event::round;
-use super::gateway_usage::event::truthy;
+use crate::gateway_usage as event;
+use crate::gateway_usage::RouteSection;
+use crate::gateway_usage::clean_string;
+use crate::gateway_usage::num;
+use crate::gateway_usage::round;
+use crate::gateway_usage::truthy;
 
 const MAX_USAGE_EVENTS: usize = 5000;
 const USAGE_EVENT_TTL_MS: f64 = 35.0 * 24.0 * 60.0 * 60_000.0;

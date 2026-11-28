@@ -22,5 +22,5 @@ pub use spawn_capture::SpawnCapture;
 /// `isPidAlive` / `processRuns`: whether the process `pid` may still run. Only the process table's "no such process" proves it
 /// gone; a table that cannot answer proves nothing, so the process counts as running and its files are kept.
 pub fn process_runs(pid: u32) -> bool {
-    mixdog_app_server_daemon::crash_record::pid_alive(&mixdog_app_server_daemon::verdict::OsProcessTable, pid)
+    crate::process::pid_alive(&crate::process::OsProcessTable, pid)
 }

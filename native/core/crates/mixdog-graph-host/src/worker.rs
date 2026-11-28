@@ -9,7 +9,6 @@
 use std::io;
 use std::io::Read;
 use std::io::Write;
-use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
@@ -126,12 +125,9 @@ pub fn serve<H: Handler>(handler: Arc<H>, input: impl Read, output: impl Write +
             Ok(Some(ToWorker::ForgetRoot { id, forget })) => drop(removals.send((id, forget))),
             Ok(Some(ToWorker::DrainAndExit { id })) => {
                 drop((builds, removals));
-                // Each thread answers its own panics, so a join only waits.
+                // A panic on either thread has ended the process, so a join only waits.
                 let _ = (build.join(), maintenance.join());
-                let failure = match guarded(|| handler.drain()) {
-                    Ok(Ok(())) => None,
-                    Ok(Err(failure)) | Err(failure) => Some(failure),
-                };
+                let failure = handler.drain().err();
                 return match output.reply(id, Reply::DrainAck { ack: DrainAck { failure } }) {
                     Ok(()) => EXIT_DONE,
                     Err(_) => EXIT_FAILED,
@@ -153,20 +149,20 @@ fn run_builds(handler: &impl Handler, output: &Output, queue: mpsc::Receiver<Bui
         let (id, reply) = match build {
             Build::Query { id, query, received } => {
                 let queue_ms = u64::try_from(received.elapsed().as_millis()).unwrap_or(u64::MAX);
-                let reply = match guarded(|| handler.query(query)) {
-                    Ok(Ok(mut answer)) => {
+                let reply = match handler.query(query) {
+                    Ok(mut answer) => {
                         answer.timings.queue_ms = queue_ms;
                         Reply::Answer { answer }
                     }
-                    Ok(Err(Rejection::Refused(refusal))) => Reply::Refused { refusal },
-                    Ok(Err(Rejection::Failed(failure))) | Err(failure) => Reply::Failed { failure },
+                    Err(Rejection::Refused(refusal)) => Reply::Refused { refusal },
+                    Err(Rejection::Failed(failure)) => Reply::Failed { failure },
                 };
                 (id, reply)
             }
             Build::Prewarm { id, prewarm } => {
-                let reply = match guarded(|| handler.prewarm(prewarm)) {
-                    Ok(Ok(warmed)) => Reply::Maintenance { result: MaintenanceResult::Warmed { warmed } },
-                    Ok(Err(failure)) | Err(failure) => Reply::Failed { failure },
+                let reply = match handler.prewarm(prewarm) {
+                    Ok(warmed) => Reply::Maintenance { result: MaintenanceResult::Warmed { warmed } },
+                    Err(failure) => Reply::Failed { failure },
                 };
                 (id, reply)
             }
@@ -179,22 +175,14 @@ fn run_builds(handler: &impl Handler, output: &Output, queue: mpsc::Receiver<Bui
 
 fn run_removals(handler: &impl Handler, output: &Output, queue: mpsc::Receiver<(RequestId, ForgetRoot)>) {
     for (id, forget) in queue {
-        let reply = match guarded(|| handler.forget_root(forget)) {
-            Ok(Ok(forgot)) => Reply::Maintenance { result: MaintenanceResult::Forgot { forgot } },
-            Ok(Err(failure)) | Err(failure) => Reply::Failed { failure },
+        let reply = match handler.forget_root(forget) {
+            Ok(forgot) => Reply::Maintenance { result: MaintenanceResult::Forgot { forgot } },
+            Err(failure) => Reply::Failed { failure },
         };
         if output.reply(id, reply).is_err() {
             return;
         }
     }
-}
-
-/// `work`, with a panic turned into the request's internal failure.
-fn guarded<T>(work: impl FnOnce() -> T) -> Result<T, WorkerFailure> {
-    std::panic::catch_unwind(AssertUnwindSafe(work)).map_err(|payload| {
-        let text = payload.downcast_ref::<&str>().map(|s| (*s).to_owned()).or_else(|| payload.downcast_ref::<String>().cloned()).unwrap_or_default();
-        WorkerFailure { kind: FailureKind::Internal, message: format!("the code graph helper panicked: {text}") }
-    })
 }
 
 struct Output(Mutex<Box<dyn Write + Send>>);

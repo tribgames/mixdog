@@ -27,6 +27,8 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
 tokio = { workspace = true, features = ["signal"] }
+# A worker leads a session the core's warden ends with the core (`mixdog_spawn::warden`).
+mixdog-spawn = { workspace = true, features = ["core"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [

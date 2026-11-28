@@ -955,14 +955,10 @@ fn start_piped(
     {
         use std::os::unix::process::CommandExt;
         // A fresh session prevents unrelated processes from joining before
-        // shutdown. The pre-exec hook calls only async-signal-safe setsid.
+        // shutdown, and the warden ends it with the core however the core ends.
+        // SAFETY: enter_session is async-signal-safe.
         unsafe {
-            cmd.pre_exec(|| {
-                if libc::setsid() < 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
+            cmd.pre_exec(crate::warden::enter_session);
         }
     }
     let mut child = cmd.spawn()?;

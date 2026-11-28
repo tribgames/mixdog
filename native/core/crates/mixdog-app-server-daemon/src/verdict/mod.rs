@@ -7,10 +7,11 @@
 //! A blocked verdict waits on OS events (process exit, a data-dir change) or on
 //! the one user decision, `release{pid}`, journaled before it takes effect.
 
-mod process;
 #[cfg(test)]
 pub(crate) mod tests;
 mod wait;
+
+use mixdog_launch::process;
 
 use std::fmt;
 use std::io;

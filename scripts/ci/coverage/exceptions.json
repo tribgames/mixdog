@@ -9392,6 +9392,24 @@
         "native/core/crates/mixdog-term/Cargo.toml",
         "test",
         "it",
+        "console_pty::windows_console::a_panic_puts_the_console_modes_back"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "needs a real console: run with -- --ignored a_panic_puts_the_console_modes_back",
+      "replacement": {
+        "kind": "none",
+        "reason": "manual: a real Windows console (--ignored a_panic_puts_the_console_modes_back)"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/core/crates/mixdog-term/Cargo.toml",
+        "test",
+        "it",
         "console_pty::windows_console::windows_console_modes"
       ],
       "platform": "windows",

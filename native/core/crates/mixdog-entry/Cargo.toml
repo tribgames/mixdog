@@ -7,30 +7,30 @@ publish.workspace = true
 [lints]
 workspace = true
 
-# The native `mixdog` command: Node's `src/cli.mjs` and `src/app.mjs` (the argv grammar, the help, the refusals, `exec`).
+# The native `mixdog` command: Node's `src/cli.mjs` and `src/app.mjs` (the argv grammar, the help, the refusals). It holds no core:
+# `exec` and the helper processes a core starts run on the `mixdogd` installed beside it (src/handoff.rs).
 [[bin]]
 name = "mixdog"
 path = "src/main.rs"
 
 [dependencies]
-# `mixdog exec`: the usage text, the route check and the headless run (`exec::run_command`) are the library's own, as are the
-# helper processes its core starts as this program (`helpers`).
-mixdog-cli = { workspace = true }
 # `worktree_name_error`, which names what a `--worktree` value may not be.
-mixdog-core = { workspace = true }
-# The process lifecycle and the live-session mark a start goes through before an interactive run.
+mixdog-app-protocol = { workspace = true }
+# The process lifecycle and the live-session mark a start goes through before an interactive run, and the command words this
+# program shares with `mixdogd exec` (`command`).
 mixdog-launch = { workspace = true }
 mixdog-js = { workspace = true }
-# The two interactive runs: the terminal interface (`mixdog_tui::run::run_tui`) and the `--plain` REPL (`mixdog_repl::run`), with what
-# the REPL's statusline renderer is built from (the footer's host, the style, the disk reads, the runtime rows it asks for).
+# The two interactive runs: the terminal interface (`mixdog_tui::run::run_tui`) and the `--plain` REPL (`mixdog_repl::run`) with the
+# footer's renderer.
 mixdog-tui = { workspace = true }
 mixdog-repl = { workspace = true }
-mixdog-tui-style = { workspace = true }
-mixdog-view-model = { workspace = true }
-mixdog-core-session = { workspace = true }
-mixdog-fsio = { workspace = true }
 serde_json = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+
+[target.'cfg(windows)'.dependencies]
+# The hand-off's wait on `mixdogd` in this console: Ctrl+C and Ctrl+Break left to it, no console window of its own without one, and
+# the job that ends it with this process.
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_Threading"] }
 
 [dev-dependencies]
 mixdog-testkit = { workspace = true }

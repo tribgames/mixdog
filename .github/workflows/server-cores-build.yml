@@ -1,14 +1,13 @@
 # Builds the four server bundles (Linux and macOS, x64 and arm64: mixdogd and its JS runtime, the file the SSH
-# install uploads) ONCE per run, for every package job to take. Each of the five desktop packages and the
-# Linux verification used to rebuild all four (a pinned Node download and a trimmed lockfile install per
-# platform, eight times a release); the inputs are the same in every job: the mixdogd artifacts of
-# mixdogd-build.yml, package-lock.json, node-pin.json and src/. The consumers stage them with
-# `stage-core.mjs --server-cores=<dir>`, which refuses a set that does not match their own mixdogd builds.
-# Needs the mixdogd-<target> artifacts of this run (mixdogd-build.yml) and uploads `server-cores`; the
-# artifact name is unique per run, so call this once per run.
+# install uploads) ONCE per run. The set (`servers.json` and one `mixdog-server-<os>-<arch>.tgz` per platform)
+# is the artifact `server-cores`: the desktop packages take only its manifest, with
+# `stage-core.mjs --server-cores=<dir>`, which refuses a set that does not match their own mixdogd builds,
+# and a release uploads the four bundles as assets of its hidden draft (release_id), from where a desktop
+# fetches the one a server needs. The inputs are the same in every job: the mixdogd artifacts of
+# mixdogd-build.yml, package-lock.json, node-pin.json and src/. The artifact name is unique per run, so
+# call this once per run.
 # With sign_darwin (the release), every Mach-O file of the two macOS bundles is signed once, on a hosted macOS
-# runner, before any package takes them: Apple's notary inspects the programs inside the bundles every macOS
-# app carries, and all five packages ship the same bytes.
+# runner, before any package or the release takes them: the programs run on the Macs they are uploaded to.
 name: server-cores-build
 
 on:
@@ -24,6 +23,20 @@ on:
         required: false
         type: boolean
         default: false
+      tag:
+        description: "The release tag (vX.Y.Z) whose hidden draft takes the bundles"
+        required: false
+        type: string
+        default: ""
+      release_id:
+        description: "The hidden draft release the bundles are uploaded to; empty uploads nothing"
+        required: false
+        type: string
+        default: ""
+    outputs:
+      manifest:
+        description: "servers.json of the uploaded set (compact JSON): the bytes the release must hold for each bundle"
+        value: ${{ jobs.release-assets.outputs.manifest }}
     secrets:
       MAC_CERTIFICATE_P12_BASE64:
         required: false
@@ -184,3 +197,45 @@ jobs:
           name: server-cores
           path: ${{ steps.certificate.outputs.signed == 'true' && 'server-cores-signed' || 'server-cores-in' }}
           if-no-files-found: error
+
+  # The bundles are assets of the release, not of any package: a desktop carries their manifest and fetches the one a
+  # server needs when it installs there. They go to the hidden draft from the set every package takes (the signed one
+  # when signing ran), checked first as the ssh install unpacks them; publish refuses a draft whose bundles are not the
+  # bytes this manifest lists (release-assets.mjs verify-desktop).
+  release-assets:
+    name: server-core-release-assets
+    needs: [server-cores, sign-darwin]
+    if: inputs.release_id != ''
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      contents: write # upload the bundles to the hidden draft release
+    outputs:
+      manifest: ${{ steps.manifest.outputs.manifest }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/assert-sha
+        with:
+          expected: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: server-cores
+          path: server-cores-in
+      - name: Check every bundle against the manifest, unpacked as the ssh install unpacks it
+        run: node apps/desktop/scripts/verify-staged-package.mjs --server-set=server-cores-in
+      - name: Upload the bundles to the hidden draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_ID: ${{ inputs.release_id }}
+          RELEASE_REF: ${{ inputs.ref }}
+        run: bash .github/scripts/upload-release-assets.sh server-cores-in/mixdog-server-*.tgz
+      - name: Hand the manifest to the publish check
+        id: manifest
+        run: echo "manifest=$(jq -c . server-cores-in/servers.json)" >> "$GITHUB_OUTPUT"

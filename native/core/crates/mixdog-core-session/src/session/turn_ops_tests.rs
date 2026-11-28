@@ -432,20 +432,6 @@ impl super::thread_context::ContextStatusHost for HeldGauge {
     }
 }
 
-/// A compaction whose task panics still ends: its status cannot stay set.
-#[tokio::test(start_paused = true)]
-async fn a_compaction_that_panics_clears_its_command_status() {
-    let rig = Rig::new();
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    rig.compaction.panics.store(true, std::sync::atomic::Ordering::SeqCst);
-    let answered = call(&handle, "thread/compact/start", json!({}), "c-1").await;
-    assert!(answered.is_err(), "the lost compaction answers no result: {answered:?}");
-    let runtime = || handle.cell.view.load_full().state.runtime.clone();
-    eventually_on!(&[&handle.cell.stepped], || runtime().filter(|runtime| !runtime.command_busy && runtime.command_status.is_none()).map(|_| ())).await;
-    assert!(!handle.cell.compacting.load(std::sync::atomic::Ordering::SeqCst), "the compaction ended");
-}
-
 /// The failed `TurnEnd` of the newest `item/completed` frame of `thread` that carries one, as the feed sent it.
 fn failed_end_frame(rig: &Rig, thread: &str) -> Option<mixdog_protocol::ThreadItem> {
     rig.feeds.frames(thread).into_iter().rev().find_map(|(_, method, params)| {

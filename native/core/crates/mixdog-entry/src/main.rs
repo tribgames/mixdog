@@ -1,17 +1,17 @@
 //! `mixdog`: the command (`src/cli.mjs`, `src/app.mjs`). It reads the command line as Node's CLI did (`argv`), answers `--help` and
-//! the refusals itself, runs `exec` on its own core and starts the interactive runs (`dispatch`, `interactive`), and serves the
-//! helper processes that core starts (`mixdog_cli::helpers`).
+//! the refusals itself and starts the interactive runs (`dispatch`, `interactive`); `exec` and the helper processes a core starts
+//! as its own program run on the `mixdogd` beside it (`handoff`), as this program holds no core.
 
 mod argv;
 mod dispatch;
+mod handoff;
 mod interactive;
 
-fn main() -> std::process::ExitCode {
+fn main() {
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
-    // The core `mixdog exec` composes in this process starts its helpers as this program, as `mixdogd`'s starts them as
-    // `mixdogd`: their words are taken as the OS gave them.
-    if let Some(helper) = mixdog_cli::helpers::requested(&args) {
-        return mixdog_cli::helpers::run(helper);
+    // A helper's line is its own grammar's, handed on with its words as the OS gave them.
+    if args.first().and_then(|word| word.to_str()).is_some_and(|word| mixdog_launch::command::HELPER_SUBCOMMANDS.contains(&word)) {
+        std::process::exit(handoff::hand_off(&args));
     }
     // Node reads its arguments as text: a word that is not Unicode is read with its invalid parts replaced.
     let words: Vec<String> = args.iter().map(|word| word.to_string_lossy().into_owned()).collect();

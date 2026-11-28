@@ -4,25 +4,17 @@ import { realpathSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { SUPPORTED_KEYS, ensureNativeLayout, nativeCandidates, platformPackageName, resolveNativeProgram } from './native-layout.mjs';
+import { ensureNativeLayout } from './native-layout.mjs';
 import { skipsHostPrelude } from './invocation.mjs';
+import { dataDir, missingRuntimeMessage, provision, resolveRuntime } from './runtime.mjs';
 import { performPendingSwap } from './staged-swap.mjs';
 
-export { nativeCandidates, platformPackageName, resolveNativeProgram };
+const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
-/** What to tell a user whose install has no program for this machine. */
-export function missingProgramMessage(platform = process.platform, arch = process.arch) {
+/** What to tell a user on a machine the package has no runtime for. */
+export function unsupportedMessage(platform, arch, supported) {
   const key = `${platform}-${arch}`;
-  const candidates = nativeCandidates(platform, arch);
-  const names = candidates.map(platformPackageName).join(' or ');
-  const supported = candidates.some((candidate) => SUPPORTED_KEYS.includes(candidate));
-  const reason = supported
-    ? `its package (${names}) is not installed: optional dependencies were disabled when mixdog was installed`
-    : `${key} is not a platform mixdog supports (it supports ${SUPPORTED_KEYS.join(', ')})`;
-  return (
-    `mixdog: there is no program to start on ${key}: ${reason}.\n` +
-    (supported ? 'Reinstall with optional dependencies enabled: npm install -g mixdog (not with --omit=optional or --no-optional).\n' : '')
-  );
+  return `mixdog: there is no program to start on ${key}: ${key} is not a platform mixdog supports (it supports ${supported.join(', ')}).\n`;
 }
 
 /**
@@ -43,21 +35,52 @@ export function exitCodeOf(code, signal, signals = SIGNAL_NUMBERS) {
 
 const SIGNAL_NUMBERS = { SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGTERM: 15 };
 
-/** What `main` starts: the native program of this install, or, right after a staged update replaced the package, this launcher again from the new one. */
-export function launchPlan({ packageRoot, swapped, argv = process.argv.slice(2), env = process.env, execPath = process.execPath }) {
+/**
+ * What `main` starts: the native program of this install's runtime, or, right after a staged update replaced the package,
+ * this launcher again from the new one. `{ provision }` when the runtime is not in the user's cache yet.
+ */
+export function launchPlan({
+  packageRoot,
+  swapped,
+  argv = process.argv.slice(2),
+  env = process.env,
+  execPath = process.execPath,
+  platform = process.platform,
+  arch = process.arch,
+}) {
   if (swapped) {
     // The new package's launcher runs with a clean module cache; the variable stops it from swapping and starting again in its turn.
     return { program: execPath, args: [join(packageRoot, 'bin', 'mixdog.mjs'), ...argv], env: { ...env, MIXDOG_SWAP_REEXEC: '1' }, windowsHide: true, reexec: true };
   }
-  const found = resolveNativeProgram({ packageRoot });
-  if (!found) return { error: missingProgramMessage() };
+  const found = resolveRuntime({ packageRoot, platform, arch, data: dataDir(env) });
+  if (found.error) return { error: `mixdog: ${found.error}\n` };
+  if (found.unsupported) return { error: unsupportedMessage(platform, arch, Object.keys(found.manifest.targets)) };
+  if (found.missing) return { provision: found };
   try {
-    // The manifest the core reads beside its programs: written by the install, and here when the install's scripts did not run.
+    // The cache is shared by every install of this version: the manifest names this one's package root.
     ensureNativeLayout({ folder: found.folder, packageRoot, platform: found.platform, arch: found.arch });
   } catch (error) {
-    return { error: `mixdog: cannot prepare ${found.folder}: ${error.message}\nReinstall as a user who may write there: npm install -g mixdog\n` };
+    return { error: `mixdog: cannot prepare ${found.folder}: ${error.message}\n` };
   }
   return { program: found.program, args: argv, env: nativeEnv(env, execPath), windowsHide: false };
+}
+
+/** The plan once the runtime `found` misses is fetched (first use: the install's scripts did not run), else what to import. */
+export async function provisionedPlan(found, replan, { packageRoot, env = process.env, stderr = process.stderr, fetchArchive, url } = {}) {
+  try {
+    await provision(found, { env, stderr, fetchArchive, url });
+  } catch (error) {
+    return { error: missingRuntimeMessage({ ...found, packageRoot, reason: error.message }) };
+  }
+  return replan();
+}
+
+/** `plan` with the runtime it misses fetched first; one still missing once fetched is an error, never a start of nothing. */
+export async function readyPlan(plan, replan, options) {
+  if (!plan.provision) return plan;
+  const next = await provisionedPlan(plan.provision, replan, options);
+  if (!next.provision) return next;
+  return { error: missingRuntimeMessage({ ...next.provision, packageRoot: options.packageRoot, reason: 'it is not complete in the cache once fetched' }) };
 }
 
 /**
@@ -68,10 +91,11 @@ export function swapBeforeLaunch(argv, options, swap = performPendingSwap) {
   return !skipsHostPrelude(argv) && swap(options);
 }
 
-function main() {
-  const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-  const argv = process.argv.slice(2);
-  const plan = launchPlan({ packageRoot, swapped: swapBeforeLaunch(argv, { packageRoot }), argv });
+/** The command: this file, and src/cli.mjs, which an install made by 1.4.5 still links its `mixdog` command to. */
+export async function main({ packageRoot = PACKAGE_ROOT, argv = process.argv.slice(2) } = {}) {
+  const replan = () => launchPlan({ packageRoot, swapped: false, argv });
+  const ready = (plan) => readyPlan(plan, replan, { packageRoot });
+  const plan = await ready(launchPlan({ packageRoot, swapped: swapBeforeLaunch(argv, { packageRoot }), argv }));
   // The terminal sends an interrupt to the child as well: this process waits for the child to answer it.
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK']) {
     try {
@@ -80,12 +104,13 @@ function main() {
       // A signal this platform does not have.
     }
   }
-  startPlan({ plan, fallback: () => launchPlan({ packageRoot, swapped: false, argv }) });
+  startPlan({ plan, fallback: () => ready(replan()) });
 }
 
 /**
  * Starts what `plan` names and ends this process with its exit code. A re-run after a swap that cannot be started falls back to
- * `fallback()`, the native program in place with what the swap put on disk, as 1.4.5 did; any other failure to start is an error.
+ * the plan `fallback()` resolves to, the native program in place with what the swap put on disk, as 1.4.5 did; any other
+ * failure to start is an error.
  */
 export function startPlan({ plan, fallback, spawnProcess = spawn, exit = (code) => process.exit(code), stderr = process.stderr }) {
   if (plan.error) {
@@ -96,7 +121,7 @@ export function startPlan({ plan, fallback, spawnProcess = spawn, exit = (code) 
   const child = spawnProcess(plan.program, plan.args, { stdio: 'inherit', env: plan.env, windowsHide: plan.windowsHide });
   child.on('error', (error) => {
     if (plan.reexec) {
-      startPlan({ plan: fallback(), fallback, spawnProcess, exit, stderr });
+      fallback().then((next) => startPlan({ plan: next, fallback, spawnProcess, exit, stderr }));
       return;
     }
     stderr.write(`mixdog: cannot start ${plan.program}: ${error.message}\n`);

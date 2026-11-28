@@ -60,10 +60,14 @@ test('the asset contract matches the exact set release.yml verifies', () => {
   const { jobs } = parse(readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8'));
   const steps = jobs.publish.steps;
   const verify = steps.findIndex((step) => /^ *node scripts\/ci\/release-assets\.mjs verify-desktop$/m.test(step.run));
-  const npm = steps.findIndex((step) => /^ *node scripts\/ci\/publish-npm\.mjs /m.test(step.run));
+  const upload = steps.findIndex((step) => /^ *node scripts\/ci\/publish-npm\.mjs upload-runtime /m.test(step.run));
   const github = steps.findIndex((step) => /^ *node scripts\/ci\/release-assets\.mjs publish-desktop /m.test(step.run));
-  assert.ok(verify >= 0 && verify < npm, 'the draft verifier must run before npm publication');
-  assert.ok(verify < github, 'the draft verifier must run before GitHub publication');
+  const reachable = steps.findIndex((step) => /^ *node scripts\/ci\/publish-npm\.mjs verify-public /m.test(step.run));
+  const npm = steps.findIndex((step) => /^ *node scripts\/ci\/publish-npm\.mjs publish /m.test(step.run));
+  assert.ok(upload >= 0 && upload < verify, 'the runtime archives are in the draft before it is verified');
+  assert.ok(verify >= 0 && verify < github, 'the draft verifier must run before GitHub publication');
+  // The package points at the archives: they are public, and download as it names them, before npm has it.
+  assert.ok(github < reachable && reachable < npm, 'npm publishes only once the archives it names are publicly downloadable');
   assert.deepEqual([...ASSET_CONTRACT].sort(), [...DESKTOP_ASSET_NAMES].sort());
 });
 
@@ -339,26 +343,15 @@ test('detectPublished retries API errors with backoff, recovers, and otherwise f
   assert.deepEqual(sleeps, [10, 20, 40]);
 });
 
-test('npm checks all published platform packages and reports a missing native package even when the launcher is published', async () => {
+test('npm checks the one package the release publishes, at the release version', async () => {
   const requested = [];
-  const problems = await waitForNpmPackages({
-    version: VERSION,
-    budgetMs: 0,
-    fetchFn: async (url) => {
-      requested.push(url);
-      return url.includes('/mixdog-linux-arm64/')
-        ? { ok: false, status: 404 }
-        : { ok: true, status: 200, json: async () => ({ version: VERSION }) };
-    },
-  });
-  assert.deepEqual(requested.map((url) => new URL(url).pathname.split('/')[1]).sort(), [
-    'mixdog',
-    'mixdog-darwin-arm64',
-    'mixdog-darwin-x64',
-    'mixdog-linux-arm64',
-    'mixdog-linux-x64',
-    'mixdog-win32-x64',
-  ]);
+  const answer = (published) => async (url) => {
+    requested.push(new URL(url).pathname);
+    return published ? { ok: true, status: 200, json: async () => ({ version: VERSION }) } : { ok: false, status: 404 };
+  };
+  assert.deepEqual(await waitForNpmPackages({ version: VERSION, budgetMs: 0, fetchFn: answer(true) }), []);
+  assert.deepEqual(requested, ['/mixdog/1.2.3']);
+  const problems = await waitForNpmPackages({ version: VERSION, budgetMs: 0, fetchFn: answer(false) });
   assert.equal(problems.length, 1);
-  assert.match(problems[0], /mixdog-linux-arm64@1\.2\.3 not resolvable/);
+  assert.match(problems[0], /mixdog@1\.2\.3 not resolvable/);
 });

@@ -28,7 +28,8 @@
     "mcp"
   ],
   "bin": {
-    "mixdog": "bin/mixdog.mjs"
+    "mixdog": "bin/mixdog.mjs",
+    "mixdog-runtime": "bin/mixdog-runtime.mjs"
   },
   "files": [
     "bin/",
@@ -45,7 +46,7 @@
     "!scripts/*-smoke.mjs",
     "!scripts/*-bench.mjs",
     "!scripts/*bench-*.mjs",
-    "!scripts/npm-platforms.mjs",
+    "!scripts/npm-*.mjs",
     "!scripts/stage-npm-native.mjs",
     "!scripts/check-npm-packages.mjs",
     "!scripts/*.ps1",
@@ -56,7 +57,7 @@
     "!src/**/*.test.jsx"
   ],
   "scripts": {
-    "postinstall": "node scripts/prune-embedding-runtime.mjs && node bin/native-layout.mjs",
+    "postinstall": "node scripts/prune-embedding-runtime.mjs && node bin/mixdog-runtime.mjs postinstall",
     "prepublishOnly": "node -e \"if(!process.env.CI){console.error('local npm publish is disabled — run npm run release:patch');process.exit(1)}\"",
     "test": "node scripts/test.mjs",
     "test:slow": "node scripts/test.mjs --lane slow",

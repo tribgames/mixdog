@@ -10,8 +10,10 @@
 //! seconds plus one; `initdb` has none and is ended by the caller's cancel. `pg_ctl start` is spawned
 //! outside the manager and not waited for (the readiness poll, 30 s, is its bound). A quitting core
 //! stops it, and on Windows it is put in a kill-on-close job the core holds for its life
-//! (`OWNED_SERVERS`), so the server ends with the core even when the core is killed. A postmaster left
-//! by a killed core elsewhere is still attached to through `postmaster.pid`.
+//! (`OWNED_SERVERS`), so the server ends with the core even when the core is killed; on Unix the
+//! postmaster, once it is ready, is named to the core's warden (`tie_postmaster`), which gives it a fast
+//! shutdown when the core ends. A postmaster left by a killed core elsewhere is still attached to through
+//! `postmaster.pid`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -181,6 +183,27 @@ async fn ensure_scrub_conf(lane: DurabilityIo, data_dir: &Path) -> Result<()> {
 async fn read_postmaster_pid(lane: DurabilityIo, data_dir: &Path) -> Option<u32> {
     let text = fsio::read_to_string(lane, &data_dir.join("postmaster.pid")).await.ok()?;
     text.lines().next()?.trim().parse().ok()
+}
+
+/// How long the warden lets a tied postmaster run the fast shutdown it sends it (SIGINT) once the core has ended, before it kills what
+/// is left: `pg_ctl`'s own wait for a stop to finish (`-t`, 60 s unless `PGCTLTIMEOUT` says otherwise). A fast shutdown ends the
+/// backends, then writes the shutdown checkpoint, every dirty buffer (at most `shared_buffers`, 32 MB here) and the WAL up to it, which
+/// is what makes the commits acknowledged under `synchronous_commit = off` durable; a kill before it ends can lose them.
+#[cfg(unix)]
+const POSTMASTER_SHUTDOWN_WAIT: Duration = Duration::from_secs(60);
+
+/// Names the ready postmaster this core started to the core's warden: `pg_ctl` made it the leader of a session of its own, so
+/// only this ends it, and every backend, with the core however the core ends, by its fast shutdown ([`POSTMASTER_SHUTDOWN_WAIT`]).
+/// Until it is ready a killed core leaves it to the next launch (`settle_leftover_postmaster`).
+#[cfg(unix)]
+async fn tie_postmaster(lane: DurabilityIo, data_dir: &Path) {
+    let tied = match read_postmaster_pid(lane, data_dir).await {
+        Some(pid) => mixdog_spawn::warden::tie(pid, mixdog_spawn::warden::End::Interrupt(POSTMASTER_SHUTDOWN_WAIT)),
+        None => Err(std::io::Error::new(std::io::ErrorKind::NotFound, "postmaster.pid names no pid")),
+    };
+    if let Err(error) = tied {
+        tracing::warn!(%error, "[pg-process] the postmaster is not tied to the core: a killed core leaves it running");
+    }
 }
 
 async fn read_postmaster_port(lane: DurabilityIo, data_dir: &Path) -> Option<u16> {
@@ -576,7 +599,8 @@ fn spawn_start(runtime: &PgRuntime, args: &[String]) -> Result<(StartRun, StartO
         unsafe {
             command.pre_exec(|| {
                 libc::setpriority(libc::PRIO_PROCESS, 0, 10);
-                Ok(())
+                // `pg_ctl` itself leads a session the warden ends with the core; the postmaster leaves it for one of its own.
+                mixdog_spawn::warden::enter_session()
             });
         }
     }
@@ -798,7 +822,10 @@ impl PgCluster {
             let mut early: Option<MemoryError> = None;
             loop {
                 if start.healthy(port).await && read_postmaster_port(lane, &data_dir).await == Some(port) {
-                    return Ok(launch.established(Self { runtime, data_dir, port, lane, processes }));
+                    let cluster = launch.established(Self { runtime, data_dir, port, lane, processes });
+                    #[cfg(unix)]
+                    tie_postmaster(lane, &cluster.data_dir).await;
+                    return Ok(cluster);
                 }
                 if started.as_ref().is_some_and(tokio::task::JoinHandle::is_finished)
                     && let Some(done) = started.take()

@@ -333,7 +333,10 @@ consumes it (the test runs the selection over a table of paths).
   `core-pg-macos` on macOS (list legs `<os>/core-list/1of1` in `plan.json` `listLegs`), beside the legs rather than on the first of
   them. The
   ignored interactive scenarios of `mixdog-entry` (`tests/node_free.rs`) drive the dev daemon, so `core-entry` (leg
-  `linux/core-entry/1of1`, the Linux variant's `entry` profile) runs them from the Linux archive against the Linux daemon. A pull
+  `linux/core-entry/1of1`, the Linux variant's `entry` profile) runs them from the Linux archive against the Linux daemon. Its
+  hand-off scenarios (`tests/handoff.rs`) need a built `mixdogd` beside `mixdog` and are every variant's `handoff` profile:
+  `core-entry` runs them against the same daemon (slot `handoff`), `core-list-windows` (leg `windows/core-entry/1of1`) and
+  `core-pg-macos` (slot `handoff` of `macos/core-pg/1of1`) against the `mixdogd` of the full gate's archive. A pull
   request and a push archive the changed crates and their reverse dependencies (the whole workspace for a core input outside
   the crates); the full gate archives the whole workspace. Only a build of every crate on main writes the dependency cache. The
   doctests (`cargo test --doc` of `mixdog-core-api` and `mixdog-image-egress`, `run-doctest.mjs`) are `core-doctests`, leg

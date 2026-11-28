@@ -1,16 +1,18 @@
-// scripts/check-npm-packages.mjs against packages that npm really packed (slow: it runs `npm pack` for each), and, when the built
-// programs are at hand, the real start of the launcher from an install of the packed tarballs.
+// scripts/check-npm-packages.mjs against a package npm really packed (slow: it runs `npm pack`) and the runtime archives the
+// release writes beside it, and, when the built programs are at hand, the real start of each program through the launcher
+// from an install of the packed package and an import of the archive.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { checkPackages, expectedPlatformFiles, readTarball } from './check-npm-packages.mjs';
+import { checkPackages, readTarball } from './check-npm-packages.mjs';
 import { NATIVE_PROGRAMS, PLATFORMS, programFile } from './npm-platforms.mjs';
-import { lockOptionalDependencies, stageNpmNative } from './stage-npm-native.mjs';
+import { runtimeManifest, writeRuntimeArchive } from './npm-runtime-assets.mjs';
+import { writePackage } from './npm-test-fixture.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const VERSION = '9.8.7';
@@ -37,38 +39,27 @@ function builtPrograms() {
   );
 }
 
-/** The main package with the real launcher files and the two staged platform packages, packed by npm into `out`. */
-async function packAll(dir, programs) {
-  const out = join(dir, 'tarballs');
-  mkdirSync(out, { recursive: true });
-  const main = join(dir, 'main');
-  mkdirSync(join(main, 'bin'), { recursive: true });
-  mkdirSync(join(main, 'src'));
-  for (const file of ['mixdog.mjs', 'native-layout.mjs', 'staged-swap.mjs', 'invocation.mjs'])
-    writeFileSync(join(main, 'bin', file), readFileSync(join(root, 'bin', file)));
-  writeFileSync(join(main, 'src', 'skill-script-entry.mjs'), '');
+/**
+ * The release of `keys` from the programs `programs(platform)` names: the archives in `<dir>/assets`, and the package (the real
+ * launcher, the skill entry, the manifest of those archives and the 1.4.5 command, as pack-npm writes them) packed by npm into
+ * `<dir>/tarballs`, with `extra` files beside the launcher.
+ */
+async function release(dir, programs, { keys = KEYS, version = VERSION, extra = [] } = {}) {
+  const assets = join(dir, 'assets');
+  const archives = [];
+  for (const key of keys) archives.push(await writeRuntimeArchive({ key, from: [programs(key.split('-')[0])], out: assets }));
+  const manifest = runtimeManifest({ archives, version, buildId: 'build-1', repository: 'o/r', tag: `v${version}` });
+  const main = writePackage(join(dir, 'main'), { version, manifest });
   writeFileSync(
     join(main, 'package.json'),
-    JSON.stringify({
-      name: 'mixdog',
-      version: VERSION,
-      type: 'module',
-      bin: { mixdog: 'bin/mixdog.mjs' },
-      files: ['bin/', 'src/'],
-    })
+    JSON.stringify({ name: 'mixdog', version, type: 'module', bin: { mixdog: 'bin/mixdog.mjs', 'mixdog-runtime': 'bin/mixdog-runtime.mjs' }, files: ['bin/', 'src/'] })
   );
-  lockOptionalDependencies(join(main, 'package.json'));
-  const staged = join(dir, 'staged');
-  const folders = [];
-  for (const key of KEYS) {
-    const { platform, arch } = PLATFORMS.find((entry) => entry.key === key);
-    folders.push(await stageNpmNative({ from: [programs(platform)], out: staged, platform, arch, version: VERSION }));
-  }
-  for (const folder of [main, ...folders]) {
-    const packed = npm(['pack', '--ignore-scripts', '--pack-destination', out], folder);
-    assert.equal(packed.status, 0, packed.stderr);
-  }
-  return out;
+  for (const [path, text] of extra) writeFileSync(join(main, path), text);
+  const out = join(dir, 'tarballs');
+  mkdirSync(out, { recursive: true });
+  const packed = npm(['pack', '--ignore-scripts', '--pack-destination', out], main);
+  assert.equal(packed.status, 0, packed.stderr);
+  return { out, assets, manifest };
 }
 
 /** Fake programs: files with a name and some bytes (the structure checks start nothing). */
@@ -82,122 +73,40 @@ function fakePrograms(dir) {
   };
 }
 
-test('the packed packages of a release are accepted, with the exact files each carries', async () => {
+test('the packed package of a release and its archives are accepted, and npm packs the files pack-npm writes for it', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-npm-check-test-'));
   try {
-    const out = await packAll(dir, fakePrograms(dir));
-    // A Windows host cannot give a file of a Linux package the executable bit (the release packs on Linux); that is the one thing it cannot show.
-    const problems = checkPackages({ dir: out, platforms: KEYS, version: VERSION }).filter(
-      (problem) => process.platform !== 'win32' || !/without the executable bit/.test(problem)
-    );
-    assert.deepEqual(problems, []);
-    const tarball = readFileSync(join(out, `mixdog-linux-x64-${VERSION}.tgz`));
-    assert.ok(tarball.length > 0);
-    const files = readTarball(join(out, `mixdog-linux-x64-${VERSION}.tgz`))
-      .map((entry) => entry.path)
-      .sort();
-    assert.deepEqual(files, expectedPlatformFiles('linux'));
+    const { out, assets } = await release(dir, fakePrograms(dir));
+    assert.deepEqual(await checkPackages({ dir: out, runtime: assets, platforms: KEYS, version: VERSION, buildId: 'build-1', repository: 'o/r', tag: `v${VERSION}` }), []);
+    const files = readTarball(join(out, `mixdog-${VERSION}.tgz`)).map((entry) => entry.path);
+    for (const path of ['package/bin/runtime-manifest.json', 'package/src/cli.mjs', 'package/bin/mixdog-runtime.mjs', 'package/bin/download.mjs'])
+      assert.ok(files.includes(path), path);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('a missing platform, a wrong version, a native program in the main package and an extra file are each refused', async () => {
+test('a package that carries a program, of another version, or beside archives that are not the ones it names, is refused', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-npm-check-test-'));
   try {
-    const out = await packAll(dir, fakePrograms(dir));
-    // A platform the release stages but whose tarball is not there.
-    const missing = checkPackages({ dir: out, platforms: [...KEYS, 'darwin-arm64'], version: VERSION });
-    assert.ok(
-      missing.some((problem) => /holds no tarball of mixdog-darwin-arm64/.test(problem)),
-      missing.join('\n')
-    );
-    // A tarball the release does not stage.
-    const extra = checkPackages({ dir: out, platforms: ['linux-x64'], version: VERSION });
-    assert.ok(
-      extra.some((problem) => /mixdog-win32-x64, which this release does not stage/.test(problem)),
-      extra.join('\n')
-    );
-    // The release version differs from the packages'.
-    const wrong = checkPackages({ dir: out, platforms: KEYS, version: '9.8.8' });
-    assert.ok(
-      wrong.some((problem) => /is version 9\.8\.7, the release is 9\.8\.8/.test(problem)),
-      wrong.join('\n')
-    );
-    assert.ok(
-      wrong.some((problem) => /optionalDependencies of mixdog/.test(problem)),
-      wrong.join('\n')
-    );
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('staging a platform package refuses a program that is not built', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-npm-check-test-'));
-  try {
-    const full = fakePrograms(dir)('linux');
-    rmSync(join(full, 'mixdog-askpass'));
-    await assert.rejects(
-      stageNpmNative({ from: [full], out: join(dir, 'staged'), platform: 'linux', arch: 'x64', version: VERSION }),
-      /mixdog-askpass is not built/
-    );
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('a platform package with an extra file, and a main package that carries a program, are refused', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-npm-check-test-'));
-  try {
-    const full = fakePrograms(dir)('linux');
-    // A platform package packed with a stray file (here a js-runtime.json: the install writes it, the package never carries it).
-    const folder = await stageNpmNative({
-      from: [full],
-      out: join(dir, 'staged'),
-      platform: 'linux',
-      arch: 'x64',
-      version: VERSION,
-    });
-    writeFileSync(join(folder, 'bin', 'js-runtime.json'), '{}');
-    const out = join(dir, 'tarballs');
-    mkdirSync(out);
-    assert.equal(npm(['pack', '--ignore-scripts', '--pack-destination', out], folder).status, 0);
-    const main = join(dir, 'main');
-    mkdirSync(join(main, 'bin'), { recursive: true });
-    mkdirSync(join(main, 'native-bin', 'linux-x64'), { recursive: true });
-    writeFileSync(join(main, 'bin', 'mixdog.mjs'), '');
-    writeFileSync(join(main, 'bin', 'native-layout.mjs'), '');
-    writeFileSync(join(main, 'bin', 'staged-swap.mjs'), '');
-    writeFileSync(join(main, 'bin', 'invocation.mjs'), '');
-    writeFileSync(join(main, 'native-bin', 'linux-x64', 'mixdog'), 'program');
-    writeFileSync(
-      join(main, 'package.json'),
-      JSON.stringify({ name: 'mixdog', version: VERSION, files: ['bin/', 'native-bin/'] })
-    );
-    assert.equal(npm(['pack', '--ignore-scripts', '--pack-destination', out], main).status, 0);
-    const problems = checkPackages({ dir: out, platforms: ['linux-x64'], version: VERSION });
-    assert.ok(
-      problems.some((problem) =>
-        /holds package\/bin\/js-runtime\.json, which the package is not to carry/.test(problem)
-      ),
-      problems.join('\n')
-    );
-    assert.ok(
-      problems.some((problem) => /carries a native program: package\/native-bin\/linux-x64\/mixdog/.test(problem)),
-      problems.join('\n')
-    );
-    assert.ok(
-      problems.some((problem) => /optionalDependencies of mixdog/.test(problem)),
-      problems.join('\n')
-    );
+    const { out, assets } = await release(dir, fakePrograms(dir), { extra: [['bin/mixdogd', 'program']] });
+    writeFileSync(join(assets, 'mixdog-runtime-win32-x64.tar.gz'), 'not the archive');
+    const problems = (await checkPackages({ dir: out, runtime: assets, platforms: KEYS, version: VERSION })).join('\n');
+    assert.match(problems, /carries a native program: package\/bin\/mixdogd/);
+    assert.match(problems, /win32-x64: .*mixdog-runtime-win32-x64\.tar\.gz is \d+ bytes, not the \d+ bytes of mixdog-runtime-win32-x64\.tar\.gz of mixdog 9\.8\.7/);
+    const other = (await checkPackages({ dir: out, runtime: assets, platforms: KEYS, version: '9.8.8' })).join('\n');
+    assert.match(other, /the package is version 9\.8\.7, the release is 9\.8\.8/);
+    assert.match(other, /linux-x64: the version "9\.8\.7" is not the package's 9\.8\.8/);
+    // The folder of the package holds it alone.
+    copyFileSync(join(out, `mixdog-${VERSION}.tgz`), join(out, 'mixdog-linux-x64-9.8.7.tgz'));
+    await assert.rejects(checkPackages({ dir: out, runtime: assets, platforms: KEYS, version: VERSION }), /not the one tarball of the package/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
 const programs = builtPrograms();
-test('the launcher of the packed main package starts the programs of the packed platform package of this machine', {
+test('the launcher of the packed package starts every program of this machine\'s archive, imported with its own command', {
   skip: programs
     ? false
     : 'no built mixdog, mixdogd and mixdog-askpass (set MIXDOG_TEST_NATIVE_DIR to a folder holding them)',
@@ -207,35 +116,9 @@ test('the launcher of the packed main package starts the programs of the packed 
   try {
     const key = PLATFORMS.find((entry) => entry.platform === process.platform && entry.arch === process.arch)?.key;
     assert.ok(key, `${process.platform}-${process.arch} is not a staged platform`);
-    const out = join(dir, 'tarballs');
-    mkdirSync(out, { recursive: true });
-    const main = join(dir, 'main');
-    mkdirSync(join(main, 'bin'), { recursive: true });
-    mkdirSync(join(main, 'src'));
-    for (const file of ['mixdog.mjs', 'native-layout.mjs', 'staged-swap.mjs', 'invocation.mjs'])
-      writeFileSync(join(main, 'bin', file), readFileSync(join(root, 'bin', file)));
-    writeFileSync(join(main, 'src', 'skill-script-entry.mjs'), '');
     const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
-    writeFileSync(
-      join(main, 'package.json'),
-      JSON.stringify({ name: 'mixdog', version, type: 'module', files: ['bin/', 'src/'] })
-    );
-    lockOptionalDependencies(join(main, 'package.json'));
-    const entry = PLATFORMS.find((candidate) => candidate.key === key);
-    const folder = await stageNpmNative({
-      from: [programs],
-      out: join(dir, 'staged'),
-      platform: entry.platform,
-      arch: entry.arch,
-      version,
-    });
-    for (const packageDir of [main, folder]) {
-      const packed = npm(['pack', '--ignore-scripts', '--pack-destination', out], packageDir);
-      assert.equal(packed.status, 0, packed.stderr);
-    }
-    // Only this machine's platform is staged here, so the main package's other optional dependencies have no tarball to check.
-    const problems = checkPackages({ dir: out, platforms: [key], run: key, version });
-    assert.deepEqual(problems, []);
+    const { out, assets } = await release(dir, () => programs, { keys: [key], version });
+    assert.deepEqual(await checkPackages({ dir: out, runtime: assets, platforms: [key], run: key, version }), []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

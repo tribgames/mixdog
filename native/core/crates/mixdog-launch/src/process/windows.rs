@@ -35,7 +35,7 @@ use super::ProcessInfo;
 /// 100 ns intervals between 1601-01-01 and 1970-01-01.
 const UNIX_EPOCH_FILETIME: u64 = 116_444_736_000_000_000;
 
-pub(crate) enum Opened {
+pub enum Opened {
     Running(OwnedHandle),
     /// The process exists but this user may not open it.
     Denied,
@@ -44,7 +44,7 @@ pub(crate) enum Opened {
 
 /// Opens `pid` with `access` (plus limited query rights); a handle to a process
 /// that already exited is reported `Gone`.
-pub(crate) fn open(pid: u32, access: PROCESS_ACCESS_RIGHTS) -> io::Result<Opened> {
+pub fn open(pid: u32, access: PROCESS_ACCESS_RIGHTS) -> io::Result<Opened> {
     // SAFETY: plain FFI call.
     let raw = unsafe { OpenProcess(access | PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
     if raw.is_null() {
@@ -65,7 +65,7 @@ pub(crate) fn open(pid: u32, access: PROCESS_ACCESS_RIGHTS) -> io::Result<Opened
     Ok(if code == STILL_ACTIVE as u32 { Opened::Running(handle) } else { Opened::Gone })
 }
 
-pub(crate) fn start_ms(handle: &OwnedHandle) -> io::Result<u64> {
+pub fn start_ms(handle: &OwnedHandle) -> io::Result<u64> {
     let zero = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
     let (mut created, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
     // SAFETY: valid handle and out-pointers.

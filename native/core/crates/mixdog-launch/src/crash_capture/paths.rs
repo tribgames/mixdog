@@ -4,7 +4,13 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::path::PathBuf;
 
-pub use mixdog_app_server_daemon::crash_record::capture_dir;
+/// `CAPTURE_DIR_NAME` (`daemon-crash-capture/paths.mjs`).
+const CAPTURE_DIR_NAME: &str = "daemon-crash";
+
+/// `daemonCrashCaptureDir({ dataDir })`: the captures of the core's boots, kept by the launcher that starts one and by the core.
+pub fn capture_dir(data_dir: &Path) -> PathBuf {
+    data_dir.join(CAPTURE_DIR_NAME)
+}
 
 /// `daemonDataDir(env)`: `MIXDOG_DATA_DIR`, else `<MIXDOG_HOME or home/.mixdog>/data` (an empty variable counts as unset).
 /// `None` when there is neither a variable nor a home folder, in which case no capture is kept.

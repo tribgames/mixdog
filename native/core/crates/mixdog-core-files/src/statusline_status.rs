@@ -21,17 +21,18 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
-use super::gateway_routes::clean_bool;
-use super::gateway_routes::normalize_client_host_pid;
-use super::gateway_routes::read_latest_host_route;
-use super::gateway_routes::read_session_route;
-use super::gateway_usage::event;
-use super::gateway_usage::event::truthy;
-use super::statusline_claude::CLAUDE_CURRENT_MODE;
-use super::statusline_claude::ClaudeRoute;
-use super::statusline_claude::is_mixdog_model_selection;
-use super::statusline_claude::num;
-use super::statusline_claude::strip_claude_context_suffix;
+use crate::gateway_routes::clean_bool;
+use crate::gateway_routes::normalize_client_host_pid;
+use crate::gateway_routes::read_latest_host_route;
+use crate::gateway_routes::read_session_route;
+use crate::gateway_usage as event;
+use crate::gateway_usage::truthy;
+use crate::presets::with_default_presets;
+use crate::statusline_claude::CLAUDE_CURRENT_MODE;
+use crate::statusline_claude::ClaudeRoute;
+use crate::statusline_claude::is_mixdog_model_selection;
+use crate::statusline_claude::num;
+use crate::statusline_claude::strip_claude_context_suffix;
 
 /// What the status reads of the model catalog, the cached model rosters, Claude Code and the account credentials.
 pub trait StatusWorld {
@@ -202,7 +203,7 @@ fn resolve_configured_model_target(config: Option<&Value>, raw_model: &Value) ->
     let lower = js_to_lowercase(&stripped);
     let agent = config.and_then(|config| config.get("agent")).filter(|agent| agent.is_object());
     let providers = agent.and_then(|agent| agent.get("providers")).filter(|providers| providers.is_object());
-    for preset in mixdog_core_config::workflow::with_default_presets(agent.and_then(|agent| agent.get("presets"))) {
+    for preset in with_default_presets(agent.and_then(|agent| agent.get("presets"))) {
         let (Some(provider), Some(model)) = (preset.get("provider").filter(|v| truthy(Some(v))), preset.get("model").filter(|v| truthy(Some(v)))) else {
             continue;
         };
@@ -570,7 +571,7 @@ fn configured_gateway_status(world: &dyn StatusWorld, input: &StatusInput<'_>) -
         return None;
     }
     let agent_presets = config.and_then(|config| config.get("agent")).and_then(|agent| agent.get("presets"));
-    let presets = mixdog_core_config::workflow::with_default_presets(agent_presets);
+    let presets = with_default_presets(agent_presets);
     let same_model = |preset: &&Value| {
         preset.get("provider").and_then(Value::as_str) == Some(provider.as_str()) && preset.get("model").and_then(Value::as_str) == Some(model.as_str())
     };

@@ -364,13 +364,10 @@ impl std::fmt::Debug for Scope {
     }
 }
 
-/// Destroys a slot's future, then retires the slot. The retirement follows the destruction on every path: a destructor that panics is contained
-/// here, so its slot never stays outstanding and no waiter of the acknowledgement inherits the panic.
+/// Destroys a slot's future, then retires the slot.
 fn destroy(owner: &Owner, slot: &Slot, future: BoxFuture<'static, ()>) {
     *locked(&slot.stage) = Stage::Dropping;
-    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || drop(future))).is_err() {
-        tracing::warn!("[memory] a destroyed operation's destructor panicked; its slot is retired");
-    }
+    drop(future);
     retire(owner, slot);
 }
 
@@ -782,31 +779,6 @@ mod tests {
         revoke_b.await;
         idle.await;
         assert_eq!(dropped.load(Ordering::SeqCst), 1);
-    }
-
-    /// A destructor that panics while the revocation destroys its operation: the slot still retires and the acknowledgement completes.
-    #[tokio::test]
-    async fn a_panicking_destructor_still_retires_its_slot_and_the_revocation_completes() {
-        mixdog_rt::testing::tokens();
-        struct Panics;
-        impl Drop for Panics {
-            fn drop(&mut self) {
-                panic!("the destructor panics");
-            }
-        }
-        let scope = Scope::new();
-        let (entered_tx, entered) = tokio::sync::oneshot::channel::<()>();
-        let held = Panics;
-        let _waiter = scope
-            .spawn("panicking", async move {
-                let _held = held;
-                let _ = entered_tx.send(());
-                std::future::pending::<()>().await
-            })
-            .expect("admitted");
-        entered.await.expect("the work runs");
-        scope.revoke().await;
-        assert_eq!((scope.running(), scope.phase()), (0, Phase::Revoked));
     }
 
     /// A reservation the revocation marked before its activation is never made runnable (the decision and the install are one step under the

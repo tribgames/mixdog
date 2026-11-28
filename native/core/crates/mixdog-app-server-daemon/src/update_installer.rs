@@ -4,8 +4,9 @@
 //! `npm install mixdog@<version> --prefix <data>/staging/<version>/install` runs in a private
 //! per-version directory, the package is relocated into a self-contained
 //! `<data>/staging/<version>/mixdog` (its hoisted dependencies nested beneath), its
-//! `package.json` version is verified, and only then the completion marker
-//! `.staged-complete.json` is written. The live package directory is never touched: the swap
+//! `package.json` version is verified, its native runtime is fetched and verified into the user's runtime cache
+//! (`bin/mixdog-runtime.mjs prefetch` of the staged package; the package carries no program), and only once that runtime
+//! is ready the completion marker `.staged-complete.json` is written. The live package directory is never touched: the swap
 //! into place happens at the next clean launch, in the npm package's launcher (`bin/mixdog.mjs`, `bin/staged-swap.mjs`),
 //! which reads the same marker. A staging lock (`.staging.lock`, `<pid> <ms>`) keeps two installers of one version
 //! apart; it is stolen only from a dead owner or after ten minutes.
@@ -30,6 +31,10 @@ use tokio_util::sync::CancellationToken;
 const REGISTRY_TIMEOUT: Duration = Duration::from_secs(10);
 /// npm runs at `--loglevel=error`; a child that writes more than this is killed.
 const NPM_MAX_OUTPUT: u64 = 64 * 1024 * 1024;
+/// Where the runtime archives are downloaded from (the GitHub release of the version): the route of its proxy.
+const RUNTIME_ORIGIN: &str = "https://github.com/";
+/// `updater` tells the package's postinstall (`bin/mixdog-runtime.mjs`) that this installer fetches the runtime itself.
+const RUNTIME_PROVISION_VAR: &str = "MIXDOG_RUNTIME_PROVISION";
 
 /// Where the install lives.
 #[derive(Debug, Clone)]
@@ -122,10 +127,34 @@ impl StagedInstaller {
         .into();
         let mut spec = self.npm_spec(npm, &args);
         spec.env_set.extend(proxy_env.iter().map(|(key, value)| ((*key).to_owned(), value.clone())));
+        // npm is routed as its registry is, which need not reach GitHub: the package's postinstall leaves the runtime to
+        // `provision_runtime`, which is routed as GitHub is.
+        spec.env_set.push((RUNTIME_PROVISION_VAR.to_owned(), "updater".to_owned()));
         spec.max_output = NPM_MAX_OUTPUT;
         match self.exec.run(spec, cancel).await {
             Ok(output) => output.code.unwrap_or(-1),
             Err(_) => -1,
+        }
+    }
+
+    /// The verified native runtime of the staged package in the user's cache: `bin/mixdog-runtime.mjs prefetch` of that package,
+    /// run by the node that runs npm (`resolve_npm`: `program` is that node), routed as GitHub is. The postinstall left it to
+    /// this; a runtime that is ready is not fetched again.
+    async fn provision_runtime(&self, npm: &blocking::NpmCommand, pkg_dir: &Path, cancel: &CancellationToken) -> Result<(), String> {
+        let mut spec = ExecSpec::new(npm.program.to_string_lossy(), &self.config.data_dir);
+        spec.args = vec![pkg_dir.join("bin").join("mixdog-runtime.mjs").to_string_lossy().into_owned(), "prefetch".to_owned()];
+        spec.env_set.extend(self.proxy.npm_env(RUNTIME_ORIGIN).await.into_iter().map(|(key, value)| (key.to_owned(), value)));
+        spec.env_set.push(("MIXDOG_DATA_DIR".to_owned(), self.config.data_dir.to_string_lossy().into_owned()));
+        spec.max_output = NPM_MAX_OUTPUT;
+        let failed = |reason: String| format!("the native runtime of the staged version could not be fetched: {reason}");
+        match self.exec.run(spec, cancel).await {
+            Ok(output) if output.success() => Ok(()),
+            Ok(output) => {
+                let stderr = output.stderr_text();
+                let said = stderr.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or_default().to_owned();
+                Err(failed(if said.is_empty() { format!("exit code {}", output.code.unwrap_or(-1)) } else { said }))
+            }
+            Err(error) => Err(failed(error.to_string())),
         }
     }
 
@@ -191,7 +220,7 @@ impl UpdateInstaller for StagedInstaller {
 }
 
 impl StagedInstaller {
-    /// The install proper, with the lock held: npm into a private prefix, relocate, verify, mark.
+    /// The install proper, with the lock held: npm into a private prefix, relocate, verify, fetch the runtime, mark.
     async fn install(&self, npm: &blocking::NpmCommand, version: &str, ver_dir: &Path, cancel: &CancellationToken) -> Result<(), String> {
         // npm's registry decides the proxy route.
         let registry = self.registry(npm, cancel).await;
@@ -206,8 +235,13 @@ impl StagedInstaller {
         if code != 0 {
             return Err(format!("npm install exited with code {code}"));
         }
-        let (finish_version, finish_dir) = (version.to_owned(), ver_dir.to_owned());
-        mixdog_core_base::support::on_lane(self.lane, cancel, move |lane| blocking::finish(lane, &finish_version, &finish_dir))
+        let (relocate_version, relocate_dir) = (version.to_owned(), ver_dir.to_owned());
+        let pkg_dir = mixdog_core_base::support::on_lane(self.lane, cancel, move |lane| blocking::relocate(lane, &relocate_version, &relocate_dir))
+            .await
+            .map_err(|error| error.to_string())??;
+        self.provision_runtime(npm, &pkg_dir, cancel).await?;
+        let (mark_version, mark_dir, data_dir) = (version.to_owned(), ver_dir.to_owned(), self.config.data_dir.clone());
+        mixdog_core_base::support::on_lane(self.lane, cancel, move |lane| blocking::mark(lane, &mark_version, &mark_dir, &data_dir))
             .await
             .map_err(|error| error.to_string())?
     }
@@ -223,73 +257,134 @@ mod tests {
 
     use super::*;
 
+    /// What the staged package's runtime command does when the installer runs it (`<node> <pkg>/bin/mixdog-runtime.mjs prefetch`).
+    #[derive(Clone, Copy)]
+    enum Runtime {
+        /// Fetches: the cache folder of the manifest's entry, with its files and its marker.
+        Fetches,
+        /// Fails, and says why.
+        Fails,
+        /// Ends well and leaves nothing.
+        Nothing,
+    }
+
+    /// The version every fake runtime is for, and its archive's digest.
+    const STAGED: &str = "9.9.9";
+    const DIGEST: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    fn program_suffix() -> &'static str {
+        if cfg!(windows) { ".exe" } else { "" }
+    }
+
+    /// The runtime manifest the fake package carries, its `version` written by the fake script.
+    fn manifest_json(key: &str, version: &str) -> String {
+        let s = program_suffix();
+        format!(
+            r#"{{"schema":1,"repository":"o/r","tag":"v{STAGED}","targets":{{"{key}":{{"asset":"mixdog-runtime-{key}.tar.gz","length":1,"sha256":"{DIGEST}","version":"{version}","buildId":"b","files":{{"mixdog{s}":0,"mixdogd{s}":0,"mixdog-askpass{s}":0}}}}}}}}"#
+        )
+    }
+
+    /// The marker of the fake runtime of `key`, as `bin/runtime.mjs` writes it.
+    fn marker_json(key: &str, digest: &str) -> String {
+        let s = program_suffix();
+        format!(
+            r#"{{"key":"{key}","asset":"mixdog-runtime-{key}.tar.gz","length":1,"sha256":"{digest}","version":"{STAGED}","buildId":"b","files":{{"mixdog{s}":0,"mixdogd{s}":0,"mixdog-askpass{s}":0}}}}"#
+        )
+    }
+
+    /// The runtime folder of the fake package of this host under `data`.
+    fn runtime_folder(data: &Path) -> PathBuf {
+        data.join("runtime").join(STAGED).join(format!("{}-{DIGEST}", blocking::host_keys().remove(0)))
+    }
+
     /// The shim script of an `npm` that installs what `npm install mixdog@<v> --prefix <p>`
-    /// installs; `version` pins what the package claims to be, else it is the requested one.
+    /// installs; `version` pins what the package claims to be, else it is the requested one. Its postinstall fails the install
+    /// when it fetches the runtime itself, as it does behind a proxy npm's registry route does not use.
     fn fake_npm_script(version: Option<&str>) -> String {
-        fake_npm_script_with(version, true)
+        fake_npm_script_with(version, Runtime::Fetches)
     }
 
-    /// `platform` false: npm installed the main package but not the platform package of this host (optional dependencies omitted).
-    fn fake_npm_script_with(version: Option<&str>, platform: bool) -> String {
+    /// The script also stands for the node that runs the staged package's runtime command, which does what `runtime` says.
+    fn fake_npm_script_with(version: Option<&str>, runtime: Runtime) -> String {
         let key = blocking::host_keys().remove(0);
-        if cfg!(windows) { fake_npm_cmd(version, platform, &key) } else { fake_npm_sh(version, platform, &key) }
+        if cfg!(windows) { fake_npm_cmd(version, runtime, &key) } else { fake_npm_sh(version, runtime, &key) }
     }
 
-    fn fake_npm_cmd(version: Option<&str>, platform: bool, key: &str) -> String {
-        let programs = if platform {
-            let folder = format!("%PREFIX%\\node_modules\\mixdog-{key}");
-            vec![
-                format!("mkdir \"{folder}\\bin\""),
-                format!("> \"{folder}\\package.json\" echo {{}}"),
-                format!("type nul > \"{folder}\\bin\\mixdog.exe\""),
-                format!("type nul > \"{folder}\\bin\\mixdogd.exe\""),
-                format!("type nul > \"{folder}\\bin\\mixdog-askpass.exe\""),
-            ]
-        } else {
-            Vec::new()
+    fn fake_npm_cmd(version: Option<&str>, runtime: Runtime, key: &str) -> String {
+        let fetched = match runtime {
+            Runtime::Fetches => vec![
+                format!("set \"D=%MIXDOG_DATA_DIR%\\runtime\\{STAGED}\\{key}-{DIGEST}\""),
+                "mkdir \"%D%\"".to_owned(),
+                "type nul > \"%D%\\mixdog.exe\"".to_owned(),
+                "type nul > \"%D%\\mixdogd.exe\"".to_owned(),
+                "type nul > \"%D%\\mixdog-askpass.exe\"".to_owned(),
+                format!("> \"%D%\\.ready.json\" echo {}", marker_json(key, DIGEST)),
+                "exit /b 0".to_owned(),
+            ],
+            Runtime::Fails => vec![">&2 echo mixdog: the native runtime could not be fetched: offline".to_owned(), "exit /b 3".to_owned()],
+            Runtime::Nothing => vec!["exit /b 0".to_owned()],
         };
         let version =
             version.map_or_else(|| "for /f \"tokens=2 delims=@\" %%v in (\"%SPEC%\") do set \"V=%%v\"".to_owned(), |version| format!("set \"V={version}\""));
+        let manifest = format!("> \"%PKG%\\bin\\runtime-manifest.json\" echo {}", manifest_json(key, "%V%"));
         let mut lines: Vec<String> = [
             "@echo off",
-            "if \"%1\"==\"config\" (echo https://registry.example.test/& exit /b 0)",
+            "if \"%~1\"==\"config\" (echo https://registry.example.test/& exit /b 0)",
+            "if \"%~nx1\"==\"mixdog-runtime.mjs\" goto runtime",
             "set \"SPEC=%~2\"",
             "set \"PREFIX=%~4\"",
             &version,
             "set \"PKG=%PREFIX%\\node_modules\\mixdog\"",
             "mkdir \"%PKG%\\bin\"",
+            "mkdir \"%PKG%\\src\"",
             "> \"%PKG%\\package.json\" echo {\"name\":\"mixdog\",\"version\":\"%V%\"}",
             "type nul > \"%PKG%\\bin\\mixdog.mjs\"",
-            "type nul > \"%PKG%\\bin\\native-layout.mjs\"",
+            "type nul > \"%PKG%\\bin\\runtime.mjs\"",
+            "type nul > \"%PKG%\\src\\cli.mjs\"",
+            &manifest,
+            "if not \"%MIXDOG_RUNTIME_PROVISION%\"==\"updater\" (>&2 echo mixdog: fetching the runtime failed: connect ETIMEDOUT& exit /b 1)",
             "mkdir \"%PREFIX%\\node_modules\\dep\"",
+            "exit /b 0",
+            ":runtime",
         ]
         .map(str::to_owned)
         .into();
-        lines.extend(programs);
+        lines.extend(fetched);
         lines.push(String::new());
         lines.join("\r\n")
     }
 
-    fn fake_npm_sh(version: Option<&str>, platform: bool, key: &str) -> String {
+    fn fake_npm_sh(version: Option<&str>, runtime: Runtime, key: &str) -> String {
+        let fetched = match runtime {
+            Runtime::Fetches => vec![
+                format!("D=\"$MIXDOG_DATA_DIR/runtime/{STAGED}/{key}-{DIGEST}\""),
+                "mkdir -p \"$D\"".to_owned(),
+                ": > \"$D/mixdog\" && : > \"$D/mixdogd\" && : > \"$D/mixdog-askpass\"".to_owned(),
+                format!("printf '%s' '{}' > \"$D/.ready.json\"", marker_json(key, DIGEST)),
+                "exit 0".to_owned(),
+            ],
+            Runtime::Fails => vec!["echo 'mixdog: the native runtime could not be fetched: offline' >&2".to_owned(), "exit 3".to_owned()],
+            Runtime::Nothing => vec!["exit 0".to_owned()],
+        };
         let version = version.map_or_else(|| "V=${2#*@}".to_owned(), |version| format!("V={version}"));
-        let mut lines: Vec<String> = [
-            "#!/bin/sh",
-            "if [ \"$1\" = config ]; then echo https://registry.example.test/; exit 0; fi",
-            &version,
-            "PKG=\"$4/node_modules/mixdog\"",
-            "mkdir -p \"$PKG/bin\" \"$4/node_modules/dep\"",
-            "printf '{\"name\":\"mixdog\",\"version\":\"%s\"}' \"$V\" > \"$PKG/package.json\"",
-            ": > \"$PKG/bin/mixdog.mjs\"",
-            ": > \"$PKG/bin/native-layout.mjs\"",
-        ]
-        .map(str::to_owned)
-        .into();
-        if platform {
-            let folder = format!("$4/node_modules/mixdog-{key}");
-            lines.push(format!("mkdir -p \"{folder}/bin\""));
-            lines.push(format!("echo '{{}}' > \"{folder}/package.json\""));
-            lines.push(format!(": > \"{folder}/bin/mixdog\" && : > \"{folder}/bin/mixdogd\" && : > \"{folder}/bin/mixdog-askpass\""));
-        }
+        let mut lines: Vec<String> =
+            ["#!/bin/sh", "if [ \"$1\" = config ]; then echo https://registry.example.test/; exit 0; fi", "case \"$1\" in *mixdog-runtime.mjs)"]
+                .map(str::to_owned)
+                .into();
+        lines.extend(fetched);
+        lines.extend(
+            [
+                ";; esac",
+                &version,
+                "PKG=\"$4/node_modules/mixdog\"",
+                "mkdir -p \"$PKG/bin\" \"$PKG/src\" \"$4/node_modules/dep\"",
+                "printf '{\"name\":\"mixdog\",\"version\":\"%s\"}' \"$V\" > \"$PKG/package.json\"",
+                ": > \"$PKG/bin/mixdog.mjs\" && : > \"$PKG/bin/runtime.mjs\" && : > \"$PKG/src/cli.mjs\"",
+                &format!("printf '{}' \"$V\" > \"$PKG/bin/runtime-manifest.json\"", manifest_json(key, "%s")),
+                "[ \"$MIXDOG_RUNTIME_PROVISION\" = updater ] || { echo 'mixdog: fetching the runtime failed: connect ETIMEDOUT' >&2; exit 1; }",
+            ]
+            .map(str::to_owned),
+        );
         lines.push(String::new());
         lines.join("\n")
     }
@@ -398,8 +493,18 @@ mod tests {
         let marker: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(marker["version"], "9.9.9");
         assert_eq!(marker["pkgDir"], pkg.to_string_lossy().as_ref());
+        // The installer fetched the runtime into this data folder's cache; npm's postinstall left it to it.
+        assert!(present(&runtime_folder(&config.data_dir).join(".ready.json")).await);
         // A second call finds it complete and installs nothing.
         staged(&config, &blocking::NpmCommand { program: PathBuf::from("does-not-exist"), lead: Vec::new() }, "9.9.9").await.unwrap();
+    }
+
+    /// `package_complete_for` of `pkg` with the cache of `data`, for `keys`.
+    async fn complete(pkg: &Path, data: &Path, keys: Vec<String>) -> bool {
+        let (pkg, data) = (pkg.to_owned(), data.to_owned());
+        on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| blocking::package_complete_for(lane, &pkg, &data, &keys))
+            .await
+            .unwrap()
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -415,40 +520,58 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_staged_package_without_the_platform_package_of_this_host_is_never_marked_complete() {
+    async fn a_staged_package_whose_runtime_is_not_ready_is_never_marked_complete() {
+        for (runtime, expected) in [
+            (Runtime::Fails, "the native runtime of the staged version could not be fetched: mixdog: the native runtime could not be fetched: offline"),
+            (Runtime::Nothing, "staged package is incomplete"),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let config = config(dir.path());
+            let npm = shim(dir.path(), &fake_npm_script_with(None, runtime)).await;
+            let error = staged(&config, &npm, "9.9.9").await.unwrap_err();
+            assert!(error.starts_with(expected), "{error}");
+            let ver_dir = config.data_dir.join("staging").join("9.9.9");
+            assert!(!present(&ver_dir.join(".staged-complete.json")).await, "no marker: the swap would replace a working install");
+            assert!(!present(&ver_dir.join(".staging.lock")).await);
+            assert!(!installer(config.clone()).is_staged("9.9.9").await);
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_staged_package_is_complete_only_with_the_verified_runtime_of_this_host_for_its_manifest() {
         let dir = tempfile::tempdir().unwrap();
         let config = config(dir.path());
-        let npm = shim(dir.path(), &fake_npm_script_with(None, false)).await;
-        let error = staged(&config, &npm, "9.9.9").await.unwrap_err();
-        assert!(error.starts_with("staged package is incomplete"), "{error}");
-        let ver_dir = config.data_dir.join("staging").join("9.9.9");
-        assert!(!present(&ver_dir.join(".staged-complete.json")).await, "no marker: the swap would replace a working install");
-        assert!(!present(&ver_dir.join(".staging.lock")).await);
-        // A package that has the platform package of another host only is as incomplete.
-        let pkg = ver_dir.join("mixdog");
-        let (check_pkg, other) = (pkg.clone(), vec!["other-arch".to_owned()]);
-        let complete = on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| {
-            blocking::package_complete_for(lane, &check_pkg, &other)
-        })
-        .await
-        .unwrap();
-        assert!(!complete);
-        // The same install with its platform package is complete, and only for the keys that name it.
-        let with = tempfile::tempdir().unwrap();
-        let config = self::config(with.path());
-        staged(&config, &fake_npm(with.path()).await, "9.9.9").await.unwrap();
+        staged(&config, &fake_npm(dir.path()).await, "9.9.9").await.unwrap();
         let pkg = config.data_dir.join("staging").join("9.9.9").join("mixdog");
-        let keys = blocking::host_keys();
-        let (a, b) = (pkg.clone(), pkg);
-        let host = on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| blocking::package_complete_for(lane, &a, &keys))
+        let data = config.data_dir.clone();
+        assert!(complete(&pkg, &data, blocking::host_keys()).await);
+        // The manifest names no runtime for another host.
+        assert!(!complete(&pkg, &data, vec!["other-arch".to_owned()]).await);
+        // Another data folder holds no runtime.
+        assert!(!complete(&pkg, &dir.path().join("elsewhere"), blocking::host_keys()).await);
+        let folder = runtime_folder(&data);
+        let key = blocking::host_keys().remove(0);
+        // A marker of another archive (a runtime of other bytes) does not count.
+        put(&folder.join(".ready.json"), &marker_json(&key, &"f".repeat(64))).await;
+        assert!(!complete(&pkg, &data, blocking::host_keys()).await);
+        put(&folder.join(".ready.json"), &marker_json(&key, DIGEST)).await;
+        assert!(complete(&pkg, &data, blocking::host_keys()).await);
+        // A file of the runtime that is gone, or of another size, does not count.
+        let core = folder.join(format!("mixdogd{}", program_suffix()));
+        put(&core, "x").await;
+        assert!(!complete(&pkg, &data, blocking::host_keys()).await);
+        put(&core, "").await;
+        assert!(complete(&pkg, &data, blocking::host_keys()).await);
+        // Without the command an install made by 1.4.5 links to, the swap would leave that install without one.
+        let legacy = pkg.join("src").join("cli.mjs");
+        let removed = legacy.clone();
+        on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| mixdog_statefile::remove_file(lane, &removed))
             .await
+            .unwrap()
             .unwrap();
-        let elsewhere = on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| {
-            blocking::package_complete_for(lane, &b, &["other-arch".to_owned()])
-        })
-        .await
-        .unwrap();
-        assert!(host && !elsewhere);
+        assert!(!complete(&pkg, &data, blocking::host_keys()).await);
+        put(&legacy, "").await;
+        assert!(complete(&pkg, &data, blocking::host_keys()).await);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -609,10 +732,14 @@ pub(crate) mod blocking {
         serde_json::from_slice(&bytes).ok()
     }
 
-    /// The programs the launcher and the core start, in the platform package.
-    const NATIVE_PROGRAMS: [&str; 3] = ["mixdog", "mixdogd", "mixdog-askpass"];
+    /// The runtime manifest the package carries (`bin/runtime.mjs` RUNTIME_MANIFEST), beside its launcher.
+    const RUNTIME_MANIFEST: &str = "runtime-manifest.json";
+    /// The marker a runtime folder of the cache holds once it is complete (`bin/runtime.mjs` READY_FILE).
+    const READY_FILE: &str = ".ready.json";
+    /// The command an install made by 1.4.5 links to; a swap never rewrites that link.
+    const LEGACY_ENTRY: &str = "src/cli.mjs";
 
-    /// The `<os>-<arch>` keys of the platform packages this host can run, in the launcher's order
+    /// The `<os>-<arch>` keys of the runtimes this host can run, in the launcher's order
     /// (`nativeCandidates` of `bin/native-layout.mjs`: Windows on Arm also runs the x64 program).
     pub fn host_keys() -> Vec<String> {
         let os = match std::env::consts::OS {
@@ -632,38 +759,78 @@ pub(crate) mod blocking {
         keys
     }
 
-    /// A staged package is complete only when it can run here: the launcher, and nested in it (the staged package is
-    /// self-contained) the platform package of this host with every program. Mirrors `packageComplete` of `bin/staged-swap.mjs`,
-    /// which asks again before the installed package is replaced.
-    pub(super) fn package_complete_for(lane: &InLane<MaintenanceIo>, pkg_dir: &Path, keys: &[String]) -> bool {
+    /// A staged package is complete only when it can run here: the launcher, the runtime module and the 1.4.5 command, and the
+    /// verified runtime of the first of `keys` its manifest names ready in the cache under `data_dir`. Mirrors `packageComplete`
+    /// of `bin/staged-swap.mjs`, which asks again before the installed package is replaced.
+    pub(super) fn package_complete_for(lane: &InLane<MaintenanceIo>, pkg_dir: &Path, data_dir: &Path, keys: &[String]) -> bool {
         let has = |path: PathBuf| present(lane, &path);
-        if !(has(pkg_dir.join("package.json")) && has(pkg_dir.join("bin").join("mixdog.mjs")) && has(pkg_dir.join("bin").join("native-layout.mjs"))) {
-            return false;
-        }
-        let nested = pkg_dir.join("node_modules");
-        let Some(folder) = keys.iter().map(|key| nested.join(format!("mixdog-{key}"))).find(|folder| has(folder.join("package.json"))) else { return false };
-        let suffix = if folder.file_name().is_some_and(|name| name.to_string_lossy().starts_with("mixdog-win32-")) { ".exe" } else { "" };
-        NATIVE_PROGRAMS.iter().all(|program| has(folder.join("bin").join(format!("{program}{suffix}"))))
+        has(pkg_dir.join("package.json"))
+            && has(pkg_dir.join("bin").join("mixdog.mjs"))
+            && has(pkg_dir.join("bin").join("runtime.mjs"))
+            && has(pkg_dir.join(LEGACY_ENTRY))
+            && runtime_ready(lane, pkg_dir, data_dir, keys)
     }
 
-    fn package_complete(lane: &InLane<MaintenanceIo>, pkg_dir: &Path) -> bool {
-        package_complete_for(lane, pkg_dir, &host_keys())
+    fn read_json(path: &Path) -> Option<serde_json::Value> {
+        serde_json::from_slice(&mixdog_statefile::read_content(path).ok()??).ok()
+    }
+
+    /// `readyRuntime` of `bin/runtime.mjs` for the package's manifest: the runtime folder `<data>/runtime/<version>/<key>-<sha256>`
+    /// holds the marker of exactly this manifest entry, and every file the entry lists at its size.
+    fn runtime_ready(lane: &InLane<MaintenanceIo>, pkg_dir: &Path, data_dir: &Path, keys: &[String]) -> bool {
+        let Some(version) = read_json(&pkg_dir.join("package.json")).and_then(|package| package["version"].as_str().map(str::to_owned)) else { return false };
+        let Some(manifest) = read_json(&pkg_dir.join("bin").join(RUNTIME_MANIFEST)) else { return false };
+        let Some((key, entry)) = keys.iter().find_map(|key| manifest["targets"].get(key).map(|entry| (key, entry))) else { return false };
+        let Some(sha256) =
+            entry["sha256"].as_str().filter(|sha| sha.len() == 64 && sha.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
+        else {
+            return false;
+        };
+        let plain = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_alphanumeric() || b".-+".contains(&byte));
+        if entry["version"].as_str() != Some(version.as_str()) || !plain(&version) {
+            return false;
+        }
+        let folder = data_dir.join("runtime").join(&version).join(format!("{key}-{sha256}"));
+        let expected = json!({
+            "key": key,
+            "asset": entry["asset"].clone(),
+            "length": entry["length"].clone(),
+            "sha256": sha256,
+            "version": version,
+            "buildId": entry["buildId"].clone(),
+            "files": entry["files"].clone(),
+        });
+        if read_json(&folder.join(READY_FILE)).as_ref() != Some(&expected) {
+            return false;
+        }
+        let Some(files) = entry["files"].as_object().filter(|files| !files.is_empty()) else { return false };
+        files.iter().all(|(path, size)| {
+            let relative = Path::new(path);
+            relative.components().all(|component| matches!(component, std::path::Component::Normal(_)))
+                && size
+                    .as_u64()
+                    .is_some_and(|size| mixdog_statefile::metadata(lane, &folder.join(relative)).is_ok_and(|meta| meta.is_file() && meta.len() == size))
+        })
+    }
+
+    fn package_complete(lane: &InLane<MaintenanceIo>, pkg_dir: &Path, data_dir: &Path) -> bool {
+        package_complete_for(lane, pkg_dir, data_dir, &host_keys())
     }
 
     /// `isStagedComplete`.
-    fn is_staged_complete(lane: &InLane<MaintenanceIo>, root: &Path, version: &str) -> bool {
-        let ver_dir = root.join(version);
+    fn is_staged_complete(lane: &InLane<MaintenanceIo>, config: &StagedConfig, version: &str) -> bool {
+        let ver_dir = staging_root(config).join(version);
         let Some(marker) = marker(&ver_dir) else { return false };
         if marker["version"].as_str() != Some(version) {
             return false;
         }
         let pkg_dir = marker["pkgDir"].as_str().map_or_else(|| ver_dir.join(PKG_SUBDIR), PathBuf::from);
-        package_complete(lane, &pkg_dir)
+        package_complete(lane, &pkg_dir, &config.data_dir)
     }
 
     /// `isStagedComplete(version)` over the staging area of `config`.
     pub fn is_staged(lane: &InLane<MaintenanceIo>, config: &StagedConfig, version: &str) -> bool {
-        is_staged_complete(lane, &staging_root(config), version)
+        is_staged_complete(lane, config, version)
     }
 
     fn now_ms() -> u128 {
@@ -702,11 +869,10 @@ pub(crate) mod blocking {
     }
 
     pub fn claim(lane: &InLane<MaintenanceIo>, config: &StagedConfig, version: &str) -> Result<Claim, String> {
-        let root = staging_root(config);
-        if is_staged_complete(lane, &root, version) {
+        if is_staged_complete(lane, config, version) {
             return Ok(Claim::AlreadyStaged);
         }
-        let ver_dir = root.join(version);
+        let ver_dir = staging_root(config).join(version);
         mixdog_statefile::create_private_dir_all(lane, &ver_dir).map_err(|error| error.to_string())?;
         if !claim_pid_lock(lane, &ver_dir.join(".staging.lock")) {
             return Err("staging in progress".into());
@@ -826,8 +992,8 @@ pub(crate) mod blocking {
         mixdog_statefile::create_private_dir_all(lane, prefix).map_err(|error| error.to_string())
     }
 
-    /// After npm: verify the version, relocate the package, mark it complete.
-    pub fn finish(lane: &InLane<MaintenanceIo>, version: &str, ver_dir: &Path) -> Result<(), String> {
+    /// After npm: verify the version and relocate the package into `<ver_dir>/mixdog`, which is returned.
+    pub fn relocate(lane: &InLane<MaintenanceIo>, version: &str, ver_dir: &Path) -> Result<PathBuf, String> {
         let rm = |dir: &Path| {
             let _ = mixdog_statefile::remove_dir_all(lane, dir);
         };
@@ -848,12 +1014,15 @@ pub(crate) mod blocking {
         mixdog_statefile::rename_with_retry(lane, &installed_pkg, &pkg_dir).map_err(|error| error.to_string())?;
         mixdog_statefile::rename_with_retry(lane, &installed_modules, &pkg_dir.join("node_modules")).map_err(|error| error.to_string())?;
         rm(&prefix);
-        // The marker is the swap's permission to replace a working install: never for a package that cannot run on this host.
-        if !package_complete(lane, &pkg_dir) {
-            return Err(format!(
-                "staged package is incomplete: no launcher, or no program in {}",
-                host_keys().iter().map(|key| format!("mixdog-{key}")).collect::<Vec<_>>().join(" or ")
-            ));
+        Ok(pkg_dir)
+    }
+
+    /// Marks the relocated package complete. The marker is the swap's permission to replace a working install: never for a
+    /// package that cannot run on this host.
+    pub fn mark(lane: &InLane<MaintenanceIo>, version: &str, ver_dir: &Path, data_dir: &Path) -> Result<(), String> {
+        let pkg_dir = ver_dir.join(PKG_SUBDIR);
+        if !package_complete(lane, &pkg_dir, data_dir) {
+            return Err(format!("staged package is incomplete: no launcher, or no verified native runtime for {} ready", host_keys().join(" or ")));
         }
         // Written last: its presence is the completion signal for the swap.
         let value = json!({ "version": version, "pkgDir": pkg_dir.to_string_lossy(), "stagedAt": u64::try_from(now_ms()).unwrap_or(0) });

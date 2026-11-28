@@ -41,6 +41,7 @@ pub use refresh::is_definitive_oauth_failure;
 pub use session::FlowCtx;
 pub use session::FlowGuard;
 pub use session::start_session;
+pub use single_flight::FlightLost;
 pub use store::CredentialFile;
 pub use store::CredentialIo;
 pub use store::LaneUnrun;

@@ -162,7 +162,6 @@ impl Script {
                 }
                 "subscribe" => self.subscribe(action["fn"].as_str().unwrap(), action["handle"].as_str().unwrap()),
                 "signal" => self.shadow.raise_review_signal(),
-                "throw" => panic!("{name} threw"),
                 other => panic!("unknown action {other}"),
             }
         }
@@ -457,23 +456,24 @@ async fn listeners_removed_and_added_during_a_delivery_change_the_delivery_under
     assert_eq!(calls[9].0, ["first", "mover", "added", "x"], "third removed itself");
 }
 
-/// A listener that throws does not stop the others; one that signals again causes another delivery.
+/// A listener that signals again causes another delivery. (Node's delivery goes on past a listener that throws; a Rust
+/// listener that panics ends the process.)
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_listener_that_throws_does_not_stop_the_delivery_and_one_that_signals_causes_another() {
+async fn a_listener_that_signals_causes_another_delivery() {
     let results = play(&scenario(
         serde_json::json!({
-            "a": { "does": [] }, "boom": { "does": [{ "do": "throw" }] },
+            "a": { "does": [] },
             "echo": { "does": [{ "do": "unsubscribe", "handle": "hecho" }, { "do": "signal" }] }, "late": { "does": [] }
         }),
         serde_json::json!([
-            { "op": "subscribe", "fn": "a", "handle": "ha" }, { "op": "subscribe", "fn": "boom", "handle": "hboom" }, { "op": "subscribe", "fn": "echo", "handle": "hecho" },
+            { "op": "subscribe", "fn": "a", "handle": "ha" }, { "op": "subscribe", "fn": "echo", "handle": "hecho" },
             { "op": "signal" }, { "op": "unsubscribe", "handle": "ha" }, { "op": "subscribe", "fn": "late", "handle": "hlate" },
             { "op": "signal" }, { "op": "drain" }, { "op": "unsubscribe", "handle": "hecho" }, { "op": "signal" }, { "op": "drain" }
         ]),
     ))
     .await;
     let calls = calls_of(&results);
-    assert_eq!(calls[7].0, ["boom", "echo", "late", "boom", "late"], "a removed before its delivery; echo's signal is a second delivery without echo");
-    assert_eq!(calls[8].1, Some(false), "echo had already removed itself");
-    assert_eq!(calls[10].0, ["boom", "late"]);
+    assert_eq!(calls[6].0, ["echo", "late", "late"], "a removed before its delivery; echo's signal is a second delivery without echo");
+    assert_eq!(calls[7].1, Some(false), "echo had already removed itself");
+    assert_eq!(calls[9].0, ["late"]);
 }

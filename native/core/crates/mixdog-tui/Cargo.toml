@@ -24,8 +24,8 @@ mixdog-session-view = { workspace = true }
 mixdog-launch = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-fsio = { workspace = true }
-mixdog-core-session = { workspace = true }
-mixdog-core-config = { workspace = true }
+# The footer's rules and the prompt history's files, without the core that also reads them.
+mixdog-core-files = { workspace = true }
 mixdog-statefile = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync"] }
 serde = { workspace = true }

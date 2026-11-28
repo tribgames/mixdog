@@ -27,8 +27,8 @@ const TITLE_LIMIT: usize = 60;
 const LAST_USED_ROUTE_MAX_PAGES: usize = 20;
 /// Choices an error names: a short list, never the whole catalog (`CHOICE_LIMIT`).
 const CHOICE_LIMIT: usize = 6;
-/// `WORKTREE_NAME_MAX_LENGTH` (`worktrees/contract.mjs`).
-const WORKTREE_NAME_MAX_LENGTH: usize = 64;
+
+pub use mixdog_app_protocol::boundary::validate::worktree_name::worktree_name_error;
 
 /// A failure of the session service as Node's error carries it: its `code`, `message` and
 /// `details`.
@@ -82,25 +82,6 @@ fn clean(value: Option<&Value>) -> String {
         None | Some(Value::Null) => String::new(),
         Some(value) => mixdog_js::js_trim(&mixdog_js::value_to_string(value)).to_owned(),
     }
-}
-
-/// `worktreeNameError(name)`: why `name` cannot be a worktree slug.
-pub fn worktree_name_error(name: &Value) -> Option<String> {
-    let Some(name) = name.as_str().filter(|n| !n.is_empty()) else {
-        return Some("a name is required".into());
-    };
-    if mixdog_js::utf16_len(name) > WORKTREE_NAME_MAX_LENGTH {
-        return Some(format!("at most {WORKTREE_NAME_MAX_LENGTH} characters"));
-    }
-    let mut chars = name.chars();
-    let first_ok = chars.next().is_some_and(|c| c.is_ascii_alphanumeric());
-    if !first_ok || !chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')) {
-        return Some("use letters, digits, \".\", \"_\" or \"-\", starting with a letter or digit".into());
-    }
-    if name.contains("..") || name.ends_with('.') || name.to_lowercase().ends_with(".lock") {
-        return Some("not a valid git branch component".into());
-    }
-    None
 }
 
 /// Where create's `worktree` option starts the task session (`taskLocation`).

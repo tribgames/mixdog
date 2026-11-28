@@ -2061,7 +2061,7 @@ test('the listings of a gate call are read from the layout the download leaves, 
     const real = loadRustLists(dir, plan, call);
     assert.deepEqual(real.problems, []);
     assert.deepEqual(Object.keys(real.lists).sort(), plan.rust.variants.map((variant) => variant.name).sort());
-    assert.deepEqual(Object.keys(real.lists.linux.profiles).sort(), ['entry', 'pg', 'services-pg']);
+    assert.deepEqual(Object.keys(real.lists.linux.profiles).sort(), ['entry', 'handoff', 'pg', 'services-pg']);
     // Stable across attempts, but never shared with another gate in the run.
     const other = loadRustLists(dir, plan, { ...call, gate: 'runtime-refresh' });
     assert.equal(other.problems.length, plan.rust.variants.length);
@@ -2117,7 +2117,7 @@ test("the workflows spell the gate's artifact names: the rust-lists upload and t
   );
 });
 
-test('a draft release is staged by its listing: a public release is refused, a draft of another commit is not resumed, a listing that lacks the tag creates one', () => {
+test('a draft release is staged by its listing: a release of another commit is not resumed, a public one of this commit is (a re-run after publication), a listing that lacks the tag creates one', () => {
   const draft = { id: 7, tag_name: 'v1.2.3', draft: true, target_commitish: 'a'.repeat(40) };
   assert.deepEqual(releaseState([], 'v1.2.3'), { state: 'none' });
   assert.equal(releaseState([draft], 'v1.2.3').state, 'draft');
@@ -2128,7 +2128,8 @@ test('a draft release is staged by its listing: a public release is refused, a d
   });
   assert.deepEqual(stageDraft([draft], 'v1.2.3', draft.target_commitish), { action: 'resume', id: 7 });
   assert.throws(() => stageDraft([draft], 'v1.2.3', 'b'.repeat(40)), /not resumed/);
-  assert.throws(() => stageDraft([{ ...draft, draft: false }], 'v1.2.3', draft.target_commitish), /public release/);
+  assert.deepEqual(stageDraft([{ ...draft, draft: false }], 'v1.2.3', draft.target_commitish), { action: 'resume', id: 7 });
+  assert.throws(() => stageDraft([{ ...draft, draft: false }], 'v1.2.3', 'b'.repeat(40)), /public release 7 .* not resumed/);
 });
 
 test("receipt identities are validated by producer, family and kind: a case must carry the runner's case component", () => {

@@ -108,8 +108,12 @@ fn start(
 #[allow(clippy::result_large_err, reason = "Preserve child ownership on attach failure without a new allocation in the cleanup path")]
 fn spawn_contained(mut process: Command, shown: &str, stderr: std::process::Stdio) -> Result<(Child, Containment), (TransportError, Option<Child>)> {
     process.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(stderr).kill_on_drop(true);
+    // The leader of a session of its own, and so of its process group, which the core's warden ends with the core.
+    // SAFETY: enter_session is async-signal-safe.
     #[cfg(unix)]
-    process.process_group(0);
+    unsafe {
+        process.pre_exec(mixdog_spawn::warden::enter_session);
+    }
     // CREATE_NO_WINDOW | CREATE_SUSPENDED: the child joins its job before it runs (`Containment::attach`).
     #[cfg(windows)]
     process.creation_flags(0x0800_0000 | 0x0000_0004);

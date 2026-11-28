@@ -1,24 +1,16 @@
 // The swap half of the staged update of an npm install (bin/staged-swap.mjs) and the launcher's use of it (bin/mixdog.mjs,
 // bin/invocation.mjs), against 1.4.5's cli.mjs and staged-update.mjs.
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
 import { skipsHostPrelude } from '../bin/invocation.mjs';
 import { launchPlan, startPlan, swapBeforeLaunch } from '../bin/mixdog.mjs';
+import { READY_FILE } from '../bin/runtime.mjs';
 import {
   compareSemver,
   dataDir,
@@ -27,36 +19,30 @@ import {
   performPendingSwap,
   renameWithRetry,
 } from '../bin/staged-swap.mjs';
+import { programContents, runtimeEntry, writePackage as writeLauncherPackage, writeReadyRuntime } from './npm-test-fixture.mjs';
 
-const HOST = { platform: 'linux', arch: 'x64' };
-const PROGRAMS = ['mixdog', 'mixdogd', 'mixdog-askpass'];
+const KEY = 'linux-x64';
+const contents = (version) => programContents('linux', `program ${version}`);
+const entryOf = (version) =>
+  runtimeEntry({ key: KEY, version, contents: contents(version), sha256: createHash('sha256').update(version).digest('hex') });
 
-/** The platform package of the test host in `folder` (a `node_modules/mixdog-linux-x64`). */
-const writePlatform = (folder, text, programs = PROGRAMS) => {
-  mkdirSync(join(folder, 'bin'), { recursive: true });
-  writeFileSync(join(folder, 'package.json'), '{}');
-  for (const program of programs) writeFileSync(join(folder, 'bin', program), text);
-};
-
-const writePackage = (dir, version) => {
-  mkdirSync(join(dir, 'bin'), { recursive: true });
-  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'mixdog', version }));
-  writeFileSync(join(dir, 'bin', 'mixdog.mjs'), `// ${version}\n`);
-  writeFileSync(join(dir, 'bin', 'native-layout.mjs'), '');
+/** A package of `version` in `dir` whose runtime for the test host (linux-x64) is ready in the cache of `data`; its folder. */
+const install = (dir, version, data) => {
+  writeLauncherPackage(dir, { version, targets: { [KEY]: entryOf(version) } });
+  return writeReadyRuntime({ data, key: KEY, entry: entryOf(version), contents: contents(version) });
 };
 
 const rig = ({ installed = '1.5.0', staged = [], layout = ['node_modules', 'mixdog'], damage } = {}) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-swap-test-'));
   const packageRoot = join(root, ...layout);
-  writePackage(packageRoot, installed);
-  writePlatform(join(packageRoot, '..', 'mixdog-linux-x64'), `program ${installed}`);
   const data = join(root, 'data');
+  const HOST = { platform: 'linux', arch: 'x64', data };
+  install(packageRoot, installed, data);
   for (const version of staged) {
     const verDir = join(data, 'staging', version);
     const pkgDir = join(verDir, 'mixdog');
-    writePackage(pkgDir, version);
-    writePlatform(join(pkgDir, 'node_modules', 'mixdog-linux-x64'), `program ${version}`);
-    damage?.(version, pkgDir);
+    const folder = install(pkgDir, version, data);
+    damage?.(version, pkgDir, folder);
     writeFileSync(join(verDir, '.staged-complete.json'), JSON.stringify({ version, pkgDir, stagedAt: 1 }));
   }
   const live = (pid) => {
@@ -70,6 +56,7 @@ const rig = ({ installed = '1.5.0', staged = [], layout = ['node_modules', 'mixd
     root,
     packageRoot,
     data,
+    host: HOST,
     live,
     swap,
     version,
@@ -82,21 +69,15 @@ const cleanup = (t, ...rigs) =>
     for (const r of rigs) rmSync(r.root, { recursive: true, force: true });
   });
 
-test('a completed staged version newer than the installed one replaces the package, dependencies with it, and is cleaned away', (t) => {
+test('a completed staged version newer than the installed one replaces the package, and the replaced version and its runtime are cleaned away', (t) => {
   const r = rig({ staged: ['1.5.1'] });
   cleanup(t, r);
   assert.equal(r.swap(), true);
   assert.equal(r.version(), '1.5.1');
-  assert.equal(
-    readFileSync(join(r.packageRoot, 'node_modules', 'mixdog-linux-x64', 'bin', 'mixdog'), 'utf8'),
-    'program 1.5.1'
-  );
-  assert.deepEqual(
-    readdirSync(join(r.packageRoot, '..')).sort(),
-    ['mixdog', 'mixdog-linux-x64'],
-    'no backup is left beside the package'
-  );
+  assert.deepEqual(readdirSync(join(r.packageRoot, '..')), ['mixdog'], 'no backup is left beside the package');
   assert.deepEqual(r.staging(), [], 'the staged folder moved into place and the lock is gone');
+  assert.deepEqual(readdirSync(join(r.data, 'runtime')), ['1.5.1'], 'the runtime of 1.5.0 is gone, the one of 1.5.1 runs');
+  assert.equal(packageComplete(r.packageRoot, r.host), true);
 });
 
 test('the highest staged version wins and an older or equal one is only cleaned away', (t) => {
@@ -132,36 +113,30 @@ test('nothing is swapped without a completion marker, for a version that is not 
   assert.equal(r.version(), '1.5.0');
 });
 
-test('a staged package that cannot run on this host never replaces the install, and the working install and its backup stay', (t) => {
+test('a staged package whose verified runtime is not ready never replaces the install, which keeps running with its own', (t) => {
   const damages = {
-    'no platform package': (_v, pkg) => rmSync(join(pkg, 'node_modules'), { recursive: true }),
-    'a program missing from it': (_v, pkg) => rmSync(join(pkg, 'node_modules', 'mixdog-linux-x64', 'bin', 'mixdogd')),
-    'the core missing from it': (_v, pkg) =>
-      rmSync(join(pkg, 'node_modules', 'mixdog-linux-x64', 'bin', 'mixdog-askpass')),
-    'only the platform package of another host': (_v, pkg) => {
-      rmSync(join(pkg, 'node_modules'), { recursive: true });
-      writePlatform(join(pkg, 'node_modules', 'mixdog-darwin-arm64'), 'x');
-    },
+    'no runtime in the cache': (_v, _pkg, folder) => rmSync(folder, { recursive: true }),
+    'a runtime of other bytes': (_v, _pkg, folder) =>
+      writeFileSync(join(folder, READY_FILE), readFileSync(join(folder, READY_FILE), 'utf8').replace(/"sha256":"[0-9a-f]+"/, `"sha256":"${'f'.repeat(64)}"`)),
+    'a program of the runtime missing': (_v, _pkg, folder) => rmSync(join(folder, 'mixdogd')),
+    'a program of the runtime of another size': (_v, _pkg, folder) => writeFileSync(join(folder, 'mixdog-askpass'), 'x'),
+    'a manifest with no runtime for this host': (version, pkg) =>
+      writeFileSync(
+        join(pkg, 'bin', 'runtime-manifest.json'),
+        JSON.stringify({ schema: 1, repository: 'o/r', tag: `v${version}`, targets: { 'darwin-arm64': { ...entryOf(version), asset: 'mixdog-runtime-darwin-arm64.tar.gz' } } })
+      ),
     'no launcher': (_v, pkg) => rmSync(join(pkg, 'bin', 'mixdog.mjs')),
-    'no layout module': (_v, pkg) => rmSync(join(pkg, 'bin', 'native-layout.mjs')),
+    'no runtime module': (_v, pkg) => rmSync(join(pkg, 'bin', 'runtime.mjs')),
+    'no command for an install made by 1.4.5': (_v, pkg) => rmSync(join(pkg, 'src', 'cli.mjs')),
   };
   for (const [what, damage] of Object.entries(damages)) {
     const r = rig({ staged: ['1.5.1'], damage });
     cleanup(t, r);
     assert.equal(r.swap(), false, what);
     assert.equal(r.version(), '1.5.0', what);
-    assert.equal(
-      readFileSync(join(r.packageRoot, '..', 'mixdog-linux-x64', 'bin', 'mixdog'), 'utf8'),
-      'program 1.5.0',
-      what
-    );
-    assert.deepEqual(readdirSync(join(r.packageRoot, '..')).sort(), ['mixdog', 'mixdog-linux-x64'], what);
+    assert.deepEqual(readdirSync(join(r.packageRoot, '..')), ['mixdog'], what);
+    assert.equal(packageComplete(r.packageRoot, r.host), true, `${what}: the installed package and its runtime are untouched`);
   }
-  assert.equal(
-    packageComplete(join(rig({ staged: [] }).packageRoot), HOST),
-    true,
-    'the installed package, platform package beside it, is complete'
-  );
 });
 
 test('a package that is incomplete once in place is swapped back out and the working backup is kept until then', (t) => {
@@ -186,11 +161,8 @@ test('a package that is incomplete once in place is swapped back out and the wor
   assert.equal(swapped, false);
   assert.equal(asked, 1);
   assert.equal(r.version(), '1.5.0', 'the working install is back');
-  assert.deepEqual(
-    readdirSync(join(r.packageRoot, '..')).sort(),
-    ['mixdog', 'mixdog-linux-x64'],
-    'neither the backup nor the rejected package is left'
-  );
+  assert.deepEqual(readdirSync(join(r.packageRoot, '..')), ['mixdog'], 'neither the backup nor the rejected package is left');
+  assert.deepEqual(readdirSync(join(r.data, 'runtime')).sort(), ['1.5.0', '1.5.1'], 'the runtime of the working version stays');
 });
 
 test('a swap that cannot restore a usable install ends the start with the backup named', (t) => {
@@ -392,11 +364,11 @@ test("after a swap the launcher starts the new package's launcher with the guard
   assert.equal(plan.reexec, true);
   assert.match(
     launchPlan({ packageRoot: join('/nowhere', 'node_modules', 'mixdog'), swapped: false, argv: [] }).error,
-    /no program to start/
+    /^mixdog: .*package\.json/
   );
 });
 
-test('a re-run that cannot start falls back to the program in place, as 1.4.5 did; any other start failure is an error', () => {
+test('a re-run that cannot start falls back to the program in place, as 1.4.5 did; any other start failure is an error', async () => {
   const children = [];
   const spawnProcess = (program, args) => {
     const child = new EventEmitter();
@@ -408,8 +380,10 @@ test('a re-run that cannot start falls back to the program in place, as 1.4.5 di
   const common = { spawnProcess, exit: (code) => exits.push(code), stderr: { write: (text) => (said += text) } };
   const reexec = { program: 'node', args: ['new/bin/mixdog.mjs'], env: {}, reexec: true };
   const inPlace = { program: '/native/mixdog', args: ['--plain'], env: {}, windowsHide: false };
-  startPlan({ plan: reexec, fallback: () => inPlace, ...common });
+  startPlan({ plan: reexec, fallback: async () => inPlace, ...common });
   children[0].child.emit('error', new Error('spawn node ENOENT'));
+  // The fallback plan settles before the next turn of the event loop.
+  await new Promise(setImmediate);
   assert.equal(children.length, 2);
   assert.equal(children[1].program, '/native/mixdog');
   assert.deepEqual(exits, [], 'nothing ended: the run went on in place');

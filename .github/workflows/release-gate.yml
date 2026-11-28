@@ -1450,7 +1450,7 @@ jobs:
   # The Rust relay beside the Node one. Its own suites and the relay interop tests
   # of mixdog-remote are part of the core's workspace run (core-tests, with the
   # relay's test-support feature built in); what is left here is what only this job
-  # can show: the relay as it ships (the release profile compiles), and the phone's
+  # can show: the relay as it ships (its release-relay profile compiles), and the phone's
   # own suite and its relay e2e test, which start the relay binary built just before
   # and the Node relay. The release-profile build is for a push to main and a manual
   # run (mixdogd-build.yml builds the same program at a release); a pull request builds
@@ -1489,9 +1489,6 @@ jobs:
         with:
           path: relay-store
           key: relay-release-linux-${{ runner.arch }}-${{ needs.changes.outputs.store_key_relay }}
-      - name: Place the stored relay
-        if: steps.store.outputs.cache-hit == 'true'
-        run: mkdir -p native/core/target/release && cp relay-store/mixdog-relay native/core/target/release/mixdog-relay
       - name: Restore the compiled release dependencies
         if: github.event_name != 'pull_request' && steps.store.outputs.cache-hit != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -1538,17 +1535,23 @@ jobs:
           status=0
           for pid in "${pids[@]}"; do wait "$pid" || status=1; done
           exit "$status"
+      # The relay's own profile, as linux-build-core-old-glibc.sh builds it for mixdogd-build.yml: it unwinds
+      # (native/core/Cargo.toml `release-relay`).
       - name: Build the relay as it ships
         if: github.event_name != 'pull_request' && steps.store.outputs.cache-hit != 'true'
         run: |
-          cd native/core && cargo build --release --locked --manifest-path Cargo.toml -p mixdog-relay
-          mkdir -p ../../relay-store && cp target/release/mixdog-relay ../../relay-store/mixdog-relay
+          cd native/core && cargo build --profile release-relay --locked --manifest-path Cargo.toml -p mixdog-relay
+          mkdir -p ../../relay-store && cp target/release-relay/mixdog-relay ../../relay-store/mixdog-relay
       - name: Keep the relay in the store
         if: github.event_name != 'pull_request' && steps.store.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: relay-store
           key: ${{ steps.store.outputs.cache-primary-key }}
+      # Stored or just built, the shipping relay is where relay-process.ts looks for a release build.
+      - name: Place the stored relay
+        if: steps.store.outputs.cache-hit == 'true' || github.event_name != 'pull_request'
+        run: mkdir -p native/core/target/release && cp relay-store/mixdog-relay native/core/target/release/mixdog-relay
       - name: Build the relay in the test profile (pull request)
         if: github.event_name == 'pull_request' && steps.store.outputs.cache-hit != 'true'
         run: cd native/core && cargo build --locked --manifest-path Cargo.toml -p mixdog-relay
@@ -2552,7 +2555,9 @@ jobs:
       #
       # The interactive scenarios of mixdog-entry (tests/node_free.rs) are ignored because they need the development mixdogd this
       # run's `mixdogd` job makes (mixdog-cli/dev-controls includes mixdog-ai/test-support): job core-entry runs them against that
-      # artifact, so no partition waits for a daemon.
+      # artifact, so no partition waits for a daemon. Its hand-off scenarios (tests/handoff.rs) are ignored because they need a built
+      # mixdogd beside mixdog: every system runs them as its `handoff` profile, Linux in core-entry against that artifact, Windows
+      # below and macOS in core-pg-macos against the mixdogd of their archive (the full gate's, which holds mixdog-cli).
       - name: List the archive (unfiltered, and per profile that runs ignored tests)
         id: ignored-audit
         env:
@@ -2578,6 +2583,8 @@ jobs:
             cargo nextest list "${reuse[@]}" --config-file native/core/.config/nextest.toml \
               --run-ignored only -E 'package(mixdog-entry) & binary(node_free)' --message-format json > rust-lists/entry.json
           fi
+          cargo nextest list "${reuse[@]}" --config-file native/core/.config/nextest.toml \
+            --run-ignored only -E 'package(mixdog-entry) & binary(handoff)' --message-format json > rust-lists/handoff.json
       # The lanes of release.yml `rust-lanes` (scripts/rust-core/k1-lanes.mjs) run `cargo test -p <package> <filter>`, and
       # a filter that selects no test fails that job after the packagers have started. Here, on Linux, each lane's package
       # and filter are checked against the unfiltered list of the archive core-build compiled (module declarations, #[path],
@@ -2602,6 +2609,24 @@ jobs:
           path: rust-lists
           if-no-files-found: error
           retention-days: 14
+      # The Windows hand-off (the job that ends mixdogd with mixdog among it) from the archive this job holds, beside the test legs:
+      # leg windows/core-entry/1of1, the Windows variant's `handoff` profile.
+      - name: Run the hand-off scenarios (Windows, against the mixdogd of the archive)
+        id: handoff
+        if: matrix.os == 'windows'
+        env:
+          MIXDOG_SLOT: handoff
+          MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/handoff.json
+          RUSTUP_TOOLCHAIN: stable
+        run: |
+          node scripts/ci/run-nextest.mjs --junit native/core/target/nextest/ci-ignored/junit.xml -- \
+            --archive-file core-tests.tar.zst --workspace-remap native/core --config-file native/core/.config/nextest.toml --profile ci-ignored \
+            -E 'package(mixdog-entry) & binary(handoff)' -- --run-ignored only --no-tests=fail
+      - name: Upload the evidence of this leg
+        if: ${{ !cancelled() && (steps.handoff.outcome == 'success' || steps.handoff.outcome == 'failure') }}
+        uses: ./.github/actions/upload-evidence
+        with:
+          name: windows-core-entry-1of1
 
   core-list-windows:
     name: core-list (${{ matrix.os }})
@@ -2616,6 +2641,9 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      MIXDOG_LEG: windows/core-entry/1of1
+      MIXDOG_LEG_OS: windows
     steps: *core-list-steps
 
   # nextest does not run doctests: the rustdoc blocks of mixdog-core-api and mixdog-image-egress (scripts/ci/run-doctest.mjs, a slot
@@ -2676,7 +2704,9 @@ jobs:
   # The interactive scenarios of mixdog-entry (tests/node_free.rs, the terminal interface and --plain, without Node): ignored in the
   # partitions because they drive the development mixdogd, so they run here, from the Linux archive against the Linux daemon of
   # this run, and the partitions depend on the archives alone. Selected when the archive holds mixdog-entry (core-select.mjs);
-  # the reconciliation credits the `entry` profile of the Linux variant to this leg.
+  # the reconciliation credits the `entry` profile of the Linux variant to this leg. The hand-off scenarios (tests/handoff.rs) run
+  # against the same daemon laid out beside the archive's mixdog, the Linux variant's `handoff` profile: a pull request's archive
+  # may not hold mixdog-cli, whose mixdogd the other systems' full-gate archives have.
   core-entry:
     needs: [changes, core-build-linux, mixdogd-linux]
     if: needs.changes.outputs.core_entry == 'true'
@@ -2716,6 +2746,7 @@ jobs:
           name: mixdogd-dev-${{ env.GATE_KEY }}
           path: native-dev
       - name: Run the interactive entry scenarios (the terminal interface and --plain, without Node)
+        id: entry
         env:
           MIXDOG_SLOT: entry
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/entry.json
@@ -2725,7 +2756,20 @@ jobs:
             node scripts/ci/run-nextest.mjs --junit native/core/target/nextest/ci-ignored/junit.xml -- \
             --archive-file core-tests.tar.zst --workspace-remap native/core --config-file native/core/.config/nextest.toml --profile ci-ignored \
             -E 'package(mixdog-entry) & binary(node_free)' -- --run-ignored only --no-tests=fail
+      # After the entry scenarios whatever they ended, never after a failed setup.
+      - name: Run the hand-off scenarios (against the development mixdogd)
+        id: handoff
+        if: ${{ !cancelled() && (steps.entry.outcome == 'success' || steps.entry.outcome == 'failure') }}
+        env:
+          MIXDOG_SLOT: handoff
+          MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/handoff.json
+        run: |
+          MIXDOGD_BIN="$PWD/native-dev/mixdogd" \
+            node scripts/ci/run-nextest.mjs --junit native/core/target/nextest/ci-ignored/junit.xml -- \
+            --archive-file core-tests.tar.zst --workspace-remap native/core --config-file native/core/.config/nextest.toml --profile ci-ignored \
+            -E 'package(mixdog-entry) & binary(handoff)' -- --run-ignored only --no-tests=fail
       - name: Upload the evidence of this leg
+        if: ${{ !cancelled() && (steps.entry.outcome == 'success' || steps.entry.outcome == 'failure' || steps.handoff.outcome == 'success' || steps.handoff.outcome == 'failure') }}
         uses: ./.github/actions/upload-evidence
         with:
           name: linux-core-entry-1of1
@@ -2850,6 +2894,8 @@ jobs:
             cargo nextest list "${reuse[@]}" --config-file native/core/.config/nextest.toml \
               --profile "$profile" --run-ignored only --message-format json > "$RUNNER_TEMP/rust-lists/$profile.json"
           done
+          cargo nextest list "${reuse[@]}" --config-file native/core/.config/nextest.toml \
+            --run-ignored only -E 'package(mixdog-entry) & binary(handoff)' --message-format json > "$RUNNER_TEMP/rust-lists/handoff.json"
           rm -rf "$RUNNER_TEMP/core-extract"
       - name: Upload the unfiltered nextest listings of this build variant
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -2890,8 +2936,20 @@ jobs:
             --config-file native/core/.config/nextest.toml --profile pg \
             -- --run-ignored only \
             --no-tests=fail --status-level slow --final-status-level slow --failure-output immediate-final --success-output never
+      # The hand-off of mixdog-entry (tests/handoff.rs) against the mixdogd of this archive, the full gate's, which holds mixdog-cli:
+      # the macOS variant's `handoff` profile, after the profiles whatever they ended, never after a failed listing.
+      - name: Run the hand-off scenarios (against the mixdogd of the archive)
+        id: handoff
+        if: ${{ !cancelled() && steps.ignored-audit.outcome == 'success' }}
+        env:
+          MIXDOG_SLOT: handoff
+          MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/handoff.json
+        run: |
+          node scripts/ci/run-nextest.mjs --junit native/core/target/nextest/ci-ignored/junit.xml -- \
+            --archive-file core-tests.tar.zst --workspace-remap native/core --config-file native/core/.config/nextest.toml --profile ci-ignored \
+            -E 'package(mixdog-entry) & binary(handoff)' -- --run-ignored only --no-tests=fail
       - name: Upload the evidence of this leg
-        if: ${{ !cancelled() && (steps.services_pg.outcome == 'success' || steps.services_pg.outcome == 'failure' || steps.pg.outcome == 'success' || steps.pg.outcome == 'failure') }}
+        if: ${{ !cancelled() && (steps.services_pg.outcome == 'success' || steps.services_pg.outcome == 'failure' || steps.pg.outcome == 'success' || steps.pg.outcome == 'failure' || steps.handoff.outcome == 'success' || steps.handoff.outcome == 'failure') }}
         uses: ./.github/actions/upload-evidence
         with:
           name: macos-core-pg-1of1

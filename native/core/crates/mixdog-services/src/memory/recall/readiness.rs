@@ -66,10 +66,6 @@ pub trait ColdEmbed: Send + Sync + 'static {
     /// `embed(clean, { priority: true, inputType: 'query' })`.
     async fn embed(&self, text: &str, request: EmbedRequest) -> Result<Vec<f32>, Self::Error>;
     fn on_warmup_error(&self, error: &Self::Error);
-    /// How a recall's embedding panicked after its request was cancelled and nobody awaited it.
-    fn on_cancelled_embed_failure(&self, what: &str) {
-        tracing::warn!("[memory-service] recall embedding after its request was cancelled {what}");
-    }
 }
 
 /// `embedRecallQuery(query, { …, signal, waitMs })`. `cancel` is the request's signal and `abort_reason` its reason (`abortReason`).
@@ -164,36 +160,16 @@ async fn embed_owned<E: ColdEmbed>(
     abort_reason: &impl Fn() -> E::Error,
 ) -> Result<Vec<f32>, E::Error> {
     let (embedder, text) = (embedder.clone(), text.to_owned());
-    let reporter = embedder.clone();
     let mut work = mixdog_rt::spawn("recall-embed", mixdog_rt::TaskClass::Work, async move { embedder.embed(&text, QUERY).await });
     tokio::select! {
         biased;
-        () = cancel.cancelled() => {
-            // The caller is gone, so nobody awaits the handle: a task of its own reports what the embedding ends with.
-            drop(mixdog_rt::spawn("recall-embed-report", mixdog_rt::TaskClass::Work, async move {
-                report_detached_embedding(&*reporter, work.await);
-            }));
-            Err(abort_reason())
-        }
+        // The caller is gone; the embedding runs on in its task, whose handle this drops.
+        () = cancel.cancelled() => Err(abort_reason()),
         joined = &mut work => match joined {
             Ok(outcome) => outcome,
             Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
             Err(_) => Err(abort_reason()),
         },
-    }
-}
-
-/// What a cancelled recall's embedding ends with, as the awaited path surfaces it: an embedding error is silent there (the
-/// recall goes on lexical, `query_vector`) and here; a panic, which the awaited path resumes in its caller, is a warning.
-#[cfg(test)]
-fn report_detached_embedding<E: ColdEmbed, T>(embedder: &E, joined: Result<Result<T, E::Error>, tokio::task::JoinError>) {
-    match joined {
-        Err(error) if error.is_panic() => {
-            let payload = error.into_panic();
-            let text = payload.downcast_ref::<&str>().map(|s| (*s).to_owned()).or_else(|| payload.downcast_ref::<String>().cloned()).unwrap_or_default();
-            embedder.on_cancelled_embed_failure(&format!("panicked: {text}"));
-        }
-        Ok(_) | Err(_) => {}
     }
 }
 
@@ -319,8 +295,6 @@ mod tests {
     struct Probe {
         ready: bool,
         embed: Mutex<Option<tokio::sync::oneshot::Receiver<Result<Vec<f32>, String>>>>,
-        panic_with: Option<&'static str>,
-        reports: Mutex<Option<tokio::sync::oneshot::Sender<String>>>,
     }
 
     #[async_trait]
@@ -337,34 +311,21 @@ mod tests {
         }
         async fn embed(&self, _: &str, _: EmbedRequest) -> Result<Vec<f32>, String> {
             let gate = self.embed.lock().unwrap().take().expect("embed is called once");
-            let answer = gate.await.expect("the embed gate is settled");
-            if let Some(text) = self.panic_with {
-                panic!("{text}");
-            }
-            answer
+            gate.await.expect("the embed gate is settled")
         }
         fn on_warmup_error(&self, _: &String) {}
-        fn on_cancelled_embed_failure(&self, what: &str) {
-            if let Some(sender) = self.reports.lock().unwrap().take() {
-                let _ = sender.send(what.to_owned());
-            }
-        }
     }
 
-    fn probe(
-        ready: bool,
-        panic_with: Option<&'static str>,
-    ) -> (Arc<Probe>, tokio::sync::oneshot::Sender<Result<Vec<f32>, String>>, tokio::sync::oneshot::Receiver<String>) {
+    fn probe(ready: bool) -> (Arc<Probe>, tokio::sync::oneshot::Sender<Result<Vec<f32>, String>>) {
         let (release, gate) = tokio::sync::oneshot::channel();
-        let (report, reports) = tokio::sync::oneshot::channel();
-        (Arc::new(Probe { ready, embed: Mutex::new(Some(gate)), panic_with, reports: Mutex::new(Some(report)) }), release, reports)
+        (Arc::new(Probe { ready, embed: Mutex::new(Some(gate)) }), release)
     }
 
     /// The wait is measured on the clock the recall runs on: a 30 s wait started after 3 600 s of advancement ends 30 s later, not 3 630 s.
     #[tokio::test(flavor = "current_thread", start_paused = true)]
     async fn the_cold_wait_counts_virtual_time_once() {
         mixdog_rt::testing::tokens();
-        let (embedder, _release, _reports) = probe(false, None);
+        let (embedder, _release) = probe(false);
         tokio::time::advance(Duration::from_secs(3_600)).await;
         let cancel = CancellationToken::new();
         let call = embed_recall_query(&embedder, Some("q"), Duration::from_secs(30), &cancel, String::new);
@@ -373,24 +334,6 @@ mod tests {
         tokio::time::advance(Duration::from_secs(30)).await;
         let outcome = mixdog_rt::time::timeout(Duration::from_secs(1), call).await.expect("the wait ended 30 s after it began");
         assert_eq!(outcome, Ok(RecallEmbedding::Timeout));
-    }
-
-    async fn cancelled_embedding(panic_with: Option<&'static str>, answer: Result<Vec<f32>, String>) -> String {
-        mixdog_rt::testing::tokens();
-        let (embedder, release, reports) = probe(true, panic_with);
-        let cancel = CancellationToken::new();
-        let call = embed_recall_query(&embedder, Some("q"), Duration::from_secs(30), &cancel, || "aborted".to_owned());
-        tokio::pin!(call);
-        assert!(futures::poll!(&mut call).is_pending());
-        cancel.cancel();
-        assert_eq!(call.await, Err("aborted".to_owned()));
-        release.send(answer).expect("the embedding is running");
-        mixdog_rt::time::timeout(Duration::from_secs(5), reports).await.expect("a report for the cancelled embedding").expect("report")
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn an_embedding_panic_after_the_cancel_is_reported() {
-        assert_eq!(cancelled_embedding(Some("boom"), Ok(vec![])).await, "panicked: boom");
     }
 }
 

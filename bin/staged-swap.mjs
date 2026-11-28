@@ -2,20 +2,23 @@
 //
 // The core (the daemon's update service) checks the npm registry, and with auto-update on stages the newer version:
 // `npm install mixdog@<version>` into `<data>/staging/<version>/install`, relocated into a self-contained
-// `<data>/staging/<version>/mixdog` (its dependencies, the platform package with the programs among them, nested beneath),
-// and only then `.staged-complete.json` is written. Nothing of the installed package is touched while a session runs.
+// `<data>/staging/<version>/mixdog` (its dependencies nested beneath), its native runtime fetched and verified into the
+// user's runtime cache (bin/runtime.mjs), and only then `.staged-complete.json` is written. Nothing of the installed
+// package is touched while a session runs.
 //
 // This runs in the launcher (`bin/mixdog.mjs`) at the next start, the one process that holds no file of the package open:
-// when a completed staged version is newer than the installed one and no other mixdog session runs
+// when a completed staged version is newer than the installed one, its runtime is ready, and no other mixdog session runs
 // (`<data>/live-sessions/<pid>.pid`, written by the program), `node_modules/mixdog` is renamed aside and the staged folder
-// renamed into its place. The platform package beside it stays what it was and is no longer resolved: the nested one is
-// found first. Any obstacle (a locked or unwritable folder, another session) leaves the installed version running and the
-// swap tries again at the next start. Dependency-free: the launcher ships alone.
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeSync, closeSync, openSync } from 'node:fs';
-import { homedir } from 'node:os';
+// renamed into its place; the runtime of the version it replaced is removed from the cache. Any obstacle (a locked or
+// unwritable folder, another session, a runtime that is not ready) leaves the installed version running and the swap tries
+// again at the next start. Dependency-free: the launcher ships alone.
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeSync, closeSync, openSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 
-import { nativeCandidates, platformPackageName } from './native-layout.mjs';
+import { nextRenameDelayMs, renameWithRetry, sleepSync } from './rename.mjs';
+import { dataDir, resolveRuntime, runtimeCacheRoot } from './runtime.mjs';
+
+export { dataDir, nextRenameDelayMs, renameWithRetry };
 
 const MARKER_NAME = '.staged-complete.json';
 const PKG_SUBDIR = 'mixdog';
@@ -23,16 +26,6 @@ const STALE_INPROGRESS_MS = 10 * 60 * 1000;
 const INCOMPLETE_MAX_AGE_MS = 60 * 60 * 1000;
 const LOCK_WAIT_MS = 5000;
 const STABLE_WAIT_MS = 3000;
-// 1.4.5's rename schedule (file-lock.mjs DEFAULT_BACKOFFS_MS): about 4.2 s of retries for an antivirus scan or an indexer holding a folder.
-const RENAME_BACKOFFS_MS = Object.freeze([25, 50, 100, ...Array(20).fill(200)]);
-const RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY', 'EEXIST']);
-const NATIVE_PROGRAMS = ['mixdog', 'mixdogd', 'mixdog-askpass'];
-
-/** `resolvePluginData()`: MIXDOG_DATA_DIR, else `<MIXDOG_HOME or ~/.mixdog>/data`. */
-export function dataDir(env = process.env, home = homedir()) {
-  if (env.MIXDOG_DATA_DIR) return env.MIXDOG_DATA_DIR;
-  return join(env.MIXDOG_HOME || join(home, '.mixdog'), 'data');
-}
 
 /** `isPidAlive`: a positive integer that `kill(pid, 0)` can address (EPERM: it exists, another user's). */
 export function isPidAlive(value) {
@@ -89,42 +82,6 @@ export function compareSemver(a, b) {
 
 const isNewer = (latest, current) => Boolean(latest && current) && compareSemver(latest, current) > 0;
 
-function sleepSync(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
-/**
- * The jittered pause before the next rename attempt, or null when this error or attempt ends the retries: only a transient
- * refusal is worth waiting for, and Windows answers EPERM/EACCES also for renaming over a read-only file, which never clears.
- */
-export function nextRenameDelayMs(error, attempt, to, random = Math.random) {
-  if (!RETRY_CODES.has(error?.code) || attempt >= RENAME_BACKOFFS_MS.length) return null;
-  if (error.code === 'EPERM' || error.code === 'EACCES') {
-    try {
-      const stat = statSync(to);
-      if (stat.isFile() && (stat.mode & 0o200) === 0) return null;
-    } catch {
-      // Nothing there to be read-only.
-    }
-  }
-  const base = RENAME_BACKOFFS_MS[attempt];
-  return base + Math.floor(random() * Math.min(50, Math.max(1, base)));
-}
-
-/** `renameWithRetrySync` of 1.4.5. */
-export function renameWithRetry(from, to, { rename = renameSync, sleep = sleepSync, random = Math.random } = {}) {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      rename(from, to);
-      return;
-    } catch (error) {
-      const delay = nextRenameDelayMs(error, attempt, to, random);
-      if (delay === null) throw error;
-      sleep(delay);
-    }
-  }
-}
-
 function rmDir(dir) {
   try {
     rmSync(dir, { recursive: true, force: true });
@@ -141,20 +98,13 @@ export function packagePopulated(root) {
 }
 
 /**
- * A package that can run on this machine: populated, with the platform package of this host (nested inside it, else beside it,
- * as npm hoists) and every program the launcher and the core start. Found by looking at the files, never by `require`, whose
- * resolution cache would keep answering for a folder that was replaced.
+ * A package that can run on this machine: populated, with the entry an install made by 1.4.5 links its command to
+ * (src/cli.mjs: a swap never rewrites that link) and the runtime module, and the verified runtime of this host for its
+ * version ready in the user's cache (`data`). Mirrors `package_complete_for` of update_installer.rs.
  */
-export function packageComplete(root, { platform = process.platform, arch = process.arch } = {}) {
-  if (!packagePopulated(root) || !existsSync(join(root, 'bin', 'native-layout.mjs'))) return false;
-  for (const key of nativeCandidates(platform, arch)) {
-    const name = platformPackageName(key);
-    const folder = [join(root, 'node_modules', name), join(dirname(root), name)].find((dir) => existsSync(join(dir, 'package.json')));
-    if (!folder) continue;
-    const suffix = key.startsWith('win32-') ? '.exe' : '';
-    return NATIVE_PROGRAMS.every((program) => existsSync(join(folder, 'bin', `${program}${suffix}`)));
-  }
-  return false;
+export function packageComplete(root, { platform = process.platform, arch = process.arch, data = dataDir() } = {}) {
+  if (!packagePopulated(root) || !existsSync(join(root, 'src', 'cli.mjs')) || !existsSync(join(root, 'bin', 'runtime.mjs'))) return false;
+  return resolveRuntime({ packageRoot: root, platform, arch, data }).ready === true;
 }
 
 /** Waits until the package manifest exists and its size is the same across two samples: the owner's rename has settled. */
@@ -416,7 +366,7 @@ export function performPendingSwap({
   stableWaitMs = STABLE_WAIT_MS,
   verify = packageComplete,
 } = {}) {
-  const host = { platform, arch };
+  const host = { platform, arch, data };
   try {
     if (env.MIXDOG_SWAP_REEXEC || env.MIXDOG_DISABLE_STAGED_SWAP || isDevInstall(packageRoot)) return false;
     const staging = join(data, 'staging');
@@ -450,6 +400,8 @@ export function performPendingSwap({
           return false;
         }
         cleanupStaging(staging, packageRoot, result.done ? best.version : current, host);
+        // No session of this data folder runs the replaced version's programs any more (checked under the lock).
+        if (result.done) rmDir(join(runtimeCacheRoot(data), current));
         return result.done;
       }
       // Never touch the package mid-swap: wait for the owner. Timed out with a live owner: go on only when the install is

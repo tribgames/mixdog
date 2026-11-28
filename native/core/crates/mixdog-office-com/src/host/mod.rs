@@ -1,7 +1,8 @@
 //! The process Microsoft Office automation runs in: `mixdogd office-com-host` (one request, one answer) and
 //! `mixdogd office-com-host --session` (one request per line until stdin ends). It speaks the line protocol of the
-//! PowerShell hosts it replaces and carries the guarantee they gave: whatever happens to a request, the cleanup of the
-//! document and the application the host owns runs before the process ends.
+//! PowerShell hosts it replaces and carries the guarantee they gave: whatever a request answers, the cleanup of the
+//! document and the application the host owns runs before the process ends. A panic is the exception: it aborts the
+//! host before any answer or cleanup, and the transport sweeps what the host's [`ledger`] names (`crate::sweep`).
 //!
 //! * [`apartment`]: the single-threaded apartment, the stdin reader and the wait that keeps dispatching window messages.
 //! * [`oneshot`] and [`session_loop`]: the two protocols.
@@ -22,6 +23,7 @@ pub mod oneshot;
 pub mod session_loop;
 
 use std::ffi::OsString;
+use std::io::Write;
 
 use mixdog_rt::Backend;
 use mixdog_rt::InLane;
@@ -61,9 +63,12 @@ pub fn run(args: &[OsString]) -> i32 {
 pub fn run_with(args: &[OsString], parts: Handlers) -> i32 {
     let session = args.iter().any(|arg| arg == SESSION_FLAG);
     let data_dir = ledger::data_dir_from_args(args);
-    // A panic inside a request is answered as an error line with its text; the default report on stderr would only be noise
-    // for the transport, which reads that stream for cleanup lines and failure text.
-    std::panic::set_hook(Box::new(|_| {}));
+    // The transport reads stderr for cleanup lines and failure text: a panic's text, one line there, is what it answers the
+    // waiting call with once the host has aborted (`abort_on_panic`, as a shipped build's `panic = "abort"`).
+    std::panic::set_hook(Box::new(|info| {
+        let _ = writeln!(std::io::stderr(), "{}", emit::panic_text(info.payload()));
+    }));
+    mixdog_rt::abort_on_panic();
     let (executors, tokens) = match mixdog_rt::exec::boot(RtConfig::for_cores(1)) {
         Ok(booted) => booted,
         Err(error) => {

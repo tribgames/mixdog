@@ -1338,11 +1338,11 @@ pub(crate) enum JobDone {
     /// The context status the load's status pass read (`read_context_display`), `null` for none.
     /// `pass` numbers the status pass that read it ([`SessionActor::next_status_pass`]).
     ContextStatus(u64, Value),
-    /// The new route's context status a pending route move `seq` read ([`SessionActor::start_route_move`]); `Ok(None)` when the
-    /// read failed or missed its deadline, `Err` when it panicked.
+    /// The new route's context status a pending route move `seq` read ([`SessionActor::start_route_move`]); `None` when the
+    /// read failed or missed its deadline.
     RouteStatus {
         seq: u64,
-        status: Result<Option<Value>, CoreError>,
+        status: Option<Value>,
     },
     /// The session's live workspace (`read_live_workspace`).
     LiveWorkspace(u64, Option<Value>),
@@ -2010,20 +2010,6 @@ pub(crate) struct SessionActor {
 
 /// The runtimes started in this process: each actor's identity is the next count.
 static RUNTIMES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-async fn guard_run(run: impl std::future::Future<Output = ()>, ctl: mpsc::Sender<Ctl>, turn: TurnId) {
-    use futures::FutureExt;
-    if let Err(panic) = std::panic::AssertUnwindSafe(run).catch_unwind().await {
-        let what = panic
-            .downcast_ref::<&str>()
-            .map(|text| (*text).to_owned())
-            .or_else(|| panic.downcast_ref::<String>().cloned())
-            .unwrap_or_else(|| "a panic".to_owned());
-        tracing::error!(turn = %turn.as_str(), "the turn's task panicked: {what}");
-        let outcome = RunOutcome::Failed(TurnError { message: format!("the turn ended on an internal error: {what}"), data: json!({}), provider_error: None });
-        let _ = ctl.send(Ctl::RunEnded { turn, outcome }).await;
-    }
-}
 
 fn input_row(
     (iid, turn): (&mixdog_core_api::ids::ItemId, &TurnId),
@@ -6432,9 +6418,6 @@ impl SessionActor {
             transcripts: self.deps.transcripts.clone(),
         });
         let ctl = self.cell.ctl_tx.clone();
-        // A run whose task panics still ends: without its `RunEnded` the thread keeps a started run no task drives, and every
-        // later prompt waits in the queue behind it.
-        let (panic_ctl, panic_turn) = (ctl.clone(), turn.clone());
         let task = TurnTask {
             warm,
             hooks: self.deps.lifecycle.clone(),
@@ -6445,7 +6428,7 @@ impl SessionActor {
             ctl,
             turn,
         };
-        let run = guard_run(task.run(admission, future), panic_ctl, panic_turn);
+        let run = task.run(admission, future);
         // A replay's settled signal counts the turn busy until it ends, except while it waits on the model or the user.
         #[cfg(feature = "replay-settled")]
         let run = mixdog_ai::transport::replay_bytes::in_run_as(replay_run, run);

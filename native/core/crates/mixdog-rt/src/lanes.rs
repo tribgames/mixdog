@@ -341,7 +341,7 @@ impl QueuedJob {
 /// The job was dropped before producing a result.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum JobDropped {
-    /// Its thread could not take the lane's priority, or it panicked. Except for a panic, the
+    /// Its thread could not take the lane's priority, or it panicked in a program that unwinds. Except for a panic, the
     /// job never ran.
     Dropped,
     /// The job's token was cancelled while it was queued; it never ran.

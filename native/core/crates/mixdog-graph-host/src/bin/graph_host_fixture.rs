@@ -7,7 +7,8 @@
 //!
 //! A query's `args.do`: `echo` (the default) answers its pid and every write notice seen so far; `block` waits at the
 //! barrier (`query`) first; `wait-change` waits for a notice of `release`; `crash` exits; `eof` closes its output and
-//! hangs; `malformed` writes a frame that is not a message and hangs; `refuse`, `fail` and `panic` answer so; `big`
+//! hangs; `malformed` writes a frame that is not a message and hangs; `refuse` and `fail` answer so; `panic` panics, which
+//! aborts the helper as it aborts the shipped one; `big`
 //! answers `args.bytes` bytes; `log` first logs a warning and writes a line of its own to its standard error.
 //! `args.roots` is the answer's dependency roots (`null` for none), `args.complete` its completeness.
 
@@ -187,6 +188,7 @@ impl Handler for Fixture {
 }
 
 fn main() {
+    mixdog_rt::abort_on_panic();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let flag = |name: &str| args.iter().any(|arg| arg == name);
     let barrier = args.iter().position(|arg| arg == "--barrier").and_then(|at| args.get(at + 1)).cloned();

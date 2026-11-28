@@ -46,6 +46,7 @@ members = [
     "crates/mixdog-core-base",
     "crates/mixdog-core-review",
     "crates/mixdog-core-config",
+    "crates/mixdog-core-files",
     "crates/mixdog-core-ports",
     "crates/mixdog-core-rooms",
     "crates/mixdog-core-goal",
@@ -147,15 +148,21 @@ dbg_macro = "deny"
 debug = false
 incremental = false
 
-# The programs mixdogd-build.yml ships (mixdogd, mixdog, mixdog-askpass, mixdog-relay) are release builds with the symbol
-# tables stripped. They are not LTO linked: a thin-LTO link of mixdogd took about 30 minutes of a four-core runner, twice a
+# The programs mixdogd-build.yml ships (mixdogd, mixdog, mixdog-askpass; mixdog-relay through `release-relay`) are release
+# builds with the symbol tables stripped. They are not LTO linked: a thin-LTO link of mixdogd took about 30 minutes of a four-core runner, twice a
 # target (mixdog links the same core), and the Windows binary it made was 382 MB against 386 MB without it (measured
 # 2026-11-27). codegen-units stays at cargo's release default (16): one unit would cost a multiple of the wall time of a
 # cold build for a few percent of size. Nothing reads a symbol table of these binaries (the build id kept by the Linux
 # link argument is a note, not a symbol).
+#
+# A panic aborts the process: the unwind paths (landing pads, unwind tables, .pdata) were 158 MiB of the Windows mixdogd,
+# 404.5 MB unwinding against 238.8 MB aborting (release-local, 2026-11-28). The panic hook still runs first, so the crash
+# record names the panic (mixdog-app-server-daemon crash_record.rs), and a development build ends the same way
+# (`mixdog_rt::abort_on_panic`). The test profile unwinds whatever this says, as the test harness needs.
 [profile.release]
 strip = "symbols"
 codegen-units = 16
+panic = "abort"
 
 # The build `update:dev:fast` installs on the PC that builds it (apps/desktop/scripts/dev-update-windows.ps1): release
 # with more codegen units, for a shorter build. Never CI or a published build. Cargo sets a build script's PROFILE to
@@ -164,6 +171,14 @@ codegen-units = 16
 [profile.release-local]
 inherits = "release"
 codegen-units = 64
+
+# The relay is one server for every user: a panic in one connection's handler is answered (500, a dead socket, a logged
+# frame) and the others go on, so it unwinds. Every build of the shipped relay names this profile
+# (apps/desktop/scripts/linux-build-core-old-glibc.sh for mixdogd-build.yml and deploy-remote.ps1 -LocalRelayBuild, and
+# release-gate.yml relay-rust).
+[profile.release-relay]
+inherits = "release"
+panic = "unwind"
 
 # Registry and git dependencies are compiled optimised; the workspace's own crates stay unoptimised, so an edit
 # rebuilds as fast as before. A dependency is compiled once per checkout and never again on an edit, while the
@@ -232,6 +247,7 @@ mixdog-search-host = { path = "crates/mixdog-search-host" }
 mixdog-core-base = { path = "crates/mixdog-core-base" }
 mixdog-core-review = { path = "crates/mixdog-core-review" }
 mixdog-core-config = { path = "crates/mixdog-core-config" }
+mixdog-core-files = { path = "crates/mixdog-core-files" }
 mixdog-core-ports = { path = "crates/mixdog-core-ports" }
 mixdog-core-rooms = { path = "crates/mixdog-core-rooms" }
 mixdog-core-goal = { path = "crates/mixdog-core-goal" }

@@ -27,40 +27,20 @@ use std::sync::Arc;
 use clap::Args;
 use mixdog_acp::preset::AgentPreset;
 use mixdog_core::run_host::tool_pool::session_create::worktree_name_error;
-use mixdog_js::js_to_lowercase;
 use mixdog_js::js_trim;
-use mixdog_js::json_stringify;
 use mixdog_rt::TaskClass;
 use serde_json::Value;
+
+pub use mixdog_launch::command::HELP_TEXT;
+pub use mixdog_launch::command::REACT_REMOVED;
+pub use mixdog_launch::command::ToolMode;
+pub use mixdog_launch::command::is_exec;
+pub use mixdog_launch::command::quoted;
 
 /// Where the exec writes: the answer (or the JSON events) and its errors.
 pub trait Sink: Send + Sync {
     fn out(&self, text: &str);
     fn err(&self, text: &str);
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ToolMode {
-    Readonly,
-    Full,
-}
-
-impl ToolMode {
-    /// The value of `--tool-mode`.
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "full" => Some(Self::Full),
-            "readonly" => Some(Self::Readonly),
-            _ => None,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Readonly => "readonly",
-            Self::Full => "full",
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -120,13 +100,6 @@ pub enum Invocation {
     Run(ExecOptions),
 }
 
-/// `printHelp`'s text (`src/help.mjs`), as Node prints it.
-pub const HELP_TEXT: &str = include_str!("help.txt");
-
-/// What `--react` prints to stderr, with exit 1 (`run`, `app.mjs`).
-pub const REACT_REMOVED: &str = "mixdog: --react was removed; run `mixdog` for the canonical TUI.
-";
-
 /// The options that take the next word as their value (`VALUE_OPTIONS`), with the core's `--cwd`, `--usage-log`, `--provider-config` (B-8)
 /// and `--route-profile`.
 const VALUE_OPTIONS: [&str; 8] = ["--provider", "--model", "--effort", "--workflow", "--cwd", "--usage-log", "--provider-config", "--route-profile"];
@@ -145,16 +118,6 @@ struct Tokens<'a> {
     values: BTreeMap<&'static str, usize>,
     tool_mode: Option<ToolMode>,
     worktree: bool,
-}
-
-/// `roleKey(value) === 'exec'`.
-pub fn is_exec(value: &str) -> bool {
-    js_to_lowercase(js_trim(value)) == "exec"
-}
-
-/// `JSON.stringify(word)`, as a refusal quotes it.
-pub fn quoted(word: &str) -> String {
-    json_stringify(&Value::from(word))
 }
 
 /// `parseTokens`: an option counts wherever it stands, only `--` ends the options. A `strict` line refuses a missing value,

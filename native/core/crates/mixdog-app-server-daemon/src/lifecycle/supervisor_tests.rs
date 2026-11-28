@@ -1,4 +1,4 @@
-//! The release supervisor: a wedged or panicking release step never keeps the process alive, and
+//! The release supervisor: a wedged release step never keeps the process alive, and
 //! the step that wedged is named in `last-exit.json`. No sleeps: the wedged step blocks on a
 //! channel nobody sends to, and its budget is zero, so it is over budget the moment it starts.
 
@@ -19,10 +19,9 @@ const AMPLE: Duration = Duration::from_secs(3600);
 #[derive(Clone, Copy)]
 enum Fault {
     Wedge,
-    Panic,
 }
 
-/// Delegates to the recorder except for the step named `fault.0`, which wedges or panics.
+/// Delegates to the recorder except for the step named `fault.0`, which wedges.
 struct Faulty {
     inner: Arc<Recorder>,
     fault: (&'static str, Fault),
@@ -41,7 +40,6 @@ impl Faulty {
                 // Nobody sends: this returns only when the test drops the sender at its end.
                 let _ = self.hold.lock().unwrap().recv();
             }
-            Fault::Panic => panic!("injected failure in {step}"),
         }
     }
 }
@@ -123,12 +121,6 @@ async fn an_async_step_that_ends_inside_its_budget_finished() {
     assert!(finished.await.is_ok(), "the step ran to its end");
 }
 
-#[tokio::test]
-async fn an_async_step_that_panics_is_reported_and_the_caller_goes_on() {
-    let end = supervise_async("broken", AMPLE, async { panic!("injected failure in an async step") }).await;
-    assert_eq!(end, StepEnd::Panicked);
-}
-
 /// Writes nothing on its own: a job scheduled on it never runs, so a batch can only reach the disk through a flush.
 struct NeverFires;
 
@@ -203,15 +195,6 @@ fn a_wedged_release_step_is_named_and_the_process_still_exits() {
             assert_eq!(ran, at < wedged, "{later} after {step} wedged: {events:?}");
         }
     }
-}
-#[test]
-fn a_panicking_release_step_does_not_stop_the_release() {
-    let run = release_with(("close_connections", Fault::Panic), budgets(""));
-    run.recorder.wait_exit();
-    let events = run.recorder.events();
-    assert!(events.contains(&"close_ext_host".to_owned()), "{events:?}");
-    assert!(events.contains(&"close_data_handles".to_owned()), "{events:?}");
-    assert!(last_exit(run.root.path()).get("stuckStep").is_none());
 }
 /// An async step is supervised on its own thread, and its wait is a timer of the runtime: under
 /// paused time the budget runs out by itself, with nothing slept.

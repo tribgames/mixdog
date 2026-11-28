@@ -1,13 +1,15 @@
 //! Process and socket facts from the OS tables (LR §3.1): whether a pid names
 //! a running process, its identity (pid, start time) and whether it owns a
 //! LISTEN socket on a loopback port. Nothing here probes a port or times out.
+//! The core's verdicts read them (`mixdog_app_server_daemon::verdict`), and so
+//! does a launcher, which holds no core.
 
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(windows)]
-pub(crate) mod windows;
+pub mod windows;
 
 use std::io;
 use std::path::PathBuf;
@@ -75,6 +77,13 @@ pub fn current_identity() -> io::Result<ProcessIdentity> {
 
 /// The start time of the process `pid` currently names, if it runs.
 #[cfg(unix)]
-pub(crate) fn start_ms(pid: u32) -> io::Result<Option<u64>> {
+pub fn start_ms(pid: u32) -> io::Result<Option<u64>> {
     Ok(sys::query(pid)?.map(|info| info.identity.start_ms))
+}
+
+/// Whether `pid` may still be running (`isPidAlive`): only a table that answers "no such process" proves it gone. A table that
+/// cannot answer proves nothing, so the process counts as alive and its files are kept. A recycled pid is told apart from its
+/// old holder by nothing: it reads as alive, which keeps a dead writer's temp, never removes a live one's.
+pub fn pid_alive(table: &dyn ProcessTable, pid: u32) -> bool {
+    table.query(u64::from(pid)).map_or(true, |info| info.is_some())
 }

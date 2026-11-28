@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use mixdog_core_session::session::statusline_agents::RuntimeEntry;
+use mixdog_core_files::statusline_agents::RuntimeEntry;
 use mixdog_view_model::display::statusline_format::ModelMetadata;
 use serde_json::Map;
 use serde_json::Value;

@@ -42,11 +42,14 @@ impl Default for ReleaseBudgets {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepEnd {
     Finished,
-    /// The step panicked; it is over, and the release goes on with the next one.
-    Panicked,
+    /// The step's thread did not start; the release goes on with the next one.
+    NotStarted,
     /// The step was still running at its budget and has been abandoned on its thread.
     OverBudget,
 }
+
+/// A step's thread ends by reporting: a panic in it ends the process (`panic = "abort"`) before its channel can close.
+const STEP_REPORTS: &str = "a release step ends by reporting, a panic in it aborts the process";
 
 /// [`supervise`] for an async step, awaited from the runtime: the step runs to completion on a
 /// `mixdog-release-<name>` thread of its own through the runtime handle, as a sync step does, and
@@ -61,12 +64,11 @@ pub async fn supervise_async(name: &'static str, budget: Duration, step: impl st
     });
     if let Err(error) = spawned {
         tracing::error!(step = name, %error, "a release step thread did not start");
-        return StepEnd::Panicked;
+        return StepEnd::NotStarted;
     }
     match mixdog_rt::time::timeout(budget, finished).await {
         Ok(Ok(())) => StepEnd::Finished,
-        // The sender dropped without sending: the step unwound.
-        Ok(Err(_)) => panicked(name),
+        Ok(Err(_)) => unreachable!("{STEP_REPORTS}"),
         Err(_) => over_budget(name, budget),
     }
 }
@@ -80,18 +82,13 @@ pub fn supervise(name: &'static str, budget: Duration, work: impl FnOnce() + Sen
     });
     if let Err(error) = spawned {
         tracing::error!(step = name, %error, "a release step thread did not start");
-        return StepEnd::Panicked;
+        return StepEnd::NotStarted;
     }
     match finished.recv_timeout(budget) {
         Ok(()) => StepEnd::Finished,
-        Err(RecvTimeoutError::Disconnected) => panicked(name),
+        Err(RecvTimeoutError::Disconnected) => unreachable!("{STEP_REPORTS}"),
         Err(RecvTimeoutError::Timeout) => over_budget(name, budget),
     }
-}
-
-fn panicked(name: &'static str) -> StepEnd {
-    tracing::error!(step = name, "a release step panicked");
-    StepEnd::Panicked
 }
 
 fn over_budget(name: &'static str, budget: Duration) -> StepEnd {

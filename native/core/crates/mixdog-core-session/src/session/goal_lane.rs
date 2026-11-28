@@ -29,8 +29,6 @@ const CLOSEOUT_MODE: &str = mixdog_protocol::message_class::GOAL_CLOSEOUT_SOURCE
 pub(crate) enum DecisionFault {
     /// The Goal runtime's decision failed (read as none).
     Fail,
-    /// The decision's task panics.
-    Panic,
 }
 
 /// The continuation decisions a test holds, by session: `arrived` is told, then the decision ends as `go` says (a dropped `go`

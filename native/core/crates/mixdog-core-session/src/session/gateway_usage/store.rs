@@ -30,7 +30,7 @@ use super::event;
 use super::event::RouteSection;
 use crate::session::Clock;
 
-pub const STORE_FILE: &str = "gateway-usage.local.jsonl";
+pub use mixdog_core_files::gateway_usage::STORE_FILE;
 pub const LEGACY_FILE: &str = "gateway-usage.local.json";
 const LEGACY_BACKUP_SUFFIX: &str = ".migrated.bak";
 const COMPACT_MIN_BYTES: u64 = 8 * 1024 * 1024;
@@ -318,10 +318,11 @@ async fn drain(inner: Arc<Inner>) {
                 marks.iter().for_each(|&mark| inner.marks.written(mark));
                 maybe_schedule_compaction(&inner, large);
             }
-            // Local telemetry never affects the routed call, but a lost batch is reported.
+            // Local telemetry never affects the routed call, but a lost batch is reported, where stderr still goes.
             Err(error) => {
+                use std::io::Write as _;
                 marks.iter().for_each(|&mark| inner.marks.failed(mark, &error));
-                eprintln!("[statusline] gateway usage events not saved: {error}");
+                let _ = writeln!(std::io::stderr(), "[statusline] gateway usage events not saved: {error}");
             }
         }
     }

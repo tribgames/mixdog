@@ -18,6 +18,8 @@ mixdog-agent = { workspace = true }
 mixdog-ai = { workspace = true }
 mixdog-app-protocol = { workspace = true }
 mixdog-core-api = { workspace = true }
+# The config file's name and the shipped presets, which the terminal interface's footer reads without this crate.
+mixdog-core-files = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-mcp = { workspace = true }
 mixdog-workspace = { workspace = true }

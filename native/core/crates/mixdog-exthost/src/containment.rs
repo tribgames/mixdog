@@ -1,6 +1,7 @@
 //! Process containment: a Windows job object (kill-on-close) or a Unix process group around one
 //! child, so ending a worker or the render browser ends everything it started (LibreOffice,
-//! browser helpers). Termination is the OS exit; nothing here waits.
+//! browser helpers). On Unix the child also leads a session of its own, which the core's warden
+//! ends with the core. Termination is the OS exit; nothing here waits.
 //! A child that asks to break away (an Office COM host) leaves the job and survives its worker.
 
 use std::process::ExitStatus;

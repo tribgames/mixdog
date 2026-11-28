@@ -25,6 +25,9 @@ mixdog-app-protocol = { workspace = true }
 mixdog-app-server = { workspace = true }
 mixdog-app-server-transport = { workspace = true }
 mixdog-app-server-client = { workspace = true }
+# The OS process table the verdicts read, and the crash captures' directory, exit words and retention, which the launcher
+# that starts a core keeps with the same implementation.
+mixdog-launch = { workspace = true }
 mixdog-browser-engine = { workspace = true }
 mixdog-browser-policy = { workspace = true }
 mixdog-connections = { workspace = true }
@@ -175,6 +178,7 @@ mixdog-browser-engine = { workspace = true, features = ["test-support"] }
 mixdog-app-server-client = { workspace = true, features = ["test-support"] }
 mixdog-image-egress = { workspace = true, features = ["test-support"] }
 mixdog-imaging = { workspace = true, features = ["test-support"] }
+mixdog-launch = { workspace = true, features = ["fake-core"] }
 
 [target.'cfg(windows)'.dev-dependencies]
 # The composed tests' child process and what it starts, in a job object of the test (`compose_test_support::Tree`).

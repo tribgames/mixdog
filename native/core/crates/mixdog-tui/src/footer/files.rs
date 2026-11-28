@@ -1,4 +1,4 @@
-//! The files the footer is built from, read and handed to the rules of `mixdog-core-session` (`statusline_status`,
+//! The files the footer is built from, read and handed to the rules of `mixdog-core-files` (`statusline_status`,
 //! `statusline_claude`, `statusline_limits`): the data directory's config, gateway session routes, quota cache, account credentials and usage log,
 //! the config directory's `settings.json` and the two status files of the Claude-current route, and the shell-job and memory-cycle state the second row counts.
 //! The rules are not repeated here; this reads what they decide on.
@@ -7,18 +7,18 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use mixdog_core_session::session::gateway_routes;
-use mixdog_core_session::session::gateway_usage::STORE_FILE as USAGE_FILE;
-use mixdog_core_session::session::statusline_claude::AgedFile;
-use mixdog_core_session::session::statusline_claude::ClaudeRoute;
-use mixdog_core_session::session::statusline_claude::ClaudeSources;
-use mixdog_core_session::session::statusline_claude::ClaudeWorld;
-use mixdog_core_session::session::statusline_claude::PERSISTED_MAX_AGE_MS;
-use mixdog_core_session::session::statusline_claude::read_claude_code_current_route;
-use mixdog_core_session::session::statusline_limits::UsageView;
-use mixdog_core_session::session::statusline_status::StatusInput;
-use mixdog_core_session::session::statusline_status::StatusWorld;
-use mixdog_core_session::session::statusline_status::load_gateway_status;
+use mixdog_core_files::gateway_routes;
+use mixdog_core_files::gateway_usage::STORE_FILE as USAGE_FILE;
+use mixdog_core_files::statusline_claude::AgedFile;
+use mixdog_core_files::statusline_claude::ClaudeRoute;
+use mixdog_core_files::statusline_claude::ClaudeSources;
+use mixdog_core_files::statusline_claude::ClaudeWorld;
+use mixdog_core_files::statusline_claude::PERSISTED_MAX_AGE_MS;
+use mixdog_core_files::statusline_claude::read_claude_code_current_route;
+use mixdog_core_files::statusline_limits::UsageView;
+use mixdog_core_files::statusline_status::StatusInput;
+use mixdog_core_files::statusline_status::StatusWorld;
+use mixdog_core_files::statusline_status::load_gateway_status;
 use mixdog_view_model::display::statusline_segments::SegmentSource;
 use serde_json::Map;
 use serde_json::Value;
@@ -70,7 +70,7 @@ impl StatusFiles {
 
     /// `mixdog-config.json` of the data directory.
     pub fn config(&self) -> Option<Value> {
-        self.json(&self.paths.data_dir.join(mixdog_core_config::user_data::CONFIG_FILE))
+        self.json(&self.paths.data_dir.join(mixdog_core_files::CONFIG_FILE))
     }
 
     /// `loadGatewayStatus(request)`: the route the footer shows with its cached quota windows and context share.
@@ -218,7 +218,7 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Mutex;
 
-    use mixdog_core_session::session::statusline_agents::RuntimeEntry;
+    use mixdog_core_files::statusline_agents::RuntimeEntry;
 
     use super::super::io::FileStat;
     use super::*;

@@ -6,6 +6,7 @@ import { test } from 'node:test';
 
 import { readTarball } from '../../../scripts/check-npm-packages.mjs';
 import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
+import { serverBundleAsset } from '../src/main/ssh/server-manifest.mjs';
 import { remoteJsRuntimeManifest } from './core-layout.mjs';
 import { signServerCores, startSignedCore } from './sign-server-cores.mjs';
 import { HOST_TARGETS, stageCore } from './stage-core.mjs';
@@ -145,11 +146,11 @@ test('every Mach-O file of the macOS bundles is notarizable, and each package ta
   await run.adopt();
   for (const key of ['linux-x64', 'linux-arm64'])
     assert.deepEqual(
-      readFileSync(join(run.dir, 'signed', key, 'bundle.tgz')),
-      readFileSync(join(run.dir, 'producer', 'server-cores', key, 'bundle.tgz'))
+      readFileSync(join(run.dir, 'signed', serverBundleAsset(key))),
+      readFileSync(join(run.dir, 'producer', 'server-cores', serverBundleAsset(key)))
     );
   for (const key of ['darwin-x64', 'darwin-arm64']) {
-    const files = readTarball(join(run.dir, 'signed', key, 'bundle.tgz'));
+    const files = readTarball(join(run.dir, 'signed', serverBundleAsset(key)));
     for (const { path, data } of files.filter((file) => run.signatureIn(file.data))) {
       const signature = run.signatureIn(data);
       assert.match(signature.authority, /^Developer ID Application: /, path);

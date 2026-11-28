@@ -5,6 +5,13 @@ import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
+import {
+  SERVER_PLATFORM_TARGETS,
+  serverBundleAsset,
+  serverManifestProblems,
+} from '../../apps/desktop/src/main/ssh/server-manifest.mjs';
+import { PLATFORMS, runtimeAssetName } from '../npm-platforms.mjs';
+
 const curl = promisify(execFile);
 const sha256 = /^sha256:[a-f0-9]{64}$/;
 const assetName = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
@@ -21,6 +28,7 @@ const releasePath = () => {
   return `repos/${repo}/releases/${id}`;
 };
 
+/** The release of this id, tag and commit: a draft (`draft` true), public (false) or either (null). */
 export function readRelease(draft, target = ref) {
   const id = releaseId();
   const release = api(releasePath());
@@ -28,10 +36,11 @@ export function readRelease(draft, target = ref) {
     String(release.id) !== id ||
     release.tag_name !== tag ||
     release.target_commitish !== target ||
-    release.draft !== draft ||
+    (draft !== null && release.draft !== draft) ||
     release.prerelease !== false
   ) {
-    throw new Error(`Release ${id} is not the expected ${draft ? 'draft' : 'public release'} of ${tag} at ${target}`);
+    const expected = draft === null ? 'release' : draft ? 'draft' : 'public release';
+    throw new Error(`Release ${id} is not the expected ${expected} of ${tag} at ${target}`);
   }
   return release;
 }
@@ -115,11 +124,27 @@ export async function postAsset(file, url) {
   return stdout;
 }
 
+/** Throws unless the public release's `assets` hold every one of `expected` as its bytes. */
+export function requirePublished(assets, expected) {
+  const absent = expected.filter((record) => !assets.some((asset) => sameAsset(asset, record)));
+  if (absent.length) {
+    throw new Error(
+      `${tag} is public without ${absent.map(({ name }) => name).join(', ')} as these bytes, and a public release is never changed`
+    );
+  }
+}
+
 export async function uploadAssets(files) {
   if (!files.length) throw new Error('Expected files to upload');
   const expected = await Promise.all(files.map(recordFile));
   if (new Set(expected.map(({ name }) => name)).size !== expected.length) throw new Error('Duplicate local asset name');
-  const { upload_url: template } = readRelease(true);
+  const release = readRelease(null);
+  // A re-run after this run published the release finds every asset already there, as these bytes.
+  if (!release.draft) {
+    requirePublished(readAssets(), expected);
+    return expected;
+  }
+  const { upload_url: template } = release;
   const uploadUrl = new URL(template.split('{')[0]);
   if (uploadUrl.origin !== 'https://uploads.github.com' || uploadUrl.pathname !== `/${releasePath()}/assets`) {
     throw new Error('Invalid release upload URL');
@@ -173,6 +198,9 @@ export async function uploadAssets(files) {
   return expected;
 }
 
+/** The server bundles: assets of the release the desktop fetches when an ssh install needs one. */
+export const SERVER_BUNDLE_ASSET_NAMES = Object.freeze(Object.keys(SERVER_PLATFORM_TARGETS).map(serverBundleAsset));
+
 export const DESKTOP_ASSET_NAMES = Object.freeze([
   'latest.yml',
   'mixdog-desktop-win-x64.exe',
@@ -187,20 +215,38 @@ export const DESKTOP_ASSET_NAMES = Object.freeze([
   'mixdog-desktop-linux-arm64.deb',
   'mixdog-desktop-linux-x86_64.AppImage',
   'mixdog-desktop-linux-amd64.deb',
+  ...SERVER_BUNDLE_ASSET_NAMES,
+  ...PLATFORMS.map(({ key }) => runtimeAssetName(key)),
 ]);
 
-const desktopRecords = () =>
-  [
+/** The records the draft's server bundles must match: the length and sha256 the manifest every installer of `version`
+ *  carries lists for each, which is the only description of them a desktop trusts. */
+export function serverBundleRecords(manifest, version) {
+  const problems = serverManifestProblems(manifest, { version });
+  if (problems.length) throw new Error(`The server manifest is not one of release ${version}:\n- ${problems.join('\n- ')}`);
+  return Object.values(manifest.binaries).map(({ bundle }) => ({
+    name: bundle.asset,
+    size: bundle.size,
+    digest: `sha256:${bundle.sha256}`,
+  }));
+}
+
+const desktopRecords = () => [
+  ...[
     'WINDOWS_ASSETS',
     'MAC_ARM64_ASSETS',
     'MAC_X64_ASSETS',
     'LINUX_ARM64_ASSETS',
     'LINUX_X64_ASSETS',
     'MERGED_FEED',
-  ].flatMap((key) => JSON.parse(process.env[key]));
+    // The runtime archives the npm package names (scripts/ci/publish-npm.mjs upload-runtime).
+    'NPM_RUNTIME_ASSETS',
+  ].flatMap((key) => JSON.parse(process.env[key])),
+  ...serverBundleRecords(JSON.parse(process.env.SERVER_BUNDLES_MANIFEST || 'null'), tag?.replace(/^v/, '')),
+];
 
 function verifyDesktop() {
-  readRelease(true);
+  readRelease(null);
   const assets = readAssets();
   verifyAssets(assets, desktopRecords(), DESKTOP_ASSET_NAMES);
   for (const name of ['latest-linux.yml', 'latest-linux-arm64.yml']) {
@@ -218,8 +264,10 @@ function verifyDesktop() {
 
 export function publishDraft({ expected, names, latest, notes }) {
   const id = releaseId();
-  readRelease(true);
+  const release = readRelease(null);
   verifyAssets(readAssets(), expected, names);
+  // An earlier attempt of the run published it, with exactly these assets.
+  if (!release.draft) return;
   const result = api(releasePath(), [
     '--method',
     'PATCH',
@@ -242,7 +290,7 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
   } else if (command === 'verify-desktop') {
     verifyDesktop();
   } else if (command === 'publish-desktop') {
-    // Re-read immediately before the visibility change, after npm may have taken minutes.
+    // Re-read immediately before the visibility change.
     publishDraft({ expected: desktopRecords(), names: DESKTOP_ASSET_NAMES, latest: true, notes: args[0] });
   } else {
     throw new Error(`Unknown release asset command: ${command}`);

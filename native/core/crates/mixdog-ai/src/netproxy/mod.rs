@@ -105,8 +105,7 @@ impl NetworkProxy {
         let epoch = self.epoch.fetch_add(1, Ordering::SeqCst) + 1;
         let listeners: Vec<Listener> = self.held().listeners.iter().map(|(_, listener)| Arc::clone(listener)).collect();
         for listener in listeners {
-            // One pool failing to retire its connections never blocks the others.
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener(epoch)));
+            listener(epoch);
         }
     }
 

@@ -416,8 +416,9 @@ jobs:
       # The release's mixdogd for every target (mixdogd-build.yml, called by
       # release.yml), laid out where stage-core.mjs takes them, and the four
       # server bundles built once for the whole run (server-cores-build.yml).
-      # electron-builder packs .runtime/core (this app's core) and
-      # .runtime/server-cores (what the SSH install uploads) as extraResources.
+      # electron-builder packs .runtime/core (this app's core) and the manifest
+      # .runtime/server-cores/servers.json as extraResources; the bundles are
+      # release assets the SSH install fetches against that manifest.
       - uses: ./.github/actions/stage-mixdogd
       - name: Download the server bundles
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1

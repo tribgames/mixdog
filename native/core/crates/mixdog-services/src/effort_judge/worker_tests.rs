@@ -234,7 +234,7 @@ struct Stop {
 
 /// A model the test holds: a judgment whose request starts with "hold" runs until the model is
 /// stopped and then fails as a terminated run does; "wait" runs until [`Rig::finish_run`], whatever
-/// the stopper does; "boom" panics. Each says on which thread it starts and is dropped.
+/// the stopper does. Each says on which thread it starts and is dropped.
 struct Gated {
     started: tokio::sync::mpsc::UnboundedSender<(String, ThreadId)>,
     stop: Arc<Stop>,
@@ -258,7 +258,6 @@ impl Gated {
             }
             return Err(JudgeError::Run("Exiting due to terminate flag being set to true.".into()));
         }
-        assert_ne!(request, "boom", "a judgment that panics");
         Ok(PROBS.to_vec())
     }
 }
@@ -289,8 +288,6 @@ impl Drop for Gated {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Loads {
     Free,
-    /// The first load panics.
-    PanicFirst,
     /// Each load waits for [`Rig::finish_load`], which no stopper ends: a runtime cannot stop a load.
     Held,
 }
@@ -324,9 +321,8 @@ fn rig(config: ModelConfig, mode: Loads) -> Rig {
     let dropped_on = Arc::new(Mutex::new(Vec::new()));
     let (counted, dropped) = (loads.clone(), dropped_on.clone());
     let script: Script = Arc::new(move || {
-        let n = counted.fetch_add(1, Ordering::SeqCst) + 1;
+        counted.fetch_add(1, Ordering::SeqCst);
         let _ = load_started_tx.send(std::thread::current().id());
-        assert!(!(mode == Loads::PanicFirst && n == 1), "load boom");
         if mode == Loads::Held {
             finish_rx.lock().unwrap().recv().expect("the test finishes each held load").map_err(JudgeError::Load)?;
         }
@@ -610,46 +606,6 @@ async fn nodes_waits_answer_warming_timeout_busy_and_end_the_worker_on_the_judge
     rig.next_start().await;
     assert_eq!(rig.loads(), 2);
     assert_eq!(rig.log, ["hold t1", "t4"], "t2 and s3 were never sent");
-}
-
-/// A panic in a load is Node's `load-error` (remembered, answered at once); a panic in a judgment is
-/// Node's exited worker. Either way the thread is let go and the next load starts a new one.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_panic_in_a_load_or_a_judgment_answers_at_once_and_a_new_thread_takes_over() {
-    let dir = installed();
-    let config = config(dir.path());
-    if !config.runtime_supported() {
-        return;
-    }
-    let mut rig = rig(config, Loads::PanicFirst);
-    let judge = rig.judge.clone();
-
-    let loaded = mixdog_rt::time::timeout(HANG, judge.probs(step("s"))).await.expect("a panicking load answers at once");
-    assert!(matches!(&loaded, Err(JudgeError::Load(message)) if message == "load boom"), "{loaded:?}");
-    rig.threads_become((None, 0)).await;
-    assert_eq!(
-        mixdog_rt::time::timeout(HANG, judge.judge_turn(turn("t"), PATIENT)).await.expect("a turn"),
-        TurnVerdict::Skipped("load-error: load boom".into())
-    );
-    // Past the back-off a turn loads again, on a new thread.
-    let retry = JudgeTiming { retry: Duration::ZERO, ..PATIENT };
-    let judged = mixdog_rt::time::timeout(HANG, judge.judge_turn(turn("t"), retry)).await.expect("a turn");
-    assert!(matches!(&judged, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{judged:?}");
-    let two = rig.next_start().await;
-    assert_eq!((rig.loads(), rig.threads()), (2, (Some(2), 0)));
-
-    let boom = mixdog_rt::time::timeout(HANG, judge.probs(step("boom"))).await.expect("a panicking judgment answers at once");
-    assert!(matches!(boom, Err(JudgeError::Worker(_))), "{boom:?}");
-    assert_eq!(rig.next_start().await, two);
-    rig.threads_become((None, 0)).await;
-    let after = mixdog_rt::time::timeout(HANG, judge.probs(step("s"))).await.expect("judged on a new thread");
-    assert_eq!(after.expect("judged"), PROBS);
-    let three = rig.next_start().await;
-    assert_ne!(three, two);
-    assert_eq!((rig.loads(), rig.threads()), (3, (Some(3), 0)));
-
-    assert_eq!(mixdog_rt::time::timeout(HANG, judge.judge_turn(turn("boom"), PATIENT)).await.expect("a turn"), TurnVerdict::Skipped(EXITED.into()));
-    rig.threads_become((None, 0)).await;
 }
 
 /// Node's `shutdownEffortJudge` terminates the worker: the running turn and the one queued behind it

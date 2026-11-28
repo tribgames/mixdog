@@ -8,7 +8,6 @@
 use crate::transport::deadlines::TOKEN_ANTHROPIC_REFRESH;
 use crate::transport::deadlines::TOKEN_EXCHANGE;
 use crate::transport::link::Surface;
-use crate::transport::link::deadline_error;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
@@ -650,7 +649,7 @@ impl OAuthSession {
             .file
             .refresh_once(&grant, move |file| parts.refresh(file, held, rejected, lease_ms))
             .await
-            .unwrap_or_else(|expired| Err(deadline_error(expired, DeliveryState::Ambiguous, Surface::Socket)))
+            .unwrap_or_else(|lost| Err(lost.provider_error(DeliveryState::Ambiguous, Surface::Socket)))
     }
 
     /// `preflightAnthropicOAuthCredentials`: refreshes the credential now unless its access token lasts at least

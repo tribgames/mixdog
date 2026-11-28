@@ -1,4 +1,3 @@
-use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
@@ -73,9 +72,7 @@ pub(crate) fn deadline(alarm: &dyn Alarm, delay: Duration) -> impl Future<Output
 }
 
 /// A job as the thread runs it. It hands back its answer, which the thread delivers once the run is
-/// marked ended, so a watchdog ringing after the caller has its answer finds nothing to stop; when it
-/// panicked, once the thread has let itself go, so a caller that reads it finds the next job going
-/// to a new thread.
+/// marked ended, so a watchdog ringing after the caller has its answer finds nothing to stop.
 struct Job {
     run: SeatWork,
     /// A judgment, under the watchdog; a model load is not (Node's has no watchdog for a load).
@@ -83,17 +80,7 @@ struct Job {
 }
 
 type Deliver = Box<dyn FnOnce() + Send>;
-type SeatWork = Box<dyn FnOnce(&mut Seat) -> Result<Deliver, Deliver> + Send>;
-
-/// How a job ended, as its thread reports it.
-enum Ran<R> {
-    Done(R),
-    Panicked(String),
-}
-
-fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
-    payload.downcast_ref::<&str>().map(|text| (*text).to_owned()).or_else(|| payload.downcast_ref::<String>().cloned()).unwrap_or_else(|| "panicked".to_owned())
-}
+type SeatWork = Box<dyn FnOnce(&mut Seat) -> Deliver + Send>;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -145,13 +132,11 @@ struct Shared {
 }
 
 impl Shared {
-    /// Lets thread `generation` (any when `None`) go if it is the one taking jobs; counted until it
-    /// ends. `answer` answers its waiters "exited" now (a panicking job answers its own waiter).
-    fn retire(&self, generation: Option<u64>, answer: bool) {
+    /// Lets thread `generation` (any when `None`) go if it is the one taking jobs, its waiters answered
+    /// "exited"; counted until it ends.
+    fn retire(&self, generation: Option<u64>) {
         let Some(live) = self.detach(generation) else { return };
-        if answer {
-            live.gone.cancel();
-        }
+        live.gone.cancel();
         lock(&live.flight).stop_running();
         self.tick.bump();
     }
@@ -234,12 +219,8 @@ impl JudgeWorker {
     {
         let live = self.taking()?;
         let generation = live.generation;
-        match self.send(&live, false, job).await {
-            Ok(out) => Ok((generation, out)),
-            // A panicking load is a load failure, as a throwing `load()` is Node's `load-error`.
-            Err(Some(message)) => Err(JudgeError::Load(message)),
-            Err(None) => Err(JudgeError::Worker(EXITED.to_owned())),
-        }
+        let out = self.send(&live, false, job).await.ok_or_else(|| JudgeError::Worker(EXITED.to_owned()))?;
+        Ok((generation, out))
     }
 
     /// Runs `job` (a judgment) on thread `generation` while it still takes jobs, under the watchdog.
@@ -250,22 +231,19 @@ impl JudgeWorker {
     {
         let live = lock(&self.shared.threads).current.clone().filter(|live| live.generation == generation);
         let Some(live) = live else { return Err(JudgeError::Worker(EXITED.to_owned())) };
-        self.send(&live, true, job).await.map_err(|panicked| match panicked {
-            Some(message) => JudgeError::Worker(format!("the effort judge thread panicked: {message}")),
-            None => JudgeError::Worker(EXITED.to_owned()),
-        })
+        self.send(&live, true, job).await.ok_or_else(|| JudgeError::Worker(EXITED.to_owned()))
     }
 
     /// Node's `shutdownEffortJudge` (`judge-client.mjs:399`): the thread taking jobs is let go.
     pub(crate) fn leave(&self) {
         self.left.fetch_add(1, Ordering::AcqRel);
-        self.shared.retire(None, true);
+        self.shared.retire(None);
     }
 
     /// Lets thread `generation` go if it still takes jobs: the host under it died, or the model was
     /// unloaded for being idle. A newer thread is left alone.
     pub(crate) fn retire(&self, generation: u64) {
-        self.shared.retire(Some(generation), true);
+        self.shared.retire(Some(generation));
     }
 
     /// The thread taking jobs, started when none runs and fewer than [`THREADS`] are alive.
@@ -294,34 +272,27 @@ impl JudgeWorker {
         Ok(Arc::new(Live { generation, jobs: Mutex::new(tx), gone: CancellationToken::new(), flight }))
     }
 
-    /// Sends `job` to `live` and waits for its answer: `Err(Some(panic))` when it panicked, `Err(None)`
-    /// when the thread was let go (or ended) first.
-    async fn send<R, F>(&self, live: &Live, watched: bool, job: F) -> Result<R, Option<String>>
+    /// Sends `job` to `live` and waits for its answer; `None` when the thread was let go (or ended)
+    /// first.
+    async fn send<R, F>(&self, live: &Live, watched: bool, job: F) -> Option<R>
     where
         R: Send + 'static,
         F: FnOnce(&mut Seat) -> R + Send + 'static,
     {
-        let (tx, rx) = oneshot::channel::<Ran<R>>();
-        let run = Box::new(move |seat: &mut Seat| match std::panic::catch_unwind(AssertUnwindSafe(|| job(seat))) {
-            Ok(out) => Ok(Box::new(move || drop(tx.send(Ran::Done(out)))) as Deliver),
-            Err(payload) => {
-                let message = panic_message(payload.as_ref());
-                Err(Box::new(move || drop(tx.send(Ran::Panicked(message)))) as Deliver)
-            }
+        let (tx, rx) = oneshot::channel::<R>();
+        let run = Box::new(move |seat: &mut Seat| {
+            let out = job(seat);
+            Box::new(move || drop(tx.send(out))) as Deliver
         });
         if lock(&live.jobs).send(Job { run, watched }).is_err() {
-            return Err(None);
+            return None;
         }
         // A thread let go answers "exited" even when its stopped run has already reported back: Node's
         // terminated worker never answers.
         tokio::select! {
             biased;
-            () = live.gone.cancelled() => Err(None),
-            ran = rx => match ran {
-                Ok(Ran::Done(out)) => Ok(out),
-                Ok(Ran::Panicked(message)) => Err(Some(message)),
-                Err(_) => Err(None),
-            },
+            () = live.gone.cancelled() => None,
+            ran = rx => ran.ok(),
         }
     }
 }
@@ -346,31 +317,14 @@ fn run_thread(generation: u64, jobs: &mpsc::Receiver<Job>, flight: &Arc<Mutex<Fl
                 }),
             );
         }
-        let ran = std::panic::catch_unwind(AssertUnwindSafe(|| (job.run)(&mut seat)));
+        let deliver = (job.run)(&mut seat);
         {
             let mut flight = lock(flight);
             flight.running = None;
             flight.stop = seat.model.as_ref().map(|model| model.stopper());
         }
-        let ran = match ran {
-            Ok(Ok(deliver)) => {
-                deliver();
-                Ok(Ok(()))
-            }
-            Ok(Err(deliver)) => Ok(Err(deliver)),
-            Err(payload) => Err(payload),
-        };
+        deliver();
         let Some(owner) = shared.upgrade() else { break };
-        match ran {
-            Ok(Ok(())) => {}
-            failed => {
-                owner.retire(Some(generation), false);
-                if let Ok(Err(deliver)) = failed {
-                    deliver();
-                }
-                break;
-            }
-        }
         if !owner.is_current(generation) {
             break;
         }

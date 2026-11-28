@@ -107,7 +107,7 @@ pub fn is_mixdog_model_selection(value: &Value) -> bool {
 }
 
 /// `num(v, null)`: a finite number, else none; null, undefined and the empty string are none.
-pub(crate) fn num(value: Option<&Value>) -> Option<f64> {
+pub fn num(value: Option<&Value>) -> Option<f64> {
     match value {
         None | Some(Value::Null) => None,
         Some(Value::String(text)) if text.is_empty() => None,

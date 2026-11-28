@@ -37,33 +37,25 @@ impl SessionActor {
     /// `Inbox::UpdateHeader`: the change is computed here, from a copy of the header as projected
     /// (the actor is the header's only writer), and written as one `meta` record, answered once
     /// durable. A change that sets and unsets nothing writes nothing. `update` is synchronous and
-    /// pure by contract (`HeaderUpdates`); a panic in it fails only this caller and writes nothing,
-    /// and the actor goes on.
+    /// pure by contract (`HeaderUpdates`).
     pub(super) fn update_header(&mut self, update: mixdog_core_ports::ports::threads::HeaderUpdate, tx: Waiter) {
         if !self.outbox.has_room(Class::Normal) {
             let _ = tx.send(Err(CoreError::WindowFull { thread_id: self.id.clone() }));
             return;
         }
         let header = self.projected.header.clone();
-        let Ok(change) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| update(&header))) else {
-            let _ = tx.send(Err(CoreError::Internal { incident_id: "header-update-panicked".into() }));
-            return;
-        };
+        let change = update(&header);
         self.write_header_change(change, tx);
     }
 
     /// `Inbox::UpdateHeaderAwaiting`: as [`Self::update_header`], over a step that awaits its outside reads here.
     pub(super) async fn update_header_awaiting(&mut self, update: AwaitingHeaderUpdate, tx: Waiter) {
-        use futures::FutureExt;
         if !self.outbox.has_room(Class::Normal) {
             let _ = tx.send(Err(CoreError::WindowFull { thread_id: self.id.clone() }));
             return;
         }
         let header = Header::clone(&self.projected.header);
-        let Ok(change) = std::panic::AssertUnwindSafe(update(header)).catch_unwind().await else {
-            let _ = tx.send(Err(CoreError::Internal { incident_id: "header-update-panicked".into() }));
-            return;
-        };
+        let change = update(header).await;
         // `updateSessionRoute`: a route move is written once its new figures are read ([`Self::start_route_move`]).
         let unset: Vec<&str> = change.unset.iter().map(String::as_str).collect();
         if self.run.is_none()

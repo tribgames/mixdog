@@ -340,7 +340,7 @@ impl OpenCodeGoAuth {
                     .unwrap_or_else(|error| Err(RefreshError::Failed(format!("token refresh: {error}"), None)))
             })
             .await
-            .unwrap_or_else(|expired| Err(RefreshError::Failed(format!("token refresh: request timed out after {}ms", expired.after.as_millis()), None)))
+            .unwrap_or_else(|lost| Err(RefreshError::Failed(lost.to_string(), None)))
     }
 
     async fn refresh_unshared(&self, held: OpenCodeGoCredentials, force: bool, pinned: bool) -> Result<RefreshAnswer, RefreshError> {

@@ -19,17 +19,17 @@ export const listReleases = (repo) =>
   JSON.parse(gh(['api', '--paginate', '--slurp', `repos/${repo}/releases?per_page=100`])).flat();
 
 /**
- * The hidden draft to fill for a tag at a commit: a public release is refused, one existing draft is resumed only if it names this
- * commit, and none is created. The draft is then bound by its id (every later job reads it by id).
+ * The hidden draft to fill for a tag at a commit: one existing release is resumed only if it names this commit, and none is
+ * created. A public one is a re-run after publication, which release-assets.mjs lets through only where it holds exactly the
+ * run's assets, and never changes. The release is then bound by its id (every later job reads it by id).
  * @returns {{action: 'create'|'resume', id?: number}}
  */
 export function stageDraft(releases, tag, ref) {
   const { state, release } = releaseState(releases, tag);
-  if (state === 'public') throw new Error(`${tag} is already a public release: it is never restaged`);
   if (state === 'none') return { action: 'create' };
   if (release.target_commitish !== ref)
     throw new Error(
-      `the draft ${release.id} of ${tag} targets ${release.target_commitish}, not ${ref}: it is not resumed`
+      `the ${state} release ${release.id} of ${tag} targets ${release.target_commitish}, not ${ref}: it is not resumed`
     );
   return { action: 'resume', id: release.id };
 }

@@ -173,8 +173,8 @@ impl LockState {
     }
 }
 
-/// A place at a file's lock; it is the holder's once `ready`, and the next place's when dropped (a cancel or a panic of its
-/// holder included).
+/// A place at a file's lock; it is the holder's once `ready`, and the next place's when dropped (a cancel of its holder
+/// included).
 pub(crate) struct EditTurn {
     before: Option<watch::Receiver<bool>>,
     _mine: watch::Sender<bool>,
@@ -247,9 +247,9 @@ mod tests {
 
     use super::*;
 
-    /// The holder of a file's lock gives it up when its task is cancelled or panics.
+    /// The holder of a file's lock gives it up when its task is cancelled.
     #[tokio::test]
-    async fn a_cancelled_or_panicking_holder_releases_the_file() {
+    async fn a_cancelled_holder_releases_the_file() {
         let locks = EditLocks::default();
         let (mut first, mut second, mut third) = locks.with(|st| (st.take("k"), st.take("k"), st.take("k")));
         first.ready().now_or_never().expect("the first place is free");
@@ -261,13 +261,7 @@ mod tests {
         cancelled.abort();
         assert!(cancelled.await.unwrap_err().is_cancelled());
         second.ready().now_or_never().expect("a cancelled holder released the file");
-        assert!(third.ready().now_or_never().is_none());
-        let panicked = tokio::spawn(async move {
-            let _held = second;
-            panic!("the holder panics");
-        });
-        assert!(panicked.await.unwrap_err().is_panic());
-        third.ready().now_or_never().expect("a panicking holder released the file");
+        assert!(third.ready().now_or_never().is_none(), "the third place waits behind the second");
     }
 
     #[test]

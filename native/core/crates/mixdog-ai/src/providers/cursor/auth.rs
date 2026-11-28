@@ -38,7 +38,6 @@ use crate::providers::connect::provider_error;
 use crate::retry::advice;
 use crate::transport::http::HttpSend;
 use crate::transport::link::Surface;
-use crate::transport::link::deadline_error;
 
 pub const EXCHANGE_URL: &str = "https://api2.cursor.sh/auth/exchange_user_api_key";
 pub const OAUTH_REFRESH_URL: &str = "https://api2.cursor.sh/oauth/token";
@@ -829,7 +828,7 @@ impl FileAccess {
         self.file
             .refresh_once(&held, move |file| refresh_leased(http, file, process, pace, old, force))
             .await
-            .unwrap_or_else(|expired| Err(deadline_error(expired, DeliveryState::Ambiguous, Surface::Socket)))
+            .unwrap_or_else(|lost| Err(lost.provider_error(DeliveryState::Ambiguous, Surface::Socket)))
     }
 }
 

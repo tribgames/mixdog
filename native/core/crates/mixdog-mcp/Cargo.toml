@@ -70,6 +70,8 @@ windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
+# A stdio server leads a session the core's warden ends with the core (`mixdog_spawn::warden`).
+mixdog-spawn = { workspace = true, features = ["core"] }
 
 [build-dependencies]
 serde_json = { workspace = true }

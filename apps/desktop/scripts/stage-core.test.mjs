@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
-import { manifestBuild } from '../src/main/ssh/server-manifest.mjs';
+import { SERVER_PLATFORM_TARGETS, serverManifestProblems } from '../src/main/ssh/server-manifest.mjs';
 import { OFFICE_TEMPLATE_FILES, OFFICE_TEMPLATES_DIR, OFFICE_TEMPLATES_SOURCE } from './core-layout.mjs';
 import { HOST_TARGETS, jsRuntimeManifest, stageCore, stageHostCore, workspaceVersion } from './stage-core.mjs';
+
+const sha256Of = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
 
 function builtTargets(dir, targets) {
   for (const target of targets) {
@@ -100,7 +103,7 @@ test('a server payload that fails its integrity check is never archived', async 
   assert.equal(existsSync(join(runtimeDir, 'server-cores', 'servers.json')), false);
 });
 
-test('staging puts the host core and every server runtime where the build and the ssh install read them', async () => {
+test('staging puts the host core where the app starts it and the server bundles beside their manifest', async () => {
   const targetDir = makeTempDirSync('stage-core-target');
   const runtimeDir = makeTempDirSync('stage-core-runtime');
   builtTargets(targetDir, Object.values(HOST_TARGETS));
@@ -135,10 +138,27 @@ test('staging puts the host core and every server runtime where the build and th
     ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64'],
     'every server payload is checked'
   );
-  // The core's ssh install reads exactly what was staged: the manifest's build is the one value of its binaries.
-  assert.equal(manifestBuild(manifest.binaries), manifest.build);
+  // The manifest is a release's: every platform's target, asset, length and digests, and the build of them all.
+  assert.deepEqual(serverManifestProblems(manifest, { version: '1.4.6' }), []);
+  // The set is the manifest with one asset per platform beside it, of the bytes it lists: the core of this tree uploads
+  // them from there, and a package takes the manifest alone.
+  const set = join(runtimeDir, 'server-cores');
+  assert.deepEqual(readdirSync(set).sort(), [
+    'mixdog-server-darwin-arm64.tgz',
+    'mixdog-server-darwin-x64.tgz',
+    'mixdog-server-linux-arm64.tgz',
+    'mixdog-server-linux-x64.tgz',
+    'servers.json',
+  ]);
+  assert.deepEqual(JSON.parse(readFileSync(join(set, 'servers.json'), 'utf8')), manifest);
+  for (const [key, entry] of Object.entries(manifest.binaries)) {
+    assert.equal(entry.target, SERVER_PLATFORM_TARGETS[key]);
+    assert.equal(entry.bundle.size, readFileSync(join(set, entry.bundle.asset)).length, key);
+    assert.equal(entry.bundle.sha256, sha256Of(join(set, entry.bundle.asset)), key);
+    assert.equal(entry.sha256, sha256Of(join(targetDir, SERVER_PLATFORM_TARGETS[key], 'release', 'mixdogd')), key);
+  }
   // One upload per platform: the binary and its JS runtime, in one archive.
-  const listing = spawnSync('tar', ['-tzf', join(runtimeDir, 'server-cores', 'linux-x64', 'bundle.tgz')], {
+  const listing = spawnSync('tar', ['-tzf', join(set, 'mixdog-server-linux-x64.tgz')], {
     encoding: 'utf8',
   });
   const entries = listing.stdout
@@ -243,7 +263,7 @@ test("server bundles built by another job are adopted only when they match this 
     verifyPayload,
     serversOnly: true,
   });
-  assert.equal(existsSync(join(producerRuntime, 'core')), false);
+  assert.equal(existsSync(join(producerRuntime, 'core')), false, 'the producer stages no app');
   const source = join(producerRuntime, 'server-cores');
   const adopt = (overrides = {}) =>
     stageCore({
@@ -260,22 +280,23 @@ test("server bundles built by another job are adopted only when they match this 
   const adopted = await adopt();
   assert.deepEqual(adopted, produced);
   assert.equal(readFileSync(join(packagerRuntime, 'core', 'mixdogd.exe'), 'utf8'), 'binary for x86_64-pc-windows-msvc');
+  // The package carries the manifest of the set, byte for byte, and no bundle: those are release assets.
+  assert.deepEqual(readdirSync(join(packagerRuntime, 'server-cores')), ['servers.json']);
   assert.deepEqual(
-    readFileSync(join(packagerRuntime, 'server-cores', 'linux-x64', 'bundle.tgz')),
-    readFileSync(join(source, 'linux-x64', 'bundle.tgz'))
+    readFileSync(join(packagerRuntime, 'server-cores', 'servers.json')),
+    readFileSync(join(source, 'servers.json'))
   );
-  assert.deepEqual(JSON.parse(readFileSync(join(packagerRuntime, 'server-cores', 'servers.json'), 'utf8')), produced);
 
   // Another version, a changed bundle, a mixdogd of another build and a missing set are all refused, never rebuilt.
   await assert.rejects(
     adopt({ version: '1.4.7', reportedVersion: () => '1.4.7' }),
-    /are version 1\.4\.6, the release is 1\.4\.7/
+    /it is version 1\.4\.6, the release is 1\.4\.7/
   );
   writeFileSync(join(targetDir, 'aarch64-apple-darwin', 'release', 'mixdogd'), 'rebuilt');
   await assert.rejects(adopt(), /darwin-arm64: the bundled mixdogd is not the mixdogd built for aarch64-apple-darwin/);
   writeFileSync(join(targetDir, 'aarch64-apple-darwin', 'release', 'mixdogd'), 'binary for aarch64-apple-darwin');
-  writeFileSync(join(source, 'linux-arm64', 'bundle.tgz'), 'tampered');
-  await assert.rejects(adopt(), /linux-arm64: .*bundle\.tgz (is \d+ bytes|does not match the manifest)/);
+  writeFileSync(join(source, 'mixdog-server-linux-arm64.tgz'), 'tampered');
+  await assert.rejects(adopt(), /linux-arm64: .*mixdog-server-linux-arm64\.tgz (is \d+ bytes|does not match the manifest)/);
   await assert.rejects(
     adopt({ prebuiltServerCores: join(producerRuntime, 'nowhere') }),
     /have no readable servers\.json/
